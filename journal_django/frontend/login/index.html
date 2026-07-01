@@ -5,15 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Вход — KOTOKOD</title>
   <link rel="stylesheet" href="/login/styles.css" />
-  <script>
-    /* Применяем сохранённую тему до отрисовки — без вспышки. По умолчанию светлая. */
-    (function () {
-      try {
-        var t = localStorage.getItem('kk-theme');
-        document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
-      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
-    })();
-  </script>
+  <!-- Внешние скрипты (не inline) ради CSP script-src 'self'. Порядок важен:
+       тема применяется до отрисовки, затем — редирект уже авторизованного. -->
+  <script src="/login/theme-init.js"></script>
+  <script src="/login/auth-redirect.js"></script>
 </head>
 <body>
   <header class="topbar">

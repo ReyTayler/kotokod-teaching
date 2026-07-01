@@ -4,6 +4,19 @@
 
 > **⚠️ Бэкенд перенесён на Python Django+DRF (`journal_django/`). Express и Nest-каркас УДАЛЕНЫ** (2026-06-11, раздел 08 миграции). Историческое описание Express/routes/Nest ниже — для справки по доменным инвариантам, но самих файлов (`server.js`, `routes/`, `src/`) больше нет. Актуальный бэкенд — `journal_django/` (см. `docs/python-plan/`, `deploy/`). В корне остались только: admin SPA-сборка (`web/`, `public/`) и Node dev-инструменты backfill Sheets→PG (`scripts/`, `services/{db,sheets,auth,calculator,pagination,repo/accounts}.js`).
 
+## 🔒 Безопасность — ОБЯЗАТЕЛЬНО
+
+**Полный свод правил: [`docs/security-guidelines.md`](docs/security-guidelines.md)** — читать перед добавлением ЛЮБОЙ фичи/правки; там же чеклист для PR.
+
+Самое критичное (нарушение = блокер):
+- **RBAC**: DRF default = `AllowAny`. КАЖДАЯ новая вьюха ОБЯЗАНА задать `permission_classes` (`IsAdmin`/`IsManagerOrAdmin`/`IsTeacher`). Забыл → эндпоинт открыт всем. Доступ проверяется на API, не только на фронте (фронт-guard = UX/defense-in-depth).
+- **Auth**: JWT только в HttpOnly-cookie (не в JS/localStorage); токены — через `issue_tokens_for`/`set_auth_cookies`. Отзыв — инкремент `token_version` (при смене/сбросе пароля и 2FA). Свою аутентификацию не изобретать.
+- **CSP `script-src 'self'`**: НИКАКИХ inline-`<script>`, `onclick=`, `eval`. Весь JS — внешним файлом same-origin. Внешний origin (CDN/API/шрифты) — только с обновлением CSP.
+- **CSRF**: мутирующие методы шлют `X-CSRFToken`; не ставить `@csrf_exempt`.
+- **Rate-limit** (Django + nginx) на всех auth/OTP/reset-эндпоинтах.
+- **SQL** только параметризованный (`%s`); идентификаторы — из whitelist.
+- **Секреты** только из окружения; не коммитить (`.env`, ключи, дампы `backups/`, ПДн). Аудит чувствительных действий — `log_event`, без секретов в `meta`.
+
 ## Критичные соглашения
 
 **Не использовать git и docker, работа ведётся в рамках локальной разработки**
@@ -42,7 +55,7 @@
 
 **Design tokens** — единственный источник: `journal_django/frontend/admin-src/src/styles/tokens.css`. Никаких hardcoded цветов/радиусов/отступов. Подробнее: `docs/design-system.md`.
 
-**`AuthProvider`**: поле `me`, не `user` (`GET /api/auth/me → { me: {...} }`).
+**`AuthProvider`**: поле `me`, не `user`. `GET /api/auth/me` возвращает **плоский** объект (`{ account_id, email, role, teacher_id, name, twofa_enabled }`) — БЕЗ обёртки `{ me: {...} }`; `api<Me>()` отдаёт его как есть.
 
 ## Конфигурация (.env)
 
