@@ -1,0 +1,553 @@
+import { useState, type FormEvent } from 'react';
+import { useAccounts, useAccountMutations, type CreatedAccount, type InviteResult } from '../../hooks/useAccounts';
+import { useTeachers } from '../../hooks/useTeachers';
+import { useListSearchParams } from '../../hooks/useListSearchParams';
+import { useApiError } from '../../hooks/useApiError';
+import { useToast } from '../../components/ui/Toast';
+import { Dialog } from '../../components/ui/Dialog';
+import { Field } from '../../components/form/Field';
+import { TextInput } from '../../components/form/TextInput';
+import { SelectInput } from '../../components/form/SelectInput';
+import { Combobox } from '../../components/form/Combobox';
+import { DataTable, type Column } from '../../components/table/DataTable';
+import { TableSkeleton } from '../../components/ui/Skeleton';
+import type { Account, AccountStatus, Role } from '../../lib/types';
+
+// ─── Подписи ролей ────────────────────────────────────────────────────────────
+
+const ROLE_LABELS: Record<Role, string> = {
+  teacher: 'Преподаватель',
+  manager: 'Менеджер',
+  admin:   'Администратор',
+};
+
+const ROLE_OPTIONS: { value: Role; label: string }[] = [
+  { value: 'teacher', label: 'Преподаватель' },
+  { value: 'manager', label: 'Менеджер' },
+  { value: 'admin',   label: 'Администратор' },
+];
+
+// ─── Вспомогалки ──────────────────────────────────────────────────────────────
+
+function buildQuery(
+  page: number,
+  pageSize: number,
+  sortBy: string,
+  sortDir: 'asc' | 'desc',
+  filters: Record<string, string>,
+): string {
+  const p = new URLSearchParams();
+  p.set('page', String(page));
+  p.set('page_size', String(pageSize));
+  p.set('sort_by', sortBy);
+  p.set('sort_dir', sortDir);
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) p.set(`filter[${k}]`, v);
+  }
+  return '?' + p.toString();
+}
+
+// ─── Модалка «Создать учётку» ─────────────────────────────────────────────────
+
+interface CreateModalProps {
+  teacherOptions: { value: string; label: string }[];
+  onClose: () => void;
+  onCreated: (acc: CreatedAccount) => void;
+}
+
+function CreateAccountModal({ teacherOptions, onClose, onCreated }: CreateModalProps) {
+  const muts = useAccountMutations();
+  const showError = useApiError();
+
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<Role>('teacher');
+  const [teacherId, setTeacherId] = useState('');
+  const [errors, setErrors] = useState<{ email?: string; teacher?: string }>({});
+
+  const validate = (): boolean => {
+    const e: { email?: string; teacher?: string } = {};
+    if (!email.trim()) e.email = 'Введите email';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = 'Некорректный email';
+    if (role === 'teacher' && !teacherId) e.teacher = 'Выберите преподавателя';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+    try {
+      const result = await muts.create.mutateAsync({
+        email: email.trim(),
+        role,
+        teacher_id: role === 'teacher' ? Number(teacherId) : null,
+      });
+      onCreated(result);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Новая учётка"
+      footer={
+        <button
+          type="submit"
+          form="account-create-form"
+          className="btn-add"
+          disabled={muts.create.isPending}
+        >
+          {muts.create.isPending ? 'Создаём…' : 'Создать'}
+        </button>
+      }
+    >
+      <form id="account-create-form" onSubmit={onSubmit}>
+        <Field label="Email" required error={errors.email}>
+          <TextInput
+            type="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: undefined })); }}
+            placeholder="teacher@kotokod.ru"
+          />
+        </Field>
+
+        <Field label="Роль" required>
+          <SelectInput
+            value={role}
+            onChange={(e) => {
+              setRole(e.target.value as Role);
+              if (e.target.value !== 'teacher') setTeacherId('');
+              setErrors((p) => ({ ...p, teacher: undefined }));
+            }}
+            options={ROLE_OPTIONS}
+          />
+        </Field>
+
+        {role === 'teacher' && (
+          <Field label="Преподаватель" required error={errors.teacher}>
+            <Combobox
+              value={teacherId}
+              onChange={(v) => { setTeacherId(v); setErrors((p) => ({ ...p, teacher: undefined })); }}
+              options={teacherOptions}
+              placeholder="Начните вводить имя…"
+            />
+          </Field>
+        )}
+      </form>
+    </Dialog>
+  );
+}
+
+// ─── Модалка «Показать invite-ссылку» ─────────────────────────────────────────
+
+interface InviteRevealModalProps {
+  title: string;
+  email: string;
+  inviteUrl: string;
+  expiresAt: string;
+  onClose: () => void;
+}
+
+function InviteRevealModal({ title, email, inviteUrl, expiresAt, onClose }: InviteRevealModalProps) {
+  const { toast } = useToast();
+
+  // invite_url приходит относительным ('/login/set-password?token=…') — собираем абсолютный
+  // для передачи сотруднику.
+  const fullUrl = inviteUrl.startsWith('http') ? inviteUrl : `${window.location.origin}${inviteUrl}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(fullUrl).then(
+      () => toast('Ссылка скопирована', 'ok'),
+      () => toast('Не удалось скопировать', 'error'),
+    );
+  };
+
+  const expires = new Date(expiresAt);
+  const expiresText = Number.isNaN(expires.getTime())
+    ? expiresAt
+    : expires.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={title}
+      footer={
+        <button type="button" className="btn-add" onClick={onClose}>
+          Понятно, закрыть
+        </button>
+      }
+    >
+      <div className="password-reveal">
+        <p className="password-reveal__hint">
+          Передайте эту ссылку сотруднику <strong>лично или в мессенджере</strong>. По ней он сам
+          задаст пароль и настроит 2FA. Ссылка одноразовая и действует до <strong>{expiresText}</strong>.
+        </p>
+        <div className="password-reveal__email">{email}</div>
+        <div className="password-reveal__box">
+          <code className="password-reveal__value">{fullUrl}</code>
+          <button
+            type="button"
+            className="btn-link password-reveal__copy"
+            onClick={copy}
+            title="Скопировать ссылку"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            Скопировать
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+// ─── Подтверждение опасного действия ─────────────────────────────────────────
+
+interface ConfirmModalProps {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  danger?: boolean;
+  isPending: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}
+
+function ConfirmModal({ title, message, confirmLabel, danger, isPending, onConfirm, onClose }: ConfirmModalProps) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={title}
+      footer={
+        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <button type="button" className="btn-cancel" onClick={onClose} disabled={isPending}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className={danger ? 'btn-danger' : 'btn-add'}
+            onClick={onConfirm}
+            disabled={isPending}
+          >
+            {isPending ? 'Подождите…' : confirmLabel}
+          </button>
+        </div>
+      }
+    >
+      <p style={{ color: 'var(--text2)', margin: 0 }}>{message}</p>
+    </Dialog>
+  );
+}
+
+// ─── Тип «ожидаемого подтверждения» ──────────────────────────────────────────
+
+type PendingAction =
+  | { type: 'resetPassword'; accountId: number; email: string }
+  | { type: 'regenerate';    accountId: number; email: string }
+  | { type: 'revokeInvite';  accountId: number; email: string }
+  | { type: 'reset2fa';      accountId: number; email: string }
+  | { type: 'deactivate';    accountId: number; email: string };
+
+// ─── Статус учётки ─────────────────────────────────────────────────────────────
+
+const STATUS_BADGE: Record<AccountStatus, { cls: string; label: string }> = {
+  active:   { cls: 'badge--ok',       label: 'Активна' },
+  invited:  { cls: 'badge--info',     label: 'Приглашён' },
+  expired:  { cls: 'badge--muted',    label: 'Ссылка истекла' },
+  disabled: { cls: 'badge--inactive', label: 'Выключена' },
+};
+
+// ─── Главный компонент ────────────────────────────────────────────────────────
+
+export default function AccountsPage() {
+  const { page, pageSize, sortBy, sortDir, filters, setPage, setPageSize, setSort, setFilters } =
+    useListSearchParams({ sortBy: 'email', sortDir: 'asc' });
+
+  const query = buildQuery(page, pageSize, sortBy, sortDir, filters);
+  const { data, isLoading, isFetching } = useAccounts(query);
+
+  const { data: teachersRaw = [] } = useTeachers(false);
+  const teacherOptions = teachersRaw.map((t) => ({ value: String(t.id), label: t.name }));
+
+  const muts = useAccountMutations();
+  const { toast } = useToast();
+  const showError = useApiError();
+
+  // Модалки
+  const [createOpen, setCreateOpen]     = useState(false);
+  const [revealData, setRevealData]     = useState<{ title: string; email: string; inviteUrl: string; expiresAt: string } | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+
+  // ── Обработчики ──────────────────────────────────────────────────────────────
+
+  const handleCreated = (acc: CreatedAccount) => {
+    setCreateOpen(false);
+    setRevealData({ title: 'Учётка создана', email: acc.email, inviteUrl: acc.invite_url, expiresAt: acc.expires_at });
+  };
+
+  const revealInvite = (title: string, email: string, res: InviteResult) => {
+    setRevealData({ title, email, inviteUrl: res.invite_url, expiresAt: res.expires_at });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!pendingAction) return;
+    try {
+      if (pendingAction.type === 'resetPassword') {
+        const result = await muts.resetPassword.mutateAsync(pendingAction.accountId);
+        setPendingAction(null);
+        revealInvite('Ссылка для смены пароля', pendingAction.email, result);
+      } else if (pendingAction.type === 'regenerate') {
+        const result = await muts.invite.mutateAsync(pendingAction.accountId);
+        setPendingAction(null);
+        revealInvite('Новая invite-ссылка', pendingAction.email, result);
+      } else if (pendingAction.type === 'revokeInvite') {
+        await muts.revokeInvite.mutateAsync(pendingAction.accountId);
+        toast('Ссылка отозвана', 'ok');
+        setPendingAction(null);
+      } else if (pendingAction.type === 'reset2fa') {
+        await muts.reset2fa.mutateAsync(pendingAction.accountId);
+        toast('2FA сброшена', 'ok');
+        setPendingAction(null);
+      } else if (pendingAction.type === 'deactivate') {
+        await muts.remove.mutateAsync(pendingAction.accountId);
+        toast('Учётка деактивирована', 'ok');
+        setPendingAction(null);
+      }
+    } catch (err) {
+      showError(err);
+      setPendingAction(null);
+    }
+  };
+
+  const isConfirmPending =
+    muts.resetPassword.isPending || muts.invite.isPending || muts.revokeInvite.isPending ||
+    muts.reset2fa.isPending || muts.remove.isPending;
+
+  // ── Колонки ──────────────────────────────────────────────────────────────────
+
+  const columns: Column<Account>[] = [
+    {
+      key: 'email',
+      label: 'Email',
+      sortable: true,
+      searchable: true,
+      cell: (r) => <span className="mono">{r.email}</span>,
+    },
+    {
+      key: 'role',
+      label: 'Роль',
+      sortable: true,
+      searchable: true,
+      searchOptions: ROLE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+      cell: (r) => ROLE_LABELS[r.role] ?? r.role,
+    },
+    {
+      key: 'teacher_name',
+      label: 'Преподаватель',
+      searchable: true,
+      cell: (r) => r.teacher_name || <span style={{ color: 'var(--text3)' }}>—</span>,
+    },
+    {
+      key: 'twofa_method',
+      label: '2FA',
+      sortable: false,
+      cell: (r) => {
+        if (!r.twofa_enabled || !r.twofa_method) return <span style={{ color: 'var(--text3)' }}>—</span>;
+        const label = r.twofa_method === 'totp' ? 'TOTP' : 'Email';
+        return <span className="badge badge--ok">{label}</span>;
+      },
+    },
+    {
+      key: 'active',
+      label: 'Статус',
+      sortable: true,
+      searchable: true,
+      searchOptions: [
+        { value: 'true',  label: 'Активна' },
+        { value: 'false', label: 'Выключена' },
+      ],
+      cell: (r) => {
+        // status вычисляется сервером (invited/active/expired/disabled); fallback по active.
+        const status: AccountStatus = r.status ?? (r.active ? 'active' : 'disabled');
+        const b = STATUS_BADGE[status];
+        return <span className={`badge ${b.cls}`}>{b.label}</span>;
+      },
+    },
+    {
+      key: '_actions',
+      label: '',
+      sortable: false,
+      cell: (r) => {
+        const status: AccountStatus = r.status ?? (r.active ? 'active' : 'disabled');
+        const sep = <span style={{ color: 'var(--border)' }}>·</span>;
+        return (
+          <div
+            style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end', flexWrap: 'nowrap' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Приглашён/истёк — операции с invite-ссылкой; активна — сброс пароля (тоже invite). */}
+            {status === 'invited' || status === 'expired' ? (
+              <button
+                type="button"
+                className="btn-link"
+                title="Перевыписать invite-ссылку"
+                onClick={() => setPendingAction({ type: 'regenerate', accountId: r.id, email: r.email })}
+              >
+                Новая ссылка
+              </button>
+            ) : status === 'active' ? (
+              <button
+                type="button"
+                className="btn-link"
+                title="Сбросить пароль (выписать invite-ссылку)"
+                onClick={() => setPendingAction({ type: 'resetPassword', accountId: r.id, email: r.email })}
+              >
+                Сброс пароля
+              </button>
+            ) : null}
+
+            {r.has_active_invite && (
+              <>
+                {sep}
+                <button
+                  type="button"
+                  className="btn-link"
+                  title="Отозвать активную invite-ссылку"
+                  onClick={() => setPendingAction({ type: 'revokeInvite', accountId: r.id, email: r.email })}
+                >
+                  Отозвать ссылку
+                </button>
+              </>
+            )}
+
+            {r.twofa_enabled && (
+              <>
+                {sep}
+                <button
+                  type="button"
+                  className="btn-link"
+                  title="Сбросить 2FA"
+                  onClick={() => setPendingAction({ type: 'reset2fa', accountId: r.id, email: r.email })}
+                >
+                  Сброс 2FA
+                </button>
+              </>
+            )}
+
+            {r.active && (
+              <>
+                {sep}
+                <button
+                  type="button"
+                  className="btn-link"
+                  style={{ color: 'var(--danger)' }}
+                  title="Деактивировать учётку"
+                  onClick={() => setPendingAction({ type: 'deactivate', accountId: r.id, email: r.email })}
+                >
+                  Выключить
+                </button>
+              </>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+
+  const rows     = data?.rows ?? [];
+  const total    = data?.total ?? 0;
+
+  if (isLoading) return <TableSkeleton rows={8} cols={6} />;
+
+  return (
+    <>
+      <DataTable<Account>
+        data={rows}
+        columns={columns}
+        title="Учётные записи"
+        isLoading={isFetching}
+        headerActions={
+          <button type="button" className="btn-add" onClick={() => setCreateOpen(true)}>
+            + Новая учётка
+          </button>
+        }
+        serverPagination={{
+          page,
+          pageSize,
+          total,
+          sortBy,
+          sortDir,
+          filters,
+          onPageChange:    setPage,
+          onPageSizeChange: setPageSize,
+          onSortChange:    setSort,
+          onFiltersChange: setFilters,
+        }}
+      />
+
+      {/* Создать учётку */}
+      {createOpen && (
+        <CreateAccountModal
+          teacherOptions={teacherOptions}
+          onClose={() => setCreateOpen(false)}
+          onCreated={handleCreated}
+        />
+      )}
+
+      {/* Показать выданную invite-ссылку (один раз) */}
+      {revealData && (
+        <InviteRevealModal
+          title={revealData.title}
+          email={revealData.email}
+          inviteUrl={revealData.inviteUrl}
+          expiresAt={revealData.expiresAt}
+          onClose={() => setRevealData(null)}
+        />
+      )}
+
+      {/* Подтверждение опасного действия */}
+      {pendingAction && (
+        <ConfirmModal
+          title={
+            pendingAction.type === 'resetPassword' ? 'Сбросить пароль?' :
+            pendingAction.type === 'regenerate'    ? 'Перевыписать ссылку?' :
+            pendingAction.type === 'revokeInvite'  ? 'Отозвать ссылку?' :
+            pendingAction.type === 'reset2fa'      ? 'Сбросить 2FA?' :
+                                                     'Деактивировать учётку?'
+          }
+          message={
+            pendingAction.type === 'resetPassword'
+              ? `Для ${pendingAction.email} будет выписана новая invite-ссылка для установки пароля. Текущий пароль и активные сессии перестанут работать.`
+              : pendingAction.type === 'regenerate'
+              ? `Прежняя ссылка для ${pendingAction.email} будет отозвана, и создана новая (действует 48 часов).`
+              : pendingAction.type === 'revokeInvite'
+              ? `Активная invite-ссылка для ${pendingAction.email} перестанет работать. Чтобы дать доступ снова, выпишите новую.`
+              : pendingAction.type === 'reset2fa'
+              ? `2FA для ${pendingAction.email} будет сброшена. Пользователю придётся настроить заново.`
+              : `Учётка ${pendingAction.email} будет деактивирована. Пользователь потеряет доступ.`
+          }
+          confirmLabel={
+            pendingAction.type === 'resetPassword' ? 'Сбросить пароль' :
+            pendingAction.type === 'regenerate'    ? 'Перевыписать' :
+            pendingAction.type === 'revokeInvite'  ? 'Отозвать' :
+            pendingAction.type === 'reset2fa'      ? 'Сбросить 2FA' :
+                                                     'Деактивировать'
+          }
+          danger={pendingAction.type === 'deactivate' || pendingAction.type === 'revokeInvite'}
+          isPending={isConfirmPending}
+          onConfirm={() => void handleConfirmAction()}
+          onClose={() => setPendingAction(null)}
+        />
+      )}
+    </>
+  );
+}

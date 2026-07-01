@@ -1,0 +1,428 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Dialog } from '../../components/ui/Dialog';
+import { Field } from '../../components/form/Field';
+import { Combobox } from '../../components/form/Combobox';
+import { NumberInput } from '../../components/form/NumberInput';
+import { DateInput } from '../../components/form/DateInput';
+import { Textarea } from '../../components/form/Textarea';
+import { useStudentsAll } from '../../hooks/useStudents';
+import { useDirections } from '../../hooks/useDirections';
+import { usePayments, usePaymentMutations } from '../../hooks/usePayments';
+import { useDiscounts } from '../../hooks/useDiscounts';
+import { useApiError } from '../../hooks/useApiError';
+import { useToast } from '../../components/ui/Toast';
+import { fmtRub } from '../../lib/format';
+import { ENROLLMENT_STATUS_LABELS } from '../../lib/labels';
+import type { Discount } from '../../lib/types';
+import { BlockSelector } from './BlockSelector';
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  studentId?: number;
+  directionId?: number;
+}
+
+interface FormErrors {
+  student?: string;
+  direction?: string;
+  count?: string;
+  price?: string;
+  date?: string;
+}
+
+const FILL_FIELD = 'Заполните поле';
+
+function todayMSK(): string {
+  // МСК = UTC+3 без DST. Согласуется с инвариантом проекта.
+  const now = new Date();
+  const msk = new Date(now.getTime() + (3 * 60 - now.getTimezoneOffset()) * 60_000);
+  return msk.toISOString().slice(0, 10);
+}
+
+export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
+  const students = useStudentsAll();
+  const directions = useDirections();
+  const muts = usePaymentMutations();
+  const showError = useApiError();
+  const { toast } = useToast();
+
+  const [stId, setStId] = useState<number | undefined>(studentId);
+  const [dirId, setDirId] = useState<number | undefined>(directionId);
+  const [count, setCount] = useState(0);
+  const [customPriceOpen, setCustomPriceOpen] = useState(false);
+  const [customPrice, setCustomPrice] = useState<number | ''>('');
+  const [paidAt, setPaidAt] = useState(todayMSK());
+  const [note, setNote] = useState('');
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [discountIds, setDiscountIds] = useState<number[]>([]);
+
+  // Reset при открытии
+  useEffect(() => {
+    if (open) {
+      setStId(studentId);
+      setDirId(directionId);
+      setCount(0);
+      setCustomPriceOpen(false);
+      setCustomPrice('');
+      setPaidAt(todayMSK());
+      setNote('');
+      setErrors({});
+      setDiscountIds([]);
+    }
+  }, [open, studentId, directionId]);
+
+  const existing = usePayments({ student_id: stId, direction_id: dirId });
+  const alreadyPurchased = useMemo(() => {
+    if (!existing.data) return 0;
+    return existing.data.reduce((s, p) => s + Number(p.subscriptions_count), 0);
+  }, [existing.data]);
+
+  const direction = useMemo(
+    () => directions.data?.find((d) => d.id === dirId),
+    [directions.data, dirId],
+  );
+  const totalSubs = useMemo(() => {
+    if (!direction?.total_lessons) return 0;
+    return Math.floor(direction.total_lessons / 4);
+  }, [direction]);
+
+  // Авто-раскрытие custom при отсутствии цены
+  useEffect(() => {
+    if (direction && (direction.subscription_price === null || direction.subscription_price === undefined)) {
+      setCustomPriceOpen(true);
+    }
+  }, [direction]);
+
+  const basePrice = direction?.subscription_price != null ? Number(direction.subscription_price) : null;
+  const noCapacity = !!direction && (!direction.total_lessons || direction.total_lessons <= 0);
+
+  // Скидки
+  const discounts = useDiscounts(); // только активные по дефолту
+
+  const selectedDiscounts: Discount[] = useMemo(() => {
+    if (!discounts.data) return [];
+    return discountIds
+      .map((id) => discounts.data!.find((d) => d.id === id))
+      .filter((d): d is Discount => Boolean(d));
+  }, [discounts.data, discountIds]);
+
+  const totalDiscountAmount = useMemo(() => {
+    return selectedDiscounts.reduce((s, d) => s + Number(d.amount), 0);
+  }, [selectedDiscounts]);
+
+  const discountsApplicable = count === 1;
+
+  // База, к которой применяются скидки: custom при раскрытом поле, иначе цена направления.
+  const priceBeforeDiscount = useMemo(() => {
+    if (customPriceOpen) return typeof customPrice === 'number' ? customPrice : 0;
+    return basePrice ?? 0;
+  }, [customPriceOpen, customPrice, basePrice]);
+
+  // Финальная unitPrice с учётом скидок
+  const computedUnitPrice = useMemo(() => {
+    if (!discountsApplicable || selectedDiscounts.length === 0) return priceBeforeDiscount;
+    const factor = Math.max(0, 1 - totalDiscountAmount);
+    // Округляем до копеек.
+    return Math.round(priceBeforeDiscount * factor * 100) / 100;
+  }, [priceBeforeDiscount, discountsApplicable, selectedDiscounts.length, totalDiscountAmount]);
+
+  const total = computedUnitPrice * count;
+
+  const studentOptions = useMemo(() => {
+    if (!students.data) return [];
+    return students.data
+      .slice()
+      .sort((a, b) => a.full_name.localeCompare(b.full_name))
+      .map((s) => ({
+        value: String(s.id),
+        label: s.enrollment_status === 'enrolled'
+          ? s.full_name
+          : `${s.full_name} (${ENROLLMENT_STATUS_LABELS[s.enrollment_status]})`,
+      }));
+  }, [students.data]);
+
+  const directionOptions = useMemo(() => {
+    if (!directions.data) return [];
+    return directions.data
+      .filter((d) => d.active)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((d) => ({
+        value: String(d.id),
+        label: d.total_lessons ? d.name : `${d.name} (курс не задан)`,
+      }));
+  }, [directions.data]);
+
+  // ── Helpers для очистки конкретной ошибки при правке поля. ──
+  const clearError = (key: keyof FormErrors) =>
+    setErrors((prev) => ({ ...prev, [key]: undefined }));
+
+  const validate = (): FormErrors => {
+    const e: FormErrors = {};
+    if (!stId) e.student = FILL_FIELD;
+    if (!dirId) e.direction = FILL_FIELD;
+    else if (noCapacity) e.direction = 'У направления не задан total_lessons';
+    if (dirId && !noCapacity) {
+      if (count < 1) e.count = FILL_FIELD;
+      else if (alreadyPurchased + count > totalSubs) e.count = 'Превышена ёмкость курса';
+    }
+    if (!paidAt) e.date = FILL_FIELD;
+    if (customPriceOpen && customPrice === '') e.price = FILL_FIELD;
+    return e;
+  };
+
+  const handleSubmit = async () => {
+    const e = validate();
+    setErrors(e);
+    if (Object.keys(e).length > 0) return;
+
+    let finalNote = note.trim();
+    if (selectedDiscounts.length > 0 && discountsApplicable) {
+      const discountLine = 'Скидки: ' + selectedDiscounts
+        .map((d) => `${d.name} (−${(Number(d.amount) * 100).toFixed(Number.isInteger(Number(d.amount) * 100) ? 0 : 1)}%)`)
+        .join(', ');
+      finalNote = finalNote ? `${discountLine}\n${finalNote}` : discountLine;
+    }
+
+    try {
+      await muts.create.mutateAsync({
+        student_id: stId!,
+        direction_id: dirId!,
+        subscriptions_count: count,
+        unit_price: computedUnitPrice,
+        paid_at: paidAt,
+        note: finalNote || null,
+      });
+      toast(`Оплата внесена: ${fmtRub(total)}`, 'ok');
+      onClose();
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  // ── Зона блок-селектора: три состояния. ──
+  const renderBlocksArea = () => {
+    if (!dirId || !direction) {
+      return (
+        <div className="payment-form__placeholder">
+          Сначала выберите ученика и направление — здесь появится выбор блоков.
+        </div>
+      );
+    }
+    if (noCapacity) {
+      return (
+        <div className="payment-form__warn">
+          У направления «{direction.name}» не задан total_lessons. Настройте курс в разделе
+          «Направления», чтобы продавать абонементы.
+        </div>
+      );
+    }
+    return (
+      <>
+        <div className="payment-form__hint">
+          Уже куплено: {alreadyPurchased} абонементов ({alreadyPurchased * 4} уроков),
+          свободно {totalSubs - alreadyPurchased} из {totalSubs}.
+        </div>
+        <Field label="Блоки (4 урока в блоке)" error={errors.count}>
+          <BlockSelector
+            totalSubscriptions={totalSubs}
+            alreadyPurchased={alreadyPurchased}
+            selected={count}
+            color={direction.color}
+            onChange={(n) => {
+              setCount(n);
+              clearError('count');
+              if (n > 1) setDiscountIds([]);
+            }}
+          />
+        </Field>
+      </>
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()} title="Внести оплату" wide>
+      <div className="payment-form">
+        <Field label="Ученик" error={errors.student}>
+          <Combobox
+            value={stId !== undefined ? String(stId) : ''}
+            onChange={(v) => { setStId(v ? Number(v) : undefined); clearError('student'); }}
+            options={studentOptions}
+            placeholder="Начни вводить имя..."
+            maxVisible={10}
+          />
+        </Field>
+
+        <Field label="Направление" error={errors.direction}>
+          <Combobox
+            value={dirId !== undefined ? String(dirId) : ''}
+            onChange={(v) => {
+              setDirId(v ? Number(v) : undefined);
+              setCount(0);
+              clearError('direction');
+              clearError('count');
+            }}
+            options={directionOptions}
+            placeholder="Выберите направление"
+            maxVisible={10}
+          />
+        </Field>
+
+        {renderBlocksArea()}
+
+        <Field label="Дата оплаты" error={errors.date}>
+          <DateInput
+            value={paidAt}
+            onChange={(e) => { setPaidAt(e.target.value); clearError('date'); }}
+          />
+        </Field>
+
+        <Field label="Цена за абонемент" error={errors.price}>
+          {!customPriceOpen ? (
+            <div className="payment-form__price-row">
+              <span className="payment-form__price">
+                {basePrice != null ? fmtRub(basePrice) : 'не настроена'}
+              </span>
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => {
+                  setCustomPriceOpen(true);
+                  setCustomPrice(basePrice ?? '');
+                }}
+              >
+                + Задать свою сумму за абонемент
+              </button>
+            </div>
+          ) : (
+            <div className="payment-form__price-row">
+              <NumberInput
+                value={customPrice}
+                min={0}
+                step="0.01"
+                onChange={(e) => {
+                  setCustomPrice(e.target.value === '' ? '' : Number(e.target.value));
+                  clearError('price');
+                }}
+                style={{ width: 160 }}
+              />
+              <span>₽</span>
+              {basePrice != null && (
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => { setCustomPriceOpen(false); setCustomPrice(''); clearError('price'); }}
+                >
+                  × Вернуть базовую цену
+                </button>
+              )}
+            </div>
+          )}
+        </Field>
+
+        <Field label={`Скидки${selectedDiscounts.length > 0 ? ` (применено ${selectedDiscounts.length})` : ''}`}>
+          {!discountsApplicable ? (
+            <div className="payment-form__hint" style={{ fontStyle: 'italic' }}>
+              Скидки применяются только при покупке 1 абонемента за раз.
+              {count > 1 && ' Если нужно несколько со скидками — внеси оплату несколько раз.'}
+            </div>
+          ) : (
+            <div className="discounts-picker">
+              {discountIds.map((id, idx) => {
+                const usedIds = new Set(discountIds.filter((_, i) => i !== idx));
+                const options = (discounts.data || [])
+                  .filter((d) => d.id === id || !usedIds.has(d.id))
+                  .map((d) => ({
+                    value: String(d.id),
+                    label: `${d.name} (−${(Number(d.amount) * 100).toFixed(Number.isInteger(Number(d.amount) * 100) ? 0 : 1)}%)`,
+                  }));
+                return (
+                  <div key={idx} className="discounts-picker__row">
+                    <div style={{ flex: 1 }}>
+                      <Combobox
+                        value={String(id)}
+                        onChange={(v) => {
+                          const newId = Number(v);
+                          if (customPriceOpen) {
+                            setCustomPriceOpen(false);
+                            setCustomPrice('');
+                          }
+                          setDiscountIds((prev) => prev.map((x, i) => i === idx ? newId : x));
+                        }}
+                        options={options}
+                        placeholder="Выберите скидку"
+                        maxVisible={10}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-link"
+                      style={{ color: 'var(--red, #c44)' }}
+                      onClick={() => setDiscountIds((prev) => prev.filter((_, i) => i !== idx))}
+                      aria-label="Убрать скидку"
+                    >×</button>
+                  </div>
+                );
+              })}
+
+              {(() => {
+                const usedIds = new Set(discountIds);
+                const availableCount = (discounts.data || []).filter((d) => !usedIds.has(d.id)).length;
+                if (availableCount === 0) {
+                  return discountIds.length === 0 ? (
+                    <div className="payment-form__hint" style={{ fontStyle: 'italic' }}>
+                      Нет настроенных скидок. Добавь их в разделе «Абонементы → Скидки».
+                    </div>
+                  ) : null;
+                }
+                return (
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => {
+                      const first = (discounts.data || []).find((d) => !usedIds.has(d.id));
+                      if (first) setDiscountIds((prev) => [...prev, first.id]);
+                    }}
+                  >
+                    + Добавить скидку
+                  </button>
+                );
+              })()}
+
+              {selectedDiscounts.length > 0 && (
+                <div className="discounts-picker__summary">
+                  Суммарная скидка: <strong>−{(totalDiscountAmount * 100).toFixed(Number.isInteger(totalDiscountAmount * 100) ? 0 : 1)}%</strong>
+                  {' = '}
+                  <strong>{fmtRub(computedUnitPrice)}</strong>
+                  <span className="muted"> вместо {fmtRub(priceBeforeDiscount)}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </Field>
+
+        <Field label="Комментарий">
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
+        </Field>
+
+        <div className="payment-form__total">
+          Итого: <strong>{fmtRub(total)}</strong>
+          {count > 0 && ` (${count} × ${fmtRub(computedUnitPrice)})`}
+        </div>
+
+        <div className="payment-form__footer">
+          <button type="button" className="btn-cancel" onClick={onClose}>Отмена</button>
+          <button
+            type="button"
+            className="btn-save"
+            onClick={() => { void handleSubmit(); }}
+            disabled={muts.create.isPending}
+          >
+            Внести оплату
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}

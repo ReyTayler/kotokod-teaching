@@ -1,0 +1,349 @@
+"""
+LessonsRepository — единственное место доступа к данным раздела lessons.
+
+ORM-порт services/repo/lessons.js (раздел 09).
+
+Критичные инварианты (00-conventions, 01-lessons):
+  • half-lesson: lesson_duration_minutes == 45 → шаг 0.5 урока, иначе 1.
+  • create_lesson_full / delete_lesson_full / update_attendance_cell корректируют
+    group_memberships.lessons_done на дельту шага в ТОЙ ЖЕ транзакции.
+  • Пагинация (list_lessons) — sort_by по whitelist с тихим fallback (как Express,
+    без 400), вторичная сортировка l.id DESC.
+  • Контракт ответа пагинатора: { rows, total, page, page_size }.
+  • numeric/date — сырые Decimal/date, приводит DateSafeJSONRenderer.
+"""
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any, Optional
+
+from django.db import transaction
+from django.db.models import F, Value, DecimalField
+from django.db.models.functions import Greatest, Now
+
+from apps.core.utils.orm import dictrow, dictrows
+from apps.students.models import Student
+
+from .models import Lesson, LessonAttendance
+from apps.payroll.models import Payroll
+from apps.memberships.models import GroupMembership
+
+
+# ---------------------------------------------------------------------------
+# Конфигурация пагинации
+# ---------------------------------------------------------------------------
+
+# Поля строки урока (l.* / RETURNING *), в порядке схемы.
+_LESSON_FIELDS = (
+    'id', 'group_id', 'teacher_id', 'original_teacher_id', 'lesson_date',
+    'lesson_number', 'lesson_duration_minutes', 'lesson_type', 'record_url',
+    'submitted_at', 'submitted_by_token',
+)
+
+# Whitelist sort_by → ORM-поле. l.id DESC — вторичная сортировка.
+_SORTABLE: dict[str, str] = {
+    'lesson_date':   'lesson_date',
+    'lesson_number': 'lesson_number',
+    'group_name':    'group__name',
+    'teacher_name':  'teacher__name',
+    'lesson_type':   'lesson_type',
+}
+
+_DEFAULT_SORT_BY = 'lesson_date'
+_DEFAULT_SORT_DIR = 'desc'
+
+_ZERO = Value(Decimal('0'), output_field=DecimalField(max_digits=6, decimal_places=1))
+
+
+def _step(duration_minutes) -> Decimal:
+    """half-lesson инвариант: 45 мин → 0.5 урока, иначе 1."""
+    return Decimal('0.5') if duration_minutes == 45 else Decimal('1')
+
+
+def _apply_filters(qs, filters: dict[str, Any]):
+    """
+    Фильтры (дословно из LESSONS_PAGINATION.filters): group_id, teacher_id,
+    lesson_date_from (>=), lesson_date_to (<=), group_name/teacher_name (LIKE),
+    lesson_type (exact). Пустые значения игнорируются.
+    """
+    group_id = filters.get('group_id')
+    if group_id not in (None, ''):
+        qs = qs.filter(group_id=int(group_id))
+
+    teacher_id = filters.get('teacher_id')
+    if teacher_id not in (None, ''):
+        qs = qs.filter(teacher_id=int(teacher_id))
+
+    date_from = filters.get('lesson_date_from')
+    if date_from not in (None, ''):
+        qs = qs.filter(lesson_date__gte=date_from)
+
+    date_to = filters.get('lesson_date_to')
+    if date_to not in (None, ''):
+        qs = qs.filter(lesson_date__lte=date_to)
+
+    group_name = filters.get('group_name')
+    if group_name not in (None, ''):
+        qs = qs.filter(group__name__icontains=str(group_name))
+
+    teacher_name = filters.get('teacher_name')
+    if teacher_name not in (None, ''):
+        qs = qs.filter(teacher__name__icontains=str(teacher_name))
+
+    lesson_type = filters.get('lesson_type')
+    if lesson_type not in (None, ''):
+        qs = qs.filter(lesson_type=lesson_type)
+
+    return qs
+
+
+# ---------------------------------------------------------------------------
+# Repository functions
+# ---------------------------------------------------------------------------
+
+def list_lessons(
+    page: int = 1,
+    page_size: int = 50,
+    sort_by: str = _DEFAULT_SORT_BY,
+    sort_dir: str = _DEFAULT_SORT_DIR,
+    filters: Optional[dict] = None,
+) -> dict:
+    """
+    Пагинированный список уроков с joined-полями и payroll (LEFT).
+
+    Контракт ответа: { rows, total, page, page_size }.
+    """
+    if filters is None:
+        filters = {}
+
+    sort_field = _SORTABLE.get(sort_by) or _SORTABLE[_DEFAULT_SORT_BY]
+    order_prefix = '' if sort_dir == 'asc' else '-'
+
+    qs = _apply_filters(Lesson.objects.all(), filters)
+
+    total = qs.count()  # payroll 1:1 → LEFT JOIN не множит строки
+
+    offset = max(0, (page - 1) * page_size)
+    ordered = qs.order_by(f'{order_prefix}{sort_field}', '-id')
+    rows = dictrows(
+        ordered[offset:offset + page_size].values(
+            *_LESSON_FIELDS,
+            group_name=F('group__name'),
+            teacher_name=F('teacher__name'),
+            original_teacher_name=F('original_teacher__name'),   # LEFT (nullable FK)
+            payroll_id=F('payroll__id'),                         # LEFT (reverse 1:1)
+            total_students=F('payroll__total_students'),
+            present_count=F('payroll__present_count'),
+            payment=F('payroll__payment'),
+            penalty=F('payroll__penalty'),
+        )
+    )
+
+    return {
+        'rows': rows,
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+    }
+
+
+def get_lesson_full(lesson_id: int) -> Optional[dict]:
+    """Полный урок: meta + attendance[] + payroll (порт getLessonFull, 3 запроса)."""
+    lesson = dictrow(
+        Lesson.objects.filter(id=lesson_id).values(
+            *_LESSON_FIELDS,
+            group_name=F('group__name'),
+            teacher_name=F('teacher__name'),
+            original_teacher_name=F('original_teacher__name'),
+        )
+    )
+    if lesson is None:
+        return None
+
+    lesson['attendance'] = dictrows(
+        LessonAttendance.objects
+        .filter(lesson_id=lesson_id)
+        .order_by('student__full_name')
+        .values('student_id', 'present', student_name=F('student__full_name'))
+    )
+
+    lesson['payroll'] = dictrow(
+        Payroll.objects.filter(lesson_id=lesson_id).values(
+            'id', 'total_students', 'present_count', 'payment', 'penalty',
+        )
+    )
+
+    return lesson
+
+
+def create_lesson_full(data: dict) -> int:
+    """
+    Создаёт урок + посещаемость + payroll в одной транзакции. Возвращает id урока.
+
+    half-lesson: step = 0.5 при duration==45, иначе 1.
+    submitted_at — DB DEFAULT now() через Now(). NULLIF(record_url,'') → None.
+    Посещаемость вставляется только для существующих студентов (= JOIN students),
+    ON CONFLICT DO NOTHING (ignore_conflicts).
+    """
+    duration = data.get('lesson_duration_minutes') or 90
+    step = _step(duration)
+
+    with transaction.atomic():
+        lesson = Lesson.objects.create(
+            lesson_date=data['lesson_date'],
+            teacher_id=data['teacher_id'],
+            group_id=data['group_id'],
+            original_teacher_id=data.get('original_teacher_id'),
+            lesson_number=data['lesson_number'],
+            lesson_duration_minutes=duration,
+            lesson_type=data.get('lesson_type') or 'regular',
+            record_url=data.get('record_url') or None,
+            submitted_by_token=data.get('submitted_by_token') or 'admin-imported',
+            submitted_at=Now(),
+        )
+        lesson_id = lesson.pk
+
+        attendance = data.get('attendance') or []
+        present_sids: list[int] = [a['student_id'] for a in attendance if bool(a['present'])]
+        if attendance:
+            sids = [a['student_id'] for a in attendance]
+            valid = set(
+                Student.objects.filter(id__in=sids).values_list('id', flat=True)
+            )
+            LessonAttendance.objects.bulk_create(
+                [
+                    LessonAttendance(
+                        lesson_id=lesson_id,
+                        student_id=a['student_id'],
+                        present=bool(a['present']),
+                    )
+                    for a in attendance if a['student_id'] in valid
+                ],
+                ignore_conflicts=True,   # ON CONFLICT (lesson_id, student_id) DO NOTHING
+            )
+
+        # Инкремент lessons_done у присутствовавших — тот же шаг, что в teacher SPA.
+        if present_sids:
+            GroupMembership.objects.filter(
+                group_id=data['group_id'], student_id__in=present_sids,
+            ).update(lessons_done=F('lessons_done') + step)
+
+        payroll = data.get('payroll')
+        if payroll:
+            Payroll.objects.create(
+                lesson_id=lesson_id,
+                teacher_id=data['teacher_id'],
+                total_students=payroll.get('total_students') or 0,
+                present_count=payroll.get('present_count') or 0,
+                payment=payroll.get('payment') or 0,
+                penalty=payroll.get('penalty') or 0,
+            )
+
+    return lesson_id
+
+
+def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
+    """
+    Обновляет meta урока (PATCH через COALESCE, дословно из lessons.js).
+
+    original_teacher_id nullable — различаем «не передано» и «явный null» по
+    наличию ключа (CASE WHEN has_original): ключ есть → перезаписываем (вкл. null).
+    """
+    obj = Lesson.objects.filter(id=lesson_id).first()
+    if obj is None:
+        return None
+
+    if fields.get('lesson_date') is not None:
+        obj.lesson_date = fields['lesson_date']
+    if fields.get('teacher_id') is not None:
+        obj.teacher_id = fields['teacher_id']
+    if fields.get('lesson_number') is not None:
+        obj.lesson_number = fields['lesson_number']
+    if fields.get('lesson_type') is not None:
+        obj.lesson_type = fields['lesson_type']
+    if fields.get('record_url'):                  # NULLIF: пустая строка → не трогаем
+        obj.record_url = fields['record_url']
+    if 'original_teacher_id' in fields:           # has_original → set даже null
+        obj.original_teacher_id = fields['original_teacher_id']
+
+    obj.save()
+    return dictrow(Lesson.objects.filter(id=lesson_id).values(*_LESSON_FIELDS))
+
+
+def delete_lesson_full(lesson_id: int) -> bool:
+    """
+    Удаляет урок (CASCADE attendance + явный DELETE payroll),
+    предварительно откатывая lessons_done у присутствовавших (GREATEST(x-step, 0)).
+    """
+    with transaction.atomic():
+        ctx = (
+            Lesson.objects
+            .filter(id=lesson_id)
+            .values('group_id', 'lesson_duration_minutes')
+            .first()
+        )
+        if ctx is not None:
+            step = _step(ctx['lesson_duration_minutes'])
+            sids = list(
+                LessonAttendance.objects
+                .filter(lesson_id=lesson_id, present=True)
+                .values_list('student_id', flat=True)
+            )
+            if sids:
+                GroupMembership.objects.filter(
+                    group_id=ctx['group_id'], student_id__in=sids,
+                ).update(lessons_done=Greatest(F('lessons_done') - step, _ZERO))
+
+        Payroll.objects.filter(lesson_id=lesson_id).delete()
+        _count, details = Lesson.objects.filter(id=lesson_id).delete()
+
+    return details.get('lessons.Lesson', 0) > 0
+
+
+def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bool:
+    """
+    Toggle present одной ячейки (UPSERT) + корректировка lessons_done дельтой.
+
+    Дельта: было false/null → true → +step; было true → false → -step.
+    """
+    with transaction.atomic():
+        ctx = (
+            Lesson.objects
+            .filter(id=lesson_id)
+            .values('group_id', 'lesson_duration_minutes')
+            .first()
+        )
+        if ctx is None:
+            return False
+
+        prev_present = (
+            LessonAttendance.objects
+            .filter(lesson_id=lesson_id, student_id=student_id)
+            .values_list('present', flat=True)
+            .first()
+        )
+
+        step = _step(ctx['lesson_duration_minutes'])
+        nxt = bool(present)
+
+        LessonAttendance.objects.bulk_create(
+            [LessonAttendance(lesson_id=lesson_id, student_id=student_id, present=nxt)],
+            update_conflicts=True,
+            unique_fields=['lesson', 'student'],
+            update_fields=['present'],   # ON CONFLICT DO UPDATE SET present=EXCLUDED.present
+        )
+
+        delta = Decimal('0')
+        if prev_present is None and nxt:
+            delta = step
+        elif prev_present is False and nxt:
+            delta = step
+        elif prev_present is True and not nxt:
+            delta = -step
+
+        if delta != 0:
+            GroupMembership.objects.filter(
+                group_id=ctx['group_id'], student_id=student_id,
+            ).update(lessons_done=Greatest(F('lessons_done') + delta, _ZERO))
+
+        return True

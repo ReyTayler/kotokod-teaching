@@ -1,0 +1,3436 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1117">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Журнал посещаемости</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/teacher/styles.css">
+  <style>
+    /* Локальные overrides для teacher SPA. Общие токены — в /styles.css. */
+    body {
+      padding: 16px 14px 80px;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 600px;
+      background: radial-gradient(ellipse, rgba(79, 142, 247, .06) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (min-width: 800px) {
+      body {
+        padding: 24px 20px 60px;
+      }
+
+      .app:not(.wide) {
+        max-width: 640px;
+        margin: 0 auto;
+      }
+    }
+
+    /* ── АНИМАЦИИ ── */
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: -600px 0;
+      }
+
+      100% {
+        background-position: 600px 0;
+      }
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: .3;
+      }
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: .25;
+      }
+    }
+
+    /* ── ШАПКА ── */
+    .global-nav {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .global-nav-left {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .global-nav-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      color: var(--accent);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+
+    .global-nav-title {
+      font-size: var(--fs-h1);
+      font-weight: 800;
+      letter-spacing: -.02em;
+      line-height: 1.2;
+    }
+
+    .global-nav-sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+      flex-shrink: 0;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .live-spin {
+      display: inline-block;
+      color: var(--warn);
+      animation: spin .8s linear infinite;
+    }
+
+    .global-nav-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .page-switch-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: var(--touch);
+      padding: 0 16px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+
+    .page-switch-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .page-switch-btn.active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-hi));
+      border-color: transparent;
+      color: #fff;
+    }
+
+    /* ── SKELETON ── */
+    .skeleton {
+      border-radius: var(--r-md);
+      background: linear-gradient(90deg, var(--surface-1) 25%, var(--surface-2) 50%, var(--surface-1) 75%);
+      background-size: 600px 100%;
+      animation: shimmer 1.4s infinite linear;
+    }
+
+    .skeleton-card {
+      height: 96px;
+      margin-bottom: 12px;
+    }
+
+    .skeleton-card-tall {
+      height: 140px;
+    }
+
+    .loading-hint {
+      text-align: center;
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      margin-top: 20px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .loading-hint span {
+      display: inline-block;
+      animation: blink 1.2s infinite;
+    }
+
+    .sked-skel {
+      height: 60px;
+      margin-bottom: 8px;
+      border-radius: var(--r-sm);
+      background: linear-gradient(90deg, var(--surface-1) 25%, var(--surface-2) 50%, var(--surface-1) 75%);
+      background-size: 800px 100%;
+      animation: shimmer 1.4s infinite linear;
+    }
+
+
+
+    /* ── БЕЙДЖИ ── */
+    .half-lesson-badge {
+      display: inline-block;
+      background: rgba(124, 106, 247, .15);
+      color: var(--accent-hi);
+      border: 1px solid rgba(124, 106, 247, .3);
+      border-radius: 20px;
+      padding: 2px 10px;
+      margin-left: 8px;
+      font-size: var(--fs-small);
+      font-weight: 700;
+    }
+
+    .teacher-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(52, 209, 122, .08);
+      border: 1px solid rgba(52, 209, 122, .2);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: var(--fs-small);
+      color: var(--ok);
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .cache-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+    }
+
+    .cache-badge.hit {
+      background: rgba(52, 209, 122, .1);
+      color: var(--ok);
+      border: 1px solid rgba(52, 209, 122, .2);
+    }
+
+    .cache-badge.miss {
+      background: rgba(79, 142, 247, .1);
+      color: var(--accent);
+      border: 1px solid rgba(79, 142, 247, .2);
+    }
+
+    .cache-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ── ТОПБАР ── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      gap: 8px;
+    }
+
+    .refresh-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 36px;
+      padding: 0 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 600;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+      white-space: nowrap;
+    }
+
+    .refresh-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .refresh-btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+
+    .refresh-btn.spinning .refresh-icon {
+      display: inline-block;
+      animation: spin .7s linear infinite;
+    }
+
+    /* ── ВКЛАДКИ ── */
+    .tab-nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      height: var(--touch);
+      padding: 0 12px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all .2s;
+    }
+
+    .tab-btn.active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-hi));
+      border-color: transparent;
+      color: #fff;
+    }
+
+    .tab-btn:hover:not(.active) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ── КАРТОЧКИ ШАГОВ ── */
+    .card {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 20px 18px;
+      margin-bottom: 12px;
+      animation: fadeUp .3s ease both;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .step-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-hi));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .step-badge.done {
+      background: var(--ok);
+    }
+
+    .card-title {
+      font-size: var(--fs-body);
+      font-weight: 700;
+    }
+
+    .card-subtitle {
+      font-size: var(--fs-small);
+      color: var(--text-2);
+      margin-top: 2px;
+    }
+
+    .selected-value {
+      margin-left: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      color: var(--accent);
+      background: rgba(79, 142, 247, .1);
+      padding: 4px 10px;
+      border-radius: 20px;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── ФОРМ-ЭЛЕМЕНТЫ ── */
+    label.field-label {
+      display: block;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 8px;
+    }
+
+    select {
+      width: 100%;
+      height: 48px;
+      padding: 0 16px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--text);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-body);
+      font-weight: 500;
+      appearance: none;
+      cursor: pointer;
+      transition: border-color .2s;
+      outline: none;
+    }
+
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79, 142, 247, .12);
+    }
+
+    .select-wrapper {
+      position: relative;
+    }
+
+    .select-wrapper::after {
+      content: '↓';
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-3);
+      pointer-events: none;
+      font-size: 14px;
+    }
+
+    /* ── ПРЕДУПРЕЖДЕНИЯ ── */
+    .alert-block {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      border-radius: var(--r-sm);
+      padding: 12px 14px;
+      margin-top: 10px;
+      font-size: var(--fs-small);
+      line-height: 1.6;
+    }
+
+    .alert-block strong {
+      display: block;
+      font-size: var(--fs-body);
+      margin-bottom: 2px;
+    }
+
+    .alert-debt {
+      background: rgba(247, 95, 95, .08);
+      border: 1px solid rgba(247, 95, 95, .35);
+      color: var(--err);
+    }
+
+    .alert-limit {
+      background: rgba(124, 106, 247, .08);
+      border: 1px solid rgba(124, 106, 247, .35);
+      color: var(--accent-hi);
+    }
+
+    .alert-warning {
+      background: rgba(247, 180, 60, .08);
+      border: 1px solid rgba(247, 180, 60, .35);
+      color: var(--warn);
+    }
+
+    /* ── ИНФО УРОКА ── */
+    .lesson-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 14px 16px;
+      margin-top: 14px;
+    }
+
+    .lesson-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-display);
+      font-weight: 500;
+      color: var(--accent);
+      min-width: 40px;
+    }
+
+    .lesson-desc {
+      font-size: var(--fs-small);
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+
+    .lesson-desc strong {
+      display: block;
+      font-size: var(--fs-body);
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    /* ── ТИПЫ УРОКА ── */
+    .lesson-type-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .lesson-type-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 48px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all .2s;
+      user-select: none;
+    }
+
+    .lesson-type-btn.active-schedule {
+      background: rgba(52, 209, 122, .1);
+      border-color: var(--ok);
+      color: var(--ok);
+    }
+
+    .lesson-type-btn.active-reschedule {
+      background: rgba(247, 180, 60, .1);
+      border-color: var(--warn);
+      color: var(--warn);
+    }
+
+    /* ── ДАТА ── */
+    input[type="date"] {
+      color-scheme: dark;
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      opacity: 0;
+      position: absolute;
+      right: 0;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    input[type="date"]::-webkit-inner-spin-button,
+    input[type="date"]::-webkit-clear-button {
+      display: none;
+    }
+
+    /* ── ИТОГИ ── */
+    .summary-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .summary-chip {
+      flex: 1;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 12px 8px;
+      text-align: center;
+    }
+
+    .summary-chip .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-display);
+      font-weight: 500;
+    }
+
+    .summary-chip .lbl {
+      font-size: var(--fs-small);
+      color: var(--text-2);
+      margin-top: 4px;
+    }
+
+    .summary-chip.present-chip .num {
+      color: var(--ok);
+    }
+
+    .summary-chip.absent-chip .num {
+      color: var(--err);
+    }
+
+    .summary-chip.pay-chip .num {
+      color: var(--accent);
+    }
+
+    /* ── УЧЕНИКИ ── */
+    .students-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .student-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      user-select: none;
+      min-height: var(--touch);
+    }
+
+    .student-row:hover {
+      border-color: var(--text-3);
+    }
+
+    .student-row.present {
+      border-color: var(--ok);
+      background: rgba(52, 209, 122, .06);
+    }
+
+    .student-row.absent {
+      border-color: var(--err);
+      background: rgba(247, 95, 95, .05);
+      opacity: .7;
+    }
+
+    .student-name {
+      font-size: var(--fs-body);
+      font-weight: 600;
+    }
+
+    .student-lessons {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      margin-top: 3px;
+    }
+
+    .sub-badge {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      background: rgba(247, 180, 60, .15);
+      color: var(--warn);
+      border: 1px solid rgba(247, 180, 60, .3);
+      border-radius: 20px;
+      padding: 2px 8px;
+      margin-left: 8px;
+    }
+
+    .toggle-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 7px 14px;
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .2s;
+      background: var(--surface-1);
+      color: var(--text-2);
+      flex-shrink: 0;
+    }
+
+    .student-row.present .toggle-btn {
+      background: rgba(52, 209, 122, .15);
+      color: var(--ok);
+      border-color: transparent;
+    }
+
+    .student-row.absent .toggle-btn {
+      background: rgba(247, 95, 95, .10);
+      color: var(--err);
+      border-color: transparent;
+    }
+
+    /* ── ПОЛЕ ССЫЛКИ ── */
+    input.record-input {
+      width: 100%;
+      height: 48px;
+      padding: 0 16px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--text);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-body);
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    input.record-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79, 142, 247, .12);
+    }
+
+    input.record-input.field-error {
+      border-color: var(--err);
+      box-shadow: 0 0 0 3px rgba(247, 95, 95, .10);
+    }
+
+    /* ── КНОПКИ ДЕЙСТВИЙ ── */
+    .submit-btn {
+      width: 100%;
+      height: 52px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-hi));
+      border: none;
+      border-radius: var(--r-sm);
+      color: #fff;
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-h2);
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+    }
+
+    .submit-btn:hover {
+      opacity: .9;
+    }
+
+    .submit-btn:active {
+      transform: scale(.99);
+    }
+
+    .submit-btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 18px 0;
+    }
+
+    .error-msg {
+      background: rgba(247, 95, 95, .08);
+      border: 1px solid rgba(247, 95, 95, .3);
+      border-radius: var(--r-sm);
+      padding: 12px 14px;
+      font-size: var(--fs-small);
+      color: var(--err);
+      margin-top: 10px;
+    }
+
+    /* ── УСПЕХ / ПУСТО ── */
+    .success-screen,
+    .empty-state {
+      text-align: center;
+      padding: 48px 20px;
+      animation: fadeUp .4s ease both;
+    }
+
+    .success-icon,
+    .empty-icon {
+      font-size: 52px;
+      margin-bottom: 16px;
+    }
+
+    .success-screen h2,
+    .empty-state h2 {
+      font-size: var(--fs-display);
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .success-screen p,
+    .empty-state p {
+      color: var(--text-2);
+      font-size: var(--fs-body);
+      margin-bottom: 6px;
+    }
+
+    .success-payment {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 32px;
+      color: var(--ok);
+      font-weight: 500;
+      margin: 20px 0;
+    }
+
+    .new-lesson-btn,
+    .empty-retry-btn {
+      margin-top: 20px;
+      height: 48px;
+      padding: 0 32px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--text);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-body);
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color .2s;
+    }
+
+    .new-lesson-btn:hover,
+    .empty-retry-btn:hover {
+      border-color: var(--accent);
+    }
+
+    .empty-teacher {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+      font-size: var(--fs-small);
+      margin: 8px 0 20px;
+    }
+
+    /* ── РАСПИСАНИЕ: КОНТРОЛЫ ── */
+    .sched-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .view-tabs-sched {
+      display: flex;
+      gap: 3px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 3px;
+      flex: 1;
+    }
+
+    .view-tab-sched {
+      flex: 1;
+      height: 36px;
+      padding: 0 8px;
+      border-radius: 6px;
+      border: none;
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--text-2);
+      background: transparent;
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+
+    .view-tab-sched.active {
+      background: var(--surface-2);
+      color: var(--text);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+    }
+
+    .view-tab-sched:hover:not(.active) {
+      color: var(--text);
+    }
+
+    .sched-refresh-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 42px;
+      padding: 0 16px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 600;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+
+    .sched-refresh-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .sched-refresh-btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+
+    .sched-refresh-btn.spinning .sri {
+      display: inline-block;
+      animation: spin .7s linear infinite;
+    }
+
+    /* ── КАРТОЧКА УРОКА ── */
+    .list-cards {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .lesson-card {
+      display: grid;
+      grid-template-columns: 60px 1fr;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background .1s;
+      min-height: 56px;
+    }
+
+    .lesson-card:last-child {
+      border-bottom: none;
+    }
+
+    .lesson-card:hover {
+      background: rgba(255, 255, 255, .04);
+    }
+
+    .lc-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 17px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      color: var(--accent);
+    }
+
+    .lc-time.no-time {
+      font-size: var(--fs-small);
+      color: var(--text-3);
+    }
+
+    .lc-info {
+      min-width: 0;
+    }
+
+    .lc-group {
+      font-size: var(--fs-body);
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+      line-height: 1.3;
+    }
+
+    .lc-meta {
+      font-size: var(--fs-small);
+      color: var(--text-2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── БЛОКИ ДНЕЙ ── */
+    .week-day-block {
+      margin-bottom: 16px;
+      border-radius: var(--r-md);
+      overflow: hidden;
+    }
+
+    .week-day-hdr {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-left: 4px solid transparent;
+    }
+
+    .week-day-name {
+      font-size: var(--fs-h2);
+      font-weight: 800;
+    }
+
+    .week-day-cnt {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-weight: 700;
+      background: rgba(0, 0, 0, .25);
+      color: inherit;
+    }
+
+    .week-day-empty {
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      padding: 10px 14px;
+      font-style: italic;
+    }
+
+    .week-day-block .lesson-card {
+      background: rgba(0, 0, 0, .15);
+    }
+
+    .week-day-block .lesson-card:hover {
+      background: rgba(255, 255, 255, .05);
+    }
+
+    /* ── КНОПКИ ДНЕЙ ── */
+    .day-picker {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 16px;
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .day-picker::-webkit-scrollbar {
+      display: none;
+    }
+
+    .day-pick-btn {
+      flex-shrink: 0;
+      min-width: 52px;
+      height: 56px;
+      padding: 6px 4px;
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      background: var(--surface-2);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 800;
+      color: var(--text-2);
+      cursor: pointer;
+      text-align: center;
+      transition: all .15s;
+    }
+
+    .day-pick-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .day-pick-cnt {
+      font-size: var(--fs-small);
+      opacity: .85;
+      margin-top: 4px;
+      font-weight: 700;
+    }
+
+    /* ── АККОРДЕОН ПРЕПОДОВ ── */
+    .teacher-row {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      margin-bottom: 6px;
+      overflow: hidden;
+    }
+
+    .teacher-row.open {
+      border-color: var(--accent);
+    }
+
+    .teacher-row-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      cursor: pointer;
+      user-select: none;
+      transition: background .15s;
+      min-height: var(--touch);
+    }
+
+    .teacher-row-hdr:hover {
+      background: var(--surface-2);
+    }
+
+    .teacher-row-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .teacher-row-name {
+      font-size: var(--fs-body);
+      font-weight: 700;
+    }
+
+    .teacher-row-cnt {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2px 10px;
+      flex-shrink: 0;
+    }
+
+    .teacher-row-arrow {
+      font-size: 14px;
+      color: var(--text-3);
+      transition: transform .2s;
+      flex-shrink: 0;
+    }
+
+    .teacher-row.open .teacher-row-arrow {
+      transform: rotate(180deg);
+    }
+
+    .teacher-row-body {
+      display: none;
+      padding: 0 8px 8px;
+    }
+
+    .teacher-row.open .teacher-row-body {
+      display: block;
+    }
+
+    /* ── ПОПАП ── */
+    .sched-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .75);
+      z-index: 9999;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .sched-overlay.show {
+      display: flex;
+    }
+
+    .sched-popup {
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: 20px 20px 0 0;
+      width: 100%;
+      max-width: 100%;
+      max-height: 88vh;
+      overflow-y: auto;
+      box-shadow: 0 -8px 40px rgba(0, 0, 0, .5);
+    }
+
+    @media (min-width:600px) {
+      .sched-overlay {
+        align-items: center;
+        padding: 20px;
+      }
+
+      .sched-popup {
+        border-radius: var(--r-md);
+        max-width: 500px;
+        max-height: 90vh;
+      }
+    }
+
+    .popup-head {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      background: var(--surface-1);
+      z-index: 1;
+    }
+
+    .popup-title {
+      font-size: var(--fs-h2);
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .popup-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all .15s;
+    }
+
+    .popup-close:hover {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    .popup-sec {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .popup-sec:last-child {
+      border-bottom: none;
+    }
+
+    .popup-sec-label {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--text-3);
+      margin-bottom: 10px;
+    }
+
+    .popup-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: var(--fs-body);
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+
+    .popup-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .popup-ico {
+      font-size: 15px;
+      width: 20px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .popup-val {
+      flex: 1;
+      color: var(--text);
+    }
+
+    .popup-stat-row {
+      display: flex;
+      gap: 16px;
+    }
+
+    .popup-stat {
+      text-align: center;
+      flex: 1;
+    }
+
+    .popup-stat-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-display);
+      font-weight: 500;
+    }
+
+    .popup-stat-lbl {
+      font-size: var(--fs-small);
+      color: var(--text-2);
+      margin-top: 3px;
+    }
+
+    /* ── СТАТИСТИКА ── */
+    .sched-stat-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+      gap: 8px;
+      margin-top: 20px;
+      padding: 14px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      text-align: center;
+    }
+
+    .ssb-num {
+      font-size: var(--fs-display);
+      font-weight: 900;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .ssb-lbl {
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      margin-top: 4px;
+    }
+
+    /* ── БЕЗ ВРЕМЕНИ ── */
+    .notime-sec {
+      margin-top: 28px;
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+
+    .notime-hdr {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .notime-title {
+      font-size: var(--fs-body);
+      font-weight: 700;
+      color: var(--text-2);
+    }
+
+    .notime-badge {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      background: rgba(247, 180, 60, .1);
+      color: var(--warn);
+      border: 1px solid rgba(247, 180, 60, .2);
+      border-radius: 20px;
+      padding: 2px 10px;
+    }
+
+    /* ════════════════════════════════════════════════════════
+     СВОДНЫЙ ОТЧЁТ
+  ════════════════════════════════════════════════════════ */
+    .report-day-block {
+      margin-bottom: 14px;
+      border-radius: var(--r-md);
+      overflow: hidden;
+    }
+
+    .report-day-hdr {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 14px;
+      border-left: 3px solid transparent;
+      font-size: var(--fs-h2);
+      font-weight: 800;
+    }
+
+    .report-day-cnt {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-weight: 700;
+      background: rgba(0, 0, 0, .25);
+      color: inherit;
+    }
+
+    .report-row {
+      display: grid;
+      grid-template-columns: 68px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0, 0, 0, .12);
+      min-height: 52px;
+    }
+
+    .report-row:last-child {
+      border-bottom: none;
+    }
+
+    .report-timeslot {
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1.2;
+    }
+
+    .rts-day {
+      font-size: var(--fs-small);
+      opacity: .7;
+    }
+
+    .rts-time {
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .report-info {
+      min-width: 0;
+    }
+
+    .report-group {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+    }
+
+    .report-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .report-teacher {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--accent-hi);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 1;
+      min-width: 0;
+    }
+
+    .report-pm {
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .report-pm::before {
+      content: "·";
+      margin-right: 4px;
+      color: var(--text-3);
+    }
+
+    .report-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .rs-pending {
+      background: rgba(85, 95, 119, .18);
+      color: var(--text-3);
+    }
+
+    .rs-overdue {
+      background: rgba(247, 180, 60, .12);
+      color: var(--warn);
+      border: 1px solid rgba(247, 180, 60, .35);
+      animation: rspulse 2s ease-in-out infinite;
+    }
+
+    .rs-done {
+      background: rgba(52, 209, 122, .10);
+      color: var(--ok);
+      border: 1px solid rgba(52, 209, 122, .25);
+    }
+
+    .rs-notime {
+      background: rgba(85, 95, 119, .12);
+      color: var(--text-3);
+      font-style: italic;
+    }
+
+    @keyframes rspulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      55% {
+        opacity: .55;
+      }
+    }
+
+    .report-notime-sec {
+      margin-top: 20px;
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+    }
+
+    .report-notime-hdr {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .report-notime-title {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--text-2);
+    }
+
+    .report-notime-badge {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      background: rgba(247, 180, 60, .1);
+      color: var(--warn);
+      border: 1px solid rgba(247, 180, 60, .2);
+      border-radius: 20px;
+      padding: 2px 10px;
+    }
+
+    .report-stat-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+      padding: 12px;
+      background: var(--surface-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      text-align: center;
+    }
+
+    .rsb-num {
+      font-size: var(--fs-display);
+      font-weight: 900;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .rsb-lbl {
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      margin-top: 3px;
+    }
+
+    .report-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .report-week-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      color: var(--text-3);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* ── ФИЛЬТРЫ ОТЧЁТА ── */
+    .report-filters {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .rf-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .rf-label {
+      font-size: var(--fs-small);
+      font-weight: 700;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 2px;
+    }
+
+    .rf-chip {
+      height: 30px;
+      padding: 0 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-2);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+
+    .rf-chip:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .rf-chip.active {
+      background: var(--surface2, #1e2333);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .rf-chip.rf-done.active {
+      border-color: var(--ok);
+      color: var(--ok);
+      background: rgba(52, 209, 122, .10);
+    }
+
+    .rf-chip.rf-overdue.active {
+      border-color: var(--warn);
+      color: var(--warn);
+      background: rgba(247, 180, 60, .10);
+    }
+
+    .rf-chip.rf-pending.active {
+      border-color: var(--text-3);
+      color: var(--text);
+      background: rgba(85, 95, 119, .18);
+    }
+
+    .rf-chip.rf-notime.active {
+      border-color: var(--text-3);
+      color: var(--text-2);
+      background: rgba(85, 95, 119, .12);
+    }
+
+    .rf-teacher-wrap {
+      position: relative;
+    }
+
+    .rf-teacher-select {
+      height: 30px;
+      padding: 0 28px 0 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-2);
+      font-family: 'Steppe', 'Manrope', sans-serif;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      cursor: pointer;
+      appearance: none;
+      outline: none;
+      transition: all .15s;
+    }
+
+    .rf-teacher-select:focus,
+    .rf-teacher-select.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .rf-teacher-wrap::after {
+      content: '↓';
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      font-size: 11px;
+      color: var(--text-3);
+    }
+
+    .report-empty {
+      text-align: center;
+      padding: 32px 16px;
+      font-size: var(--fs-small);
+      color: var(--text-3);
+    }
+
+    /* ── БЕЙДЖИ УЧАСТНИКОВ В ПОПАПЕ ── */
+    .participant-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .participant-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .participant-row:first-child {
+      padding-top: 0;
+    }
+
+    .participant-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: var(--fs-body);
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .participant-badges {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .p-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--fs-small);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .p-badge-age {
+      background: rgba(85, 95, 119, .2);
+      color: var(--text-2);
+      border: 1px solid rgba(85, 95, 119, .3);
+    }
+
+    .p-badge-done {
+      background: rgba(79, 142, 247, .1);
+      color: var(--accent);
+      border: 1px solid rgba(79, 142, 247, .25);
+    }
+
+    .p-badge-rem-ok {
+      background: rgba(52, 209, 122, .1);
+      color: var(--ok);
+      border: 1px solid rgba(52, 209, 122, .25);
+    }
+
+    .p-badge-rem-debt {
+      background: rgba(247, 95, 95, .1);
+      color: var(--err);
+      border: 1px solid rgba(247, 95, 95, .25);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app wide">
+
+    <!-- ── Навигация ── -->
+    <div class="global-nav">
+      <div class="global-nav-left">
+        <div class="global-nav-label">Онлайн-школа</div>
+        <div class="global-nav-title" id="pageTitle">Расписание индивов</div>
+        <div class="global-nav-sub hidden" id="schedSubtitle"></div>
+      </div>
+      <div class="global-nav-right">
+        <button class="page-switch-btn" id="btnJournal" onclick="switchPage('journal')">📝 Журнал</button>
+        <button class="page-switch-btn active" id="btnNavSchedule" onclick="switchPage('schedule')">📅
+          Расписание</button>
+        <button class="page-switch-btn" id="btnNavReport" onclick="switchPage('report')">📊 Отчёт</button>
+      </div>
+    </div>
+
+    <!-- ── Журнал ── -->
+    <div id="journalWrapper" class="hidden">
+
+
+      <!-- Skeleton -->
+      <div id="skeletonScreen" class="hidden">
+        <div class="skeleton skeleton-card"></div>
+        <div class="skeleton skeleton-card skeleton-card-tall"></div>
+        <div class="skeleton skeleton-card"></div>
+        <div class="loading-hint"><span>Загружаем данные...</span></div>
+      </div>
+
+      <!-- Основная форма -->
+      <div id="mainForm" class="hidden">
+        <div class="topbar">
+          <div class="teacher-chip" id="teacherChip" style="margin-bottom:0">
+            <span>👤</span><span id="teacherChipName"></span>
+          </div>
+          <button class="refresh-btn" id="refreshBtn" onclick="refreshData()">
+            <span class="refresh-icon">↻</span> Обновить данные
+          </button>
+        </div>
+
+        <div class="tab-nav">
+          <button class="tab-btn active" id="tabMine" onclick="switchTab('mine')">Мои занятия</button>
+          <button class="tab-btn" id="tabSub" onclick="switchTab('sub')">Замена</button>
+        </div>
+
+        <div class="cache-badge hidden" id="cacheBadge">
+          <div class="cache-dot"></div><span id="cacheBadgeText"></span>
+        </div>
+
+        <!-- Шаг 1: Индив -->
+        <div class="card" id="stepGroup">
+          <div class="card-header">
+            <div class="step-badge" id="badge1">1</div>
+            <div>
+              <div class="card-title">Группа/индив</div>
+              <div class="card-subtitle">Выберите, по кому отмечаем урок</div>
+            </div>
+            <div class="selected-value hidden" id="selectedGroup"></div>
+          </div>
+          <div class="select-wrapper">
+            <select id="groupSelect" onchange="onGroupChange()">
+              <option value="">— выберите —</option>
+            </select>
+          </div>
+          <div class="lesson-info hidden" id="lessonInfo">
+            <div class="lesson-number" id="lessonNumber">—</div>
+            <div class="lesson-desc">
+              <strong id="lessonTitle">Урок</strong>
+              <span id="lessonSubtitle">Следующий урок по расписанию</span>
+            </div>
+          </div>
+          <div class="alert-block alert-debt hidden" id="debtWarning">
+            <span>⚠️</span>
+            <div><strong>Уроки проводятся в долг</strong><span id="debtText"></span></div>
+          </div>
+          <div class="alert-block alert-limit hidden" id="courseLimitBlock">
+            <span>🔒</span>
+            <div><strong id="courseLimitTitle">Курс завершён</strong><span id="courseLimitText"></span></div>
+          </div>
+          <div class="hidden" id="subTeacherInfo" style="margin-top:12px;font-size:13px;color:var(--text-2);">
+            Основной преподаватель: <strong id="subTeacherName" style="color:var(--text);"></strong>
+          </div>
+        </div>
+
+        <!-- Шаг 2: Посещаемость -->
+        <div class="card hidden" id="stepStudents">
+          <div class="card-header">
+            <div class="step-badge" id="badge2">2</div>
+            <div>
+              <div class="card-title">Посещаемость</div>
+              <div class="card-subtitle">Отметьте кто был на уроке</div>
+            </div>
+          </div>
+          <label class="field-label">Тип урока</label>
+          <div class="lesson-type-row">
+            <button class="lesson-type-btn active-schedule" id="btnLessonSchedule"
+              onclick="setLessonType('schedule')">📅 По расписанию</button>
+            <button class="lesson-type-btn" id="btnLessonReschedule" onclick="setLessonType('reschedule')">🔄 Перенос
+              урока</button>
+          </div>
+          <div class="divider"></div>
+          <label class="field-label">Дата урока</label>
+          <div style="position:relative;">
+            <input type="date" id="dateInput" onchange="onDateChange()"
+              style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);color:transparent;font-family:'Manrope',sans-serif;font-size:15px;font-weight:500;padding:12px 48px 12px 16px;cursor:pointer;outline:none;appearance:none;box-sizing:border-box;" />
+            <span id="dateDisplayText"
+              style="position:absolute;left:16px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text-3);font-family:'Manrope',sans-serif;font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;max-width:calc(100% - 64px);"></span>
+            <svg
+              style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text-3);"
+              width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </div>
+          <div class="divider"></div>
+          <div class="summary-bar">
+            <div class="summary-chip present-chip">
+              <div class="num" id="summaryPresent">0</div>
+              <div class="lbl">Пришли</div>
+            </div>
+            <div class="summary-chip absent-chip">
+              <div class="num" id="summaryAbsent">0</div>
+              <div class="lbl">Не пришли</div>
+            </div>
+            <div class="summary-chip pay-chip">
+              <div class="num" id="summaryPay">0 ₽</div>
+              <div class="lbl">Выплата</div>
+            </div>
+          </div>
+          <div class="students-list" id="studentsList"></div>
+          <div class="divider"></div>
+          <label class="field-label">Ссылка на запись урока</label>
+          <input type="text" id="recordUrl" class="record-input" placeholder="Вставьте ссылку или введите текст..."
+            oninput="onRecordInput()" />
+          <div class="divider"></div>
+          <button class="submit-btn" id="submitBtn" onclick="submitForm()" disabled>Сохранить урок</button>
+          <div class="error-msg hidden" id="errorMsg"></div>
+        </div>
+      </div>
+
+      <!-- Пустой экран -->
+      <div id="emptyScreen" class="hidden">
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <h2>За вами нет индивов</h2>
+          <div class="empty-teacher" id="emptyTeacherName"></div>
+          <p>На данный момент к вам не привязано ни одного индивидуального ученика.</p>
+          <p style="margin-top:12px;">Если информация неверная — обратитесь к <strong
+              style="color:var(--text);">Старшему преподавателю</strong> или <strong
+              style="color:var(--text);">Руководителю отдела</strong>.</p>
+          <button class="empty-retry-btn" onclick="logout()">← Выйти</button>
+        </div>
+      </div>
+
+      <!-- Экран успеха -->
+      <div id="successScreen" class="hidden">
+        <div class="success-screen">
+          <div class="success-icon">✅</div>
+          <h2>Урок записан!</h2>
+          <p id="successGroup"></p>
+          <p id="successDate"></p>
+          <div class="success-payment" id="successPayment"></div>
+          <p style="color:var(--text-3);font-size:13px;">Данные сохранены в журнал и зарплатную таблицу</p>
+          <button class="new-lesson-btn" onclick="resetForm()">← Записать следующий урок</button>
+        </div>
+      </div>
+    </div><!-- /#journalWrapper -->
+
+    <!-- ── Сводный отчёт ── -->
+    <div id="reportPage" class="hidden">
+      <div class="report-controls">
+        <div class="report-week-label">
+          <span class="live-dot" id="reportLiveDot"></span>
+          <span id="reportWeekLabel">Текущая неделя</span>
+        </div>
+        <button class="sched-refresh-btn" id="reportRefreshBtn" onclick="loadReport(true)">
+          <span class="sri">↻</span> Обновить
+        </button>
+      </div>
+
+      <!-- Фильтры -->
+      <div class="report-filters hidden" id="reportFilters">
+        <div>
+          <div class="rf-label">Статус</div>
+          <div class="rf-row" id="rfStatusRow">
+            <button class="rf-chip active" data-status="all" onclick="setReportStatusFilter('all')">Все</button>
+            <button class="rf-chip rf-done" data-status="done" onclick="setReportStatusFilter('done')">✓
+              Заполнено</button>
+            <button class="rf-chip rf-overdue" data-status="overdue" onclick="setReportStatusFilter('overdue')">⚠ Надо
+              заполнить</button>
+            <button class="rf-chip rf-pending" data-status="pending" onclick="setReportStatusFilter('pending')">○ Ещё не
+              было</button>
+            <button class="rf-chip rf-notime" data-status="notime" onclick="setReportStatusFilter('notime')">— Без
+              времени</button>
+          </div>
+        </div>
+        <div>
+          <div class="rf-label">Преподаватель</div>
+          <div class="rf-row">
+            <div class="rf-teacher-wrap">
+              <select class="rf-teacher-select" id="rfTeacherSelect" onchange="setReportTeacherFilter(this.value)">
+                <option value="">Все преподаватели</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Статистика -->
+      <div class="report-stat-bar hidden" id="reportStatBar">
+        <div>
+          <div class="rsb-num" id="rsbDone" style="color:var(--ok)">—</div>
+          <div class="rsb-lbl">Заполнено</div>
+        </div>
+        <div>
+          <div class="rsb-num" id="rsbOverdue" style="color:var(--warn)">—</div>
+          <div class="rsb-lbl">Надо заполнить</div>
+        </div>
+        <div>
+          <div class="rsb-num" id="rsbPending" style="color:var(--text-3)">—</div>
+          <div class="rsb-lbl">Ещё не было</div>
+        </div>
+      </div>
+
+      <!-- Skeleton -->
+      <div id="reportSkeleton">
+        <div class="sked-skel"></div>
+        <div class="sked-skel"></div>
+        <div class="sked-skel"></div>
+      </div>
+
+      <div id="reportContent" class="hidden"></div>
+      <div id="reportError" class="hidden"
+        style="background:rgba(247,95,95,.08);border:1px solid rgba(247,95,95,.3);border-radius:var(--r-sm);padding:16px;color:var(--err);font-size:14px;">
+      </div>
+    </div>
+
+    <!-- ── Расписание ── -->
+    <div id="schedulePage">
+      <div class="sched-controls">
+        <div class="view-tabs-sched">
+          <button class="view-tab-sched active" onclick="setSchedView('week')">Неделя</button>
+          <button class="view-tab-sched" onclick="setSchedView('teacher')">По преподам</button>
+          <button class="view-tab-sched" onclick="setSchedView('day')">По дням</button>
+        </div>
+        <button class="sched-refresh-btn" id="schedRefreshBtn" onclick="loadSchedule(true)">
+          <span class="sri">↻</span> Обновить
+        </button>
+      </div>
+
+      <div id="schedSkeleton">
+        <div class="sked-skel"></div>
+        <div class="sked-skel"></div>
+        <div class="sked-skel"></div>
+      </div>
+      <div id="schedContent" class="hidden"></div>
+      <div id="schedError" class="hidden"
+        style="background:rgba(247,95,95,.08);border:1px solid rgba(247,95,95,.3);border-radius:var(--r-sm);padding:16px;color:var(--err);font-size:14px;">
+      </div>
+
+      <div class="sched-stat-bar hidden" id="schedStatBar">
+        <div>
+          <div class="ssb-num" id="sbTotal" style="color:var(--accent)">—</div>
+          <div class="ssb-lbl">Уроков/нед</div>
+        </div>
+        <div>
+          <div class="ssb-num" id="sbTeachers" style="color:var(--ok)">—</div>
+          <div class="ssb-lbl">Преподавателей</div>
+        </div>
+        <div>
+          <div class="ssb-num" id="sbNoTime" style="color:#f7b43c">—</div>
+          <div class="ssb-lbl">Без времени</div>
+        </div>
+        <div>
+          <div class="ssb-num" id="sbStudents" style="color:var(--accent-hi)">—</div>
+          <div class="ssb-lbl">Учеников</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Попап урока -->
+    <div class="sched-overlay" id="schedOverlay" onclick="if(event.target===this)hideSchedPopup()">
+      <div class="sched-popup" id="schedPopup"></div>
+    </div>
+
+  </div>
+
+  <script>
+    "use strict";
+
+    // ════════════════════════════════════════════════════════════
+    // КОНСТАНТЫ (зеркало Config.gs — держать синхронно)
+    // ════════════════════════════════════════════════════════════
+
+    const COURSE_LIMITS = {
+      python: 56, minecraft: 48, roblox: 40, blender: 16, scratch: 32, webdesign: 36, webdev: 36,
+    };
+
+    const PAY = { halfLesson: 250, smallFull: 500, smallPartial: 300, perStudent: 200 };
+
+    const DAY_NAMES_RU = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+    const SCHED_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+    const DAY_COLORS = [
+      { a: "#a78bfa", b: "rgba(167,139,250,.08)" },
+      { a: "#3b82f6", b: "rgba(59,130,246,.08)" },
+      { a: "#8b5cf6", b: "rgba(139,92,246,.08)" },
+      { a: "#06b6d4", b: "rgba(6,182,212,.08)" },
+      { a: "#10b981", b: "rgba(16,185,129,.08)" },
+      { a: "#f59e0b", b: "rgba(245,158,11,.08)" },
+      { a: "#ef4444", b: "rgba(239,68,68,.08)" },
+    ];
+
+    // ════════════════════════════════════════════════════════════
+    // СОСТОЯНИЕ ПРИЛОЖЕНИЯ
+    // ════════════════════════════════════════════════════════════
+
+    let state = {
+      teacher: "",
+      teacherData: {},  // группы текущего преподавателя
+      allData: {},  // все группы (для замены)
+      students: [],  // текущий список учеников с флагом present
+      tab: "mine",        // "mine" | "sub"
+      group: "",            // выбранная группа — источник истины
+      isSub: false,
+      origTeacher: "",
+      lessonType: "schedule",    // "schedule" | "reschedule"
+      page: "schedule",    // "journal" | "schedule"
+      schedView: "week",
+      schedLessons: [],
+      schedNoTime: [],
+      schedAll: [],
+      cachedAt: null,
+      schedLoaded: false,
+      activeDayPick: -1,
+      reportLoaded: false,
+      reportData: null,
+      reportFilter: { status: 'all', teacher: '' },
+    };
+
+    // ════════════════════════════════════════════════════════════
+    // УТИЛИТЫ
+    // ════════════════════════════════════════════════════════════
+
+    const $ = id => document.getElementById(id);
+
+    function esc(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function fmt(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
+
+    function rub(amount) { return amount.toLocaleString("ru") + " ₽"; }
+
+    function getCourseLimit(name) {
+      const n = name.toLowerCase();
+      if (/python/.test(n)) return COURSE_LIMITS.python;
+      if (/minecraft/.test(n)) return COURSE_LIMITS.minecraft;
+      if (/roblox/.test(n)) return COURSE_LIMITS.roblox;
+      if (/blend|блендер/.test(n)) return COURSE_LIMITS.blender;
+      if (/scratch/.test(n)) return COURSE_LIMITS.scratch;
+      if (/веб.?диз|web.?диз|web.?des|веб.?des/i.test(n)) return COURSE_LIMITS.webdesign;
+      if (/веб.?разр|web.?разр|web.?dev|веб.?dev/i.test(n)) return COURSE_LIMITS.webdev;
+      return null;
+    }
+
+    function calcPayment(total, present, isHalf = false) {
+      if (present === 0) return 0;
+      if (isHalf) return PAY.halfLesson * present;
+      if (total <= 2) return present === total ? PAY.smallFull : PAY.smallPartial;
+      return PAY.perStudent * present;
+    }
+
+    function formatDateDisplay(iso) {
+      if (!iso) return "";
+      const [y, m, d] = iso.split("-").map(Number);
+      const dd = String(d).padStart(2, "0"), mm = String(m).padStart(2, "0");
+      const day = DAY_NAMES_RU[new Date(y, m - 1, d).getDay()];
+      return window.innerWidth <= 600 ? `${dd}.${mm}.${y}\n${day}` : `${dd}.${mm}.${y} — ${day}`;
+    }
+
+    function todayIso() {
+      const t = new Date();
+      return [t.getFullYear(), String(t.getMonth() + 1).padStart(2, "0"), String(t.getDate()).padStart(2, "0")].join("-");
+    }
+
+    function pluralLesson(n) {
+      if (n % 10 === 1 && n % 100 !== 11) return "";
+      if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return "а";
+      return "ов";
+    }
+    function pluralIndiv(n) {
+      if (n % 10 === 1 && n % 100 !== 11) return "";
+      if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return "а";
+      return "ов";
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ИНИЦИАЛИЗАЦИЯ
+    // ════════════════════════════════════════════════════════════
+
+    window.onload = function () {
+      setTodayDate();
+      loadSchedule();
+      bootstrap();
+      setInterval(loadSchedule, 5 * 60 * 1000);
+      setInterval(function () { if (state.reportLoaded) loadReport(); }, 5 * 60 * 1000);
+      setInterval(function () {
+        if (!state.teacher) return;
+        if (!$("stepStudents").classList.contains("hidden")) return;
+        _bgRefreshJournal();
+      }, 5 * 60 * 1000);
+    };
+
+    // ════════════════════════════════════════════════════════════
+    // НАВИГАЦИЯ СТРАНИЦ
+    // ════════════════════════════════════════════════════════════
+
+    function switchPage(page) {
+      if (state.page === page) return;
+      state.page = page;
+
+      const isJ = page === "journal";
+      const isS = page === "schedule";
+      const isR = page === "report";
+
+      $("btnJournal").classList.toggle("active", isJ);
+      $("btnNavSchedule").classList.toggle("active", isS);
+      $("btnNavReport").classList.toggle("active", isR);
+
+      const titles = { journal: "Журнал посещаемости", schedule: "Расписание индивов", report: "Сводный отчёт" };
+      $("pageTitle").textContent = titles[page] || "";
+
+      // wide — для расписания и отчёта, узко — только для журнала
+      document.querySelector(".app").classList.toggle("wide", !isJ);
+
+      $("journalWrapper").classList.toggle("hidden", !isJ);
+      $("schedulePage").classList.toggle("hidden", !isS);
+      $("reportPage").classList.toggle("hidden", !isR);
+
+      if (isS && !state.schedLoaded) loadSchedule();
+      if (isR && !state.reportLoaded) loadReport();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // BOOTSTRAP ИЗ СЕССИИ
+    // ════════════════════════════════════════════════════════════
+
+    // ── CSRF: backend требует X-CSRFToken на мутациях (CookieJWTAuthentication).
+    //    GET /api/auth/csrf выставляет csrftoken-cookie (@ensure_csrf_cookie);
+    //    читаем её и шлём заголовком на всех POST.
+    let _csrfToken = null;
+    function _getCookie(name) {
+      const m = document.cookie.match('(?:^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+    async function ensureCsrf() {
+      _csrfToken = _getCookie('csrftoken');
+      if (!_csrfToken) {
+        try { await fetch('/api/auth/csrf', { credentials: 'include' }); } catch (e) {}
+        _csrfToken = _getCookie('csrftoken');
+      }
+      return _csrfToken;
+    }
+    function _csrfHeaders(base) {
+      const h = Object.assign({}, base || {});
+      const t = _csrfToken || _getCookie('csrftoken');
+      if (t) h['X-CSRFToken'] = t;
+      return h;
+    }
+
+    async function bootstrap() {
+      _show("skeletonScreen");
+      try {
+        const t0 = Date.now();
+        await ensureCsrf();
+        const r = await fetch('/api/getData', {
+          method: 'POST',
+          credentials: 'include',
+          headers: _csrfHeaders({ 'Content-Type': 'application/json' }),
+          body: '{}'
+        });
+        if (r.status === 401 || r.status === 403) { window.location = '/login'; return; }
+        const res = await r.json();
+        if (res.error) { window.location = '/login'; return; }
+
+        state.teacher = res.teacher;
+        state.teacherData = res.data || {};
+        _hide("skeletonScreen");
+        $("teacherChipName").textContent = state.teacher;
+
+        if (!Object.keys(state.teacherData).length) {
+          showEmptyState();
+          return;
+        }
+
+        showCacheBadge(Date.now() - t0 < 1500);
+        populateGroups();
+        _show("mainForm");
+
+      } catch (e) {
+        window.location = '/login';
+      }
+    }
+
+    async function logout() {
+      try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: _csrfHeaders() }); } catch (e) {}
+      window.location = '/login';
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ВКЛАДКИ ЖУРНАЛА
+    // ════════════════════════════════════════════════════════════
+
+    function switchTab(tab) {
+      state.tab = tab;
+      const isSub = tab === "sub";
+      $("tabMine").classList.toggle("active", !isSub);
+      $("tabSub").classList.toggle("active", isSub);
+      _resetGroupStep();
+
+      if (isSub) {
+        if (!Object.keys(state.allData).length) _loadAllData();
+        else populateGroupsFrom(state.allData, true);
+      } else {
+        populateGroupsFrom(state.teacherData, false);
+      }
+    }
+
+    async function _loadAllData() {
+      _setRefreshSpinning(true);
+      try {
+        const response = await fetch('/api/getAllData', {
+          method: 'POST',
+          credentials: 'include',
+          headers: _csrfHeaders({ 'Content-Type': 'application/json' }),
+          body: '{}'
+        });
+
+        _setRefreshSpinning(false);
+
+        if (response.status === 401 || response.status === 403) { window.location = '/login'; return; }
+        const r = await response.json();
+        if (r.error) {
+          alert("Ошибка: " + r.error);
+          return;
+        }
+
+        state.allData = r.data;
+        populateGroupsFrom(state.allData, true);
+
+      } catch (e) {
+        _setRefreshSpinning(false);
+        alert("Ошибка: " + e.message);
+      }
+    }
+
+    function populateGroupsFrom(data, flat) {
+      const sel = $("groupSelect");
+      sel.innerHTML = '<option value="">— выберите —</option>';
+
+      if (flat) {
+        const entries = [];
+        Object.keys(data).sort().forEach(t => {
+          if (t === state.teacher) return;
+          Object.keys(data[t]).sort().forEach(g => entries.push({ teacher: t, group: g }));
+        });
+        entries.forEach(e => {
+          const opt = document.createElement("option");
+          opt.value = e.group;
+          opt.dataset.teacher = e.teacher;
+          opt.textContent = e.teacher + " — " + e.group;
+          sel.appendChild(opt);
+        });
+      } else {
+        Object.keys(data).sort().forEach(g => {
+          const opt = document.createElement("option");
+          opt.value = g; opt.textContent = g;
+          sel.appendChild(opt);
+        });
+      }
+    }
+
+    function populateGroups() {
+      if (!Object.keys(state.teacherData).length) { showEmptyState(); return; }
+      populateGroupsFrom(state.teacherData, false);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ОБНОВЛЕНИЕ ДАННЫХ
+    // ════════════════════════════════════════════════════════════
+
+    async function refreshData() {
+      _setRefreshSpinning(true);
+      try {
+        const response = await fetch('/api/refreshData', {
+          method: 'POST',
+          credentials: 'include',
+          headers: _csrfHeaders({ 'Content-Type': 'application/json' }),
+          body: '{}'
+        });
+
+        _setRefreshSpinning(false);
+
+        if (response.status === 401 || response.status === 403) { window.location = '/login'; return; }
+        const r = await response.json();
+        if (r.error) {
+          alert("Ошибка: " + r.error);
+          return;
+        }
+
+        state.teacherData = r.data;
+        state.allData = {};
+        _resetGroupStep();
+
+        if (state.tab === "sub") _loadAllData();
+        else populateGroups();
+
+        showCacheBadge(false);
+
+      } catch (e) {
+        _setRefreshSpinning(false);
+        alert("Ошибка: " + e.message);
+      }
+    }
+
+    async function _bgRefreshJournal() {
+      try {
+        const response = await fetch('/api/getData', {
+          method: 'POST',
+          credentials: 'include',
+          headers: _csrfHeaders({ 'Content-Type': 'application/json' }),
+          body: '{}'
+        });
+        if (response.status === 401 || response.status === 403) { window.location = '/login'; return; }
+        const r = await response.json();
+
+        if (!r.error && r.data) {
+          state.teacherData = r.data;
+          if (state.tab === "sub") state.allData = {};
+        }
+      } catch (_) {
+        // Тихое обновление — игнорируем ошибки
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ВЫБОР ГРУППЫ
+    // ════════════════════════════════════════════════════════════
+
+    function onGroupChange() {
+      const sel = $("groupSelect");
+      const group = sel.value;
+      const opt = sel.options[sel.selectedIndex];
+
+      _resetGroupStep();
+      if (!group) return;
+
+      state.isSub = state.tab === "sub";
+      state.origTeacher = state.isSub ? (opt.dataset.teacher || "") : "";
+      state.group = group;
+
+      const src = state.isSub ? state.allData : state.teacherData;
+      const gd = state.isSub ? src[state.origTeacher][group] : src[group];
+
+      state.students = gd.students.map(s => ({ ...s, present: false }));
+      const pm = gd.pm || "";
+
+      const isHalf = /45\s*минут/i.test(group);
+      const step = isHalf ? 0.5 : 1;
+      // Для групп: номер урока = max пройденных + 1 (групповой счётчик)
+      const done = state.students.length
+        ? Math.max(...state.students.map(s => s.lessonsDone ?? 0))
+        : 0;
+      const next = Math.round((done + step) * 10) / 10;
+      const nextDisp = fmt(next);
+
+      $("lessonNumber").textContent = "№" + nextDisp;
+      $("lessonTitle").textContent = "Урок " + nextDisp + (isHalf ? " (45 минут)" : "");
+      $("lessonSubtitle").textContent = "Пройдено уроков: " + fmt(done);
+      _show("lessonInfo");
+
+      // Проверка лимита курса
+      const limit = getCourseLimit(group);
+      if (limit !== null && Math.ceil(next) > limit) {
+        const rem = limit - done;
+        const msg = rem > 0 && rem < step
+          ? `По данному курсу максимум ${limit} уроков. Пройдено: ${fmt(done)}. Недостаточно для ${isHalf ? "полурока" : "урока"} (нужно ${step}, доступно ${rem.toFixed(1)}).`
+          : `По данному курсу максимум ${limit} уроков. Пройдено: ${fmt(done)}. Заполнение заблокировано.`;
+        $("courseLimitTitle").textContent = "Лимит курса исчерпан";
+        $("courseLimitText").textContent = msg;
+        _show("courseLimitBlock");
+        _showSelectedGroup(group);
+        return;
+      }
+
+      _showSelectedGroup(group);
+
+      // Уроки в долг
+      const remaining = state.students[0]?.remaining ?? 0;
+      if (remaining <= 0) {
+        $("debtText").textContent = `Оплаченные уроки закончились (остаток: ${remaining}).` +
+          (pm ? ` Сообщите менеджеру ${pm}.` : " Сообщите менеджеру.");
+        _show("debtWarning");
+      }
+
+      // Замена
+      if (state.isSub) {
+        $("subTeacherName").textContent = state.origTeacher;
+        _show("subTeacherInfo");
+      }
+
+      renderStudents();
+      _show("stepStudents");
+    }
+
+    function _showSelectedGroup(group) {
+      const el = $("selectedGroup");
+      el.textContent = group;
+      _show(el);
+      $("badge1").classList.add("done");
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // УЧЕНИКИ
+    // ════════════════════════════════════════════════════════════
+
+    function renderStudents() {
+      const list = $("studentsList");
+      list.innerHTML = "";
+      state.students.forEach((s, i) => {
+        const remColor = s.remaining <= 0 ? "color:var(--err)" : "color:var(--text-3)";
+        const remText = s.remaining <= 0 ? `В долг (${s.remaining})` : `Осталось: ${s.remaining}`;
+        const badge = state.isSub ? '<span class="sub-badge">ЗАМЕНА</span>' : "";
+        const row = document.createElement("div");
+        row.className = "student-row absent";
+        row.id = "student_" + i;
+        row.onclick = () => toggleStudent(i);
+        row.innerHTML = `
+      <div>
+        <div class="student-name">${esc(s.name)}${badge}</div>
+        <div class="student-lessons" style="display:flex;gap:12px;">
+          <span>Пройдено: ${fmt(s.lessonsDone)}</span>
+          <span style="${remColor}">${remText}</span>
+        </div>
+      </div>
+      <button class="toggle-btn" id="btn_${i}">✗ Не пришёл</button>`;
+        list.appendChild(row);
+      });
+      updateSummary();
+    }
+
+    function toggleStudent(i) {
+      state.students[i].present = !state.students[i].present;
+      const row = $("student_" + i);
+      const btn = $("btn_" + i);
+      const ok = state.students[i].present;
+      row.className = "student-row " + (ok ? "present" : "absent");
+      btn.textContent = ok ? "✓ Пришёл" : "✗ Не пришёл";
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const total = state.students.length;
+      const present = state.students.filter(s => s.present).length;
+      const isHalf = /45\s*минут/i.test(state.group);
+      $("summaryPresent").textContent = present;
+      $("summaryAbsent").textContent = total - present;
+      $("summaryPay").textContent = rub(calcPayment(total, present, isHalf));
+      updateSubmitBtn();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ДАТА
+    // ════════════════════════════════════════════════════════════
+
+    function setTodayDate() {
+      const iso = todayIso();
+      $("dateInput").value = iso;
+      _updateDateDisplay(iso);
+    }
+
+    function onDateChange() {
+      _updateDateDisplay($("dateInput").value);
+      updateSummary();
+    }
+
+    function _updateDateDisplay(iso) {
+      const span = $("dateDisplayText");
+      if (iso) {
+        span.style.color = "var(--text)";
+        span.textContent = formatDateDisplay(iso);
+      } else {
+        span.style.color = "var(--text-3)";
+        span.textContent = "Выберите дату...";
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ТИП УРОКА
+    // ════════════════════════════════════════════════════════════
+
+    function setLessonType(type) {
+      state.lessonType = type;
+      $("btnLessonSchedule").className = "lesson-type-btn" + (type === "schedule" ? " active-schedule" : "");
+      $("btnLessonReschedule").className = "lesson-type-btn" + (type === "reschedule" ? " active-reschedule" : "");
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ОТПРАВКА ФОРМЫ
+    // ════════════════════════════════════════════════════════════
+
+    function onRecordInput() {
+      $("recordUrl").classList.remove("field-error");
+      updateSubmitBtn();
+    }
+
+    function updateSubmitBtn() {
+      $("submitBtn").disabled = !$("dateInput").value || !$("recordUrl").value.trim();
+    }
+
+    async function submitForm() {
+      const date = $("dateInput").value;
+      const recordUrl = $("recordUrl").value.trim();
+      const group = state.group;
+
+      if (!date) { _showError("Укажите дату урока"); return; }
+      if (!recordUrl) {
+        $("recordUrl").classList.add("field-error");
+        $("recordUrl").focus();
+        _showError("Укажите ссылку на запись урока");
+        return;
+      }
+
+      const btn = $("submitBtn");
+      btn.disabled = true;
+      btn.textContent = "Сохраняем...";
+
+      try {
+        const response = await fetch('/api/submitLesson', {
+          method: 'POST',
+          credentials: 'include',
+          headers: _csrfHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            group: group,
+            date: date,
+            recordUrl: recordUrl,
+            lessonType: state.lessonType,
+            isSubstitution: state.isSub,
+            originalTeacher: state.origTeacher,
+            students: state.students.map(s => ({
+              name: s.name,
+              present: s.present
+            }))
+          })
+        });
+
+        if (response.status === 401 || response.status === 403) { window.location = '/login'; return; }
+        const r = await response.json();
+
+        if (r.success) {
+          state.reportLoaded = false;
+          _showSuccess(group, date, r.payment);
+        } else {
+          _showError("Ошибка сохранения: " + r.error);
+          btn.disabled = false;
+          btn.textContent = "Сохранить урок";
+        }
+
+      } catch (e) {
+        _showError("Ошибка соединения: " + e.message);
+        btn.disabled = false;
+        btn.textContent = "Сохранить урок";
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ЭКРАНЫ
+    // ════════════════════════════════════════════════════════════
+
+    function _showSuccess(group, date, payment) {
+      _hide("mainForm");
+      $("successGroup").textContent = group;
+      $("successDate").textContent = new Date(date).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", year: "numeric" });
+      $("successPayment").textContent = rub(payment);
+      _show("successScreen");
+    }
+
+    function showEmptyState() {
+      $("emptyTeacherName").textContent = state.teacher;
+      _show("emptyScreen");
+    }
+
+    function retryFromEmpty() {
+      logout();
+    }
+
+    function resetForm() {
+      _hide("successScreen");
+      _show("mainForm");
+      _resetGroupStep();
+      $("recordUrl").value = "";
+      $("recordUrl").classList.remove("field-error");
+      $("submitBtn").textContent = "Сохранить урок";
+      _hide("errorMsg");
+      setLessonType("schedule");
+      setTodayDate();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // РАСПИСАНИЕ
+    // ════════════════════════════════════════════════════════════
+
+    async function loadSchedule(force) {
+      state.schedLoaded = true;
+      const btn = $("schedRefreshBtn");
+      const hasData = state.schedLessons.length > 0 || state.schedNoTime.length > 0;
+
+      btn.disabled = true;
+      if (hasData) {
+        _setSchedSubtitle(true);
+      } else {
+        btn.classList.add("spinning");
+        _hide("schedContent");
+        _hide("schedError");
+        _show("schedSkeleton");
+      }
+
+      try {
+        const url = force ? '/api/schedule?force=true' : '/api/schedule';
+        const response = await fetch(url, { credentials: 'include' });
+        const res = await response.json();
+
+        btn.disabled = false;
+        btn.classList.remove("spinning");
+        _hide("schedSkeleton");
+
+        if (res.error) {
+          _showSchedError(res.error);
+          return;
+        }
+
+        state.schedLessons = res.lessons || [];
+        state.schedNoTime = res.noTime || [];
+        state.cachedAt = res.cachedAt;
+
+        state.schedAll = [];
+        state.schedLessons.forEach((l, i) => { l.idx = i; state.schedAll.push(l); });
+        state.schedNoTime.forEach((l, i) => { l.idx = state.schedLessons.length + i; state.schedAll.push(l); });
+
+        _setSchedSubtitle(false);
+        _updateSchedStats();
+        renderSched();
+
+      } catch (e) {
+        btn.disabled = false;
+        btn.classList.remove("spinning");
+        _hide("schedSkeleton");
+        _setSchedSubtitle(false);
+        _showSchedError("Ошибка соединения: " + e.message);
+      }
+    }
+
+    function _updateSchedStats() {
+      const all = state.schedAll;
+      const unique = new Set(all.map(l => l.group)).size;
+      const teachers = new Set(all.map(l => l.teacher)).size;
+      const noTime = new Set(state.schedNoTime.map(l => l.group)).size;
+      const students = new Set();
+      all.forEach(l => (l.students || []).forEach(s => students.add(s.name + "|||" + l.group)));
+
+      $("sbTotal").textContent = unique;
+      $("sbTeachers").textContent = teachers;
+      $("sbNoTime").textContent = noTime;
+      $("sbStudents").textContent = students.size;
+      _show("schedStatBar");
+    }
+
+    function setSchedView(v) {
+      state.schedView = v;
+      document.querySelectorAll(".view-tab-sched").forEach((b, i) => {
+        b.classList.toggle("active", ["week", "teacher", "day"][i] === v);
+      });
+      if (state.schedLessons.length || state.schedNoTime.length) renderSched();
+    }
+
+    function renderSched() {
+      const el = $("schedContent");
+      el.innerHTML = "";
+      if (state.schedView === "week") _renderWeek(el);
+      else if (state.schedView === "teacher") _renderByTeacher(el);
+      else if (state.schedView === "day") _renderByDay(el);
+      _show(el);
+    }
+
+    function _groupByDay() {
+      const m = {};
+      SCHED_DAY_ORDER.forEach(d => { m[d] = []; });
+      state.schedLessons.forEach(l => { if (m[l.day] !== undefined) m[l.day].push(l); });
+      return m;
+    }
+
+    function _makeLessonCard(lesson, showDay) {
+      const dc = lesson.day != null ? DAY_COLORS[lesson.day] : null;
+      const ac = dc ? dc.a : "var(--accent)";
+
+      const card = document.createElement("div");
+      card.className = "lesson-card";
+      if (lesson.idx !== undefined) card.onclick = () => showSchedPopup(lesson.idx);
+
+      const time = document.createElement("div");
+      time.className = lesson.time ? "lc-time" : "lc-time no-time";
+      time.textContent = lesson.time || "—";
+      if (lesson.time) time.style.color = ac;
+      card.appendChild(time);
+
+      const info = document.createElement("div");
+      info.className = "lc-info";
+
+      const gname = document.createElement("div");
+      gname.className = "lc-group";
+      gname.textContent = lesson.groupDisplay || lesson.group;
+      gname.title = lesson.group;
+      info.appendChild(gname);
+
+      const parts = [];
+      if (showDay && lesson.dayName) parts.push(lesson.dayName);
+      parts.push(lesson.teacher);
+      if (lesson.pm) parts.push(lesson.pm);
+
+      const meta = document.createElement("div");
+      meta.className = "lc-meta";
+      meta.textContent = parts.join(" • ");
+      info.appendChild(meta);
+
+      card.appendChild(info);
+      return card;
+    }
+
+    function _appendNoTime(parent, items, showDay) {
+      if (!items || !items.length) return;
+      const sec = document.createElement("div");
+      sec.className = "notime-sec";
+      const uniq = new Set(items.map(l => l.group)).size;
+      sec.innerHTML = `<div class="notime-hdr"><span class="notime-title">Без согласованного времени</span><span class="notime-badge">${uniq} занятие</span></div>`;
+      const list = document.createElement("div");
+      list.className = "list-cards";
+      items.forEach(l => list.appendChild(_makeLessonCard(l, showDay)));
+      sec.appendChild(list);
+      parent.appendChild(sec);
+    }
+
+    // Вид: Неделя
+    function _renderWeek(parent) {
+      const today = new Date().getDay();
+      const byDay = _groupByDay();
+
+      SCHED_DAY_ORDER.forEach(dow => {
+        const items = byDay[dow];
+        const dc = DAY_COLORS[dow];
+
+        const block = document.createElement("div");
+        block.className = "week-day-block";
+        block.style.cssText = `background:${dc.b};border:1px solid ${dc.a}30`;
+
+        const hdr = document.createElement("div");
+        hdr.className = "week-day-hdr";
+        hdr.style.cssText = `border-left:3px solid ${dc.a};background:${dc.b};color:${dc.a}`;
+
+        const name = document.createElement("span");
+        name.className = "week-day-name";
+        name.textContent = DAY_NAMES_RU[dow] + (dow === today ? " · Сегодня" : "");
+        hdr.appendChild(name);
+
+        if (items.length) {
+          const cnt = document.createElement("span");
+          cnt.className = "week-day-cnt";
+          cnt.textContent = items.length + " урок" + pluralLesson(items.length);
+          hdr.appendChild(cnt);
+        }
+        block.appendChild(hdr);
+
+        if (!items.length) {
+          const empty = document.createElement("div");
+          empty.className = "week-day-empty";
+          empty.textContent = "Уроков нет";
+          block.appendChild(empty);
+        } else {
+          const list = document.createElement("div");
+          list.className = "list-cards";
+          list.style.cssText = "padding:8px 10px 10px;gap:6px;";
+          items.forEach(l => list.appendChild(_makeLessonCard(l, false)));
+          block.appendChild(list);
+        }
+        parent.appendChild(block);
+      });
+
+      _appendNoTime(parent, state.schedNoTime, false);
+    }
+
+    // Вид: По преподавателям
+    function _renderByTeacher(parent) {
+      const byT = {};
+      state.schedLessons.forEach(l => {
+        if (!byT[l.teacher]) byT[l.teacher] = [];
+        byT[l.teacher].push(l);
+      });
+
+      Object.keys(byT).sort().forEach(teacher => {
+        const items = byT[teacher];
+        const row = document.createElement("div");
+        row.className = "teacher-row";
+
+        const hdr = document.createElement("div");
+        hdr.className = "teacher-row-hdr";
+        hdr.onclick = () => row.classList.toggle("open");
+
+        const uniq = new Set(items.map(l => l.group)).size;
+        hdr.innerHTML = `
+      <div class="teacher-row-left">
+        <span class="teacher-row-name">${esc(teacher)}</span>
+        <span class="teacher-row-cnt">${uniq} группы/индива</span>
+      </div>
+      <span class="teacher-row-arrow">▾</span>`;
+
+        const body = document.createElement("div");
+        body.className = "teacher-row-body";
+        const list = document.createElement("div");
+        list.className = "list-cards";
+        items.forEach(l => list.appendChild(_makeLessonCard(l, true)));
+        body.appendChild(list);
+
+        row.appendChild(hdr);
+        row.appendChild(body);
+        parent.appendChild(row);
+      });
+
+      if (state.schedNoTime.length) {
+        const flat = [];
+        const byTNT = {};
+        state.schedNoTime.forEach(l => { if (!byTNT[l.teacher]) byTNT[l.teacher] = []; byTNT[l.teacher].push(l); });
+        Object.keys(byTNT).sort().forEach(t => flat.push(...byTNT[t]));
+        _appendNoTime(parent, flat, false);
+      }
+    }
+
+    // Вид: По дням
+    function _renderByDay(parent) {
+      const today = new Date().getDay();
+      const byDay = _groupByDay();
+      state.activeDayPick = today;
+
+      const picker = document.createElement("div");
+      picker.className = "day-picker";
+      picker.id = "dayPicker";
+
+      SCHED_DAY_ORDER.forEach(dow => {
+        const dc = DAY_COLORS[dow];
+        const cnt = byDay[dow].length;
+        const btn = document.createElement("button");
+        btn.className = "day-pick-btn" + (dow === today ? " today-day" : "");
+        btn.id = "dayPickBtn_" + dow;
+        btn.style.cssText = `border-color:${dc.a}60;color:${dow === today ? "#fff" : dc.a};background:${dow === today ? dc.a : dc.b}`;
+        btn.innerHTML = `<div>${DAY_NAMES_RU[dow]}</div><div class="day-pick-cnt">${cnt ? cnt + " ур." : "—"}</div>`;
+        btn.onclick = () => _selectDay(dow);
+        picker.appendChild(btn);
+      });
+
+      parent.appendChild(picker);
+
+      const dayContent = document.createElement("div");
+      dayContent.id = "dayContent";
+      parent.appendChild(dayContent);
+
+      _appendNoTime(parent, state.schedNoTime, false);
+      _renderDayContent(byDay, today);
+    }
+
+    function _selectDay(dow) {
+      state.activeDayPick = dow;
+      const byDay = _groupByDay();
+      SCHED_DAY_ORDER.forEach(d => {
+        const btn = $("dayPickBtn_" + d);
+        if (!btn) return;
+        const dc = DAY_COLORS[d];
+        const on = d === dow;
+        btn.style.color = on ? "#fff" : dc.a;
+        btn.style.background = on ? dc.a : dc.b;
+      });
+      _renderDayContent(byDay, dow);
+    }
+
+    function _renderDayContent(byDay, dow) {
+      const cont = $("dayContent");
+      if (!cont) return;
+      cont.innerHTML = "";
+      const items = byDay[dow] || [];
+      if (!items.length) {
+        const empty = document.createElement("div");
+        empty.className = "week-day-empty";
+        empty.style.cssText = "padding:20px 0;text-align:center;";
+        empty.textContent = "В этот день уроков нет";
+        cont.appendChild(empty);
+      } else {
+        const list = document.createElement("div");
+        list.className = "list-cards";
+        items.forEach(l => list.appendChild(_makeLessonCard(l, false)));
+        cont.appendChild(list);
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ПОПАП ДЕТАЛЕЙ УРОКА
+    // ════════════════════════════════════════════════════════════
+
+    function showSchedPopup(idx) {
+      const lesson = state.schedAll[idx];
+      if (!lesson) return;
+      const dc = lesson.day != null ? DAY_COLORS[lesson.day] : { a: "var(--accent)" };
+      const sts = lesson.students || [];
+
+      let timeDisp;
+      if (lesson.allTimes && lesson.allTimes.length > 1) {
+        timeDisp = lesson.allTimes.join(" · ");
+      } else {
+        timeDisp = lesson.dayName
+          ? lesson.dayName + (lesson.time ? ", " + lesson.time + " МСК" : "")
+          : "Время не согласовано";
+      }
+
+      // ── Шапка ──
+      let html = `
+    <div class="popup-head">
+      <div>
+        <div class="popup-title">${esc(lesson.group)}</div>
+        <div style="font-size:12px;color:${dc.a};margin-top:2px;">${esc(timeDisp)}</div>
+      </div>
+      <button class="popup-close" onclick="hideSchedPopup()">✕</button>
+    </div>`;
+
+      // ── Участники (имя + возраст + прогресс каждого) ──
+      html += `<div class="popup-sec"><div class="popup-sec-label">Участники</div>`;
+      if (sts.length) {
+        sts.forEach(st => {
+          const ageBadge = st.age
+            ? `<span class="p-badge p-badge-age">🎂 ${esc(st.age)} лет</span>`
+            : "";
+          const hasProg = st.lessonsDone !== undefined && st.remaining !== undefined;
+          const remClass = (st.remaining <= 0) ? "p-badge-rem-debt" : "p-badge-rem-ok";
+          const remIcon = (st.remaining <= 0) ? "⚠" : "✓";
+          const doneBadge = hasProg
+            ? `<span class="p-badge p-badge-done">📖 ${fmt(st.lessonsDone)} пройдено</span>`
+            : "";
+          const remBadge = hasProg
+            ? `<span class="p-badge ${remClass}">${remIcon} ${st.remaining} оплачено</span>`
+            : "";
+          html += `<div class="participant-row">
+        <div class="participant-name">👤 ${esc(st.name)}</div>
+        <div class="participant-badges">${ageBadge}${doneBadge}${remBadge}</div>
+      </div>`;
+        });
+      } else {
+        html += `<div class="popup-row"><span class="popup-ico">👤</span><span class="popup-val" style="color:var(--text-2)">Нет данных</span></div>`;
+      }
+      html += `</div>`;
+
+      // ── Преподаватель и менеджер ──
+      html += `
+    <div class="popup-sec">
+      <div class="popup-sec-label">Преподаватель и менеджер</div>
+      <div class="popup-row"><span class="popup-ico">🎓</span><span class="popup-val">${esc(lesson.teacher)}</span></div>
+      ${lesson.pm ? `<div class="popup-row"><span class="popup-ico">🗂</span><span class="popup-val">${esc(lesson.pm)}</span></div>` : ""}
+    </div>`;
+
+      // ── Доп. информация: ВКонтакте и дата старта ──
+      const hasVk = !!lesson.vkChat;
+      const hasStart = !!lesson.startDate;
+      if (hasVk || hasStart) {
+        html += `<div class="popup-sec"><div class="popup-sec-label">Дополнительно</div>`;
+        if (hasVk) {
+          html += `<div class="popup-row">
+        <span class="popup-ico">💬</span>
+        <span class="popup-val">
+          <a href="${esc(lesson.vkChat)}" target="_blank"
+             style="color:var(--accent);text-decoration:none;word-break:break-all;">
+            Чат ВКонтакте
+          </a>
+        </span>
+      </div>`;
+        }
+        if (hasStart) {
+          html += `<div class="popup-row"><span class="popup-ico">📅</span><span class="popup-val">Старт: ${esc(lesson.startDate)}</span></div>`;
+        }
+        html += `</div>`;
+      }
+
+      $("schedPopup").innerHTML = html;
+      $("schedOverlay").classList.add("show");
+      document.body.style.overflow = "hidden";
+    }
+
+    function hideSchedPopup() {
+      $("schedOverlay").classList.remove("show");
+      document.body.style.overflow = "";
+    }
+
+    document.addEventListener("keydown", e => { if (e.key === "Escape") hideSchedPopup(); });
+
+    // ════════════════════════════════════════════════════════════
+    // ВСПОМОГАТЕЛЬНЫЕ UI-ФУНКЦИИ
+    // ════════════════════════════════════════════════════════════
+
+    function _show(el) { (typeof el === "string" ? $(el) : el)?.classList.remove("hidden"); }
+    function _hide(el) { (typeof el === "string" ? $(el) : el)?.classList.add("hidden"); }
+
+    function _showEl(id, text) { const el = $(id); el.textContent = text; _show(el); }
+
+    function _showError(msg) {
+      _hide("skeletonScreen"); _show("mainForm");
+      _showEl("errorMsg", msg);
+    }
+
+    function _showJournalError(msg) {
+      _hide("skeletonScreen"); _show("mainForm");
+      _showEl("errorMsg", msg);
+    }
+
+    function _setRefreshSpinning(on) {
+      const btn = $("refreshBtn");
+      btn.disabled = on;
+      btn.classList.toggle("spinning", on);
+    }
+
+    function showCacheBadge(isHit) {
+      const badge = $("cacheBadge"), text = $("cacheBadgeText");
+      badge.className = "cache-badge " + (isHit ? "hit" : "miss");
+      text.textContent = isHit ? "данные из кэша" : "данные обновлены";
+      _show(badge);
+      setTimeout(() => _hide(badge), 4000);
+    }
+
+    function _setSchedSubtitle(loading) {
+      const sub = $("schedSubtitle");
+      if (!sub) return;
+      sub.innerHTML = loading
+        ? '<span class="live-spin">⟳</span><span>обновляется...</span>'
+        : `<span class="live-dot"></span><span>Live · обновлено в ${state.cachedAt || "—"} МСК</span>`;
+      _show(sub);
+    }
+
+    function _showSchedError(msg) {
+      const el = $("schedError");
+      el.textContent = "Ошибка: " + msg;
+      _show(el);
+    }
+
+    function _resetGroupStep() {
+      const ids = ["stepStudents", "selectedGroup", "lessonInfo", "debtWarning",
+        "courseLimitBlock", "subTeacherInfo"];
+      ids.forEach(_hide);
+      $("badge1").classList.remove("done");
+      $("badge2").classList.remove("done");
+      $("groupSelect").value = "";
+      state.students = [];
+      state.isSub = false;
+      state.origTeacher = "";
+      state.group = "";
+      state.lessonType = "schedule";
+      setLessonType("schedule");
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // СВОДНЫЙ ОТЧЁТ
+    // ════════════════════════════════════════════════════════════
+
+    const REPORT_DAY_COLORS = DAY_COLORS; // используем те же цвета что и в расписании
+
+    async function loadReport(force) {
+      state.reportLoaded = true;
+      const btn = $("reportRefreshBtn");
+      btn.disabled = true;
+      btn.classList.add("spinning");
+
+      if (!force && state.reportData) {
+        btn.disabled = false;
+        btn.classList.remove("spinning");
+        _renderReport(state.reportData);
+        return;
+      }
+
+      _hide("reportContent");
+      _hide("reportError");
+      _show("reportSkeleton");
+
+      try {
+        const url = force ? '/api/report?force=true' : '/api/report';
+        const response = await fetch(url, { credentials: 'include' });
+        const res = await response.json();
+
+        btn.disabled = false;
+        btn.classList.remove("spinning");
+        _hide("reportSkeleton");
+
+        if (res.error) {
+          _showReportError(res.error);
+          return;
+        }
+
+        state.reportData = res;
+        _renderReport(res);
+
+      } catch (e) {
+        btn.disabled = false;
+        btn.classList.remove("spinning");
+        _hide("reportSkeleton");
+        _showReportError("Ошибка соединения: " + e.message);
+      }
+    }
+
+    function _renderReport(res) {
+      const el = $("reportContent");
+      el.innerHTML = "";
+
+      const lessons = res.lessons || [];
+      const noTime = res.noTime || [];
+      const now = new Date();
+
+      // ── Пересчёт статусов pending/overdue на клиенте ──
+      lessons.forEach(l => {
+        if (l.status === "done") return;
+        if (l.day === null || l.day === undefined) return;
+        const lessonDT = _reportLessonDT(res.weekStart, l.day, l.time);
+        if (!lessonDT) return;
+        l.status = now < lessonDT ? "pending" : "overdue";
+        l.label = now < lessonDT ? "Пока урока не было" : "Надо заполнить";
+      });
+
+      // ── Статистика по всем данным (до фильтрации) ──
+      const done = lessons.filter(l => l.status === "done").length;
+      const overdue = lessons.filter(l => l.status === "overdue").length;
+      const pending = lessons.filter(l => l.status === "pending").length;
+      $("rsbDone").textContent = done;
+      $("rsbOverdue").textContent = overdue;
+      $("rsbPending").textContent = pending;
+      _show("reportStatBar");
+
+      // ── Подпись недели ──
+      if (res.weekStart) {
+        const [y, m, d] = res.weekStart.split('-').map(Number);
+        const wStart = new Date(y, m - 1, d);      // ПОНЕДЕЛЬНИК
+        const wEnd = new Date(y, m - 1, d + 6);    // ВОСКРЕСЕНЬЕ (+6 дней)
+
+        const fmtD = dt => String(dt.getDate()).padStart(2, '0') + "." + String(dt.getMonth() + 1).padStart(2, '0');
+        $("reportWeekLabel").textContent = "Неделя " + fmtD(wStart) + "–" + fmtD(wEnd) + "." + wEnd.getFullYear();
+      }
+      _show("reportLiveDot");
+
+      // ── Наполняем select преподавателей (один раз при первом рендере) ──
+      _populateTeacherFilter(lessons, noTime);
+      _show("reportFilters");
+
+      // ── Применяем фильтры ──
+      _applyReportFilters(lessons, noTime, res.weekStart);
+    }
+
+    /** Строит список уникальных преподавателей и заполняет <select> */
+    function _populateTeacherFilter(lessons, noTime) {
+      const sel = $("rfTeacherSelect");
+      const currentVal = sel.value;
+
+      const teachers = new Set();
+      [...lessons, ...noTime].forEach(l => { if (l.teacher) teachers.add(l.teacher); });
+
+      // Перестраиваем только если набор изменился
+      const sorted = [...teachers].sort();
+      const existing = [...sel.options].slice(1).map(o => o.value);
+      if (JSON.stringify(sorted) === JSON.stringify(existing)) return;
+
+      // Сохраняем и восстанавливаем выбор
+      sel.innerHTML = '<option value="">Все преподаватели</option>';
+      sorted.forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t; opt.textContent = t;
+        sel.appendChild(opt);
+      });
+      sel.value = sorted.includes(currentVal) ? currentVal : "";
+      state.reportFilter.teacher = sel.value;
+    }
+
+    /** Основная функция фильтрации и рендера с учётом активных фильтров */
+    function _applyReportFilters(lessons, noTime, weekStart) {
+      const el = $("reportContent");
+      el.innerHTML = "";
+      const today = new Date().getDay();
+      const sf = state.reportFilter.status;
+      const tf = state.reportFilter.teacher;
+
+      // Фильтруем
+      const showNoTime = sf === "all" || sf === "notime";
+      const filteredLessons = lessons.filter(l => {
+        if (tf && l.teacher !== tf) return false;
+        if (sf !== "all" && l.status !== sf) return false;
+        return true;
+      });
+      const filteredNoTime = showNoTime
+        ? noTime.filter(l => !tf || l.teacher === tf)
+        : [];
+
+      // Пустой результат
+      if (!filteredLessons.length && !filteredNoTime.length) {
+        el.innerHTML = '<div class="report-empty">Нет индивов, соответствующих фильтрам</div>';
+        _show(el);
+        return;
+      }
+
+      // Группируем по дням
+      const byDay = {};
+      SCHED_DAY_ORDER.forEach(d => { byDay[d] = []; });
+      filteredLessons.forEach(l => { if (byDay[l.day] !== undefined) byDay[l.day].push(l); });
+
+      SCHED_DAY_ORDER.forEach(dow => {
+        const items = byDay[dow];
+        if (!items.length) return;
+
+        const dc = REPORT_DAY_COLORS[dow];
+        const block = document.createElement("div");
+        block.className = "report-day-block";
+        block.style.cssText = "background:" + dc.b + ";border:1px solid " + dc.a + "30";
+
+        const hdr = document.createElement("div");
+        hdr.className = "report-day-hdr";
+        hdr.style.cssText = "border-left:3px solid " + dc.a + ";background:" + dc.b + ";color:" + dc.a;
+        hdr.innerHTML = '<span>' + DAY_NAMES_RU[dow] + (dow === today ? " · Сегодня" : "") + '</span>'
+          + '<span class="report-day-cnt">' + items.length + ' урок' + pluralLesson(items.length) + '</span>';
+        block.appendChild(hdr);
+
+        items.forEach(l => block.appendChild(_makeReportRow(l, dc)));
+        el.appendChild(block);
+      });
+
+      // Блок «Без времени»
+      if (filteredNoTime.length) {
+        const sec = document.createElement("div");
+        sec.className = "report-notime-sec";
+        sec.innerHTML = '<div class="report-notime-hdr">'
+          + '<span class="report-notime-title">Без согласованного времени</span>'
+          + '<span class="report-notime-badge">' + filteredNoTime.length + ' индив' + pluralIndiv(filteredNoTime.length) + '</span>'
+          + '</div>';
+        filteredNoTime.forEach(l => {
+          const row = document.createElement("div");
+          row.className = "report-row";
+          row.style.background = "rgba(0,0,0,.10)";
+          row.innerHTML = '<div class="report-timeslot" style="color:var(--text-3)"><div class="rts-day">—</div><div class="rts-time" style="font-size:13px">Нет</div></div>'
+            + '<div class="report-info"><div class="report-group">' + esc(l.group) + '</div>'
+            + '<div class="report-meta"><span class="report-teacher">' + esc(l.teacher) + '</span>'
+            + (l.pm ? '<span class="report-pm">' + esc(l.pm) + '</span>' : '') + '</div></div>'
+            + '<div class="report-status rs-notime">Время не указано</div>';
+          sec.appendChild(row);
+        });
+        el.appendChild(sec);
+      }
+
+      _show(el);
+    }
+
+    /** Переключение фильтра по статусу */
+    function setReportStatusFilter(status) {
+      state.reportFilter.status = status;
+
+      // Обновляем активный чип
+      $("rfStatusRow").querySelectorAll(".rf-chip").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.status === status);
+      });
+
+      // Перерисовываем без запроса на сервер
+      if (state.reportData) {
+        _applyReportFilters(
+          state.reportData.lessons || [],
+          state.reportData.noTime || [],
+          state.reportData.weekStart
+        );
+      }
+    }
+
+    /** Переключение фильтра по преподавателю */
+    function setReportTeacherFilter(teacher) {
+      state.reportFilter.teacher = teacher;
+      const sel = $("rfTeacherSelect");
+      sel.classList.toggle("active", !!teacher);
+
+      if (state.reportData) {
+        _applyReportFilters(
+          state.reportData.lessons || [],
+          state.reportData.noTime || [],
+          state.reportData.weekStart
+        );
+      }
+    }
+
+    function _makeReportRow(l, dc) {
+      const row = document.createElement("div");
+      row.className = "report-row";
+
+      // Время слева
+      const timeEl = document.createElement("div");
+      timeEl.className = "report-timeslot";
+      timeEl.style.color = dc.a;
+      timeEl.innerHTML = '<div class="rts-day">' + esc(l.dayShort || "") + '</div>'
+        + '<div class="rts-time">' + esc(l.time || "—") + '</div>';
+
+      // Название + препод
+      const info = document.createElement("div");
+      info.className = "report-info";
+      info.innerHTML = '<div class="report-group">' + esc(l.groupDisplay || l.group) + '</div>'
+        + '<div class="report-meta">'
+        + '<span class="report-teacher">' + esc(l.teacher) + '</span>'
+        + (l.pm ? '<span class="report-pm">' + esc(l.pm) + '</span>' : '')
+        + '</div>';
+
+      // Статус
+      const sc = { pending: "rs-pending", overdue: "rs-overdue", done: "rs-done", notime: "rs-notime" };
+      const ico = { pending: "○", overdue: "⚠", done: "✓", notime: "—" };
+      const st = document.createElement("div");
+      st.className = "report-status " + (sc[l.status] || "rs-pending");
+      st.textContent = (ico[l.status] || "") + " " + (l.label || "");
+
+      row.appendChild(timeEl);
+      row.appendChild(info);
+      row.appendChild(st);
+      return row;
+    }
+
+    /** Вычисляет Date урока из weekStart (yyyy-MM-dd), dayNum и time (чч:мм) */
+    function _reportLessonDT(weekStartStr, dayNum, timeStr) {
+      if (!weekStartStr || dayNum === null || !timeStr) return null;
+      const [y, m, d] = weekStartStr.split("-").map(Number);
+      const offset = dayNum === 0 ? 6 : dayNum - 1; // пн=0 … вс=6
+      const lessonD = new Date(y, m - 1, d + offset);
+      const [hh, mm] = timeStr.split(":").map(Number);
+      lessonD.setHours(hh, mm, 0, 0);
+      return lessonD;
+    }
+
+    function _showReportError(msg) {
+      const el = $("reportError");
+      el.textContent = "Ошибка: " + msg;
+      _show(el);
+    }
+
+  </script>
+</body>
+
+</html>

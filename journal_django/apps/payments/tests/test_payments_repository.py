@@ -1,0 +1,443 @@
+"""
+Integration-тесты для PaymentsRepository.
+
+Используют реальную БД (managed=False, продовая).
+Все созданные строки удаляются в teardown (через фикстуры conftest.py).
+
+Критично проверяют:
+  - create_payment: успех / cap_exceeded / no_capacity / direction_not_found
+  - list_payments: фильтры student/direction/from/to, сортировка DESC
+  - get_payment: существующий / несуществующий
+  - delete_payment: корректный new_balance
+  - get_student_balance / _balance_for_direction: числовые типы (int vs float,
+    '8' не '8.0'), half-lesson 0.5, сырые строки в payments внутри ответа
+"""
+from __future__ import annotations
+
+import pytest
+from django.db import connection
+
+from apps.payments import repository
+
+
+# ---------------------------------------------------------------------------
+# Tests: create_payment
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestCreatePayment:
+    """create_payment — создание оплаты."""
+
+    def test_success_returns_payment(self, direction_fixture, student_fixture):
+        data = {
+            'student_id': student_fixture,
+            'direction_id': direction_fixture,
+            'subscriptions_count': 1,
+            'unit_price': '375.00',
+            'paid_at': '2026-01-15',
+            'created_by': 'acct:1',
+        }
+        result = repository.create_payment(data)
+        try:
+            assert 'payment' in result
+            p = result['payment']
+            assert p['student_id'] == student_fixture
+            assert p['direction_id'] == direction_fixture
+            assert p['subscriptions_count'] == 1
+            assert 'id' in p
+        finally:
+            if 'payment' in result:
+                with connection.cursor() as cur:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [result['payment']['id']])
+
+    def test_rounds_unit_price_to_kopecks(self, direction_fixture, student_fixture):
+        """unit_price = 375.333... → rounds to 375.33 before storing."""
+        data = {
+            'student_id': student_fixture,
+            'direction_id': direction_fixture,
+            'subscriptions_count': 1,
+            'unit_price': '375.333',
+            'paid_at': '2026-01-15',
+        }
+        result = repository.create_payment(data)
+        try:
+            assert 'payment' in result
+            price_str = str(result['payment']['unit_price'])
+            # Rounded to 2 dp
+            assert float(price_str) == pytest.approx(375.33, abs=0.001)
+        finally:
+            if 'payment' in result:
+                with connection.cursor() as cur:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [result['payment']['id']])
+
+    def test_direction_not_found(self, student_fixture):
+        data = {
+            'student_id': student_fixture,
+            'direction_id': 999_999_999,
+            'subscriptions_count': 1,
+            'unit_price': '1000.00',
+            'paid_at': '2026-01-15',
+        }
+        result = repository.create_payment(data)
+        assert result == {'error': 'direction_not_found'}
+
+    def test_no_capacity_direction_without_total_lessons(self, student_fixture):
+        """Направление без total_lessons → no_capacity."""
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO directions (name, sheet_name, is_individual, active)
+                VALUES ('__no_cap_dir__', '__sheet__', false, true)
+                RETURNING id
+                """,
+            )
+            dir_id = cur.fetchone()[0]
+
+        try:
+            data = {
+                'student_id': student_fixture,
+                'direction_id': dir_id,
+                'subscriptions_count': 1,
+                'unit_price': '1000.00',
+                'paid_at': '2026-01-15',
+            }
+            result = repository.create_payment(data)
+            assert result == {'error': 'no_capacity'}
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM directions WHERE id = %s', [dir_id])
+
+    def test_cap_exceeded(self, direction_fixture, student_fixture):
+        """
+        direction_fixture: total_lessons=8 → cap=2.
+        Создаём 2 оплаты (already=2), третья → cap_exceeded.
+        """
+        created_ids = []
+        try:
+            for _ in range(2):
+                data = {
+                    'student_id': student_fixture,
+                    'direction_id': direction_fixture,
+                    'subscriptions_count': 1,
+                    'unit_price': '500.00',
+                    'paid_at': '2026-01-15',
+                }
+                r = repository.create_payment(data)
+                assert 'payment' in r, f'Expected payment, got: {r}'
+                created_ids.append(r['payment']['id'])
+
+            # Третья должна упасть
+            result = repository.create_payment(data)
+            assert result['error'] == 'cap_exceeded'
+            assert result['already'] == 2
+            assert result['cap_subscriptions'] == 2
+        finally:
+            with connection.cursor() as cur:
+                for pid in created_ids:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [pid])
+
+
+# ---------------------------------------------------------------------------
+# Tests: list_payments
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestListPayments:
+
+    def test_returns_list(self):
+        result = repository.list_payments()
+        assert isinstance(result, list)
+
+    def test_filter_by_student_id(self, payment_fixture, student_fixture):
+        result = repository.list_payments(student_id=student_fixture)
+        assert any(p['id'] == payment_fixture for p in result)
+        for p in result:
+            assert p['student_id'] == student_fixture
+
+    def test_filter_by_direction_id(self, payment_fixture, direction_fixture):
+        result = repository.list_payments(direction_id=direction_fixture)
+        assert any(p['id'] == payment_fixture for p in result)
+        for p in result:
+            assert p['direction_id'] == direction_fixture
+
+    def test_filter_by_from_excludes_earlier(self, payment_fixture, student_fixture):
+        # payment_fixture has paid_at='2026-01-01'
+        result = repository.list_payments(student_id=student_fixture, from_='2026-01-02')
+        assert not any(p['id'] == payment_fixture for p in result)
+
+    def test_filter_by_from_includes_same_date(self, payment_fixture, student_fixture):
+        result = repository.list_payments(student_id=student_fixture, from_='2026-01-01')
+        assert any(p['id'] == payment_fixture for p in result)
+
+    def test_filter_by_to_excludes_later(self, payment_fixture, student_fixture):
+        result = repository.list_payments(student_id=student_fixture, to='2025-12-31')
+        assert not any(p['id'] == payment_fixture for p in result)
+
+    def test_filter_by_to_includes_same_date(self, payment_fixture, student_fixture):
+        result = repository.list_payments(student_id=student_fixture, to='2026-01-01')
+        assert any(p['id'] == payment_fixture for p in result)
+
+    def test_rows_have_student_name(self, payment_fixture, student_fixture):
+        result = repository.list_payments(student_id=student_fixture)
+        p = next(r for r in result if r['id'] == payment_fixture)
+        assert p['student_name'] == '__pay_test_student__'
+
+    def test_sorted_by_paid_at_desc_then_id_desc(self, student_fixture, direction_fixture):
+        """Результат отсортирован DESC по paid_at, DESC по id."""
+        created_ids = []
+        try:
+            for date in ['2026-02-01', '2026-01-01']:
+                r = repository.create_payment({
+                    'student_id': student_fixture,
+                    'direction_id': direction_fixture,
+                    'subscriptions_count': 1,
+                    'unit_price': '500.00',
+                    'paid_at': date,
+                })
+                created_ids.append(r['payment']['id'])
+
+            result = repository.list_payments(student_id=student_fixture)
+            dates = [r['paid_at'] for r in result]
+            # Should be DESC
+            assert dates == sorted(dates, reverse=True)
+        finally:
+            with connection.cursor() as cur:
+                for pid in created_ids:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [pid])
+
+    def test_nonexistent_student_returns_empty(self):
+        result = repository.list_payments(student_id=999_999_999)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_payment
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestGetPayment:
+
+    def test_returns_dict_for_existing(self, payment_fixture):
+        result = repository.get_payment(payment_fixture)
+        assert result is not None
+        assert result['id'] == payment_fixture
+
+    def test_returns_none_for_nonexistent(self):
+        result = repository.get_payment(999_999_999)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: delete_payment
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestDeletePayment:
+
+    def test_deletes_and_returns_true(self, direction_fixture, student_fixture):
+        r = repository.create_payment({
+            'student_id': student_fixture,
+            'direction_id': direction_fixture,
+            'subscriptions_count': 1,
+            'unit_price': '1000.00',
+            'paid_at': '2026-03-01',
+        })
+        pid = r['payment']['id']
+        result = repository.delete_payment(pid)
+        assert result['deleted'] is True
+        assert result['student_id'] == student_fixture
+        assert result['direction_id'] == direction_fixture
+        # new_balance после удаления единственной оплаты = 0 (purchased was 4, now 0)
+        assert isinstance(result['new_balance'], (int, float))
+
+    def test_delete_nonexistent_returns_false(self):
+        result = repository.delete_payment(999_999_999)
+        assert result == {'deleted': False}
+
+    def test_new_balance_recalculated_after_delete(
+        self, direction_fixture, student_fixture, membership_fixture, lesson_60_fixture,
+    ):
+        """Удаление оплаты уменьшает new_balance: purchased=4, attended=1 → balance=3."""
+        # Посещение урока 60 мин (PK = (lesson_id, student_id))
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s, %s, true)',
+                [lesson_60_fixture, student_fixture],
+            )
+
+        ids = []
+        try:
+            # Создаём 2 оплаты: subscriptions_count=1 каждая → purchased=8
+            for _ in range(2):
+                r = repository.create_payment({
+                    'student_id': student_fixture,
+                    'direction_id': direction_fixture,
+                    'subscriptions_count': 1,
+                    'unit_price': '1000.00',
+                    'paid_at': '2026-03-01',
+                })
+                ids.append(r['payment']['id'])
+
+            # Удаляем одну оплату → purchased = 4, attended = 1 → balance = 3
+            del_result = repository.delete_payment(ids[0])
+            assert del_result['deleted'] is True
+            assert del_result['new_balance'] == 3
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    'DELETE FROM lesson_attendance WHERE lesson_id = %s AND student_id = %s',
+                    [lesson_60_fixture, student_fixture],
+                )
+            if len(ids) > 1:
+                with connection.cursor() as cur:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [ids[1]])
+
+
+# ---------------------------------------------------------------------------
+# Tests: _balance_for_direction и get_student_balance (числовые типы)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestBalanceNumericTypes:
+    """
+    Критичные тесты паритета с Express.
+
+    Express: Number(x) → целые = int (JSON: 8, не 8.0), дробные = float.
+    Python _js_number: Decimal('8.0') → 8 (int), Decimal('7.5') → 7.5 (float).
+    """
+
+    def test_purchased_is_int_when_whole(self, payment_fixture, student_fixture, direction_fixture):
+        """subscriptions_count=1 → purchased_lessons=4 → int, не float."""
+        balance = repository.get_student_balance(student_fixture)
+        d = next(
+            (d for d in balance['per_direction'] if d['direction_id'] == direction_fixture),
+            None,
+        )
+        assert d is not None
+        assert d['purchased_lessons'] == 4
+        assert isinstance(d['purchased_lessons'], int), (
+            f"Expected int, got {type(d['purchased_lessons'])}: {d['purchased_lessons']!r}"
+        )
+
+    def test_balance_is_int_when_whole(self, payment_fixture, student_fixture, direction_fixture):
+        """Нет посещений → balance = 4 → int."""
+        balance = repository.get_student_balance(student_fixture)
+        d = next(d for d in balance['per_direction'] if d['direction_id'] == direction_fixture)
+        assert d['balance'] == 4
+        assert isinstance(d['balance'], int)
+
+    def test_attended_half_lesson_is_float(
+        self,
+        payment_fixture,
+        student_fixture,
+        direction_fixture,
+        membership_fixture,
+        lesson_45_fixture,
+    ):
+        """lesson_duration_minutes=45 → attended_lessons=0.5 → float."""
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s, %s, true)',
+                [lesson_45_fixture, student_fixture],
+            )
+
+        try:
+            balance = repository.get_student_balance(student_fixture)
+            d = next(d for d in balance['per_direction'] if d['direction_id'] == direction_fixture)
+            assert d['attended_lessons'] == 0.5
+            assert isinstance(d['attended_lessons'], float)
+            assert d['balance'] == 3.5
+            assert isinstance(d['balance'], float)
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    'DELETE FROM lesson_attendance WHERE lesson_id = %s AND student_id = %s',
+                    [lesson_45_fixture, student_fixture],
+                )
+
+    def test_balance_for_direction_full_lessons_is_int(
+        self,
+        payment_fixture,
+        student_fixture,
+        direction_fixture,
+        membership_fixture,
+        lesson_60_fixture,
+    ):
+        """60мин урок: attended=1 (int), balance=3 (int)."""
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s, %s, true)',
+                [lesson_60_fixture, student_fixture],
+            )
+
+        try:
+            bal = repository._balance_for_direction(student_fixture, direction_fixture)
+            assert bal == 3
+            assert isinstance(bal, int)
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    'DELETE FROM lesson_attendance WHERE lesson_id = %s AND student_id = %s',
+                    [lesson_60_fixture, student_fixture],
+                )
+
+    def test_balance_for_direction_half_lesson_is_float(
+        self,
+        payment_fixture,
+        student_fixture,
+        direction_fixture,
+        membership_fixture,
+        lesson_45_fixture,
+    ):
+        """45мин урок: balance=3.5 (float)."""
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s, %s, true)',
+                [lesson_45_fixture, student_fixture],
+            )
+
+        try:
+            bal = repository._balance_for_direction(student_fixture, direction_fixture)
+            assert bal == 3.5
+            assert isinstance(bal, float)
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    'DELETE FROM lesson_attendance WHERE lesson_id = %s AND student_id = %s',
+                    [lesson_45_fixture, student_fixture],
+                )
+
+    def test_total_paid_amount_is_number(self, payment_fixture, student_fixture):
+        """total_paid_amount — число (int или float), не строка."""
+        balance = repository.get_student_balance(student_fixture)
+        assert isinstance(balance['total_paid_amount'], (int, float))
+
+    def test_payments_in_balance_are_raw_dicts(self, payment_fixture, student_fixture):
+        """
+        payments внутри get_student_balance — сырые строки из list_payments.
+        unit_price и total_amount — Decimal (→ renderer выдаст строки, как Express).
+        НЕ трогаем их типы — они уже совпадают с Express.
+        """
+        from decimal import Decimal
+        balance = repository.get_student_balance(student_fixture)
+        assert isinstance(balance['payments'], list)
+        p = next(py for py in balance['payments'] if py['id'] == payment_fixture)
+        # Decimal (не float, не int) — renderer сам конвертирует в строку
+        assert isinstance(p['unit_price'], Decimal)
+        assert isinstance(p['total_amount'], Decimal)
+
+    def test_no_payments_returns_empty_per_direction(self):
+        """Ученик без оплат → per_direction пусто, total_balance=0."""
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO students (full_name, enrollment_status) VALUES ('__bal_empty__', 'enrolled') RETURNING id",
+            )
+            sid = cur.fetchone()[0]
+        try:
+            balance = repository.get_student_balance(sid)
+            assert balance['per_direction'] == []
+            assert balance['total_balance'] == 0
+            assert balance['payments'] == []
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM students WHERE id = %s', [sid])

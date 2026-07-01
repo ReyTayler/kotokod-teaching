@@ -1,0 +1,45 @@
+/* ── BASE TYPOGRAPHY — applies to all heading levels unless overridden ── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--text);
+}
+h1 { font-size: 24px; }
+h2 { font-size: 18px; }
+h3 { font-size: 16px; }
+h4 { font-size: 14px; }
+
+/* Monospace presentation for data — numbers, ids, timestamps */
+.mono, .id-cell, code, kbd, samp {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Selection — uses accent for cohesion */
+::selection { background: var(--accent-soft); color: var(--text); }
+
+/* Focus ring — single style, applied via :focus-visible */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ── LAYOUT ── */
+.shell { display: flex; min-height: 100vh; }
+.sidebar {
+  width: var(--sidebar-w);
+  min-height: 100vh;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  flex-shrink: 0;
+}
+.main { flex: 1; padding: 28px 32px; min-width: 0; overflow-y: auto; }

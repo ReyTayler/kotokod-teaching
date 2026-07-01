@@ -1,0 +1,159 @@
+"""
+StudentsView — тонкие APIView для /api/admin/students.
+
+Зеркалит Express routes/admin/students.js:
+  GET    /api/admin/students           → список + пагинация → 200
+  GET    /api/admin/students/:id       → один ученик → 200 | 404
+  GET    /api/admin/students/:id/stats → посещаемость → 200 | 404
+  GET    /api/admin/students/:id/balance → баланс → 200
+  POST   /api/admin/students           → создать → 201
+  PATCH  /api/admin/students/:id       → обновить → 200 | 404
+  DELETE /api/admin/students/:id       → soft-delete → 204 | 404
+
+Права: только manager или admin (IsManagerOrAdmin).
+"""
+from __future__ import annotations
+
+from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.core.permissions import IsManagerOrAdmin
+from apps.students import services
+from apps.students.serializers import StudentUpdateSerializer, StudentWriteSerializer
+
+# Допустимые значения sort_by (whitelist)
+ORDERING_FIELDS = [
+    'id', 'full_name', 'age', 'school_grade',
+    'enrollment_status', 'first_purchase_date', 'created_at',
+]
+
+
+def _parse_list_params(request: Request) -> dict:
+    """
+    Извлечь и нормализовать параметры пагинации из query string.
+
+    Поддерживаемые параметры:
+      page, page_size, sort_by, sort_dir, filter[name], filter[enrollment_status], ...
+
+    Зеркалит parsePaginationRequest() из services/pagination.js.
+    Бросает ValidationError при невалидном sort_by или sort_dir.
+    """
+    qp = request.query_params
+
+    page = max(1, int(qp.get('page', 1) or 1))
+    page_size = min(500, max(1, int(qp.get('page_size', 50) or 50)))
+
+    sort_by = qp.get('sort_by', 'full_name') or 'full_name'
+    sort_dir = qp.get('sort_dir', 'asc') or 'asc'
+
+    if sort_by not in ORDERING_FIELDS:
+        raise ValidationError(
+            f"Invalid sort_by '{sort_by}'. Allowed: {ORDERING_FIELDS}"
+        )
+    if sort_dir not in ('asc', 'desc'):
+        raise ValidationError(
+            f"Invalid sort_dir '{sort_dir}'. Must be 'asc' or 'desc'."
+        )
+
+    filters: dict = {}
+    for key, value in qp.items():
+        if key.startswith('filter[') and key.endswith(']'):
+            filter_key = key[7:-1]
+            filters[filter_key] = value
+
+    return {
+        'page': page,
+        'page_size': page_size,
+        'sort_by': sort_by,
+        'sort_dir': sort_dir,
+        'filters': filters,
+    }
+
+
+class StudentListCreateView(APIView):
+    """
+    GET  /api/admin/students  — список учеников с пагинацией
+    POST /api/admin/students  — создать ученика
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        params = _parse_list_params(request)
+        result = services.list_students(**params)
+        return Response(result)
+
+    def post(self, request: Request) -> Response:
+        serializer = StudentWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        student = services.create_student(serializer.validated_data)
+        return Response(student, status=status.HTTP_201_CREATED)
+
+
+class StudentDetailView(APIView):
+    """
+    GET    /api/admin/students/:id  — получить ученика
+    PATCH  /api/admin/students/:id  — обновить ученика
+    DELETE /api/admin/students/:id  — мягкое удаление
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        student = services.get_student(pk)
+        if student is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(student)
+
+    def patch(self, request: Request, pk: int) -> Response:
+        serializer = StudentUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        updated = services.update_student(pk, serializer.validated_data)
+        if updated is None:
+            raise NotFound({'error': 'Not found'})
+
+        return Response(updated)
+
+    def delete(self, request: Request, pk: int) -> Response:
+        ok = services.soft_delete_student(pk)
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StudentStatsView(APIView):
+    """
+    GET /api/admin/students/:id/stats — посещаемость ученика.
+
+    404 если ученик не найден (в отличие от balance — там проверки нет).
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        # Проверяем существование ученика
+        student = services.get_student(pk)
+        if student is None:
+            raise NotFound({'error': 'Not found'})
+
+        stats = services.student_stats(pk)
+        return Response(stats)
+
+
+class StudentBalanceView(APIView):
+    """
+    GET /api/admin/students/:id/balance — баланс ученика по направлениям.
+
+    Express не проверяет существование ученика — просто возвращает данные.
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        balance = services.get_student_balance(pk)
+        return Response(balance)

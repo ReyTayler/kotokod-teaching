@@ -1,0 +1,253 @@
+/* Базовые токены родом из legacy admin SPA (<style>), далее развиты в design-system */
+
+@font-face {
+  font-family: 'Steppe';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/admin/fonts/Steppe-Regular-BQ56mQi0.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Steppe';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/admin/fonts/Steppe-Medium-UXt39PSv.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Steppe';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/admin/fonts/Steppe-Bold-rn4yswMX.woff2') format('woff2');
+}
+
+/* Self-hosted Google Fonts (раньше грузились с fonts.googleapis.com — убрано
+   ради CSP font-src 'self' и приватности). Латиница + кириллица в одном woff2. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-800.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/admin/fonts/manrope-v20-cyrillic_latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/admin/fonts/manrope-v20-cyrillic_latin-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/admin/fonts/manrope-v20-cyrillic_latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/admin/fonts/manrope-v20-cyrillic_latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/admin/fonts/manrope-v20-cyrillic_latin-800.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/admin/fonts/jetbrains-mono-v24-cyrillic_latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/admin/fonts/jetbrains-mono-v24-cyrillic_latin-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/admin/fonts/jetbrains-mono-v24-cyrillic_latin-600.woff2') format('woff2');
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ============================================================
+ *  DESIGN TOKENS
+ *  Personality: Precision (Linear) × Sophistication (Stripe)
+ *  Palette: cool slate · single teal accent
+ *  Depth: borders-only + one subtle modal shadow
+ *  Grid: 4px base scale, technical 6/8/12 radius
+ * ============================================================ */
+:root {
+  /* Surface hierarchy (light) — cool slate */
+  --bg:        #f7f9fc;   /* canvas */
+  --bg2:       #ffffff;   /* card surface */
+  --bg3:       #f1f5f9;   /* hovered / muted surface */
+  --bg4:       #e8edf3;   /* pressed / inset */
+
+  /* Borders — semi-transparent for elegant overlay on any surface */
+  --border:    rgba(15, 23, 42, 0.08);
+  --border2:   rgba(15, 23, 42, 0.05);
+  --border-strong: rgba(15, 23, 42, 0.14);
+
+  /* Text contrast hierarchy */
+  --text:      #0f172a;   /* primary */
+  --text2:     #334155;   /* secondary */
+  --text3:     #64748b;   /* muted */
+  --text4:     #94a3b8;   /* faint */
+
+  /* Single accent — cyan-blue (KOTOKOD logo identity) */
+  --accent:        #0c9bc7;
+  --accent-hover:  #0a7fa5;
+  --accent-soft:   rgba(12, 155, 199, 0.10);
+  --accent-soft-h: rgba(12, 155, 199, 0.16);
+
+  /* Semantic — for meaning only, never decoration */
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger:  #dc2626;
+  --info:    #2563eb;
+  --green: var(--success); --amber: var(--warning); --red: var(--danger); --blue: var(--info);
+
+  /* Spacing scale — 4px grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Border radius — technical sharp (6/8 on grid) */
+  --r-sm: 6px;
+  --r:    8px;
+  --r-lg: 12px;
+
+  /* Depth — borders-only philosophy, one shadow for modal lift */
+  --shadow-modal: 0 8px 24px rgba(15, 23, 42, 0.08),
+                  0 2px 6px  rgba(15, 23, 42, 0.04);
+  --shadow-popover: 0 4px 12px rgba(15, 23, 42, 0.08),
+                    0 1px 3px  rgba(15, 23, 42, 0.04);
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Steppe', var(--font-sans);
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Motion */
+  --ease: cubic-bezier(0.25, 1, 0.5, 1);
+  --t-fast: 150ms;
+  --t-base: 200ms;
+
+  /* Layout */
+  --sidebar-w: 224px;
+}
+
+/* ── DARK THEME ── */
+[data-theme="dark"] {
+  --bg:        #0e131c;
+  --bg2:       #161c28;
+  --bg3:       #1d2532;
+  --bg4:       #232c3c;
+
+  --border:    rgba(255, 255, 255, 0.08);
+  --border2:   rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --text:      #e8edf5;
+  --text2:     #b8c4dc;
+  --text3:     #8b99b3;
+  --text4:     #6a7793;
+
+  --accent:        #3fd2ee;
+  --accent-hover:  #6fe0f6;
+  --accent-soft:   rgba(63, 210, 238, 0.12);
+  --accent-soft-h: rgba(63, 210, 238, 0.20);
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger:  #f87171;
+  --info:    #60a5fa;
+
+  --shadow-modal:   0 12px 32px rgba(0, 0, 0, 0.5),
+                    0 4px 8px   rgba(0, 0, 0, 0.3);
+  --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.4),
+                    0 1px 4px  rgba(0, 0, 0, 0.2);
+}
+/* Dark theme: boost font-weight on small label-like text so contrast compensates for size */
+[data-theme="dark"] .entity-card__label { font-weight: 700; }
+[data-theme="dark"] thead th { font-weight: 800; font-size: 10.5px; }
+[data-theme="dark"] .stat-label { font-weight: 800; }
+[data-theme="dark"] .progress-card-label { font-weight: 800; }
+[data-theme="dark"] .dir-card-name { letter-spacing: .07em; }
+[data-theme="dark"] .memberships__head { font-weight: 800; }
+/* sidebar dark theme: handled by token var(--bg) — no override needed */
+/* modal dark theme: handled by tokens var(--bg2), var(--border) — no override needed */
+[data-theme="dark"] .field input[type="date"] { color-scheme: dark; }
+[data-theme="dark"] .toggle-row { background: #1e2433 !important; border-color: #3a4660 !important; }
+[data-theme="dark"] .toggle-slider { background: #3a4660 !important; }
+/* btn-* теперь полностью на токенах — dark overrides не нужны */
+/* thead bg and tbody hover теперь идут через token var(--bg3) — отдельных dark-override не нужно */
+[data-theme="dark"] .field input[type="date"] { color-scheme: dark; }
+/* .search-input/.filter-select теперь идут через токены (var(--bg2)/var(--border)) — dark override не нужен */
+/* modal-overlay dark: handled by new token-based rgba */
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}

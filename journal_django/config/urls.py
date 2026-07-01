@@ -1,0 +1,48 @@
+"""
+URL configuration for journal_django project.
+
+Phase 0: core health endpoint.
+Phase 1: groups CRUD (/api/admin/groups).
+Phase 2: simple reference sections (teachers, directions, discounts, settings, audit, tokens).
+"""
+from django.urls import include, path
+
+from apps.core.views import HealthView
+
+urlpatterns = [
+    path('health', HealthView.as_view(), name='health'),
+    # Phase 7 — auth (/api/auth/* — ПЕРВЫМ, как в Express: /api/auth → /api/admin → /api)
+    path('api/auth', include('apps.auth_app.urls')),
+    # Phase 1 — groups
+    path('api/admin/groups', include('apps.groups.urls')),
+    # Phase 2 — simple reference sections
+    path('api/admin/teachers', include('apps.teachers.urls')),
+    path('api/admin/directions', include('apps.directions.urls')),
+    path('api/admin/discounts', include('apps.discounts.urls')),
+    path('api/admin/settings', include('apps.settings_app.urls')),
+    path('api/admin/audit-log', include('apps.audit.urls')),
+    path('api/admin/tokens', include('apps.tokens.urls')),
+    # Phase 3 — students
+    path('api/admin/students', include('apps.students.urls')),
+    # Phase 4 — memberships
+    path('api/admin/memberships', include('apps.memberships.urls')),
+    # Phase 5 — payments
+    path('api/admin/payments', include('apps.payments.urls')),
+    # Phase 6 — lessons + attendance
+    path('api/admin/lessons', include('apps.lessons.urls')),
+    # Phase 7 — payroll
+    path('api/admin/payroll', include('apps.payroll.urls')),
+    # Phase 8 — dashboard (FIFO read-model)
+    path('api/admin/dashboard', include('apps.dashboard.urls')),
+    # Phase 9 — accounts (admin-only RBAC)
+    path('api/admin/accounts', include('apps.accounts.urls')),
+    # Phase 10 — teacher SPA (/api, после /api/admin — admin стоит выше, как в Express)
+    path('api', include('apps.teacher_spa.urls')),
+]
+
+# ---------------------------------------------------------------------------
+# Статику фронтенда раздаёт nginx — и в проде, и локально (dev/prod parity):
+#   - прод:     deploy/nginx/journal-kotokod.conf
+#   - локально:  deploy/nginx/local/nginx.conf (Windows) → проксирует /api на runserver
+# Django сам статику не отдаёт. См. deploy/README.md (раздел «Локальный запуск»).
+# ---------------------------------------------------------------------------

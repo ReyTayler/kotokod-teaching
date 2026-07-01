@@ -1,0 +1,57 @@
+# ── Секреты / креды (НИКОГДА не коммитить) ─────────────────
+.env
+.env.*
+!.env.example
+service-account-key.json
+*.pem
+*.key
+*.p12
+
+# ── Данные / бэкапы (ПДн) ──────────────────────────────────
+# ВНИМАНИЕ: db/migrations/*.sql — это схема проекта, её оставляем.
+# Дампы с персональными данными лежат только в backups/ — исключаем папкой.
+backups/
+db.sqlite3
+*.sqlite3
+
+# ── Логи (кроме .gitkeep) ──────────────────────────────────
+logs/*
+!logs/.gitkeep
+
+# ── Python ─────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+# Django runtime-артефакты
+staticfiles/
+mediafiles/
+media/
+
+# ── Node ───────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+.vite/
+.eslintcache
+
+# ── Локальный тулинг Claude Code / агентов ─────────────────
+.claude/
+.agents/
+skills-lock.json
+
+# ── ОС / редакторы ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# ── Скриншоты в корне (могут содержать ПДн) ────────────────
+/Снимок экрана*.png
+/*.png

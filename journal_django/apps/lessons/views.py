@@ -1,0 +1,160 @@
+"""
+Тонкие APIView для /api/admin/lessons.
+
+Зеркалит Express routes/admin/lessons.js:
+  GET    /api/admin/lessons                                   → список {rows,total,page,page_size}
+  GET    /api/admin/lessons/:id                               → полный урок | 404
+  POST   /api/admin/lessons                                   → 201 (полный урок)
+  PATCH  /api/admin/lessons/:id                               → 200 | 404
+  DELETE /api/admin/lessons/:id                               → 204 | 404
+  PATCH  /api/admin/lessons/:lessonId/attendance/:studentId   → 200 {ok:true} | 404
+
+Права: только manager или admin (IsManagerOrAdmin).
+
+Сортировка: тихий fallback на default (как Express paginate()), без 400.
+Back-compat: top-level query group_id/teacher_id/date_from/date_to мержатся
+в filters, если соответствующий filter[*] не передан (зеркало lessons.js:18-21).
+"""
+from __future__ import annotations
+
+from rest_framework import status
+from rest_framework.exceptions import NotFound
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.core.permissions import IsManagerOrAdmin
+from apps.lessons import services
+from apps.lessons.serializers import (
+    AttendanceUpdateSerializer,
+    LessonCreateSerializer,
+    LessonUpdateSerializer,
+)
+
+_DEFAULT_SORT_BY = 'lesson_date'
+_DEFAULT_SORT_DIR = 'desc'
+_DEFAULT_PAGE_SIZE = 50
+_MAX_PAGE_SIZE = 500
+
+
+def _parse_list_params(request: Request) -> dict:
+    """
+    Извлечь параметры пагинации/фильтров из query string.
+
+    Зеркалит parsePaginationRequest() (services/pagination.js) + back-compat merge
+    top-level фильтров из routes/admin/lessons.js.
+    sort_by/sort_dir НЕ валидируются здесь — fallback делает repository (как Express).
+    """
+    qp = request.query_params
+
+    # Зеркалим JS-семантику Number(x) || default (0/NaN — falsy → default),
+    # см. parsePaginationRequest (services/pagination.js:49-52).
+    try:
+        page = max(1, int(qp.get('page') or 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        raw_page_size = int(qp.get('page_size') or 0)
+    except (TypeError, ValueError):
+        raw_page_size = 0
+    page_size = min(_MAX_PAGE_SIZE, max(1, raw_page_size or _DEFAULT_PAGE_SIZE))
+
+    sort_by = qp.get('sort_by') or _DEFAULT_SORT_BY
+    sort_dir = qp.get('sort_dir')
+    if sort_dir not in ('asc', 'desc'):
+        sort_dir = _DEFAULT_SORT_DIR
+
+    # filter[key]=value
+    filters: dict = {}
+    for key, value in qp.items():
+        if key.startswith('filter[') and key.endswith(']'):
+            filters[key[7:-1]] = value
+
+    # Back-compat: top-level фильтры (lessons.js:18-21), filter[*] имеет приоритет.
+    if qp.get('group_id') and 'group_id' not in filters:
+        filters['group_id'] = qp['group_id']
+    if qp.get('teacher_id') and 'teacher_id' not in filters:
+        filters['teacher_id'] = qp['teacher_id']
+    if qp.get('date_from') and 'lesson_date_from' not in filters:
+        filters['lesson_date_from'] = qp['date_from']
+    if qp.get('date_to') and 'lesson_date_to' not in filters:
+        filters['lesson_date_to'] = qp['date_to']
+
+    return {
+        'page': page,
+        'page_size': page_size,
+        'sort_by': sort_by,
+        'sort_dir': sort_dir,
+        'filters': filters,
+    }
+
+
+class LessonListCreateView(APIView):
+    """
+    GET  /api/admin/lessons  — список уроков
+    POST /api/admin/lessons  — создать урок (транзакция)
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        params = _parse_list_params(request)
+        return Response(services.list_lessons(**params))
+
+    def post(self, request: Request) -> Response:
+        serializer = LessonCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        lesson_id = services.create_lesson_full(serializer.validated_data)
+        full = services.get_lesson_full(lesson_id)
+        return Response(full, status=status.HTTP_201_CREATED)
+
+
+class LessonDetailView(APIView):
+    """
+    GET    /api/admin/lessons/:id  — полный урок
+    PATCH  /api/admin/lessons/:id  — обновить meta
+    DELETE /api/admin/lessons/:id  — удалить (CASCADE)
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        lesson = services.get_lesson_full(pk)
+        if lesson is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(lesson)
+
+    def patch(self, request: Request, pk: int) -> Response:
+        serializer = LessonUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        updated = services.update_lesson(pk, serializer.validated_data)
+        if updated is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(updated)
+
+    def delete(self, request: Request, pk: int) -> Response:
+        ok = services.delete_lesson_full(pk)
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AttendanceCellView(APIView):
+    """
+    PATCH /api/admin/lessons/:lessonId/attendance/:studentId — toggle одной ячейки.
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def patch(self, request: Request, lesson_id: int, student_id: int) -> Response:
+        serializer = AttendanceUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        ok = services.update_attendance_cell(
+            lesson_id, student_id, serializer.validated_data['present']
+        )
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response({'ok': True})

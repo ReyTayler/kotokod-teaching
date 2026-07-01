@@ -1,0 +1,425 @@
+"""
+E2E тесты для /api/admin/students.
+
+Используют DRF APIClient с реальной БД (managed=False, продовая).
+Все созданные строки удаляются в teardown (прямой DELETE через connection).
+Паттерн очистки — зеркало Nest e2e (test/nest/groups.e2e.test.js) after().
+
+Cookie:
+  Генерируются через _make_cookie() из conftest.py — идентично Node.js sign().
+  ADMIN_COOKIE_SECRET переопределяется через pytest-django фикстуру settings.
+
+Тестируемые кейсы:
+  - без cookie → 401
+  - cookie role=teacher → 403
+  - cookie role=admin → 200 (список)
+  - cookie role=manager → 200 (список)
+  - Форма list-ответа: {rows, total, page, page_size}
+  - Фильтры: enrollment_status, full_name (нет совпадений)
+  - Сортировка: невалидный sort_by → 400
+  - GET /:id → 200 с нужными полями
+  - GET /999999999 → 404 {error: 'Not found'}
+  - GET /:id/stats → 200 с {student_id, directions, groups, overall}
+  - GET /999999999/stats → 404
+  - GET /:id/balance → 200 с {per_direction, total_balance, total_paid_amount, payments}
+  - POST → 201, ученик создан в БД
+  - POST без full_name → 400
+  - POST с frozen без frozen_until_month → 400
+  - PATCH → 200
+  - PATCH /999999999 → 404
+  - DELETE → 204, enrollment_status='not_enrolled'
+  - DELETE /999999999 → 404
+"""
+from __future__ import annotations
+
+import pytest
+from django.db import connection
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+BASE_URL = '/api/admin/students'
+
+
+def _cleanup_student(student_id: int) -> None:
+    """Прямой DELETE — аналог Nest e2e after() через пул."""
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM students WHERE id = %s', [student_id])
+
+
+def _student_payload(**overrides) -> dict:
+    return {
+        'full_name': '__test_api_student__',
+        **overrides,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Authentication / authorization tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_no_cookie_returns_401(anon_client):
+    resp = anon_client.get(BASE_URL)
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_teacher_cookie_returns_403(teacher_client):
+    resp = teacher_client.get(BASE_URL)
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_cookie_returns_200(admin_client):
+    resp = admin_client.get(BASE_URL)
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_manager_cookie_returns_200(manager_client):
+    resp = manager_client.get(BASE_URL)
+    assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/students — list
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_list_response_shape(admin_client):
+    """Ответ содержит {rows, total, page, page_size} — как Express paginate()."""
+    resp = admin_client.get(BASE_URL)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert 'rows' in data, f"Expected 'rows' key, got: {list(data.keys())}"
+    assert 'total' in data
+    assert 'page' in data
+    assert 'page_size' in data
+    assert isinstance(data['rows'], list)
+    assert isinstance(data['total'], int)
+    assert data['page'] == 1
+
+
+@pytest.mark.django_db
+def test_list_filter_enrollment_status(admin_client):
+    resp = admin_client.get(BASE_URL + '?filter[enrollment_status]=enrolled')
+    assert resp.status_code == 200
+    for row in resp.json()['rows']:
+        assert row['enrollment_status'] == 'enrolled'
+
+
+@pytest.mark.django_db
+def test_list_filter_full_name_no_match(admin_client):
+    resp = admin_client.get(BASE_URL + '?filter[full_name]=__nonexistent_xyz_student__')
+    assert resp.status_code == 200
+    assert resp.json()['rows'] == []
+
+
+@pytest.mark.django_db
+def test_list_sort_by_invalid_returns_400(admin_client):
+    resp = admin_client.get(BASE_URL + '?sort_by=nonexistent_field')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_list_sort_dir_invalid_returns_400(admin_client):
+    resp = admin_client.get(BASE_URL + '?sort_dir=sideways')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_list_page_size_param(admin_client):
+    resp = admin_client.get(BASE_URL + '?page_size=2')
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data['page_size'] == 2
+    assert len(data['rows']) <= 2
+
+
+@pytest.mark.django_db
+def test_list_sort_by_full_name_asc(admin_client):
+    resp = admin_client.get(BASE_URL + '?sort_by=full_name&sort_dir=asc&page_size=10')
+    assert resp.status_code == 200
+    assert isinstance(resp.json()['rows'], list)
+
+
+@pytest.mark.django_db
+def test_list_sort_by_created_at(admin_client):
+    resp = admin_client.get(BASE_URL + '?sort_by=created_at&sort_dir=desc&page_size=5')
+    assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/students/:id — retrieve
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_retrieve_nonexistent_returns_404(admin_client):
+    """Точный формат 404 — {error: 'Not found'}."""
+    resp = admin_client.get(f'{BASE_URL}/999999999')
+    assert resp.status_code == 404
+    assert resp.json() == {'error': 'Not found'}
+
+
+@pytest.mark.django_db
+def test_retrieve_existing_returns_200(admin_client):
+    from apps.students import repository
+    student = repository.create_student({'full_name': '__test_api_get__'})
+    try:
+        resp = admin_client.get(f"{BASE_URL}/{student['id']}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body['id'] == student['id']
+        assert body['full_name'] == '__test_api_get__'
+        assert 'enrollment_status' in body
+        assert 'created_at' in body
+    finally:
+        _cleanup_student(student['id'])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/students/:id/stats
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_stats_nonexistent_returns_404(admin_client):
+    resp = admin_client.get(f'{BASE_URL}/999999999/stats')
+    assert resp.status_code == 404
+    assert resp.json() == {'error': 'Not found'}
+
+
+@pytest.mark.django_db
+def test_stats_existing_returns_200(admin_client):
+    from apps.students import repository
+    student = repository.create_student({'full_name': '__test_api_stats__'})
+    try:
+        resp = admin_client.get(f"{BASE_URL}/{student['id']}/stats")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert 'student_id' in body
+        assert 'directions' in body
+        assert 'groups' in body
+        assert 'overall' in body
+        assert body['student_id'] == student['id']
+        assert isinstance(body['directions'], list)
+        assert isinstance(body['groups'], list)
+    finally:
+        _cleanup_student(student['id'])
+
+
+@pytest.mark.django_db
+def test_stats_overall_shape(admin_client):
+    """overall содержит нужные ключи."""
+    from apps.students import repository
+    student = repository.create_student({'full_name': '__test_api_stats_overall__'})
+    try:
+        resp = admin_client.get(f"{BASE_URL}/{student['id']}/stats")
+        assert resp.status_code == 200
+        overall = resp.json()['overall']
+        for key in ['lessons_recorded', 'attended_count', 'missed_count',
+                    'denominator', 'attendance_pct', 'this_month']:
+            assert key in overall
+    finally:
+        _cleanup_student(student['id'])
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/students/:id/balance
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_balance_returns_200_for_new_student(admin_client):
+    """Express не проверяет существование — просто возвращает данные."""
+    from apps.students import repository
+    student = repository.create_student({'full_name': '__test_api_balance__'})
+    try:
+        resp = admin_client.get(f"{BASE_URL}/{student['id']}/balance")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert 'per_direction' in body
+        assert 'total_balance' in body
+        assert 'total_paid_amount' in body
+        assert 'payments' in body
+    finally:
+        _cleanup_student(student['id'])
+
+
+@pytest.mark.django_db
+def test_balance_nonexistent_student_returns_200(admin_client):
+    """Express не проверяет существование при /balance — возвращает пустые данные."""
+    resp = admin_client.get(f'{BASE_URL}/999999999/balance')
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body['per_direction'] == []
+    assert body['total_balance'] == 0
+    assert body['total_paid_amount'] == 0
+    assert body['payments'] == []
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/students — create
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_create_returns_201(admin_client):
+    payload = _student_payload(full_name='__test_post_201__')
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    if resp.status_code == 201:
+        _cleanup_student(resp.json()['id'])
+    assert resp.status_code == 201
+
+
+@pytest.mark.django_db
+def test_create_persists_in_db(admin_client):
+    from apps.students import repository
+    payload = _student_payload(full_name='__test_post_db__')
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    assert resp.status_code == 201
+    sid = resp.json()['id']
+    try:
+        fetched = repository.get_student(sid)
+        assert fetched is not None
+        assert fetched['full_name'] == '__test_post_db__'
+    finally:
+        _cleanup_student(sid)
+
+
+@pytest.mark.django_db
+def test_create_missing_full_name_returns_400(admin_client):
+    resp = admin_client.post(BASE_URL, {'phone': '+79001234567'}, format='json')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_create_frozen_without_month_returns_400(admin_client):
+    """frozen status requires frozen_until_month — бизнес-правило."""
+    payload = _student_payload(
+        full_name='__test_post_frozen_bad__',
+        enrollment_status='frozen',
+        # frozen_until_month отсутствует
+    )
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_create_frozen_with_month_returns_201(admin_client):
+    payload = _student_payload(
+        full_name='__test_post_frozen_ok__',
+        enrollment_status='frozen',
+        frozen_until_month=4,
+    )
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    if resp.status_code == 201:
+        _cleanup_student(resp.json()['id'])
+    assert resp.status_code == 201
+
+
+@pytest.mark.django_db
+def test_create_with_school_grade_and_age(admin_client):
+    payload = _student_payload(
+        full_name='__test_post_grade__',
+        school_grade=8,
+        age=14,
+    )
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    assert resp.status_code == 201
+    body = resp.json()
+    try:
+        assert body['school_grade'] == 8
+        assert body['age'] == 14
+    finally:
+        _cleanup_student(body['id'])
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/admin/students/:id — update
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def existing_student():
+    """Создаёт студента и удаляет его после теста."""
+    from apps.students import repository
+    student = repository.create_student({'full_name': '__test_patch_student__'})
+    yield student
+    _cleanup_student(student['id'])
+
+
+@pytest.mark.django_db
+def test_patch_returns_200(admin_client, existing_student):
+    resp = admin_client.patch(
+        f"{BASE_URL}/{existing_student['id']}",
+        {'full_name': '__test_patch_name_new__'},
+        format='json',
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_patch_updates_full_name(admin_client, existing_student):
+    resp = admin_client.patch(
+        f"{BASE_URL}/{existing_student['id']}",
+        {'full_name': '__test_patch_name_updated__'},
+        format='json',
+    )
+    assert resp.status_code == 200
+    assert resp.json()['full_name'] == '__test_patch_name_updated__'
+
+
+@pytest.mark.django_db
+def test_patch_nonexistent_returns_404(admin_client):
+    resp = admin_client.patch(
+        f'{BASE_URL}/999999999',
+        {'full_name': 'ghost'},
+        format='json',
+    )
+    assert resp.status_code == 404
+    assert resp.json() == {'error': 'Not found'}
+
+
+@pytest.mark.django_db
+def test_patch_school_grade(admin_client, existing_student):
+    resp = admin_client.patch(
+        f"{BASE_URL}/{existing_student['id']}",
+        {'school_grade': 9},
+        format='json',
+    )
+    assert resp.status_code == 200
+    assert resp.json()['school_grade'] == 9
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/admin/students/:id — soft delete
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_delete_returns_204(admin_client):
+    from apps.students import repository
+    student = repository.create_student({'full_name': '__test_del_204__'})
+    try:
+        resp = admin_client.delete(f"{BASE_URL}/{student['id']}")
+        assert resp.status_code == 204
+    finally:
+        _cleanup_student(student['id'])
+
+
+@pytest.mark.django_db
+def test_delete_sets_not_enrolled(admin_client):
+    from apps.students import repository
+    student = repository.create_student({'full_name': '__test_del_status__'})
+    try:
+        resp = admin_client.delete(f"{BASE_URL}/{student['id']}")
+        assert resp.status_code == 204
+        fetched = repository.get_student(student['id'])
+        assert fetched['enrollment_status'] == 'not_enrolled'
+    finally:
+        _cleanup_student(student['id'])
+
+
+@pytest.mark.django_db
+def test_delete_nonexistent_returns_404(admin_client):
+    resp = admin_client.delete(f'{BASE_URL}/999999999')
+    assert resp.status_code == 404
+    assert resp.json() == {'error': 'Not found'}

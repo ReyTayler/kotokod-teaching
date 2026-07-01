@@ -1,0 +1,475 @@
+/* ============================================================
+ *  ERROR FALLBACK
+ *  Centered card shown when ErrorBoundary catches a render crash.
+ * ============================================================ */
+
+.error-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  min-height: 320px;
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+}
+
+.error-fallback__title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.error-fallback__text {
+  font-size: 14px;
+  color: var(--text3);
+  max-width: 360px;
+  line-height: 1.6;
+}
+
+/* Reuse .btn-save styles; cancel its auto left-margin via higher specificity */
+.error-fallback .error-fallback__btn {
+  margin-left: 0;
+}
+
+/* ============================================================
+ *  DASHBOARD PAGE
+ * ============================================================ */
+
+.dashboard {
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 1100px;
+}
+
+.dashboard__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.dashboard__title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.dashboard__month {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text3);
+  text-transform: lowercase;
+}
+
+/* ── KPI grid — 4 cols → 2 → 1 ── */
+.dashboard__kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .dashboard__kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard__kpis {
+    grid-template-columns: 1fr;
+  }
+  .dashboard {
+    padding: var(--space-4);
+  }
+}
+
+/* ── KPI card ── */
+.kpi-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-modal);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kpi-card__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kpi-card__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.kpi-card__hint {
+  font-size: 12px;
+  color: var(--text4);
+}
+
+/* Tone modifiers — color on value text only, no loud backgrounds */
+.kpi-card--info .kpi-card__value {
+  color: var(--info);
+}
+
+.kpi-card--warning .kpi-card__value {
+  color: var(--warning);
+}
+
+/* ── Shared dash-card shell ── */
+.dash-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+
+.dash-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-card__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  flex: 1;
+}
+
+.dash-card__count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text3);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 1px var(--space-2);
+}
+
+/* ── Debts list ── */
+.dash-debts__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dash-debts__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border2);
+  transition: background var(--t-fast) var(--ease);
+}
+
+.dash-debts__row:last-child {
+  border-bottom: none;
+}
+
+.dash-debts__row:hover {
+  background: var(--bg3);
+}
+
+.dash-debts__name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-debts__balance {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.dash-debts__dir {
+  font-size: 12px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+.dash-debts__more {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+.dash-debts__more a {
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  transition: opacity var(--t-fast) var(--ease);
+}
+
+.dash-debts__more a:hover {
+  opacity: 0.75;
+}
+
+/* ── page-error utility (used in DashboardPage fallback) ── */
+.page-error {
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+  color: var(--text3);
+  font-size: 14px;
+}
+
+/* ============================================================
+ *  FINANCE CHARTS SECTION
+ *  Two monthly area-charts (revenue + worked-off).
+ *  Surface: same borders-only + shadow-modal as kpi-cards.
+ * ============================================================ */
+
+.finance-charts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* Controls: основной год + опциональные строки сравнения */
+.finance-charts__controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.finance-charts__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.finance-charts__year-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.finance-charts__compare-label {
+  font-size: 12px;
+  color: var(--text4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Keep the year selector compact — no need to stretch full width */
+.finance-charts__year-select {
+  min-width: 96px;
+}
+
+/* «+ сравнить» — текстовая кнопка-действие */
+.finance-charts__add {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--space-3);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.finance-charts__add:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+/* «CSV» — вторичная кнопка экспорта, прижата вправо */
+.finance-charts__export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  height: 28px;
+  padding: 0 var(--space-3);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.finance-charts__export:hover:not(:disabled) { background: var(--bg3); border-color: var(--border-strong); color: var(--text); }
+.finance-charts__export:disabled { opacity: 0.5; cursor: default; }
+
+/* Кастомный native color input — компактный квадрат-свотч */
+.finance-charts__color {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.finance-charts__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text3);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.finance-charts__remove:hover { background: var(--danger-soft, var(--bg3)); color: var(--danger); }
+
+/* Two charts stacked vertically */
+.finance-charts__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ── Individual chart card ── */
+.chart-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-modal);
+  padding: var(--space-5);
+}
+
+/* Title + legend row */
+.chart-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.chart-card__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+/* ── Year-over-year legend ── */
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+.chart-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text2);
+}
+.chart-legend__item--muted { color: var(--text3); }
+.chart-legend__swatch {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--accent);
+  border-radius: 1px;
+}
+.chart-legend__swatch--primary { border-top-color: var(--accent); }
+.chart-legend__swatch--muted { border-top: 0; border-bottom: 1.5px dashed var(--text3); }
+
+/* Note next to the year selector */
+.finance-charts__compare-note {
+  font-size: 12px;
+  color: var(--text4);
+  white-space: nowrap;
+}
+
+/* ── Recharts SVG text already themed via inline tick fill — no overrides needed ── */
+
+/* ── Chart tooltip ── */
+.chart-tooltip {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-popover);
+  padding: var(--space-2) var(--space-3);
+}
+
+.chart-tooltip__label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.chart-tooltip__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Multi-year tooltip rows (year-over-year) */
+.chart-tooltip__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 2px;
+}
+.chart-tooltip__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.chart-tooltip__year {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text3);
+  min-width: 32px;
+}
+.chart-tooltip__row .chart-tooltip__value { font-size: 13px; }

@@ -1,0 +1,52 @@
+# systemd-юнит — KOTOKOD journal Django (gunicorn за nginx).
+#
+# Установка (Beget VPS, Ubuntu 22.04, БЕЗ Docker):
+#   sudo cp deploy/systemd/journal-django.service /etc/systemd/system/
+#   # отредактировать User/WorkingDirectory/EnvironmentFile под реальные пути
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now journal-django
+#   sudo systemctl status journal-django
+#
+# Сокет /run/journal-django/gunicorn.sock создаётся gunicorn'ом; nginx (upstream)
+# читает его. RuntimeDirectory создаёт /run/journal-django/ с нужными правами.
+
+[Unit]
+Description=KOTOKOD journal Django (gunicorn/WSGI)
+After=network.target
+
+[Service]
+Type=notify
+User=kotokod                                   # ЗАМЕНИТЬ на сервисного пользователя
+Group=www-data                                 # группа, в которой nginx читает сокет
+WorkingDirectory=/opt/kotokod/journal-backend/journal_django   # ЗАМЕНИТЬ
+EnvironmentFile=/opt/kotokod/journal-backend/.env              # общий .env с Express
+Environment=DJANGO_SETTINGS_MODULE=config.settings.production
+# КРИТИЧНО: teacher /report использует МСК-семантику локального времени сервера.
+# И Node, и Django ДОЛЖНЫ работать в Europe/Moscow (иначе статус урока уезжает).
+Environment=TZ=Europe/Moscow
+
+# /run/journal-django/ создаётся systemd с владельцем User:Group (srw-rw---- для
+# сокета при umask 007 → nginx из группы www-data читает его).
+RuntimeDirectory=journal-django
+UMask=007
+ExecStart=/opt/kotokod/journal-backend/journal_django/.venv/bin/gunicorn \
+          -c /opt/kotokod/journal-backend/deploy/gunicorn.conf.py \
+          config.wsgi:application
+
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# strict делает ВСЮ ФС read-only кроме /run/journal-django (RuntimeDirectory);
+# код и .env читаются, писать сервису некуда. venv/код не модифицируются в рантайме.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+{
+  "//": "Конфиг для редактора (VS Code TS server) и bare `tsc`. Сборка Nest идёт по tsconfig.nest.json (nest build -p ...). Этот файл наследует те же опции (в т.ч. experimentalDecorators) и ограничен src/, чтобы декораторы NestJS подсвечивались корректно и не задевался web/admin (свой tsconfig).",
+  "extends": "./tsconfig.nest.json",
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "web", "public"]
+}

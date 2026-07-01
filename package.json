@@ -1,0 +1,27 @@
+{
+  "name": "journal-backend",
+  "version": "1.0.0",
+  "description": "KOTOKOD journal — Node dev-инструменты (backfill Sheets→PG, обслуживание БД). Бэкенд на Django (journal_django/), admin SPA на Vite/React (journal_django/frontend/admin-src/).",
+  "scripts": {
+    "db:migrate": "node db/migrate.js",
+    "db:reset": "psql -U journal -h localhost -d journal -c \"DROP SCHEMA public CASCADE; CREATE SCHEMA public;\"",
+    "db:truncate": "node scripts/db-truncate.js",
+    "backfill:directions": "node scripts/backfill-directions.js",
+    "backfill:teachers": "node scripts/backfill-teachers.js",
+    "backfill:tokens": "node scripts/backfill-tokens.js",
+    "backfill:groups": "node scripts/backfill-groups.js",
+    "backfill:students": "node scripts/backfill-students.js",
+    "backfill:lessons": "node scripts/backfill-lessons.js",
+    "backfill:payroll": "node scripts/backfill-payroll.js",
+    "backfill:all": "node scripts/backfill-all.js",
+    "account:create": "node scripts/create-account.js",
+    "payroll:rebuild": "node scripts/rebuild-payroll.js",
+    "counters:rebuild": "node scripts/rebuild-counters.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.3.1",
+    "googleapis": "^128.0.0",
+    "pg": "^8.21.0"
+  }
+}

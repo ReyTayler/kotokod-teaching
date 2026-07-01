@@ -1,0 +1,34 @@
+/* ── SECTION SPACING RHYTHM ── */
+.stat-grid { margin-bottom: 20px; }
+.entity-card { margin-bottom: 20px; }
+.detail-extra > div { margin-bottom: 20px; }
+.archive-section { margin-bottom: 20px; }
+
+/* ── MODAL POLISH ── */
+.field-row { gap: var(--space-4); }
+/* btn-save/btn-cancel/btn-delete/btn-add/btn-secondary — height 34px унифицирован выше */
+
+/* ── FOCUS RINGS ── */
+*:focus { outline: none; }
+*:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.nav-btn:focus-visible { outline-offset: -2px; }
+.dir-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.link-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.student-row-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.token-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.modal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── KEYBOARD-NAVIGABLE CARDS ── */
+.dir-card[tabindex], .link-card[tabindex],
+.student-row-card[tabindex], .token-row[tabindex] {
+  outline-offset: 2px;
+}
+
+/* ── BADGE DARK THEME BOOST ── */
+[data-theme="dark"] .badge { font-weight: 700; }
+
+/* ── SECTION FADE-IN ── */
+#admin-main > * { animation: fadeIn .18s ease; }
+
+/* ── SIDEBAR FIXED WIDTH ── */
+.sidebar { flex-shrink: 0; width: var(--sidebar-w); min-width: var(--sidebar-w); }

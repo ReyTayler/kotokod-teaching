@@ -1,0 +1,13 @@
+@import './tokens.css';
+@import './base.css';
+@import './shell.css';
+@import './components.css';
+@import './table.css';
+@import './forms.css';
+@import './modal.css';
+@import './pages/detail.css';
+@import './pages/settings.css';
+@import './pages/login.css';
+@import './pages/payroll.css';
+@import './pages/dashboard.css';
+@import './overrides.css';

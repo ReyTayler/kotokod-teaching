@@ -1,0 +1,13 @@
+# journal_django — production dependencies
+Django==5.1.4
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1   # JWT-auth (HttpOnly-cookie), architecture_v2 фаза 1
+psycopg2-binary==2.9.10
+django-cors-headers==4.6.0
+django-environ==0.11.2
+django-ratelimit==4.1.0                # rate-limit на auth-вьюхах (было в коде, не в requirements)
+pyotp==2.9.0
+bcrypt==4.2.1
+qrcode==8.0
+Pillow==12.2.0          # qrcode.make() рендерит PNG через PIL (2FA-enrollment)
+gunicorn==23.0.0        # WSGI app-server за nginx (cutover, раздел 08)

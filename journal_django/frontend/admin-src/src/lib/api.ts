@@ -1,0 +1,111 @@
+export class ApiError extends Error {
+  status: number;
+  details?: unknown;
+  constructor(status: number, message: string, details?: unknown) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
+
+// Методы, не требующие CSRF-токена (RFC 7231 safe methods).
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+
+// Эндпоинт обновления access-токена. refresh-cookie шлётся браузером только сюда
+// (AUTH_REFRESH_COOKIE_PATH). Сам refresh-запрос не реврайтим при 401 — иначе цикл.
+const REFRESH_PATH = '/api/auth/refresh';
+
+function getCookie(name: string): string | null {
+  const match = document.cookie.match('(?:^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * Возвращает csrftoken для заголовка X-CSRFToken. Если cookie ещё нет —
+ * дёргает GET /api/auth/csrf (бэкенд выставит её через @ensure_csrf_cookie).
+ * Self-healing: не требует отдельного bootstrap-вызова.
+ *
+ * In-flight промис мемоизируется: при первом рендере TanStack Query может
+ * запустить несколько мутаций параллельно — все они ждут один /csrf-запрос,
+ * а не плодят N одинаковых.
+ */
+let csrfInflight: Promise<void> | null = null;
+
+async function ensureCsrfToken(): Promise<string | null> {
+  let token = getCookie('csrftoken');
+  if (!token) {
+    if (!csrfInflight) {
+      csrfInflight = fetch('/api/auth/csrf', { credentials: 'include' })
+        .then(() => undefined)
+        .finally(() => { csrfInflight = null; });
+    }
+    await csrfInflight;
+    token = getCookie('csrftoken');
+  }
+  return token;
+}
+
+/**
+ * Пытается обновить access-токен из refresh-cookie через POST /api/auth/refresh.
+ * Возвращает true, если сервер выдал новый access (200), иначе false.
+ *
+ * CSRF не нужен: RefreshView объявлен с authentication_classes=[], поэтому DRF
+ * не включает для него CSRF-проверку.
+ *
+ * In-flight промис мемоизируется так же, как в ensureCsrfToken: при истечении
+ * access-токена TanStack Query упирается в пачку параллельных 401 — все они ждут
+ * один refresh-запрос, а не плодят N штук.
+ */
+let refreshInflight: Promise<boolean> | null = null;
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (!refreshInflight) {
+    refreshInflight = fetch(REFRESH_PATH, { method: 'POST', credentials: 'include' })
+      .then((res) => res.ok)
+      .catch(() => false)
+      .finally(() => { refreshInflight = null; });
+  }
+  return refreshInflight;
+}
+
+async function rawFetch(method: string, path: string, body?: unknown): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (!SAFE_METHODS.has(method.toUpperCase())) {
+    const token = await ensureCsrfToken();
+    if (token) headers['X-CSRFToken'] = token;
+  }
+
+  return fetch(path, {
+    method,
+    credentials: 'include',
+    headers: Object.keys(headers).length ? headers : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
+export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let res = await rawFetch(method, path, body);
+
+  // Access-токен живёт 15 минут. При 401 один раз пробуем обновить его из
+  // 7-дневной refresh-cookie и повторяем исходный запрос — пользователя не
+  // выбрасывает на /login, пока жив refresh. На login отправляем только если
+  // refresh тоже не удался (refresh-токен истёк / отозван).
+  if (res.status === 401 && path !== REFRESH_PATH) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await rawFetch(method, path, body);
+    }
+  }
+
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  const json = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('admin:auth-expired'));
+    }
+    throw new ApiError(res.status, json?.error || res.statusText, json?.details);
+  }
+  return json as T;
+}
