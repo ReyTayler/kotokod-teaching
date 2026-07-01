@@ -7,16 +7,14 @@ export type EntityKey =
   | 'students'
   | 'groups'
   | 'teachers'
-  | 'tokens'
   | 'lessons';
 
-export const ENTITY_KEYS: EntityKey[] = ['students', 'groups', 'teachers', 'tokens', 'lessons'];
+export const ENTITY_KEYS: EntityKey[] = ['students', 'groups', 'teachers', 'lessons'];
 
 export const ENTITY_LABELS: Record<EntityKey, string> = {
   students:   'Ученики',
   groups:     'Группы',
   teachers:   'Преподаватели',
-  tokens:     'Токены',
   lessons:    'Уроки',
 };
 
@@ -61,14 +59,7 @@ export const ENTITY_COLUMN_CATALOG: Record<EntityKey, ColumnMeta[]> = {
     { key: 'name',         label: 'Преподаватель', alwaysVisible: true },
     { key: 'email',        label: 'Email' },
     { key: 'phone',        label: 'Телефон' },
-    { key: 'tokens_count', label: 'Токены' },
     { key: 'groups_count', label: 'Групп' },
-    { key: 'active',       label: 'Статус' },
-  ],
-  tokens: [
-    { key: 'token',        label: 'Токен', alwaysVisible: true },
-    { key: 'teacher_id',   label: 'Препод-ID' },
-    { key: 'teacher_name', label: 'Преподаватель' },
     { key: 'active',       label: 'Статус' },
   ],
   lessons: [

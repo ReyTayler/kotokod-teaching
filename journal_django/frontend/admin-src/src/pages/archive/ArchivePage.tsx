@@ -2,10 +2,8 @@ import { useNavigate } from 'react-router-dom';
 import { useArchive } from '../../hooks/useArchive';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../components/ui/Toast';
-import { MonoBadge } from '../../components/ui/MonoBadge';
-import { EntityLink } from '../../components/EntityLink';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import type { Teacher, Group, Direction, Token } from '../../lib/types';
+import type { Teacher, Group, Direction } from '../../lib/types';
 
 export default function ArchivePage() {
   const { data, isLoading } = useArchive();
@@ -63,17 +61,6 @@ export default function ArchivePage() {
             <td className="id-cell">#{r.id}</td>
             <td>{r.name}</td>
             <td style={{ color: 'var(--text3)' }}>{r.sheet_name || '—'}</td>
-          </tr>
-        )}
-      />
-      <ArchiveSection
-        label="Токены"
-        headers={['Токен', 'Преподаватель']}
-        rows={data.tokens}
-        renderRow={(r: Token) => (
-          <tr key={r.token} style={{ cursor: 'pointer' }} onClick={() => navigate(`/admin/tokens/${encodeURIComponent(r.token)}`)}>
-            <td><MonoBadge value={r.token} active={false} /></td>
-            <td><EntityLink section="teachers" id={r.teacher_id} text={r.teacher_name || '—'} /></td>
           </tr>
         )}
       />

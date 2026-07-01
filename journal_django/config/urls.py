@@ -3,7 +3,7 @@ URL configuration for journal_django project.
 
 Phase 0: core health endpoint.
 Phase 1: groups CRUD (/api/admin/groups).
-Phase 2: simple reference sections (teachers, directions, discounts, settings, audit, tokens).
+Phase 2: simple reference sections (teachers, directions, discounts, settings, audit).
 """
 from django.urls import include, path
 
@@ -21,7 +21,6 @@ urlpatterns = [
     path('api/admin/discounts', include('apps.discounts.urls')),
     path('api/admin/settings', include('apps.settings_app.urls')),
     path('api/admin/audit-log', include('apps.audit.urls')),
-    path('api/admin/tokens', include('apps.tokens.urls')),
     # Phase 3 — students
     path('api/admin/students', include('apps.students.urls')),
     # Phase 4 — memberships

@@ -12,7 +12,6 @@ export interface Teacher {
   active: boolean;
   created_at: string;
   // joined-only поля (когда запрашиваются с дополнительной информацией):
-  tokens_count?: number;
   groups_count?: number;
 }
 
@@ -26,15 +25,6 @@ export interface Direction {
   total_lessons: number | null;
   color: string | null; // #RRGGBB
   subscription_price: number | string | null; // numeric от pg может прийти строкой
-}
-
-// ===== Tokens =====
-export interface Token {
-  token: string; // PK
-  teacher_id: ID;
-  active: boolean;
-  created_at: string;
-  teacher_name?: string;
 }
 
 // ===== Groups =====
@@ -167,7 +157,6 @@ export interface ArchivePayload {
   teachers: Teacher[];
   groups: Group[];
   directions: Direction[];
-  tokens: Token[];
 }
 
 // ===== Common =====

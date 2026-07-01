@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTeachers } from '../../hooks/useTeachers';
-import { useTokens } from '../../hooks/useTokens';
 import { useGroupsAll } from '../../hooks/useGroups';
 import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
@@ -13,7 +12,6 @@ import TeacherFormModal from './TeacherFormModal';
 
 export default function TeachersListPage() {
   const { data, isLoading } = useTeachers();
-  const { data: tokens = [] } = useTokens(true);
   const { data: groups = [] } = useGroupsAll(true);
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
@@ -31,11 +29,6 @@ export default function TeachersListPage() {
       ) },
     { key: 'email', label: 'Email', searchable: true, cell: (r) => r.email || '—' },
     { key: 'phone', label: 'Телефон', searchable: true, cell: (r) => r.phone || '—' },
-    { key: 'tokens_count', label: 'Токены',
-      cell: (r) => {
-        const cnt = tokens.filter((t) => t.teacher_id === r.id && t.active).length;
-        return <Pill>{cnt} шт.</Pill>;
-      }},
     { key: 'groups_count', label: 'Групп',
       cell: (r) => {
         const cnt = groups.filter((g) => g.teacher_id === r.id && g.active).length;

@@ -4,7 +4,6 @@ import { AppShell } from './components/shell/AppShell';
 import StudentsListPage from './pages/students/StudentsListPage';
 import GroupsListPage from './pages/groups/GroupsListPage';
 import TeachersListPage from './pages/teachers/TeachersListPage';
-import TokensListPage from './pages/tokens/TokensListPage';
 import DirectionsListPage from './pages/directions/DirectionsListPage';
 import LessonsListPage from './pages/lessons/LessonsListPage';
 import PayrollPage from './pages/payroll/PayrollPage';
@@ -14,7 +13,6 @@ import SettingsPage from './pages/settings/SettingsPage';
 import StudentDetailPage from './pages/students/StudentDetailPage';
 import GroupDetailPage from './pages/groups/GroupDetailPage';
 import TeacherDetailPage from './pages/teachers/TeacherDetailPage';
-import TokenDetailPage from './pages/tokens/TokenDetailPage';
 import DirectionDetailPage from './pages/directions/DirectionDetailPage';
 import LessonDetailPage from './pages/lessons/LessonDetailPage';
 import DashboardPage from './pages/dashboard/DashboardPage';
@@ -39,9 +37,6 @@ export function App() {
 
             <Route path="/admin/teachers" element={<TeachersListPage />} />
             <Route path="/admin/teachers/:id" element={<TeacherDetailPage />} />
-
-            <Route path="/admin/tokens" element={<TokensListPage />} />
-            <Route path="/admin/tokens/:id" element={<TokenDetailPage />} />
 
             <Route path="/admin/directions" element={<DirectionsListPage />} />
             <Route path="/admin/directions/:id" element={<DirectionDetailPage />} />

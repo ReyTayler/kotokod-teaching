@@ -77,8 +77,6 @@ if __name__ == '__main__':
         ('manager', '/api/admin/directions'),
         ('manager', '/api/admin/directions?include_inactive=1'),
         ('manager', '/api/admin/discounts'),
-        ('manager', '/api/admin/tokens'),
-        ('manager', '/api/admin/tokens?include_inactive=1'),
         ('admin',   '/api/admin/audit-log'),
         ('admin',   '/api/admin/audit-log?page=1&page_size=5'),
         ('manager', '/api/admin/settings'),

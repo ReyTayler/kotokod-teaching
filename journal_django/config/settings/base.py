@@ -99,7 +99,6 @@ INSTALLED_APPS = [
     'apps.discounts',
     'apps.settings_app',
     'apps.audit',
-    'apps.tokens',
     'apps.students',
     'apps.memberships',
     'apps.payments',
