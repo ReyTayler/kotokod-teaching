@@ -29,7 +29,8 @@ class GroupScheduleSlotSerializer(serializers.Serializer):
     Используется как вложенный список в GroupReadSerializer и как вход
     в write-сериализаторах.
 
-    day_of_week: 0–6 (0=понедельник), соответствует Zod dayOfWeek.
+    day_of_week: 0–6, конвенция **Вс=0** (JS getDay: 0=воскресенье, 1=понедельник…
+    6=суббота) — проверено на реальных данных БД. Соответствует Zod dayOfWeek.
     start_time:  HH:MM или HH:MM:SS, соответствует Zod timeStr.
     """
 
@@ -117,3 +118,70 @@ class GroupUpdateSerializer(serializers.Serializer):
 
     def validate_name(self, value: str) -> str:
         return value.strip()
+
+
+class ScheduleChangeSerializer(serializers.Serializer):
+    """
+    Вход для POST /api/admin/groups/:id/schedule-change (постоянная смена времени).
+
+    effective_from — дата, с которой действует новое расписание; текущие открытые
+    слоты будут закрыты (effective_to = effective_from-1), новые вставлены.
+    slots — новый набор слотов (минимум 1).
+    """
+
+    effective_from = DateStringField()
+    slots = GroupScheduleSlotSerializer(many=True)
+
+    def validate_slots(self, value):
+        if not value:
+            raise serializers.ValidationError('Нужен минимум один слот.')
+        return value
+
+
+class ScheduleExceptionSerializer(serializers.Serializer):
+    """
+    Вход для POST /api/admin/groups/:id/exceptions (разовый перенос/отмена/доп.).
+
+    Форма полей зависит от kind (зеркалит CHECK-констрейнты БД):
+      reschedule — original_date + new_date обязательны;
+      cancel     — original_date обязателен, new_* пусты;
+      extra      — new_date обязателен, original_* пусты.
+    """
+
+    kind = serializers.ChoiceField(choices=('reschedule', 'cancel', 'extra'))
+    original_date = DateStringField(required=False, allow_null=True)
+    original_time = serializers.CharField(required=False, allow_null=True)
+    new_date = DateStringField(required=False, allow_null=True)
+    new_start_time = serializers.CharField(required=False, allow_null=True)
+    new_teacher_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    note = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+    def _validate_time(self, value):
+        if value and not VALID_SLOT_TIME_RE.match(value):
+            raise serializers.ValidationError('Время должно быть в формате HH:MM или HH:MM:SS.')
+        return value
+
+    def validate_original_time(self, value):
+        return self._validate_time(value)
+
+    def validate_new_start_time(self, value):
+        return self._validate_time(value)
+
+    def validate(self, data):
+        kind = data['kind']
+        if kind == 'reschedule':
+            if not data.get('original_date') or not data.get('new_date'):
+                raise serializers.ValidationError(
+                    'Для переноса нужны original_date и new_date.'
+                )
+        elif kind == 'cancel':
+            if not data.get('original_date'):
+                raise serializers.ValidationError('Для отмены нужен original_date.')
+            if data.get('new_date'):
+                raise serializers.ValidationError('У отмены не должно быть new_date.')
+        elif kind == 'extra':
+            if not data.get('new_date'):
+                raise serializers.ValidationError('Для доп. занятия нужен new_date.')
+            if data.get('original_date'):
+                raise serializers.ValidationError('У доп. занятия не должно быть original_date.')
+        return data

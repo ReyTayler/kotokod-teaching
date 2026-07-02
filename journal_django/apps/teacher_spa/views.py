@@ -23,13 +23,19 @@ import re
 
 from django.http import HttpResponseRedirect
 from rest_framework import status
+from rest_framework.generics import ListAPIView
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.db.models import F
+
+from apps.core.pagination import StandardPagination
 from apps.core.permissions import IsTeacher
+from apps.groups.models import Group
+from apps.lessons.models import Lesson
 from apps.teacher_spa import repository, services
-from apps.teacher_spa.serializers import SubmitLessonSerializer
+from apps.teacher_spa.serializers import MyLessonSerializer, SubmitLessonSerializer
 
 # ---------------------------------------------------------------------------
 # Константы для парсинга расписания (дословно из routes/teacher.js)
@@ -197,6 +203,11 @@ class ReportView(APIView):
     GET /api/report — отчёт за текущую неделю с статусами (done/pending/overdue).
 
     Полный порт routes/teacher.js lines 142-291.
+
+    LEGACY (после Ф1–Ф4 планирования): расписание здесь выводится regex-парсингом
+    времени из ИМЕНИ группы (_parse_group_times). Актуальный источник — структурные
+    слоты через GET /api/calendar (apps/scheduling). Эндпоинт оставлен ради parity и
+    пока используется старыми потребителями; новый фронт-календарь уже на /api/calendar.
     """
 
     permission_classes = [IsTeacher]
@@ -204,8 +215,26 @@ class ReportView(APIView):
     def get(self, request: Request) -> Response:
         unified = repository.read_all_students()
 
-        # 2. Начало недели (понедельник по МСК)
-        week_start_date, week_start_str = _get_week_start()
+        # 2. Начало недели (понедельник по МСК).
+        #    Необязательный ?week=YYYY-MM-DD — для навигации по неделям в календаре.
+        #    Без параметра поведение идентично прежнему (parity-контракт).
+        week_param = request.query_params.get('week')
+        if week_param:
+            try:
+                wd = datetime.date.fromisoformat(week_param)
+            except ValueError:
+                return Response(
+                    {'error': 'Некорректный параметр week (ожидается YYYY-MM-DD)'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if wd.weekday() != 0:
+                return Response(
+                    {'error': 'week должен быть понедельником'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            week_start_date, week_start_str = wd, wd.isoformat()
+        else:
+            week_start_date, week_start_str = _get_week_start()
 
         # 3. Заполненные уроки из журнала
         filled_map = repository.read_filled_lessons(week_start_str)
@@ -214,10 +243,20 @@ class ReportView(APIView):
         # с lessonDate, который тоже наивный / серверный локаль, как JS setHours)
         now_local = datetime.datetime.now()
 
+        # Необязательный ?mine=true — вернуть ТОЛЬКО данные текущего преподавателя
+        # (кабинет учителя не должен показывать чужие расписания). Скоуп на СЕРВЕРЕ:
+        # чужие данные не уходят клиенту. Без параметра — прежнее поведение (parity).
+        mine = request.query_params.get('mine') in ('true', '1')
+        if mine:
+            own = services.get_current_teacher(request.user.id)
+            data_scope = {own: unified['data'].get(own, {})} if own else {}
+        else:
+            data_scope = unified['data']
+
         lessons = []
         no_time = []
 
-        for teacher, groups in unified['data'].items():
+        for teacher, groups in data_scope.items():
             for group_name, group_data in groups.items():
 
                 matches = _parse_group_times(group_name)
@@ -419,3 +458,75 @@ class RefreshDataView(APIView):
 
     def post(self, request: Request) -> Response:
         return Response({'success': True})
+
+
+class MyLessonsView(ListAPIView):
+    """
+    GET /api/lessons — история проведённых уроков ТЕКУЩЕГО преподавателя.
+
+    Скоуп по teacher_id из JWT (request.user.teacher_id), НИКОГДА из запроса —
+    иначе RBAC-дыра. Пагинация StandardPagination ({rows,total,page,page_size}).
+    Порядок: свежие сверху (-lesson_date, -id). Опциональные фильтры:
+      ?from=YYYY-MM-DD  ?to=YYYY-MM-DD  ?group=<точное имя>
+    """
+
+    permission_classes = [IsTeacher]
+    pagination_class = StandardPagination
+    serializer_class = MyLessonSerializer
+
+    def get_queryset(self):
+        qs = (
+            Lesson.objects
+            .filter(teacher_id=self.request.user.teacher_id)
+            .select_related('group', 'group__direction', 'original_teacher', 'payroll')
+            .order_by('-lesson_date', '-id')
+        )
+        p = self.request.query_params
+        d_from = p.get('from')
+        d_to = p.get('to')
+        group = p.get('group')
+        if d_from:
+            qs = qs.filter(lesson_date__gte=d_from)
+        if d_to:
+            qs = qs.filter(lesson_date__lte=d_to)
+        if group:
+            qs = qs.filter(group__name=group)
+        return qs
+
+
+class GroupDirectionsView(APIView):
+    """
+    GET /api/group-directions — карта {имя группы → направление+цвет} для ВСЕХ
+    активных групп. Точный источник предмета/цвета (из БД `directions.color`)
+    для календаря/отчёта, где /api/report (заморожен) направление не отдаёт.
+    Фронт джойнит по имени группы. Роль teacher (данные не чувствительные —
+    только справочник направлений; имена групп фронт и так видит в /api/report).
+    """
+
+    permission_classes = [IsTeacher]
+
+    def get(self, request: Request) -> Response:
+        rows = (
+            Group.objects
+            .filter(active=True)
+            .values(
+                'name',
+                dir_name=F('direction__name'),
+                color=F('direction__color'),
+                is_ind=F('is_individual'),
+                duration=F('lesson_duration_minutes'),
+                total=F('direction__total_lessons'),
+            )
+        )
+        groups = {
+            r['name']: {
+                'direction': r['dir_name'],
+                'color': r['color'],
+                'isIndividual': r['is_ind'],
+                # Ф4: half-lesson и лимит курса — структурно (не regex по имени).
+                'lessonDurationMinutes': r['duration'],
+                'totalLessons': r['total'],
+            }
+            for r in rows
+        }
+        return Response({'groups': groups})

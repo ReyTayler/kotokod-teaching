@@ -37,10 +37,6 @@ class StudentReadSerializer(serializers.Serializer):
     pm = serializers.CharField(allow_null=True, allow_blank=True)
     enrollment_status = serializers.CharField()
     frozen_until_month = serializers.IntegerField(allow_null=True)
-    consent_given = serializers.BooleanField(allow_null=True)
-    consent_at = DateStringField(allow_null=True)
-    consent_by = serializers.CharField(allow_null=True, allow_blank=True)
-    consent_note = serializers.CharField(allow_null=True, allow_blank=True)
     created_at = serializers.DateTimeField()
 
 
@@ -63,10 +59,6 @@ class StudentWriteSerializer(serializers.Serializer):
     pm = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     enrollment_status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES, required=False)
     frozen_until_month = serializers.IntegerField(min_value=1, max_value=12, allow_null=True, required=False)
-    consent_given = serializers.BooleanField(required=False)
-    consent_at = DateStringField(allow_null=True, required=False)
-    consent_by = serializers.CharField(allow_null=True, allow_blank=True, required=False)
-    consent_note = serializers.CharField(allow_null=True, allow_blank=True, required=False)
 
     def validate_full_name(self, value: str) -> str:
         return value.strip()
@@ -109,10 +101,6 @@ class StudentUpdateSerializer(serializers.Serializer):
     pm = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     enrollment_status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES, required=False)
     frozen_until_month = serializers.IntegerField(min_value=1, max_value=12, allow_null=True, required=False)
-    consent_given = serializers.BooleanField(required=False)
-    consent_at = DateStringField(allow_null=True, required=False)
-    consent_by = serializers.CharField(allow_null=True, allow_blank=True, required=False)
-    consent_note = serializers.CharField(allow_null=True, allow_blank=True, required=False)
 
     def validate_full_name(self, value: str) -> str:
         return value.strip()

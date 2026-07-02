@@ -63,6 +63,32 @@ def soft_delete_group(group_id: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Расписание (Ф3): версионные слоты + разовые исключения
+# ---------------------------------------------------------------------------
+
+def get_schedule(group_id: int) -> Optional[dict]:
+    """Расписание группы (слоты с датами действия + исключения) или None."""
+    return repository.get_schedule(group_id)
+
+
+def apply_schedule_change(group_id: int, data: dict) -> Optional[dict]:
+    """Постоянная смена расписания. None если группы нет."""
+    return repository.apply_schedule_change(
+        group_id, data['effective_from'], data['slots'],
+    )
+
+
+def create_exception(group_id: int, data: dict) -> Optional[dict]:
+    """Создать разовое исключение. None если группы нет."""
+    return repository.create_exception(group_id, data)
+
+
+def delete_exception(group_id: int, exception_id: int) -> bool:
+    """Удалить исключение. False если не найдено."""
+    return repository.delete_exception(group_id, exception_id)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

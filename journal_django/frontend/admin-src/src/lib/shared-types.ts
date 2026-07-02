@@ -57,6 +57,37 @@ export interface Group {
   members_count?: number;
 }
 
+// ===== Group schedule (GET/POST .../groups/:id/schedule, /schedule-change, /exceptions) =====
+
+// Слот с полной историей действия — отличается от GroupScheduleSlot (used в Group.slots / форме
+// создания группы) наличием периода действия. id/effective_from здесь всегда заданы сервером.
+export interface ScheduleSlot {
+  id: ID;
+  day_of_week: number;    // 0..6, Вс=0 (см. lib/slots DOW)
+  start_time: string;     // 'HH:MM' or 'HH:MM:SS'
+  effective_from: string; // 'YYYY-MM-DD'
+  effective_to: string | null; // null = слот действует по сей день
+}
+
+export type ScheduleExceptionKind = 'reschedule' | 'cancel' | 'extra';
+
+export interface ScheduleException {
+  id: ID;
+  kind: ScheduleExceptionKind;
+  original_date: string | null;
+  original_time: string | null;
+  new_date: string | null;
+  new_start_time: string | null;
+  new_teacher_id: number | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface GroupScheduleData {
+  slots: ScheduleSlot[];
+  exceptions: ScheduleException[];
+}
+
 // ===== Students =====
 export type EnrollmentStatus = 'enrolled' | 'not_enrolled' | 'frozen' | 'declined';
 
@@ -73,10 +104,6 @@ export interface Student {
   pm: string | null;
   enrollment_status: EnrollmentStatus;
   frozen_until_month: number | null; // 1..12
-  consent_given: boolean;
-  consent_at: string | null;
-  consent_by: string | null;
-  consent_note: string | null;
   created_at: string;
 }
 

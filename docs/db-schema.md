@@ -16,7 +16,7 @@
 | 012 | `lesson_attendance_student_idx.sql` | индекс по student_id |
 | 013 | `accounts.sql` | accounts + account_recovery_codes; email UNIQUE, password_hash, role, teacher_id, 2FA, lockout |
 | 014 | `security_audit_log.sql` | журнал событий безопасности |
-| 015 | `students_consent.sql` | consent_* колонки (согласие на ПДн) |
+| ~~015~~ | ~~`students_consent.sql`~~ | ~~consent_* колонки (согласие на ПДн)~~ — **фича удалена 2026-07** (колонки сброшены Django-миграцией `students/0002`) |
 
 ## Важные особенности схемы
 

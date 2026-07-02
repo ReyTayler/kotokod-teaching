@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.accounts',
     'apps.teacher_spa',
+    'apps.scheduling',
 ]
 
 # SessionMiddleware и AuthenticationMiddleware убраны:

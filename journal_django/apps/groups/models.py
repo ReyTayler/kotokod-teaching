@@ -11,7 +11,13 @@ date-поля хранятся как CharField(max_length=10) — защита 
 """
 from __future__ import annotations
 
+import datetime
+
 from django.db import models
+
+# Sentinel «действует с начала времён» для effective_from слотов без явной даты
+# (та же семантика, что «слот активен всегда»). НЕ NULL: см. gss_versioned_key.
+SLOT_EFFECTIVE_SENTINEL = datetime.date(2000, 1, 1)
 
 
 class Group(models.Model):
@@ -67,9 +73,15 @@ class Group(models.Model):
 
 class GroupScheduleSlot(models.Model):
     """
-    Слот расписания группы.
+    Слот расписания группы (версионируемый по датам действия).
 
     Соответствует таблице `group_schedule_slots`.
+
+    day_of_week: 0–6, конвенция **Вс=0** (JS getDay) — проверено на реальных
+    данных. effective_from/effective_to задают период действия слота:
+    слот активен на дату D, если effective_from <= D и (effective_to IS NULL
+    или D <= effective_to). Постоянная смена времени = закрыть текущие открытые
+    слоты (effective_to = дата-1) и вставить новые (effective_from = дата).
     """
 
     id = models.AutoField(primary_key=True)
@@ -81,6 +93,8 @@ class GroupScheduleSlot(models.Model):
     )
     day_of_week = models.IntegerField()
     start_time = models.TimeField()
+    effective_from = models.DateField(default=SLOT_EFFECTIVE_SENTINEL)
+    effective_to = models.DateField(null=True, blank=True)
 
     class Meta:
         managed = True
@@ -88,14 +102,95 @@ class GroupScheduleSlot(models.Model):
         indexes = [
             models.Index(fields=['day_of_week', 'start_time'],
                          name='gss_dow_time_idx'),
+            models.Index(fields=['group', 'effective_from', 'effective_to'],
+                         name='gss_group_effective_idx'),
         ]
         constraints = [
+            # Версионный ключ: тот же день/время может повторяться в разных
+            # непересекающихся периодах (после постоянной смены расписания).
             models.UniqueConstraint(
-                fields=['group', 'day_of_week', 'start_time'],
-                name='group_schedule_slots_group_id_day_of_week_start_time_key',
+                fields=['group', 'day_of_week', 'start_time', 'effective_from'],
+                name='gss_versioned_key',
             ),
             models.CheckConstraint(
                 name='group_schedule_slots_day_of_week_check',
                 condition=models.Q(day_of_week__gte=0) & models.Q(day_of_week__lte=6),
+            ),
+            models.CheckConstraint(
+                name='gss_effective_range_check',
+                condition=models.Q(effective_to__isnull=True)
+                | models.Q(effective_to__gte=models.F('effective_from')),
+            ),
+        ]
+
+
+class LessonScheduleException(models.Model):
+    """
+    Разовое переопределение планового занятия: перенос / отмена / доп. занятие.
+
+    Плановый слой поверх recurrence (слотов) — НЕ трогает `lessons` (факт) и
+    submitLesson. Нужен, чтобы календарь заранее показал перенос/отмену и статус
+    не стал overdue. Склейка с recurrence — по (group_id, original_date[, time]).
+
+    kind:
+      reschedule — перенос: original_date+new_date обязательны;
+      cancel     — отмена: original_date обязателен, new_* пусты;
+      extra      — доп. занятие вне расписания: new_date обязателен, original пуст.
+    Перенесённое занятие наследует lesson_number исходной occurrence.
+    """
+
+    id = models.AutoField(primary_key=True)
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        db_column='group_id',
+        related_name='schedule_exceptions',
+    )
+    kind = models.TextField()
+    # Якорь: какое плановое занятие переопределяем (для reschedule/cancel).
+    original_date = models.DateField(null=True, blank=True)
+    # Дизамбигуация при lessons_per_week>1 (несколько слотов в один день недели).
+    original_time = models.TimeField(null=True, blank=True)
+    # Новое размещение (reschedule/extra).
+    new_date = models.DateField(null=True, blank=True)
+    new_start_time = models.TimeField(null=True, blank=True)
+    # Разовая смена преподавателя без substitution-семантики (напр. отпуск).
+    new_teacher = models.ForeignKey(
+        'teachers.Teacher',
+        on_delete=models.DO_NOTHING,
+        db_column='new_teacher_id',
+        related_name='schedule_exceptions_as_new',
+        null=True,
+        blank=True,
+    )
+    note = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField()
+    created_by = models.TextField(null=True, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = 'lesson_schedule_exceptions'
+        indexes = [
+            models.Index(fields=['group', 'original_date'], name='lse_group_orig_idx'),
+            models.Index(fields=['group', 'new_date'], name='lse_group_new_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                name='lse_kind_check',
+                condition=models.Q(kind__in=['reschedule', 'cancel', 'extra']),
+            ),
+            models.CheckConstraint(
+                name='lse_cancel_shape_check',
+                condition=~models.Q(kind='cancel') | models.Q(new_date__isnull=True),
+            ),
+            models.CheckConstraint(
+                name='lse_reschedule_shape_check',
+                condition=~models.Q(kind='reschedule')
+                | (models.Q(original_date__isnull=False) & models.Q(new_date__isnull=False)),
+            ),
+            models.CheckConstraint(
+                name='lse_extra_shape_check',
+                condition=~models.Q(kind='extra')
+                | (models.Q(original_date__isnull=True) & models.Q(new_date__isnull=False)),
             ),
         ]

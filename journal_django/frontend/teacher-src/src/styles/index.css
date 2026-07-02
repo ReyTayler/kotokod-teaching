@@ -1,0 +1,18 @@
+/* Каскад стилей teacher SPA.
+ * Порядок: tokens (бренд, teacher) → base (общий, из admin) → shell (topbar, teacher)
+ *          → pages (teacher).
+ * Фаза 2: подключены @shared/styles/forms.css (form-компоненты DateInput/
+ * Combobox/Checkbox/SelectInput — стилизуются на токенах, бренд-safe) и
+ * components.css (btn-save/btn-cancel и т.д.; единственный хардкод в нём —
+ * .mono-badge--active cyan, здесь не используется). */
+@import './tokens.css';
+@import '@shared/styles/base.css';
+@import '@shared/styles/forms.css';
+@import '@shared/styles/components.css';
+@import './shell.css';
+@import './pages.css';
+@import './calendar.css';
+@import './report.css';
+@import './modal.css';
+@import './groups.css';
+@import './lessons.css';

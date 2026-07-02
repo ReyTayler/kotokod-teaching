@@ -162,7 +162,7 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
 
     frozen_until_month — НЕ COALESCE-поле: перезаписывается ВСЕГДА (включая NULL-сброс).
     В JS updateStudent всегда передаёт frozen_until_month ?? null; отсутствие ключа
-    эквивалентно None. consent_* — COALESCE (set если переданы непустыми).
+    эквивалентно None.
     """
     obj = Student.objects.filter(id=student_id).first()
     if obj is None:
@@ -190,14 +190,6 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
         obj.enrollment_status = data['enrollment_status']
     # frozen_until_month — всегда (absent/present-None → None, present-value → value)
     obj.frozen_until_month = data.get('frozen_until_month')
-    if data.get('consent_given') is not None:
-        obj.consent_given = data['consent_given']
-    if data.get('consent_at'):
-        obj.consent_at = data['consent_at']
-    if data.get('consent_by'):
-        obj.consent_by = data['consent_by']
-    if data.get('consent_note'):
-        obj.consent_note = data['consent_note']
 
     obj.save()
     return dictrow(Student.objects.filter(id=student_id).values())

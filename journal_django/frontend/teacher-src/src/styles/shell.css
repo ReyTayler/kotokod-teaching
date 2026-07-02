@@ -1,0 +1,138 @@
+/* ── TEACHER SHELL — верхний navbar (не sidebar admin) ──
+ * Тот же визуальный язык, что admin (.nav-btn active/hover, borders-only,
+ * accent-soft), но горизонтальная раскладка. Ширину под time-grid не режем. */
+
+.t-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Топбар ── */
+.t-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 0 var(--space-6);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+.t-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  text-decoration: none;
+}
+.t-brand .logo-mark {
+  display: block;
+  height: 20px;
+  width: auto;
+  color: var(--text);
+}
+.t-brand-sub {
+  font-size: 10px;
+  color: var(--text4);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-3);
+  line-height: 1.2;
+}
+
+/* ── Вкладки-разделы ── */
+.t-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.t-tabs::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+.t-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.t-tab:hover { background: var(--bg3); color: var(--text); }
+.t-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.t-tab svg { flex-shrink: 0; opacity: 0.85; }
+.t-tab.active svg { opacity: 1; }
+
+/* ── Правая часть топбара: профиль + тема + выход ── */
+.t-topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+.t-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.t-user-meta { line-height: 1.15; min-width: 0; }
+.t-user-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.t-user-role { font-size: 11px; color: var(--text4); }
+
+.t-icon-btn {
+  width: 34px; height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text3);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.t-icon-btn:hover { background: var(--bg4); color: var(--text); border-color: var(--accent); }
+
+/* ── Основная область ── */
+.t-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-8);
+  min-width: 0;
+}
+
+/* ── Мобильная адаптация: топбар в две строки, вкладки — горизонтальный скролл ── */
+@media (max-width: 768px) {
+  .t-topbar {
+    height: auto;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+  }
+  .t-tabs { order: 3; width: 100%; }
+  .t-main { padding: var(--space-4); }
+  .t-user-meta { display: none; }
+}

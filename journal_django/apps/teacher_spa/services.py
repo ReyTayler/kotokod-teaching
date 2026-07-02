@@ -9,7 +9,6 @@ transaction.atomic; репозиторий выполняет ORM-операци
 """
 from __future__ import annotations
 
-import re
 import warnings
 from typing import Optional
 
@@ -95,9 +94,18 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
 
     group_data = teacher_data[group]
 
-    # 3. Расчёты — half-lesson, lesson_number, payment, penalty
-    # isHalf: /45\s*минут/i в названии группы (точно как JS regex)
-    is_half = bool(re.search(r'45\s*минут', group, re.IGNORECASE))
+    # 3. Resolve IDs (submitter + группа + продолжительность). Делаем ДО расчётов:
+    #    half-lesson теперь определяется СТРУКТУРНО (lesson_duration_minutes == 45),
+    #    а не regex '/45\s*минут/' по имени группы (Ф4 — вывод regex из hot-path).
+    ids = repository.resolve_ids(teacher, group)
+    if not ids or not ids.get('submitter_teacher_id'):
+        return {'success': False, 'error': 'Группа/преподаватель не найдены в БД'}
+
+    lesson_teacher_id = ids['submitter_teacher_id']
+    original_teacher_id = ids['group_owner_id'] if is_substitution else None
+
+    # 4. Расчёты — half-lesson, lesson_number, payment, penalty
+    is_half = ids['lesson_duration_minutes'] == 45
     step = 0.5 if is_half else 1
 
     total_students = len(students)
@@ -108,21 +116,12 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     done = max((s.get('lessonsDone') or 0 for s in group_students), default=0)
 
     # lessonNum = Math.round((done + step) * 10) / 10
-    # (done + step) * 10 всегда целое (step кратен 0.5), поэтому round — no-op,
-    # но сохраняем точную семантику JS Math.round (round half toward +∞).
+    # (done + step) * 10 всегда целое (step кратен 0.5), поэтому round — no-op.
     raw = (done + step) * 10
-    lesson_num = round(raw) / 10  # Python round — банкирское на .5, но тут целые
+    lesson_num = round(raw) / 10
 
     payment = calculate_payment(total_students, present_count, is_half)
     penalty = calculate_penalty(date, format_msk_date())
-
-    # 4. Resolve IDs (submitter + группа)
-    ids = repository.resolve_ids(teacher, group)
-    if not ids or not ids.get('submitter_teacher_id'):
-        return {'success': False, 'error': 'Группа/преподаватель не найдены в БД'}
-
-    lesson_teacher_id = ids['submitter_teacher_id']
-    original_teacher_id = ids['group_owner_id'] if is_substitution else None
 
     # 5. Mapping student_name → {student_id, membership_id}
     stud_rows = repository.resolve_students(ids['group_id'])

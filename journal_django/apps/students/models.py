@@ -1,8 +1,8 @@
 """
 Models for students — managed=False, поверх существующей БД.
 
-Таблица students из db/migrations/001_initial_schema.sql + 015_consent_fields.sql.
-DATE-поля (birth_date, first_purchase_date, consent_at) хранятся как CharField(max_length=10)
+Таблица students из db/migrations/001_initial_schema.sql.
+DATE-поля (birth_date, first_purchase_date) хранятся как CharField(max_length=10)
 для защиты от timezone drift — та же стратегия что в services/db.js setTypeParser(1082, v=>v).
 """
 from __future__ import annotations
@@ -29,13 +29,6 @@ class Student(models.Model):
     pm = models.TextField(null=True, blank=True)
     enrollment_status = models.TextField(default='enrolled')
     frozen_until_month = models.IntegerField(null=True, blank=True)
-    # Consent-поля из миграции 015
-    # В БД: consent_given bool NOT NULL DEFAULT false.
-    consent_given = models.BooleanField(default=False)
-    # В БД: consent_at timestamptz NULL — это полный момент времени, НЕ дата.
-    consent_at = models.DateTimeField(null=True, blank=True)
-    consent_by = models.TextField(null=True, blank=True)
-    consent_note = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField()
 
     class Meta:

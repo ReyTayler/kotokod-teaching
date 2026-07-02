@@ -37,6 +37,8 @@ urlpatterns = [
     path('api/admin/accounts', include('apps.accounts.urls')),
     # Phase 10 — teacher SPA (/api, после /api/admin — admin стоит выше, как в Express)
     path('api', include('apps.teacher_spa.urls')),
+    # Планирование занятий — календарь плановых occurrences (/api/calendar, role=teacher)
+    path('api', include('apps.scheduling.urls')),
 ]
 
 # ---------------------------------------------------------------------------

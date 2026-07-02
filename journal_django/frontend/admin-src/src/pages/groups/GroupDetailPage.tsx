@@ -18,6 +18,7 @@ import { useApiError } from '../../hooks/useApiError';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
 import GroupMembersBlock from './GroupMembersBlock';
+import GroupScheduleBlock from './GroupScheduleBlock';
 
 export default function GroupDetailPage() {
   const params = useParams();
@@ -110,6 +111,9 @@ export default function GroupDetailPage() {
 
         <div className="sub-header">Ученики группы</div>
         <GroupMembersBlock group={group} />
+
+        <div className="sub-header">Расписание</div>
+        <GroupScheduleBlock groupId={group.id} />
       </DetailShell>
       {editing && (
         <GroupFormModal initial={group} onClose={() => setEditing(false)} />

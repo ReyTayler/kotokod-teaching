@@ -13,6 +13,7 @@ services/pagination.js (для admin SPA). create/update возвращают с
 """
 from __future__ import annotations
 
+import datetime
 from typing import Any, Optional
 
 from django.db import transaction
@@ -21,7 +22,7 @@ from django.db.models.functions import Now
 
 from apps.core.utils.orm import dictrow, dictrows
 
-from .models import Group, GroupScheduleSlot
+from .models import Group, GroupScheduleSlot, LessonScheduleException
 
 
 # ---------------------------------------------------------------------------
@@ -267,3 +268,137 @@ def soft_delete_group(group_id: int) -> bool:
     """Мягкое удаление группы: active=false. True если строка найдена."""
     updated = Group.objects.filter(id=group_id).update(active=False)
     return updated > 0
+
+
+# ---------------------------------------------------------------------------
+# Расписание: версионные слоты + разовые исключения (Ф3)
+# ---------------------------------------------------------------------------
+
+def _fmt_time_hm(t) -> Optional[str]:
+    return t.strftime('%H:%M') if t else None
+
+
+def _iso(d) -> Optional[str]:
+    return d.isoformat() if d else None
+
+
+def get_schedule(group_id: int) -> Optional[dict]:
+    """
+    Полное расписание группы для редактирования: версионные слоты (с датами
+    действия) + все исключения. None если группы нет.
+    """
+    if not Group.objects.filter(id=group_id).exists():
+        return None
+    slots = (
+        GroupScheduleSlot.objects
+        .filter(group_id=group_id)
+        .order_by('effective_from', 'day_of_week', 'start_time')
+        .values('id', 'day_of_week', 'start_time', 'effective_from', 'effective_to')
+    )
+    exceptions = (
+        LessonScheduleException.objects
+        .filter(group_id=group_id)
+        .order_by('-created_at', '-id')
+        .values('id', 'kind', 'original_date', 'original_time', 'new_date',
+                'new_start_time', 'new_teacher_id', 'note', 'created_at')
+    )
+    return {
+        'slots': [{
+            'id': s['id'],
+            'day_of_week': s['day_of_week'],
+            'start_time': _fmt_time_hm(s['start_time']),
+            'effective_from': _iso(s['effective_from']),
+            'effective_to': _iso(s['effective_to']),
+        } for s in slots],
+        'exceptions': [{
+            'id': e['id'],
+            'kind': e['kind'],
+            'original_date': _iso(e['original_date']),
+            'original_time': _fmt_time_hm(e['original_time']),
+            'new_date': _iso(e['new_date']),
+            'new_start_time': _fmt_time_hm(e['new_start_time']),
+            'new_teacher_id': e['new_teacher_id'],
+            'note': e['note'],
+            'created_at': e['created_at'].isoformat() if e['created_at'] else None,
+        } for e in exceptions],
+    }
+
+
+def apply_schedule_change(group_id: int, effective_from, slots: list[dict]) -> Optional[dict]:
+    """
+    Постоянная смена расписания с даты effective_from (атомарно):
+      - закрыть текущие ОТКРЫТЫЕ слоты (effective_to = effective_from - 1);
+        если слот начинался бы позже даты закрытия (нулевой/отрицательный
+        интервал) — удалить (он не успел стать активным);
+      - вставить новые слоты (effective_from = дата, effective_to = NULL).
+    Возвращает обновлённое расписание (get_schedule) или None если группы нет.
+    """
+    if not Group.objects.filter(id=group_id).exists():
+        return None
+    eff = (
+        effective_from if isinstance(effective_from, datetime.date)
+        else datetime.date.fromisoformat(effective_from)
+    )
+    prev_to = eff - datetime.timedelta(days=1)
+
+    with transaction.atomic():
+        for s in GroupScheduleSlot.objects.filter(group_id=group_id, effective_to__isnull=True):
+            if s.effective_from <= prev_to:
+                s.effective_to = prev_to
+                s.save(update_fields=['effective_to'])
+            else:
+                s.delete()
+        GroupScheduleSlot.objects.bulk_create([
+            GroupScheduleSlot(
+                group_id=group_id,
+                day_of_week=s['day_of_week'],
+                start_time=s['start_time'],
+                effective_from=eff,
+            )
+            for s in slots
+        ])
+
+    return get_schedule(group_id)
+
+
+def create_exception(group_id: int, data: dict) -> Optional[dict]:
+    """Создать разовое исключение (перенос/отмена/доп.). None если группы нет."""
+    if not Group.objects.filter(id=group_id).exists():
+        return None
+    obj = LessonScheduleException.objects.create(
+        group_id=group_id,
+        kind=data['kind'],
+        original_date=data.get('original_date') or None,
+        original_time=data.get('original_time') or None,
+        new_date=data.get('new_date') or None,
+        new_start_time=data.get('new_start_time') or None,
+        new_teacher_id=data.get('new_teacher_id') or None,
+        note=data.get('note') or None,
+        created_at=Now(),
+        created_by=data.get('created_by') or None,
+    )
+    row = dictrow(
+        LessonScheduleException.objects.filter(pk=obj.pk).values(
+            'id', 'kind', 'original_date', 'original_time', 'new_date',
+            'new_start_time', 'new_teacher_id', 'note', 'created_at',
+        )
+    )
+    return {
+        'id': row['id'],
+        'kind': row['kind'],
+        'original_date': _iso(row['original_date']),
+        'original_time': _fmt_time_hm(row['original_time']),
+        'new_date': _iso(row['new_date']),
+        'new_start_time': _fmt_time_hm(row['new_start_time']),
+        'new_teacher_id': row['new_teacher_id'],
+        'note': row['note'],
+        'created_at': row['created_at'].isoformat() if row['created_at'] else None,
+    }
+
+
+def delete_exception(group_id: int, exception_id: int) -> bool:
+    """Удалить исключение по id в рамках группы. True если удалено."""
+    deleted, _ = LessonScheduleException.objects.filter(
+        id=exception_id, group_id=group_id,
+    ).delete()
+    return deleted > 0

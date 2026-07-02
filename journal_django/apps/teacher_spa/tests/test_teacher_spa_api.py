@@ -277,6 +277,50 @@ class TestSubmitLesson:
                     [half_membership_fixture],
                 )
 
+    def test_half_lesson_determined_by_duration_not_name(
+        self, teacher_fixture, account_fixture, student_fixture,
+    ):
+        """Ф4: half-lesson по lesson_duration_minutes==45, даже если в имени НЕТ '45 минут'."""
+        teacher_id, _ = teacher_fixture
+        group_name = '__f4_group__ пн 10:00'  # имя без '45 минут'
+        lid = None
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO directions (name,sheet_name,is_individual,total_lessons,active) "
+                "VALUES ('__f4_dir__','__f4__',false,8,true) RETURNING id"
+            )
+            did = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
+                "lesson_duration_minutes,active) VALUES (%s,%s,%s,false,45,true) RETURNING id",
+                [group_name, did, teacher_id],
+            )
+            gid = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO group_memberships (group_id,student_id,lessons_done,remaining,active) "
+                "VALUES (%s,%s,0,10,true) RETURNING id",
+                [gid, student_fixture],
+            )
+            mid = cur.fetchone()[0]
+        token = f'acct:{account_fixture}'
+        try:
+            resp = _client('teacher', account_fixture).post('/api/submitLesson', {
+                'group': group_name, 'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            }, format='json')
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body['success'] is True
+            assert body['lessonNumber'] == 0.5  # half по duration=45, а не по имени
+            lid = _get_lesson_id(gid, token)
+        finally:
+            if lid:
+                _cleanup_lesson(lid)
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM group_memberships WHERE id = %s', [mid])
+                cur.execute('DELETE FROM groups WHERE id = %s', [gid])
+                cur.execute('DELETE FROM directions WHERE id = %s', [did])
+
     def test_absent_student_not_incremented(
         self,
         teacher_fixture, account_fixture,
@@ -446,6 +490,42 @@ class TestReport:
         group_names_in_lessons = [item['group'] for item in body['lessons']]
         assert '__spa_test_group__ пн 10:00' in group_names_in_lessons
 
+    def test_report_week_param_valid_monday(self, teacher_fixture, account_fixture):
+        """?week=<понедельник> → weekStart совпадает с переданным (навигация по неделям)."""
+        resp = _client('teacher', account_fixture).get('/api/report?week=2026-06-01')
+        assert resp.status_code == 200
+        assert resp.json()['weekStart'] == '2026-06-01'  # 2026-06-01 — понедельник
+
+    def test_report_week_param_non_monday_400(self, teacher_fixture, account_fixture):
+        """?week=<не понедельник> → 400."""
+        resp = _client('teacher', account_fixture).get('/api/report?week=2026-06-03')
+        assert resp.status_code == 400
+
+    def test_report_week_param_invalid_format_400(self, teacher_fixture, account_fixture):
+        """?week=<мусор> → 400."""
+        resp = _client('teacher', account_fixture).get('/api/report?week=not-a-date')
+        assert resp.status_code == 400
+
+    def test_report_no_week_param_defaults_to_current(self, teacher_fixture, account_fixture):
+        """Без ?week — weekStart остаётся текущим понедельником (parity)."""
+        import datetime
+        resp = _client('teacher', account_fixture).get('/api/report')
+        assert resp.status_code == 200
+        d = datetime.date.fromisoformat(resp.json()['weekStart'])
+        assert d.weekday() == 0
+
+    def test_report_mine_scopes_to_own_teacher(
+        self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
+    ):
+        """?mine=true → в ответе ТОЛЬКО уроки текущего преподавателя (серверный скоуп)."""
+        _, teacher_name = teacher_fixture
+        resp = _client('teacher', account_fixture).get('/api/report?mine=true')
+        assert resp.status_code == 200
+        body = resp.json()
+        for item in body['lessons'] + body['noTime']:
+            assert item['teacher'] == teacher_name
+        assert '__spa_test_group__ пн 10:00' in [i['group'] for i in body['lessons']]
+
 
 # ---------------------------------------------------------------------------
 # schedule
@@ -540,3 +620,91 @@ class TestRefreshData:
         )
         assert resp.status_code == 200
         assert resp.json() == {'success': True}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/lessons — история «Мои уроки»
+# ---------------------------------------------------------------------------
+
+class TestMyLessons:
+
+    def test_no_cookie_401(self):
+        assert _client(None).get('/api/lessons').status_code == 401
+
+    def test_manager_403(self, manager_client):
+        assert manager_client.get('/api/lessons').status_code == 403
+
+    def test_envelope_shape(self, teacher_fixture, account_fixture):
+        """GET /api/lessons → {rows, total, page, page_size}."""
+        resp = _client('teacher', account_fixture).get('/api/lessons')
+        assert resp.status_code == 200
+        body = resp.json()
+        assert isinstance(body['rows'], list)
+        assert 'total' in body and 'page' in body and 'page_size' in body
+
+    def test_returns_own_submitted_lesson(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """После submitLesson урок появляется в /api/lessons со скоупом по учителю."""
+        group_name = '__spa_test_group__ пн 10:00'
+        token = f'acct:{account_fixture}'
+
+        submit = _client('teacher', account_fixture).post('/api/submitLesson', {
+            'group': group_name, 'date': '2026-06-10',
+            'students': [{'name': '__spa_test_student__', 'present': True}],
+        }, format='json')
+        assert submit.status_code == 200 and submit.json()['success'] is True
+
+        lesson_id = _get_lesson_id(group_fixture, token)
+        try:
+            resp = _client('teacher', account_fixture).get('/api/lessons')
+            assert resp.status_code == 200
+            rows = resp.json()['rows']
+            mine = [r for r in rows if r['group'] == group_name and r['date'] == '2026-06-10']
+            assert len(mine) >= 1
+            row = mine[0]
+            assert row['presentCount'] == 1
+            assert row['totalCount'] == 1
+            assert row['payment'] is not None
+            assert row['isSubstitution'] is False
+            # Точный источник предмета: ключи присутствуют (значение может быть None,
+            # если у тестовой группы нет направления/цвета).
+            assert 'direction' in row
+            assert 'directionColor' in row
+        finally:
+            _cleanup_lesson(lesson_id)
+            with connection.cursor() as cur:
+                cur.execute(
+                    'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                    [membership_fixture],
+                )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/group-directions — карта групп→направление (точный источник предмета)
+# ---------------------------------------------------------------------------
+
+class TestGroupDirections:
+
+    def test_no_cookie_401(self):
+        assert _client(None).get('/api/group-directions').status_code == 401
+
+    def test_manager_403(self, manager_client):
+        assert manager_client.get('/api/group-directions').status_code == 403
+
+    def test_returns_groups_map(
+        self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
+    ):
+        """teacher → {groups: {<name>: {direction, color, isIndividual}}}."""
+        resp = _client('teacher', account_fixture).get('/api/group-directions')
+        assert resp.status_code == 200
+        groups = resp.json()['groups']
+        assert isinstance(groups, dict)
+        entry = groups.get('__spa_test_group__ пн 10:00')
+        assert entry is not None
+        assert 'direction' in entry and 'color' in entry and 'isIndividual' in entry
+        # Ф4: продолжительность + длина курса для half-lesson/лимита без regex
+        assert entry['lessonDurationMinutes'] == 60
+        assert entry['totalLessons'] == 8

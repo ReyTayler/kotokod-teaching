@@ -1,0 +1,29 @@
+/* Teacher pages — наполняется по фазам (Календарь/Мои группы/Мои уроки/Отчёт).
+ * Фаза 0: только заглушка-плейсхолдер раздела. */
+
+.t-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+  color: var(--text3);
+}
+.t-placeholder h1 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.t-placeholder p { font-size: 13px; color: var(--text3); max-width: 42ch; }
+.t-placeholder .t-phase-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 3px 10px;
+}

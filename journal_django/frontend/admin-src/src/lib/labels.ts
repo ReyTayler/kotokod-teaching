@@ -1,4 +1,4 @@
-import type { EnrollmentStatus, LessonType } from './types';
+import type { EnrollmentStatus, LessonType, ScheduleExceptionKind } from './types';
 
 // ===== Enrollment status =====
 // Подписи в Title Case — используются и в badge, и в формах, и в фильтрах.
@@ -25,4 +25,16 @@ export const LESSON_TYPE_LABELS: Record<LessonType, string> = {
 
 export const LESSON_TYPE_OPTIONS: { value: LessonType; label: string }[] =
   (Object.entries(LESSON_TYPE_LABELS) as [LessonType, string][])
+    .map(([value, label]) => ({ value, label }));
+
+// ===== Schedule exception kind =====
+
+export const SCHEDULE_EXCEPTION_KIND_LABELS: Record<ScheduleExceptionKind, string> = {
+  reschedule: 'Перенос',
+  cancel:     'Отмена',
+  extra:      'Доп. занятие',
+};
+
+export const SCHEDULE_EXCEPTION_KIND_OPTIONS: { value: ScheduleExceptionKind; label: string }[] =
+  (Object.entries(SCHEDULE_EXCEPTION_KIND_LABELS) as [ScheduleExceptionKind, string][])
     .map(([value, label]) => ({ value, label }));

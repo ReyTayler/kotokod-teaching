@@ -1,0 +1,180 @@
+/* ============================================================
+ *  TEACHER SPA — DESIGN TOKENS
+ *  Структура 1:1 с admin (frontend/admin-src/src/styles/tokens.css),
+ *  значения — БРЕНДОВЫЕ (colors.png): accent = RISD Blue #4F59F9.
+ *  Это собственный tokens данного приложения («единственный источник»
+ *  для teacher). Структурные слои (base/components/forms/modal/table)
+ *  и form-компоненты шарятся из admin через alias @shared и читают эти var().
+ *
+ *  Шрифты — те же, что в admin: Inter / Steppe / JetBrains Mono,
+ *  физически отдаются nginx из /admin/fonts/* (admin-dist деплоится рядом).
+ * ============================================================ */
+
+@font-face {
+  font-family: 'Steppe';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/admin/fonts/Steppe-Regular-BQ56mQi0.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Steppe';
+  font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/admin/fonts/Steppe-Medium-UXt39PSv.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Steppe';
+  font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/admin/fonts/Steppe-Bold-rn4yswMX.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 800; font-display: swap;
+  src: url('/admin/fonts/inter-v20-cyrillic_latin-800.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/admin/fonts/jetbrains-mono-v24-cyrillic_latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/admin/fonts/jetbrains-mono-v24-cyrillic_latin-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/admin/fonts/jetbrains-mono-v24-cyrillic_latin-600.woff2') format('woff2');
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Surfaces (light) — White Smoke family (бренд) */
+  --bg:  #f4f5f7;
+  --bg2: #ffffff;
+  --bg3: #eef0f3;
+  --bg4: #e4e7ec;
+
+  --border:        rgba(15, 23, 42, 0.08);
+  --border2:       rgba(15, 23, 42, 0.05);
+  --border-strong: rgba(15, 23, 42, 0.14);
+
+  --text:  #14161c;
+  --text2: #40454f;
+  --text3: #71767f;
+  --text4: #9a9fa6;   /* ~ Cadet Gray */
+
+  /* Единственный accent — RISD Blue (бренд) */
+  --accent:        #4F59F9;
+  --accent-hover:  #3d46e0;
+  --accent-soft:   rgba(79, 89, 249, 0.10);
+  --accent-soft-h: rgba(79, 89, 249, 0.16);
+
+  /* Semantic — brand-derived, AA-safe на светлом фоне */
+  --success:      #3f7a0a;                   /* Lawn Green, затемнён для текста */
+  --success-soft: rgba(126, 237, 0, 0.14);   /* исходный #7EED00 — только тон/точка */
+  --warning: #b45309;
+  --danger:  #dc2626;
+  --info:    #2f6fed;
+  --green: var(--success); --amber: var(--warning); --red: var(--danger); --blue: var(--info);
+
+  /* Spacing scale — 4px grid */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+
+  /* Border radius */
+  --r-sm: 6px; --r: 8px; --r-lg: 12px;
+
+  /* Depth — borders-only + один shadow для модалок/поповеров */
+  --shadow-modal:   0 8px 24px rgba(15,23,42,.08), 0 2px 6px rgba(15,23,42,.04);
+  --shadow-popover: 0 4px 12px rgba(15,23,42,.08), 0 1px 3px rgba(15,23,42,.04);
+
+  /* Typography — те же семейства, что admin */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Steppe', var(--font-sans);
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Motion */
+  --ease: cubic-bezier(0.25, 1, 0.5, 1);
+  --t-fast: 150ms; --t-base: 200ms;
+
+  /* Layout — верхний navbar (не sidebar) */
+  --topbar-h: 60px;
+
+  /* Цветовая карта предметов (subject-* — как --dir-color в admin) */
+  --subject-python:     #4F59F9;  /* RISD Blue */
+  --subject-scratch:    #50DCFE;  /* Vivid Sky Blue */
+  --subject-vibe:       #8112FF;  /* Violet */
+  --subject-group:      #3f7a0a;  /* Lawn Green затемнён — для текста/иконки */
+  --subject-group-soft: #7EED00;  /* исходный — точка легенды / soft-фон */
+}
+
+/* ── DARK THEME ── */
+[data-theme="dark"] {
+  --bg:  #10131c;
+  --bg2: #171b26;
+  --bg3: #1e2432;
+  --bg4: #262e40;
+
+  --border:        rgba(255, 255, 255, 0.08);
+  --border2:       rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --text:  #eceef3;
+  --text2: #b7bdca;
+  --text3: #8b93a3;
+  --text4: #656d80;
+
+  /* Dark accent = Vivid Sky Blue (цвет лого КОТОКОД — преемственность бренда) */
+  --accent:        #50DCFE;
+  --accent-hover:  #7ae4fe;
+  --accent-soft:   rgba(80, 220, 254, 0.12);
+  --accent-soft-h: rgba(80, 220, 254, 0.20);
+
+  --success:      #7EED00;   /* на тёмном фоне raw Lawn Green безопасен */
+  --success-soft: rgba(126, 237, 0, 0.16);
+  --warning: #f4b740;
+  --danger:  #f87171;
+  --info:    #7c9bff;
+
+  --subject-python:     #7c9bff;
+  --subject-scratch:    #50DCFE;
+  --subject-vibe:       #b47bff;
+  --subject-group:      #9ee047;
+  --subject-group-soft: #7EED00;
+
+  --shadow-modal:   0 12px 32px rgba(0,0,0,.5), 0 4px 8px rgba(0,0,0,.3);
+  --shadow-popover: 0 4px 16px rgba(0,0,0,.4), 0 1px 4px rgba(0,0,0,.2);
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}

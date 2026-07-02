@@ -13,7 +13,6 @@ import type { Student } from '../../lib/types';
 import StudentFormModal from './StudentFormModal';
 import StudentStatsBlock from './StudentStatsBlock';
 import { StudentBalanceBlock } from './StudentBalanceBlock';
-import { ConsentBlock } from './ConsentBlock';
 
 export default function StudentDetailPage() {
   const params = useParams();
@@ -109,17 +108,6 @@ export default function StudentDetailPage() {
         <StudentStatsBlock studentId={student.id} />
 
         <StudentBalanceBlock studentId={student.id} />
-
-        <div className="sub-header">Согласие на обработку ПДн</div>
-        <ConsentBlock
-          studentId={student.id}
-          initial={{
-            consent_given: student.consent_given,
-            consent_at: student.consent_at,
-            consent_by: student.consent_by,
-            consent_note: student.consent_note,
-          }}
-        />
 
         <div className="sub-header">Группы ученика</div>
         <MembershipsBlock

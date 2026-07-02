@@ -1,0 +1,260 @@
+/* ── КАЛЕНДАРЬ ── (бренд-корректно, только на токенах) */
+
+.cal-page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* Заголовок раздела + управление неделей */
+.cal-head {
+  display: flex; align-items: center; gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.cal-title {
+  font-family: var(--font-display);
+  font-size: 20px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--text);
+}
+.cal-week-nav { display: flex; align-items: center; gap: var(--space-2); }
+.cal-week-label {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px; color: var(--text2);
+  min-width: 168px; text-align: center;
+}
+.cal-nav-btn {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--bg2); color: var(--text2); cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.cal-nav-btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); }
+.cal-today-btn {
+  height: 32px; padding: 0 12px;
+  border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--bg2); color: var(--text2); cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.cal-today-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.cal-toolbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-left: auto; }
+
+/* Сегмент-контрол Неделя/Список */
+.seg { display: inline-flex; background: var(--bg3); border-radius: var(--r-sm); padding: 3px; gap: 2px; }
+.seg-btn {
+  height: 28px; padding: 0 12px; border: none; border-radius: 4px;
+  background: transparent; color: var(--text2); cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.seg-btn.active { background: var(--bg2); color: var(--text); box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+[data-theme="dark"] .seg-btn.active { box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+
+/* Тумблер Мои/Все */
+.cal-scope-btn {
+  height: 28px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg2);
+  color: var(--text2); cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  transition: all var(--t-fast) var(--ease);
+}
+.cal-scope-btn.active { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+
+/* KPI */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-3);
+}
+@media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 560px)  { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+.kpi-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: var(--space-4);
+}
+.kpi-value {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 24px; font-weight: 600; line-height: 1.1; color: var(--text);
+}
+.kpi-value--accent { color: var(--accent); }
+.kpi-value--warn { color: var(--warning); }
+.kpi-value--ok { color: var(--success); }
+.kpi-label { font-size: 12px; color: var(--text3); margin-top: var(--space-2); }
+
+/* Легенда предметов */
+.legend { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.legend-item { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--text2); cursor: pointer; }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.legend-item.muted { opacity: 0.4; }
+
+/* ── Недельная time-grid ── */
+.cal-grid-wrap {
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  overflow: hidden; background: var(--bg2);
+}
+.cal-grid-head {
+  display: grid; grid-template-columns: 56px repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: var(--topbar-h); z-index: 5; background: var(--bg2);
+}
+.cal-col-head {
+  padding: var(--space-2) var(--space-1);
+  text-align: center; border-left: 1px solid var(--border2);
+}
+.cal-col-head.today { background: var(--accent-soft); }
+.cal-col-day { font-size: 12px; font-weight: 600; color: var(--text2); }
+.cal-col-head.today .cal-col-day { color: var(--accent); }
+.cal-col-date { font-family: var(--font-mono); font-size: 11px; color: var(--text4); margin-top: 1px; }
+
+.cal-grid-body { display: grid; grid-template-columns: 56px repeat(7, 1fr); position: relative; }
+.cal-gutter { position: relative; }
+.cal-hour-label {
+  position: absolute; right: 6px; transform: translateY(-6px);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text4);
+}
+.cal-col {
+  position: relative; border-left: 1px solid var(--border2);
+  background-image: repeating-linear-gradient(
+    to bottom, transparent 0, transparent calc(var(--row-h) - 1px),
+    var(--border2) calc(var(--row-h) - 1px), var(--border2) var(--row-h)
+  );
+}
+.cal-col.today { background-color: color-mix(in oklab, var(--accent) 4%, transparent); }
+
+/* Блок урока в сетке */
+.lb {
+  position: absolute; left: 3px; right: 3px;
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--subject-color, var(--accent));
+  background: color-mix(in oklab, var(--subject-color, var(--accent)) 10%, var(--bg2));
+  padding: 4px 6px; cursor: pointer; overflow: hidden;
+  transition: box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.lb:hover { box-shadow: var(--shadow-popover); transform: translateY(-1px); z-index: 2; }
+.lb.overdue { border-left-color: var(--warning); background: color-mix(in oklab, var(--warning) 12%, var(--bg2)); }
+.lb-time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 700; color: var(--text); }
+.lb-title { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-meta { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Месячная сетка (view=month) ── */
+.month-wrap {
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  overflow: hidden; background: var(--bg2);
+}
+.month-head {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+.month-col-head {
+  padding: var(--space-2) var(--space-1);
+  text-align: center; font-size: 12px; font-weight: 600; color: var(--text2);
+  border-left: 1px solid var(--border2);
+}
+.month-col-head:first-child { border-left: none; }
+
+.month-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: minmax(96px, 1fr);
+}
+.month-cell {
+  border-left: 1px solid var(--border2); border-top: 1px solid var(--border2);
+  padding: var(--space-2); min-width: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.month-cell:nth-child(7n+1) { border-left: none; }
+.month-cell:nth-child(-n+7) { border-top: none; }
+.month-cell--out { background: color-mix(in oklab, var(--bg3) 55%, transparent); }
+.month-cell--out .month-daynum { color: var(--text4); }
+.month-cell--today { background: color-mix(in oklab, var(--accent) 5%, transparent); }
+.month-daynum {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 12px; font-weight: 600; color: var(--text2);
+}
+.month-cell--today .month-daynum {
+  color: var(--accent); display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft);
+}
+.month-chips { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.month-chip {
+  display: flex; align-items: center; gap: 4px; min-width: 0;
+  border-left: 2px solid var(--subject-color, var(--accent));
+  background: color-mix(in oklab, var(--subject-color, var(--accent)) 10%, var(--bg2));
+  border-radius: 3px; padding: 1px 4px; cursor: pointer;
+  transition: box-shadow var(--t-fast) var(--ease);
+}
+.month-chip:hover { box-shadow: var(--shadow-popover); }
+.month-chip.overdue { border-left-color: var(--warning); background: color-mix(in oklab, var(--warning) 12%, var(--bg2)); }
+.month-chip-time {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 10px; font-weight: 700; color: var(--text); flex-shrink: 0;
+}
+.month-chip-title {
+  font-size: 11px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.month-more { font-size: 10px; color: var(--text4); font-family: var(--font-mono); padding: 0 4px; }
+
+/* Месяц не показываем на узких экранах (narrow принудительно уводит на 'list', сегмент скрыт) */
+@media (max-width: 768px) { .month-wrap { display: none; } }
+
+/* ── Список по дням (мобильный вид / view=list) ── */
+.day-list { display: flex; flex-direction: column; gap: var(--space-4); }
+.day-block { border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; background: var(--bg2); }
+.day-hdr {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4); background: var(--bg3);
+  border-left: 3px solid transparent;
+}
+.day-hdr.today { border-left-color: var(--accent); }
+.day-hdr-name { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--text); }
+.day-hdr-date { font-family: var(--font-mono); font-size: 12px; color: var(--text4); }
+.day-hdr-cnt {
+  margin-left: auto; font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  background: var(--bg4); color: var(--text3); border-radius: 999px; padding: 2px 8px;
+}
+.day-empty { padding: var(--space-3) var(--space-4); font-size: 12px; color: var(--text4); font-style: italic; }
+
+.lrow {
+  display: grid; grid-template-columns: 56px 1fr auto;
+  align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border2); cursor: pointer;
+  border-left: 3px solid var(--subject-color, var(--accent));
+  transition: background var(--t-fast) var(--ease);
+}
+.lrow:hover { background: var(--bg3); }
+.lrow-time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 700; color: var(--text); }
+.lrow-title { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrow-meta { font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Статус-пилюли ── */
+.st { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.st-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.st--done { color: var(--success); background: var(--success-soft); }
+.st--overdue { color: var(--warning); background: color-mix(in oklab, var(--warning) 12%, transparent); }
+.st--pending { color: var(--text3); background: var(--bg3); }
+.st--notime { color: var(--text4); background: var(--bg3); font-style: italic; }
+.st--cancelled { color: var(--text4); background: var(--bg3); text-decoration: line-through; }
+.st--moved { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); }
+
+/* Отменённые занятия — приглушённо/зачёркнуто в любом представлении календаря */
+.lrow.cancelled, .lb.cancelled, .month-chip.cancelled { opacity: .55; }
+.lrow.cancelled .lrow-title, .lb.cancelled .lb-title, .month-chip.cancelled .month-chip-title { text-decoration: line-through; }
+
+/* Бейдж «N групп без расписания» — data-quality сигнал, ненавязчивый */
+.cal-unscheduled {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-size: 12px; color: var(--text3); cursor: default;
+}
+.cal-unscheduled-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text4); flex-shrink: 0; }
+
+/* Секция «без времени» */
+.notime-sec { border: 1px dashed var(--border-strong); border-radius: var(--r-lg); padding: var(--space-4); }
+.notime-hdr { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.notime-title { font-size: 13px; font-weight: 600; color: var(--text2); }
+.notime-badge { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--warning); background: color-mix(in oklab, var(--warning) 12%, transparent); border-radius: 999px; padding: 2px 8px; }
+.notime-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-2); }
+
+/* Состояния загрузки/ошибки/пусто */
+.cal-skel { height: 480px; border-radius: var(--r-lg); background: var(--bg3); animation: t-pulse 1.4s ease-in-out infinite; }
+@keyframes t-pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+.cal-error { border: 1px solid color-mix(in oklab, var(--danger) 35%, transparent); background: color-mix(in oklab, var(--danger) 8%, transparent); color: var(--danger); border-radius: var(--r); padding: var(--space-4); font-size: 13px; }
+.cal-empty { text-align: center; padding: var(--space-10) var(--space-4); color: var(--text3); font-size: 13px; }

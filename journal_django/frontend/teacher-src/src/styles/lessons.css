@@ -1,0 +1,14 @@
+/* ── МОИ УРОКИ (сегодняшние уроки) ── */
+
+.ml-page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+.ml-subtitle {
+  font-size: 12px; color: var(--text3);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.ml-updating {
+  font-size: 12px; color: var(--text4); font-family: var(--font-mono);
+  margin-left: auto;
+}

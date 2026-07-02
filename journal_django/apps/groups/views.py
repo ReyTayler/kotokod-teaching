@@ -22,7 +22,10 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import IsManagerOrAdmin
 from apps.groups import services
-from apps.groups.serializers import GroupReadSerializer, GroupUpdateSerializer, GroupWriteSerializer
+from apps.groups.serializers import (
+    GroupReadSerializer, GroupUpdateSerializer, GroupWriteSerializer,
+    ScheduleChangeSerializer, ScheduleExceptionSerializer,
+)
 
 
 # Допустимые значения sort_by (whitelist)
@@ -133,6 +136,68 @@ class GroupDetailView(APIView):
 
     def delete(self, request: Request, pk: int) -> Response:
         ok = services.soft_delete_group(pk)
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class GroupScheduleView(APIView):
+    """
+    GET  /api/admin/groups/:id/schedule         — слоты (с датами действия) + исключения
+    POST /api/admin/groups/:id/schedule-change  — постоянная смена расписания
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        sched = services.get_schedule(pk)
+        if sched is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(sched)
+
+
+class GroupScheduleChangeView(APIView):
+    """POST /api/admin/groups/:id/schedule-change — постоянная смена времени."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        serializer = ScheduleChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = services.apply_schedule_change(pk, serializer.validated_data)
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                return Response({'error': 'Slot already exists'}, status=status.HTTP_409_CONFLICT)
+            raise
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(result)
+
+
+class GroupExceptionsView(APIView):
+    """POST /api/admin/groups/:id/exceptions — создать разовое исключение."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        serializer = ScheduleExceptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        data['created_by'] = getattr(request.user, 'email', None)
+        created = services.create_exception(pk, data)
+        if created is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(created, status=status.HTTP_201_CREATED)
+
+
+class GroupExceptionDeleteView(APIView):
+    """DELETE /api/admin/groups/:id/exceptions/:eid — удалить исключение."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def delete(self, request: Request, pk: int, eid: int) -> Response:
+        ok = services.delete_exception(pk, eid)
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)

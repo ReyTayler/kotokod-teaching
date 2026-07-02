@@ -21,4 +21,6 @@ urlpatterns = [
     path('/report', views.ReportView.as_view(), name='teacher-report'),
     path('/schedule', views.ScheduleView.as_view(), name='teacher-schedule'),
     path('/refreshData', views.RefreshDataView.as_view(), name='teacher-refresh-data'),
+    path('/lessons', views.MyLessonsView.as_view(), name='teacher-my-lessons'),
+    path('/group-directions', views.GroupDirectionsView.as_view(), name='teacher-group-directions'),
 ]
