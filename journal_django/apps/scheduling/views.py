@@ -16,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsTeacher
+from apps.core.permissions import IsManagerOrAdmin, IsTeacher
 from apps.scheduling import services
 
 # Максимальная ширина окна (дней) — календарь просит неделю/месяц; ограничиваем,
@@ -58,3 +58,75 @@ class CalendarView(APIView):
 
         result = services.build_calendar(d_from, d_to, teacher_id=request.user.teacher_id)
         return Response(result)
+
+
+# ---------------------------------------------------------------------------
+# Admin-план (RBAC IsManagerOrAdmin) — заглушки. Бизнес-логика операций над
+# planned_lessons (generate/reschedule/permanent-change/cancel/extra) добавляется
+# в шагах 2 и 4 (planner.py + repository.py). Здесь — только маршруты и RBAC:
+# доступ проверяется на API, а не только на фронте. Мутации требуют X-CSRFToken.
+# ---------------------------------------------------------------------------
+
+def _not_implemented() -> Response:
+    """Единый ответ-заглушка admin-плана (реализация — шаги 2/4)."""
+    return Response(
+        {'error': 'Not implemented yet.'},
+        status=status.HTTP_501_NOT_IMPLEMENTED,
+    )
+
+
+class GroupPlanView(APIView):
+    """
+    GET  /api/admin/groups/<pk>/plan          — список плановых занятий группы.
+    POST /api/admin/groups/<pk>/plan/generate — сгенерировать план (идемпотентно).
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        return _not_implemented()
+
+
+class GroupPlanGenerateView(APIView):
+    """POST /api/admin/groups/<pk>/plan/generate — генерация плана."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        return _not_implemented()
+
+
+class GroupPlanRescheduleView(APIView):
+    """POST /api/admin/groups/<pk>/plan/<lid>/reschedule — разовый перенос (+опц. teacher)."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int, lid: int) -> Response:
+        return _not_implemented()
+
+
+class GroupPlanPermanentChangeView(APIView):
+    """POST /api/admin/groups/<pk>/plan/permanent-change — перенос навсегда (с seq/даты)."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        return _not_implemented()
+
+
+class GroupPlanCancelView(APIView):
+    """POST /api/admin/groups/<pk>/plan/<lid>/cancel — отмена со сдвигом хвоста."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int, lid: int) -> Response:
+        return _not_implemented()
+
+
+class GroupPlanExtraView(APIView):
+    """POST /api/admin/groups/<pk>/plan/extra — доп. занятие (вне курса)."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        return _not_implemented()
