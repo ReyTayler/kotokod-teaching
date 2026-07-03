@@ -11,13 +11,18 @@ from __future__ import annotations
 
 import datetime
 
+from django.db import IntegrityError
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import IsManagerOrAdmin, IsTeacher
 from apps.scheduling import services
+from apps.scheduling.serializers import (
+    PlanExtraSerializer, PlanPermanentChangeSerializer, PlanRescheduleSerializer,
+)
 
 # Максимальная ширина окна (дней) — календарь просит неделю/месяц; ограничиваем,
 # чтобы не генерировать occurrences на произвольно большой диапазон.
@@ -61,39 +66,48 @@ class CalendarView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# Admin-план (RBAC IsManagerOrAdmin) — заглушки. Бизнес-логика операций над
-# planned_lessons (generate/reschedule/permanent-change/cancel/extra) добавляется
-# в шагах 2 и 4 (planner.py + repository.py). Здесь — только маршруты и RBAC:
-# доступ проверяется на API, а не только на фронте. Мутации требуют X-CSRFToken.
+# Admin-план (RBAC IsManagerOrAdmin). Операции над planned_lessons
+# (generate/reschedule/permanent-change/cancel/extra). Смонтированы под
+# /api/admin/groups (ДО teacher-guard /api) → доступ проверяется на API, а не
+# только на фронте. Мутации проходят DRF SessionAuthentication/CookieJWT →
+# требуют X-CSRFToken (@csrf_exempt не ставим). Аудит — log_event в services.
 # ---------------------------------------------------------------------------
 
-def _not_implemented() -> Response:
-    """Единый ответ-заглушка admin-плана (реализация — шаги 2/4)."""
-    return Response(
-        {'error': 'Not implemented yet.'},
-        status=status.HTTP_501_NOT_IMPLEMENTED,
-    )
+def _is_unique_violation(exc: Exception) -> bool:
+    """Нарушение уникальности PostgreSQL (pgcode 23505) — прямое или в __cause__."""
+    if getattr(exc, 'pgcode', None) == '23505':
+        return True
+    cause = getattr(exc, '__cause__', None)
+    return bool(cause and getattr(cause, 'pgcode', None) == '23505')
 
 
 class GroupPlanView(APIView):
-    """
-    GET  /api/admin/groups/<pk>/plan          — список плановых занятий группы.
-    POST /api/admin/groups/<pk>/plan/generate — сгенерировать план (идемпотентно).
-    """
+    """GET /api/admin/groups/<pk>/plan — список плановых занятий группы."""
 
     permission_classes = [IsManagerOrAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
-        return _not_implemented()
+        plan = services.get_plan(pk)
+        if plan is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(plan)
 
 
 class GroupPlanGenerateView(APIView):
-    """POST /api/admin/groups/<pk>/plan/generate — генерация плана."""
+    """POST /api/admin/groups/<pk>/plan/generate — генерация плана (идемпотентно)."""
 
     permission_classes = [IsManagerOrAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
-        return _not_implemented()
+        try:
+            plan = services.generate_plan(pk, request)
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                return Response({'error': 'Conflict'}, status=status.HTTP_409_CONFLICT)
+            raise
+        if plan is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(plan)
 
 
 class GroupPlanRescheduleView(APIView):
@@ -102,7 +116,20 @@ class GroupPlanRescheduleView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
     def post(self, request: Request, pk: int, lid: int) -> Response:
-        return _not_implemented()
+        serializer = PlanRescheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            row = services.reschedule(pk, lid, serializer.validated_data, request)
+        except ValueError as exc:
+            # Перенос проведённого (status='done') — бизнес-конфликт, не 500.
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                return Response({'error': 'Conflict'}, status=status.HTTP_409_CONFLICT)
+            raise
+        if row is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(row)
 
 
 class GroupPlanPermanentChangeView(APIView):
@@ -111,7 +138,19 @@ class GroupPlanPermanentChangeView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
-        return _not_implemented()
+        serializer = PlanPermanentChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            plan = services.permanent_change(pk, serializer.validated_data, request)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                return Response({'error': 'Slot already exists'}, status=status.HTTP_409_CONFLICT)
+            raise
+        if plan is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(plan)
 
 
 class GroupPlanCancelView(APIView):
@@ -120,7 +159,14 @@ class GroupPlanCancelView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
     def post(self, request: Request, pk: int, lid: int) -> Response:
-        return _not_implemented()
+        try:
+            plan = services.cancel(pk, lid, request)
+        except ValueError as exc:
+            # Якорь не курсовой/активный (extra/cancelled/moved/done) — бизнес-ошибка.
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if plan is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(plan)
 
 
 class GroupPlanExtraView(APIView):
@@ -129,4 +175,14 @@ class GroupPlanExtraView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
-        return _not_implemented()
+        serializer = PlanExtraSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            row = services.add_extra(pk, serializer.validated_data, request)
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                return Response({'error': 'Conflict'}, status=status.HTTP_409_CONFLICT)
+            raise
+        if row is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(row, status=status.HTTP_201_CREATED)
