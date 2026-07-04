@@ -78,6 +78,26 @@ class TestBackfillCommand:
         assert seq2.status != DONE
         assert seq2.fact_lesson_id is None
 
+    def test_reset_rebuilds_clean_removing_stray_rows(self, backfill_setup):
+        gid = backfill_setup['group_a']
+        call_command('backfill_planned_lessons')
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 8
+
+        # Лишняя (extra) строка, которой не даёт генерация.
+        now = datetime.datetime(2026, 7, 1, 12, 0)
+        PlannedLesson.objects.create(
+            group_id=gid, seq=None, lesson_number=None,
+            scheduled_date=datetime.date(2026, 6, 2), scheduled_time=datetime.time(11, 0),
+            teacher_id=backfill_setup['teacher_a'], status='pending',
+            created_at=now, updated_at=now,
+        )
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 9
+
+        call_command('backfill_planned_lessons', '--reset')
+        # Стрей удалён, план пересобран начисто (ровно 8 курсовых строк).
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 8
+        assert not PlannedLesson.objects.filter(group_id=gid, seq__isnull=True).exists()
+
     def test_dry_run_writes_nothing(self, backfill_setup):
         call_command('backfill_planned_lessons', '--dry-run')
         assert not PlannedLesson.objects.filter(

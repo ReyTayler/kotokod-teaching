@@ -33,9 +33,16 @@ class Command(BaseCommand):
             '--dry-run', action='store_true',
             help='Не писать в БД: только показать план обработки.',
         )
+        parser.add_argument(
+            '--reset', action='store_true',
+            help='Полностью пересобрать план: удалить существующие planned_lessons '
+                 'группы перед генерацией (РАЗРУШИТЕЛЬНО — сбрасывает ручные операции). '
+                 'Нужен для чистого пересбора после исправления логики генерации/линковки.',
+        )
 
     def handle(self, *args, **opts):
         dry = opts['dry_run']
+        reset = opts['reset']
 
         groups = repository.active_groups()
         ids = [g['id'] for g in groups]
@@ -78,6 +85,8 @@ class Command(BaseCommand):
                 continue
 
             with transaction.atomic():
+                if reset:
+                    repository.reset_plan(gid)
                 written = repository.persist_plan(gid, rows)
                 linked = repository.link_facts(gid)
             rows_written += written

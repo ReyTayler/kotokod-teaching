@@ -176,6 +176,16 @@ _PLAN_UPDATE_FIELDS = (
 )
 
 
+def reset_plan(group_id: int) -> int:
+    """Удалить весь план группы (для чистой перегенерации, backfill --reset).
+
+    Разрушительно: сбрасывает и ручные операции (переносы/отмены), и линковку с
+    фактами. Использовать только при полном пересборе плана. Возвращает число
+    удалённых строк."""
+    deleted, _ = PlannedLesson.objects.filter(group_id=group_id).delete()
+    return deleted
+
+
 def persist_plan(group_id: int, rows: list[PlannedRow]) -> int:
     """
     Идемпотентно записать/обновить курсовые строки плана группы в planned_lessons.
