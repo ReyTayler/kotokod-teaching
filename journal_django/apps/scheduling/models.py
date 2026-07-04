@@ -82,9 +82,14 @@ class PlannedLesson(models.Model):
         managed = True
         db_table = 'planned_lessons'
         indexes = [
-            # Основной индекс для календаря.
+            # Основной индекс для операций/плана группы (get_plan, link_facts, cancel).
             models.Index(fields=['group', 'scheduled_date'],
                          name='planned_lessons_group_date_idx'),
+            # Скоуп календаря — по teacher_id (равенство) + окно дат. Отдельный
+            # композитный индекс НЕ добавляем: Django уже создаёт db_index на FK
+            # teacher (ForeignKey → db_index=True), а строк на одного преподавателя
+            # немного (курсы ~десятки уроков на пару групп) — фильтр по дате в окне
+            # поверх FK-индекса тривиален. См. шаг-5 отчёт.
         ]
         constraints = [
             # Одна строка на позицию курса (seq задан). extra/маркеры (seq NULL)

@@ -117,6 +117,91 @@ def teacher_names() -> dict[int, str]:
 
 
 # ---------------------------------------------------------------------------
+# ЧТЕНИЕ planned_lessons для календаря (шаг 5 — read-on-materialized).
+# Скоуп по planned_lesson.teacher_id (преподаватель КОНКРЕТНОГО занятия), не по
+# учителю группы: смена препода занятия перекидывает урок между календарями.
+# ---------------------------------------------------------------------------
+
+def planned_lessons_in_window(
+    window_from: datetime.date,
+    window_to: datetime.date,
+    teacher_id: int,
+) -> list[dict]:
+    """
+    Плановые занятия ОДНОГО преподавателя за окно — источник GET /api/calendar.
+
+    Скоуп — по `planned_lesson.teacher_id` (не по учителю группы): группа занятия
+    может принадлежать другому учителю (после смены препода занятия). Только
+    активные группы (паритет с прежним compute-путём `active_groups`).
+
+    Батч-джойны, без N+1: один запрос строк с join группы/направления. Имена
+    преподавателей и учеников по группам подтягивает вызывающий (services) через
+    существующие справочники `teacher_names` / `student_names_by_group`.
+
+    Возвращает «сырые» словари (date/time — объекты) для services._planned_occurrence_dict.
+    """
+    return list(
+        PlannedLesson.objects
+        .filter(
+            teacher_id=teacher_id,
+            group__active=True,
+            scheduled_date__gte=window_from,
+            scheduled_date__lte=window_to,
+        )
+        .values(
+            'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
+            'teacher_id', 'status', 'fact_lesson_id',
+            'moved_from_date', 'moved_to_date',
+            group_pk=F('group_id'),
+            group_name=F('group__name'),
+            is_individual=F('group__is_individual'),
+            lesson_duration_minutes=F('group__lesson_duration_minutes'),
+            group_teacher_id=F('group__teacher_id'),
+            direction_name=F('group__direction__name'),
+            direction_color=F('group__direction__color'),
+        )
+    )
+
+
+def groups_without_plan(teacher_id: int) -> list[dict]:
+    """
+    Активные группы преподавателя (по `group.teacher_id`) без единой строки
+    planned_lessons — data-quality сигнал `unscheduled` для календаря.
+
+    Причина: no_start_date / no_total_lessons / no_slots (нельзя сгенерировать) или
+    not_generated (можно, но план ещё не материализован). Батч: active_groups +
+    один DISTINCT по planned_lessons + slots_by_group.
+    """
+    groups = active_groups(teacher_id)
+    if not groups:
+        return []
+    ids = [g['id'] for g in groups]
+    with_plan = set(
+        PlannedLesson.objects
+        .filter(group_id__in=ids)
+        .values_list('group_id', flat=True)
+        .distinct()
+    )
+    missing = [g for g in groups if g['id'] not in with_plan]
+    if not missing:
+        return []
+    slots = slots_by_group([g['id'] for g in missing])
+
+    out: list[dict] = []
+    for g in missing:
+        if g['group_start_date'] is None:
+            reason = 'no_start_date'
+        elif g['total_lessons'] is None:
+            reason = 'no_total_lessons'
+        elif not slots.get(g['id']):
+            reason = 'no_slots'
+        else:
+            reason = 'not_generated'
+        out.append({'group': g['name'], 'reason': reason})
+    return out
+
+
+# ---------------------------------------------------------------------------
 # ЗАПИСЬ плана (materialize-on-write). Батч, без N+1; идемпотентно.
 # ---------------------------------------------------------------------------
 
