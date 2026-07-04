@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { GroupScheduleData, ScheduleException, ScheduleExceptionKind } from '../lib/types';
+import type { GroupScheduleData } from '../lib/types';
 
 const KEY = (groupId: number) => ['group-schedule', groupId] as const;
 
@@ -30,30 +30,3 @@ export function useScheduleChange(groupId: number) {
   });
 }
 
-export interface ExceptionPayload {
-  kind: ScheduleExceptionKind;
-  original_date?: string | null;
-  original_time?: string | null;
-  new_date?: string | null;
-  new_start_time?: string | null;
-  new_teacher_id?: number | null;
-  note?: string | null;
-}
-
-export function useCreateException(groupId: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: ExceptionPayload) =>
-      api<ScheduleException>('POST', `/api/admin/groups/${groupId}/exceptions`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY(groupId) }),
-  });
-}
-
-export function useDeleteException(groupId: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (exceptionId: number) =>
-      api<void>('DELETE', `/api/admin/groups/${groupId}/exceptions/${exceptionId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY(groupId) }),
-  });
-}

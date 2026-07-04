@@ -2,7 +2,7 @@
 Сериализаторы-валидаторы admin-операций плана (planned_lessons).
 
 Строгая валидация входа каждой мутации (шаг 4). Стиль зеркалит
-apps/groups/serializers.py (ScheduleChangeSerializer / ScheduleExceptionSerializer):
+apps/groups/serializers.py (ScheduleChangeSerializer):
 даты — DateStringField ('YYYY-MM-DD'), время — HH:MM(:SS), day_of_week 0..6 (Вс=0).
 
 Лишние поля не принимаются молча — StrictSerializer.validate отклоняет неизвестные

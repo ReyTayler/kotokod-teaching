@@ -2,8 +2,6 @@
 API-тесты admin-редактирования расписания (Ф3):
   GET  /api/admin/groups/:id/schedule
   POST /api/admin/groups/:id/schedule-change
-  POST /api/admin/groups/:id/exceptions
-  DELETE /api/admin/groups/:id/exceptions/:eid
 
 Права: IsManagerOrAdmin. Аутентификация — JWT (root conftest клиенты).
 """
@@ -34,7 +32,6 @@ def sched_group(db):
         group_id = cur.fetchone()[0]
     yield group_id
     with connection.cursor() as cur:
-        cur.execute('DELETE FROM lesson_schedule_exceptions WHERE group_id = %s', [group_id])
         cur.execute('DELETE FROM group_schedule_slots WHERE group_id = %s', [group_id])
         cur.execute('DELETE FROM groups WHERE id = %s', [group_id])
         cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])
@@ -62,7 +59,7 @@ class TestScheduleChange:
         resp = manager_client.get(f'/api/admin/groups/{sched_group}/schedule')
         assert resp.status_code == 200
         body = resp.json()
-        assert body == {'slots': [], 'exceptions': []}
+        assert body == {'slots': []}
 
     def test_apply_and_read(self, manager_client, sched_group):
         resp = manager_client.post(
@@ -105,58 +102,3 @@ class TestScheduleChange:
             format='json',
         )
         assert resp.status_code == 400
-
-
-class TestExceptions:
-    def _post(self, client, gid, body):
-        return client.post(f'/api/admin/groups/{gid}/exceptions', body, format='json')
-
-    def test_create_reschedule(self, manager_client, sched_group):
-        resp = self._post(manager_client, sched_group, {
-            'kind': 'reschedule', 'original_date': '2026-06-08',
-            'new_date': '2026-06-10', 'new_start_time': '15:00',
-        })
-        assert resp.status_code == 201
-        body = resp.json()
-        assert body['kind'] == 'reschedule'
-        assert body['original_date'] == '2026-06-08'
-        assert body['new_date'] == '2026-06-10'
-        assert body['new_start_time'] == '15:00'
-
-    def test_create_cancel_and_extra(self, manager_client, sched_group):
-        assert self._post(manager_client, sched_group,
-                          {'kind': 'cancel', 'original_date': '2026-06-15'}).status_code == 201
-        assert self._post(manager_client, sched_group,
-                          {'kind': 'extra', 'new_date': '2026-06-20', 'new_start_time': '16:00'}).status_code == 201
-
-    def test_reschedule_missing_dates_400(self, manager_client, sched_group):
-        assert self._post(manager_client, sched_group, {'kind': 'reschedule'}).status_code == 400
-
-    def test_cancel_with_new_date_400(self, manager_client, sched_group):
-        resp = self._post(manager_client, sched_group,
-                          {'kind': 'cancel', 'original_date': '2026-06-15', 'new_date': '2026-06-16'})
-        assert resp.status_code == 400
-
-    def test_bad_time_format_400(self, manager_client, sched_group):
-        resp = self._post(manager_client, sched_group,
-                          {'kind': 'extra', 'new_date': '2026-06-20', 'new_start_time': '25h'})
-        assert resp.status_code == 400
-
-    def test_appears_in_schedule_then_delete(self, manager_client, sched_group):
-        created = self._post(manager_client, sched_group,
-                             {'kind': 'cancel', 'original_date': '2026-06-15'}).json()
-        eid = created['id']
-        body = manager_client.get(f'/api/admin/groups/{sched_group}/schedule').json()
-        assert any(e['id'] == eid for e in body['exceptions'])
-
-        assert manager_client.delete(
-            f'/api/admin/groups/{sched_group}/exceptions/{eid}'
-        ).status_code == 204
-        # повторное удаление → 404
-        assert manager_client.delete(
-            f'/api/admin/groups/{sched_group}/exceptions/{eid}'
-        ).status_code == 404
-
-    def test_exception_missing_group_404(self, manager_client):
-        assert self._post(manager_client, 99999999,
-                          {'kind': 'cancel', 'original_date': '2026-06-15'}).status_code == 404

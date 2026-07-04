@@ -4,8 +4,7 @@ planned_lessons (шаг 5).
 
 Покрытие: auth (401/403), валидация окна (400), скоуп по planned_lesson.teacher_id
 (включая «перекидывание» урока к другому преподавателю), статусы на чтении
-(done/overdue/pending/cancelled/moved), контракт ответа, unscheduled без плана,
-паритет с прежним compute-путём (build_calendar_compute) на одинаковых данных.
+(done/overdue/pending/cancelled/moved), контракт ответа, unscheduled без плана.
 
 Плановые строки сидируем прямым INSERT в planned_lessons (точный контроль дат/
 статусов, независимо от системных часов) либо через repository.generate_for_group
@@ -17,7 +16,7 @@ from __future__ import annotations
 import pytest
 from django.db import connection
 
-from apps.scheduling import repository, services
+from apps.scheduling import repository
 
 pytestmark = pytest.mark.django_db
 
@@ -249,29 +248,3 @@ class TestCalendar:
         body = planned_setup['client_a'].get('/api/calendar' + WIN).json()
         reasons = {u['group']: u['reason'] for u in body['unscheduled']}
         assert reasons.get('__sched_group_A__') == 'not_generated'
-
-
-class TestParityWithCompute:
-    """
-    Сверка нового чтения planned_lessons со СТАРЫМ compute-on-read
-    (build_calendar_compute) на одинаковых данных. Временный тест до шага 9
-    (удаление compute-слоя) — фиксирует паритет дат/статусов/формы ответа.
-    """
-
-    def test_parity_generated_plan(self, planned_setup):
-        import datetime
-        repository.generate_for_group(planned_setup['group_a'])
-        d_from, d_to = datetime.date(2026, 6, 1), datetime.date(2026, 7, 31)
-        ta = planned_setup['teacher_a']
-
-        planned = services.build_calendar(d_from, d_to, teacher_id=ta)
-        compute = services.build_calendar_compute(d_from, d_to, teacher_id=ta)
-
-        def _proj(body):
-            return [
-                (o['date'], o['time'], o['status'], o['seq'], o['lessonNumber'],
-                 o['isExtra'], o['group'], o['teacher'], o['teacherOverride'])
-                for o in body['occurrences']
-            ]
-
-        assert _proj(planned) == _proj(compute)

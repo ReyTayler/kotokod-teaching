@@ -96,6 +96,22 @@ def test_generate_is_idempotent_by_value():
     assert generate(**kw) == generate(**kw)
 
 
+def test_generate_versioned_slots_continuous_numbering():
+    """Версионные слоты (закрытый + открытый) → _walk выбирает активный на дату,
+    номера сквозные. Покрывает переход effective_from/effective_to в генераторе."""
+    slots = [
+        _slot(MON, 10, eff_from=D(2026, 6, 1), eff_to=D(2026, 6, 14)),   # первые 2 понедельника
+        _slot(WED, 14, eff_from=D(2026, 6, 15)),                          # далее среды
+    ]
+    rows = generate(
+        start_date=D(2026, 6, 1), slots=slots,
+        total_lessons=4, duration_minutes=90, default_teacher_id=1,
+    )
+    assert [r.scheduled_date for r in rows] == [D(2026, 6, 1), D(2026, 6, 8), D(2026, 6, 17), D(2026, 6, 24)]
+    assert [r.lesson_number for r in rows] == [Decimal('1'), Decimal('2'), Decimal('3'), Decimal('4')]
+    assert rows[2].scheduled_time == T(14, 0)
+
+
 # --------------------------------------------------------------------------- #
 # reschedule
 # --------------------------------------------------------------------------- #

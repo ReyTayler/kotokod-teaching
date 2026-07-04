@@ -10,7 +10,6 @@ from django.urls import path
 
 from apps.groups.views import (
     GroupDetailView, GroupListCreateView,
-    GroupExceptionDeleteView, GroupExceptionsView,
     GroupScheduleChangeView, GroupScheduleView,
 )
 from apps.scheduling.views import (
@@ -21,11 +20,9 @@ from apps.scheduling.views import (
 urlpatterns = [
     path('', GroupListCreateView.as_view(), name='groups-list-create'),
     path('/<int:pk>', GroupDetailView.as_view(), name='groups-detail'),
-    # Расписание (Ф3): версионные слоты + разовые исключения
+    # Расписание (Ф3): версионные слоты
     path('/<int:pk>/schedule', GroupScheduleView.as_view(), name='groups-schedule'),
     path('/<int:pk>/schedule-change', GroupScheduleChangeView.as_view(), name='groups-schedule-change'),
-    path('/<int:pk>/exceptions', GroupExceptionsView.as_view(), name='groups-exceptions'),
-    path('/<int:pk>/exceptions/<int:eid>', GroupExceptionDeleteView.as_view(), name='groups-exception-delete'),
     # План занятий (materialize-on-write, planned_lessons). Смонтирован под
     # /api/admin/groups (стоит ДО teacher-guard /api) → RBAC IsManagerOrAdmin.
     # Заглушки 501; бизнес-логика — шаги 2/4. Числовой <lid> не конфликтует со

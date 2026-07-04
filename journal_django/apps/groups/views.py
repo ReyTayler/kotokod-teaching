@@ -24,7 +24,7 @@ from apps.core.permissions import IsManagerOrAdmin
 from apps.groups import services
 from apps.groups.serializers import (
     GroupReadSerializer, GroupUpdateSerializer, GroupWriteSerializer,
-    ScheduleChangeSerializer, ScheduleExceptionSerializer,
+    ScheduleChangeSerializer,
 )
 
 
@@ -173,34 +173,6 @@ class GroupScheduleChangeView(APIView):
         if result is None:
             raise NotFound({'error': 'Not found'})
         return Response(result)
-
-
-class GroupExceptionsView(APIView):
-    """POST /api/admin/groups/:id/exceptions — создать разовое исключение."""
-
-    permission_classes = [IsManagerOrAdmin]
-
-    def post(self, request: Request, pk: int) -> Response:
-        serializer = ScheduleExceptionSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = dict(serializer.validated_data)
-        data['created_by'] = getattr(request.user, 'email', None)
-        created = services.create_exception(pk, data)
-        if created is None:
-            raise NotFound({'error': 'Not found'})
-        return Response(created, status=status.HTTP_201_CREATED)
-
-
-class GroupExceptionDeleteView(APIView):
-    """DELETE /api/admin/groups/:id/exceptions/:eid — удалить исключение."""
-
-    permission_classes = [IsManagerOrAdmin]
-
-    def delete(self, request: Request, pk: int, eid: int) -> Response:
-        ok = services.delete_exception(pk, eid)
-        if not ok:
-            raise NotFound({'error': 'Not found'})
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

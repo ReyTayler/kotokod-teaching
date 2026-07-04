@@ -11,10 +11,7 @@ import datetime
 from apps.audit.services import log_event
 from apps.core.utils.dates import MSK, msk_now
 from apps.scheduling import repository
-from apps.scheduling.occurrences import (
-    Occurrence, build_occurrences,
-    CANCELLED, DONE, MOVED, OVERDUE, PENDING,
-)
+from apps.scheduling.occurrences import CANCELLED, DONE, MOVED, OVERDUE, PENDING
 
 _LABELS = {
     DONE: 'Заполнено',
@@ -41,41 +38,6 @@ def _report_day(d: datetime.date) -> int:
     return (d.weekday() + 1) % 7
 
 
-def _label(o: Occurrence) -> str:
-    if o.status == MOVED and o.moved_to:
-        return f'Перенесён на {_ddmm(o.moved_to)}'
-    return _LABELS.get(o.status, '')
-
-
-def _occurrence_dict(g: dict, o: Occurrence, students: list[dict], teacher_names: dict) -> dict:
-    is_half = g['lesson_duration_minutes'] == 45
-    teacher = (
-        teacher_names.get(o.teacher_override_id)
-        if o.teacher_override_id else g['teacher_name']
-    )
-    return {
-        'group': g['name'],
-        'groupDisplay': g['name'],
-        'teacher': teacher,
-        'teacherOverride': teacher_names.get(o.teacher_override_id) if o.teacher_override_id else None,
-        'direction': g['direction_name'],
-        'color': g['direction_color'],
-        'isGroup': not g['is_individual'],
-        'date': _iso(o.date),
-        'time': _hhmm(o.time),
-        'day': _report_day(o.date),
-        'seq': o.seq if o.seq >= 0 else None,
-        'lessonNumber': float(o.lesson_number) if o.lesson_number is not None else None,
-        'isHalf': is_half,
-        'isExtra': o.is_extra,
-        'status': o.status,
-        'label': _label(o),
-        'movedFrom': _iso(o.moved_from),
-        'movedTo': _iso(o.moved_to),
-        'students': students,
-    }
-
-
 def _planned_status(r: dict, now_msk: datetime.datetime) -> str:
     """
     Статус планового занятия НА ЧТЕНИИ из строки planned_lessons.
@@ -85,7 +47,7 @@ def _planned_status(r: dict, now_msk: datetime.datetime) -> str:
       иначе     — overdue, если datetime(дата, время, МСК) уже наступил, иначе pending.
 
     (Бэкфилл оставил прошлые незаполненные строки как pending → overdue считаем здесь,
-    как прежний occurrences._attach_status.)
+    на чтении, по времени занятия в МСК.)
     """
     if r['status'] == DONE or r['fact_lesson_id'] is not None:
         return DONE
@@ -106,7 +68,7 @@ def _planned_label(status: str, moved_to: datetime.date | None) -> str:
 def _planned_occurrence_dict(
     r: dict, students: list[dict], tnames: dict, now_msk: datetime.datetime,
 ) -> dict:
-    """Строка planned_lessons → dict календаря (форма _occurrence_dict 1:1).
+    """Строка planned_lessons → dict календаря (контракт ответа /api/calendar).
 
     teacher = имя препода занятия (planned_lesson.teacher), иначе имя учителя группы;
     teacherOverride = имя, если препод занятия ≠ учитель группы (как прежде).
@@ -149,7 +111,7 @@ def build_calendar(
 ) -> dict:
     """
     Плановые занятия преподавателя за окно — чтение materialize-on-write
-    planned_lessons (шаг 5, заменяет compute-on-read build_calendar_compute ниже).
+    planned_lessons (заменило прежний compute-on-read из слотов + исключений).
 
     Скоуп — по `planned_lesson.teacher_id` (препод конкретного занятия): смена
     преподавателя занятия автоматически перекидывает урок между календарями.
@@ -182,64 +144,6 @@ def build_calendar(
     return {
         'occurrences': occurrences,
         'unscheduled': repository.groups_without_plan(teacher_id),
-        'window': {'from': window_from.isoformat(), 'to': window_to.isoformat()},
-    }
-
-
-def build_calendar_compute(
-    window_from: datetime.date,
-    window_to: datetime.date,
-    teacher_id: int | None = None,
-) -> dict:
-    """
-    ПРЕЖНИЙ compute-on-read календарь (слоты + lesson_schedule_exceptions).
-
-    Оставлен для сверки паритета с новым build_calendar на одинаковых данных
-    (шаг 5). Удаляется на шаге 9 вместе с LessonScheduleException и occurrences-
-    наложением исключений (после подтверждения паритета).
-    """
-    groups = repository.active_groups(teacher_id)
-    ids = [g['id'] for g in groups]
-
-    slots = repository.slots_by_group(ids)
-    exceptions = repository.exceptions_by_group(ids)
-    facts = repository.fact_dates_by_group(ids, window_from, window_to)
-    students = repository.student_names_by_group(ids)
-    tnames = repository.teacher_names()
-    now = msk_now()
-
-    occurrences: list[dict] = []
-    unscheduled: list[dict] = []
-
-    for g in groups:
-        gid = g['id']
-        g_slots = slots.get(gid, [])
-        if g['group_start_date'] is None:
-            unscheduled.append({'group': g['name'], 'reason': 'no_start_date'})
-            continue
-        if not g_slots:
-            unscheduled.append({'group': g['name'], 'reason': 'no_slots'})
-            continue
-
-        occs = build_occurrences(
-            start_date=g['group_start_date'],
-            duration_minutes=g['lesson_duration_minutes'],
-            total_lessons=g['total_lessons'],
-            slots=g_slots,
-            exceptions=exceptions.get(gid, []),
-            fact_dates=facts.get(gid, set()),
-            window_from=window_from,
-            window_to=window_to,
-            now_msk=now,
-        )
-        g_students = [{'name': n} for n in students.get(gid, [])]
-        for o in occs:
-            occurrences.append(_occurrence_dict(g, o, g_students, tnames))
-
-    occurrences.sort(key=lambda x: (x['date'], x['time'] or ''))
-    return {
-        'occurrences': occurrences,
-        'unscheduled': unscheduled,
         'window': {'from': window_from.isoformat(), 'to': window_to.isoformat()},
     }
 

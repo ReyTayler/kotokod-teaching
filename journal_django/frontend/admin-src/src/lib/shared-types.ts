@@ -57,7 +57,9 @@ export interface Group {
   members_count?: number;
 }
 
-// ===== Group schedule (GET/POST .../groups/:id/schedule, /schedule-change, /exceptions) =====
+// ===== Group schedule (GET .../groups/:id/schedule, POST /schedule-change) =====
+// Слоты — recurrence-шаблон (group_schedule_slots). Операции над занятиями идут
+// через planned_lessons (см. useGroupPlan). lesson_schedule_exceptions удалены (шаг 9).
 
 // Слот с полной историей действия — отличается от GroupScheduleSlot (used в Group.slots / форме
 // создания группы) наличием периода действия. id/effective_from здесь всегда заданы сервером.
@@ -69,23 +71,8 @@ export interface ScheduleSlot {
   effective_to: string | null; // null = слот действует по сей день
 }
 
-export type ScheduleExceptionKind = 'reschedule' | 'cancel' | 'extra';
-
-export interface ScheduleException {
-  id: ID;
-  kind: ScheduleExceptionKind;
-  original_date: string | null;
-  original_time: string | null;
-  new_date: string | null;
-  new_start_time: string | null;
-  new_teacher_id: number | null;
-  note: string | null;
-  created_at: string;
-}
-
 export interface GroupScheduleData {
   slots: ScheduleSlot[];
-  exceptions: ScheduleException[];
 }
 
 // ===== Students =====

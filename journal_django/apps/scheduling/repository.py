@@ -14,14 +14,14 @@ from django.db import transaction
 from django.db.models import F
 
 from apps.core.utils.dates import msk_now
-from apps.groups.models import GroupScheduleSlot, LessonScheduleException
+from apps.groups.models import GroupScheduleSlot
 from apps.groups.models import Group
 from apps.lessons.models import Lesson
 from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import planner
 from apps.scheduling.models import PlannedLesson
-from apps.scheduling.occurrences import DONE, OVERDUE, PENDING, ScheduleException, Slot
+from apps.scheduling.occurrences import DONE, OVERDUE, PENDING, Slot
 from apps.scheduling.planner import PlannedRow
 
 
@@ -56,43 +56,6 @@ def slots_by_group(group_ids: list[int]) -> dict[int, list[Slot]]:
             effective_from=r['effective_from'],
             effective_to=r['effective_to'],
         ))
-    return result
-
-
-def exceptions_by_group(group_ids: list[int]) -> dict[int, list[ScheduleException]]:
-    result: dict[int, list[ScheduleException]] = {}
-    if not group_ids:
-        return result
-    rows = LessonScheduleException.objects.filter(group_id__in=group_ids).values(
-        'group_id', 'kind', 'original_date', 'original_time',
-        'new_date', 'new_start_time', 'new_teacher_id',
-    )
-    for r in rows:
-        result.setdefault(r['group_id'], []).append(ScheduleException(
-            kind=r['kind'],
-            original_date=r['original_date'],
-            original_time=r['original_time'],
-            new_date=r['new_date'],
-            new_start_time=r['new_start_time'],
-            new_teacher_id=r['new_teacher_id'],
-        ))
-    return result
-
-
-def fact_dates_by_group(
-    group_ids: list[int], window_from: datetime.date, window_to: datetime.date,
-) -> dict[int, set]:
-    """Даты проведённых уроков (факт) в окне — для статуса 'done'."""
-    result: dict[int, set] = {}
-    if not group_ids:
-        return result
-    rows = (
-        Lesson.objects
-        .filter(group_id__in=group_ids, lesson_date__gte=window_from, lesson_date__lte=window_to)
-        .values('group_id', 'lesson_date')
-    )
-    for r in rows:
-        result.setdefault(r['group_id'], set()).add(r['lesson_date'])
     return result
 
 
