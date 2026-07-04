@@ -85,6 +85,9 @@ def sched_setup(db):
     yield data
 
     with connection.cursor() as cur:
+        # planned_lessons: FK на groups с Python-CASCADE (не ON DELETE в БД) —
+        # raw-DELETE групп не каскадит, поэтому чистим детей явно и первыми.
+        cur.execute('DELETE FROM planned_lessons WHERE group_id IN (%s,%s)', [group_a, group_b])
         cur.execute('DELETE FROM lessons WHERE group_id IN (%s,%s)', [group_a, group_b])
         cur.execute('DELETE FROM group_schedule_slots WHERE group_id IN (%s,%s)', [group_a, group_b])
         cur.execute('DELETE FROM groups WHERE id IN (%s,%s)', [group_a, group_b])
