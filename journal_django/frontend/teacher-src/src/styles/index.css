@@ -11,8 +11,8 @@
 @import '@shared/styles/components.css';
 @import './shell.css';
 @import './pages.css';
-@import './calendar.css';
+@import '@shared/shared/calendar/calendar.css';
 @import './report.css';
-@import './modal.css';
+@import '@shared/shared/calendar/modal.css';
 @import './groups.css';
 @import './lessons.css';

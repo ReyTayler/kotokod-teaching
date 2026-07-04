@@ -1,5 +1,5 @@
-import type { Occurrence } from '../../lib/types';
-import { addDays, isoDate, sameDay, mondayOfWeek } from '../../lib/dates';
+import type { Occurrence } from './types';
+import { addDays, isoDate, sameDay, mondayOfWeek } from './lib';
 
 const DAY_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const MAX_VISIBLE = 3;

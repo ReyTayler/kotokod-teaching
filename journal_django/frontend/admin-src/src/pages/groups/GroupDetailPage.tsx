@@ -16,6 +16,8 @@ import { fmtDate } from '../../lib/format';
 import { formatSlot } from '../../lib/slots';
 import { useToast } from '../../components/ui/Toast';
 import { useApiError } from '../../hooks/useApiError';
+import { useGroupPlanCalendar } from '../../hooks/useGroupPlanCalendar';
+import { CalendarView } from '../../shared/calendar/CalendarView';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
 import GroupMembersBlock from './GroupMembersBlock';
@@ -43,6 +45,13 @@ export default function GroupDetailPage() {
   const [selected, setSelected] = useState<{ slot: number; lessonId: number | null } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Направление/преподаватель считаем ДО ранних return — нужны для
+  // useGroupPlanCalendar, который обязан вызываться безусловно (Rules of
+  // Hooks); хук сам справляется с group===undefined (пока группа грузится).
+  const direction = group ? directions.find((d) => d.id === group.direction_id) || null : null;
+  const teacher = group ? teachers.find((t) => t.id === group.teacher_id) || null : null;
+  const planCalendar = useGroupPlanCalendar(group, direction, teachers);
+
   const rawTab = searchParams.get('tab');
   const activeTab: GroupTab = isGroupTab(rawTab) ? rawTab : DEFAULT_TAB;
   const setActiveTab = (tab: string) => {
@@ -56,8 +65,6 @@ export default function GroupDetailPage() {
   if (isLoading) return <PageLoading />;
   if (!group) return <Navigate to="/admin/groups" replace />;
 
-  const direction = directions.find((d) => d.id === group.direction_id) || null;
-  const teacher = teachers.find((t) => t.id === group.teacher_id) || null;
   const color = directionColor(direction);
 
   const fields: DetailField<Group>[] = [
@@ -138,7 +145,20 @@ export default function GroupDetailPage() {
     {
       value: 'schedule',
       label: 'Расписание',
-      content: <GroupScheduleBlock groupId={group.id} />,
+      content: (
+        <div className="detail__section" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          <CalendarView
+            occurrences={planCalendar.occurrences}
+            unscheduled={[]}
+            isLoading={planCalendar.isLoading}
+            isError={planCalendar.isError}
+            isFetching={planCalendar.isFetching}
+            onVisibleRangeChange={() => {}}
+            role="admin"
+          />
+          <GroupScheduleBlock groupId={group.id} />
+        </div>
+      ),
     },
   ];
 

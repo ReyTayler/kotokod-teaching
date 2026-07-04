@@ -1,6 +1,6 @@
-import type { Occurrence } from '../../lib/types';
-import { StatusPill } from '../../components/ui/StatusPill';
-import { addDays, dayMonth, sameDay, columnIndexOfIsoDate } from '../../lib/dates';
+import type { Occurrence } from './types';
+import { StatusPill } from './StatusPill';
+import { addDays, dayMonth, sameDay, columnIndexOfIsoDate } from './lib';
 
 const DAY_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 

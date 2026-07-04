@@ -94,7 +94,9 @@
 .cal-grid-head {
   display: grid; grid-template-columns: 56px repeat(7, 1fr);
   border-bottom: 1px solid var(--border);
-  position: sticky; top: var(--topbar-h); z-index: 5; background: var(--bg2);
+  /* var(--topbar-h) определён в teacher shell.css; в admin токена нет —
+     fallback 0px, чтобы CSS не считался невалидным (см. отчёт шага 6b). */
+  position: sticky; top: var(--topbar-h, 0px); z-index: 5; background: var(--bg2);
 }
 .cal-col-head {
   padding: var(--space-2) var(--space-1);
@@ -228,7 +230,9 @@
 /* ── Статус-пилюли ── */
 .st { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .st-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.st--done { color: var(--success); background: var(--success-soft); }
+/* color-mix (не --success-soft — токен есть только в teacher/tokens.css, в admin отсутствует;
+   остальные .st--* в этом блоке уже так делают, здесь просто выравниваем под общий паттерн). */
+.st--done { color: var(--success); background: color-mix(in oklab, var(--success) 12%, transparent); }
 .st--overdue { color: var(--warning); background: color-mix(in oklab, var(--warning) 12%, transparent); }
 .st--pending { color: var(--text3); background: var(--bg3); }
 .st--notime { color: var(--text4); background: var(--bg3); font-style: italic; }

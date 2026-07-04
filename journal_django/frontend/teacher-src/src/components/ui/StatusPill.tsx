@@ -1,23 +1,9 @@
-import type { LessonStatus, OccStatus } from '../../lib/types';
-
-/** Объединённый статус: старый /api/report (LessonStatus) + новый /api/calendar (OccStatus). */
-export type AnyStatus = LessonStatus | OccStatus;
-
-const LABEL: Record<AnyStatus, string> = {
-  done: 'Заполнено',
-  overdue: 'Надо заполнить',
-  pending: 'Ещё не было',
-  notime: 'Без времени',
-  cancelled: 'Отменён',
-  moved: 'Перенесён',
-};
-
-/** Статус-пилюля урока (tone-based, цвет только для смысла). */
-export function StatusPill({ status, label }: { status: AnyStatus; label?: string }) {
-  return (
-    <span className={`st st--${status}`}>
-      <span className="st-dot" />
-      {label ?? LABEL[status]}
-    </span>
-  );
-}
+/**
+ * Реэкспорт из shared/calendar (admin-src/src/shared/calendar/StatusPill.tsx)
+ * — компонент вынесен туда вместе с календарём (шаг 6b), но используется и
+ * НЕ-календарным teacher-кодом (MyLessonsPage, ReportPage — статусы
+ * /api/report и /api/lessons), поэтому импорт из этого файла остаётся
+ * рабочим без правок в тех страницах.
+ */
+export { StatusPill } from '@shared/shared/calendar/StatusPill';
+export type { AnyStatus } from '@shared/shared/calendar/StatusPill';

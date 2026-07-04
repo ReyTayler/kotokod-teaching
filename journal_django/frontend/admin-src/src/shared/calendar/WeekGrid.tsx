@@ -1,5 +1,5 @@
-import type { Occurrence } from '../../lib/types';
-import { addDays, dayMonth, sameDay, columnIndexOfIsoDate } from '../../lib/dates';
+import type { Occurrence } from './types';
+import { addDays, dayMonth, sameDay, columnIndexOfIsoDate } from './lib';
 
 const ROW_H = 56;
 const HOUR_START = 8;
