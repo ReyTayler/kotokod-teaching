@@ -84,7 +84,8 @@ class TestBackfillCommand:
         assert PlannedLesson.objects.filter(group_id=gid).count() == 8
 
         # Лишняя (extra) строка, которой не даёт генерация.
-        now = datetime.datetime(2026, 7, 1, 12, 0)
+        from apps.core.utils.dates import msk_now
+        now = msk_now()
         PlannedLesson.objects.create(
             group_id=gid, seq=None, lesson_number=None,
             scheduled_date=datetime.date(2026, 6, 2), scheduled_time=datetime.time(11, 0),
