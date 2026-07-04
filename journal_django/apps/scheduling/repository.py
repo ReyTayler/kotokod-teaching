@@ -391,6 +391,7 @@ def _plan_row_dict(r: dict, tnames: dict[int, str]) -> dict:
         'status': r['status'],
         'fact_lesson_id': r['fact_lesson_id'],
         'moved_from_date': _iso(r['moved_from_date']),
+        'moved_to_date': _iso(r['moved_to_date']),
         'is_extra': r['seq'] is None,
     }
 
@@ -407,6 +408,7 @@ def _plan_row_dict_obj(p: PlannedLesson, tnames: dict[int, str]) -> dict:
         'status': p.status,
         'fact_lesson_id': p.fact_lesson_id,
         'moved_from_date': p.moved_from_date,
+        'moved_to_date': p.moved_to_date,
     }, tnames)
 
 
@@ -439,7 +441,7 @@ def get_plan(group_id: int) -> list[dict] | None:
         .order_by('scheduled_date', 'scheduled_time')
         .values(
             'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
-            'teacher_id', 'status', 'fact_lesson_id', 'moved_from_date',
+            'teacher_id', 'status', 'fact_lesson_id', 'moved_from_date', 'moved_to_date',
         )
     )
     tnames = teacher_names()
