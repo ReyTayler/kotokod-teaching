@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { useParams, Navigate, useNavigate } from 'react-router-dom';
+import { useParams, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGroup, useGroupMutations } from '../../hooks/useGroups';
 import { useTeachers } from '../../hooks/useTeachers';
 import { useDirections } from '../../hooks/useDirections';
-import { DetailShell, type DetailField } from '../../components/detail/DetailShell';
+import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
 import { Avatar } from '../../components/Avatar';
 import { DirTag } from '../../components/ui/DirTag';
 import { EntityLink } from '../../components/EntityLink';
 import { PageLoading } from '../../components/ui/Skeleton';
+import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { LessonGrid } from '../../components/lessons/LessonGrid';
 import { LessonEditor } from '../../components/lessons/LessonEditor';
 import { directionColor } from '../../lib/direction-color';
@@ -19,6 +20,14 @@ import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
 import GroupMembersBlock from './GroupMembersBlock';
 import GroupScheduleBlock from './GroupScheduleBlock';
+
+const GROUP_TABS = ['overview', 'students', 'lessons', 'schedule'] as const;
+type GroupTab = (typeof GROUP_TABS)[number];
+const DEFAULT_TAB: GroupTab = 'overview';
+
+function isGroupTab(value: string | null): value is GroupTab {
+  return !!value && (GROUP_TABS as readonly string[]).includes(value);
+}
 
 export default function GroupDetailPage() {
   const params = useParams();
@@ -32,6 +41,17 @@ export default function GroupDetailPage() {
   const showError = useApiError();
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<{ slot: number; lessonId: number | null } | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const rawTab = searchParams.get('tab');
+  const activeTab: GroupTab = isGroupTab(rawTab) ? rawTab : DEFAULT_TAB;
+  const setActiveTab = (tab: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === DEFAULT_TAB) next.delete('tab'); else next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  };
 
   if (isLoading) return <PageLoading />;
   if (!group) return <Navigate to="/admin/groups" replace />;
@@ -65,31 +85,36 @@ export default function GroupDetailPage() {
     } catch (err) { showError(err); }
   };
 
-  return (
-    <>
-      <DetailShell<Group>
-        title={`Группа ${group.name}`}
-        subtitle={`#${group.id} · ${group.is_individual ? 'Индивидуальная' : 'Групповая'} · ${group.lesson_duration_minutes} мин`}
-        row={group}
-        fields={fields}
-        cardTitle="Данные группы"
-        onEdit={() => setEditing(true)}
-        onDelete={handleDelete}
-        backTo="/admin/groups"
-      >
-        {teacher && (
-          <div className="teacher-info-card">
-            <Avatar name={teacher.name} size={42} />
-            <div>
-              <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 3 }}>Преподаватель</div>
-              <div style={{ fontWeight: 700, color: 'var(--text)' }}>{teacher.name}</div>
-              {teacher.email && <div style={{ fontSize: 14, color: 'var(--text3)' }}>{teacher.email}</div>}
+  const tabs: TabItem[] = [
+    {
+      value: 'overview',
+      label: 'Обзор',
+      content: (
+        <>
+          <EntityCard title="Данные группы" row={group} fields={fields} />
+          {teacher && (
+            <div className="teacher-info-card">
+              <Avatar name={teacher.name} size={42} />
+              <div>
+                <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 3 }}>Преподаватель</div>
+                <div style={{ fontWeight: 700, color: 'var(--text)' }}>{teacher.name}</div>
+                {teacher.email && <div style={{ fontSize: 14, color: 'var(--text3)' }}>{teacher.email}</div>}
+              </div>
             </div>
-          </div>
-        )}
-
+          )}
+        </>
+      ),
+    },
+    {
+      value: 'students',
+      label: 'Ученики',
+      content: <GroupMembersBlock group={group} />,
+    },
+    {
+      value: 'lessons',
+      label: 'Уроки',
+      content: (
         <div className="detail__section">
-          <h3 className="detail__section-title">Уроки группы</h3>
           <div className="lesson-grid-hint">
             Серые — не проведены, цветные — проведены. Клик по любому квадрату — открыть/создать.
           </div>
@@ -108,12 +133,29 @@ export default function GroupDetailPage() {
             />
           )}
         </div>
+      ),
+    },
+    {
+      value: 'schedule',
+      label: 'Расписание',
+      content: <GroupScheduleBlock groupId={group.id} />,
+    },
+  ];
 
-        <div className="sub-header">Ученики группы</div>
-        <GroupMembersBlock group={group} />
-
-        <div className="sub-header">Расписание</div>
-        <GroupScheduleBlock groupId={group.id} />
+  return (
+    <>
+      <DetailShell<Group>
+        title={`Группа ${group.name}`}
+        subtitle={`#${group.id} · ${group.is_individual ? 'Индивидуальная' : 'Групповая'} · ${group.lesson_duration_minutes} мин`}
+        row={group}
+        fields={fields}
+        cardTitle="Данные группы"
+        onEdit={() => setEditing(true)}
+        onDelete={handleDelete}
+        backTo="/admin/groups"
+        hideCard
+      >
+        <Tabs items={tabs} value={activeTab} onChange={setActiveTab} />
       </DetailShell>
       {editing && (
         <GroupFormModal initial={group} onClose={() => setEditing(false)} />

@@ -7,6 +7,55 @@ export interface DetailField<T> {
   cell?: (row: T) => ReactNode;
 }
 
+interface EntityCardProps<T> {
+  title?: string;
+  row: T;
+  fields: DetailField<T>[];
+}
+
+/**
+ * Карточка полей сущности (collapsible, состояние — в localStorage, общее для всех сущностей).
+ * Вынесена отдельно от DetailShell, чтобы её можно было разместить внутри таба
+ * (например, «Обзор» на странице группы), а не только в фиксированном месте макета.
+ */
+export function EntityCard<T>({ title = 'Данные', row, fields }: EntityCardProps<T>) {
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => localStorage.getItem('admin-entity-card-collapsed') === '1'
+  );
+
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem('admin-entity-card-collapsed', next ? '1' : '0');
+  };
+
+  return (
+    <div className={`entity-card${collapsed ? ' is-collapsed' : ''}`}>
+      <button
+        type="button"
+        className="entity-card__head"
+        onClick={toggle}
+        aria-expanded={!collapsed}
+      >
+        <span className="entity-card__title">{title}</span>
+        <svg className="entity-card__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      <div className="entity-card__body">
+        {fields.map((f) => (
+          <div key={f.key} className="entity-card__row">
+            <div className="entity-card__label">{f.label}</div>
+            <div className="entity-card__value">
+              {f.cell ? f.cell(row) : String((row as Record<string, unknown>)[f.key] ?? '—')}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 interface Props<T> {
   title: string;
   subtitle?: string;
@@ -18,6 +67,8 @@ interface Props<T> {
   onDelete?: () => Promise<void>;
   deleteLabel?: string;
   backTo?: string;
+  /** Скрыть карточку полей (entity-card) — например, когда она вынесена в отдельный таб. */
+  hideCard?: boolean;
   children?: ReactNode;
 }
 
@@ -32,19 +83,11 @@ export function DetailShell<T>({
   onDelete,
   deleteLabel = 'Архивировать',
   backTo,
+  hideCard,
   children,
 }: Props<T>) {
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState<boolean>(
-    () => localStorage.getItem('admin-entity-card-collapsed') === '1'
-  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-
-  const toggle = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('admin-entity-card-collapsed', next ? '1' : '0');
-  };
 
   const handleDelete = async () => {
     if (!confirmingDelete) { setConfirmingDelete(true); return; }
@@ -93,29 +136,7 @@ export function DetailShell<T>({
         </div>
       )}
 
-      <div className={`entity-card${collapsed ? ' is-collapsed' : ''}`}>
-        <button
-          type="button"
-          className="entity-card__head"
-          onClick={toggle}
-          aria-expanded={!collapsed}
-        >
-          <span className="entity-card__title">{cardTitle}</span>
-          <svg className="entity-card__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
-        <div className="entity-card__body">
-          {fields.map((f) => (
-            <div key={f.key} className="entity-card__row">
-              <div className="entity-card__label">{f.label}</div>
-              <div className="entity-card__value">
-                {f.cell ? f.cell(row) : String((row as Record<string, unknown>)[f.key] ?? '—')}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {!hideCard && <EntityCard title={cardTitle} row={row} fields={fields} />}
 
       {children}
     </div>

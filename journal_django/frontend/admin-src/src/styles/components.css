@@ -152,6 +152,107 @@
 }
 .btn-delete:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ============================================================
+ *  Button primitive (components/ui/Button.tsx) — reusable, token-based.
+ *  Variants: primary/secondary/ghost/danger. Sizes: sm/md.
+ *  Visually kept in sync with legacy .btn-save/.btn-cancel/.btn-delete above.
+ * ============================================================ */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.ui-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ui-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.ui-btn__icon { display: inline-flex; align-items: center; }
+
+.ui-btn--md { height: 34px; padding: 0 var(--space-4); font-size: 13px; }
+.ui-btn--sm { height: 28px; padding: 0 var(--space-3); font-size: 12px; }
+
+.ui-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.ui-btn--primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.ui-btn--primary:active:not(:disabled) { background: var(--accent-hover); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16); }
+
+.ui-btn--secondary {
+  background: var(--bg2);
+  border-color: var(--border);
+  color: var(--text2);
+  font-weight: 500;
+}
+.ui-btn--secondary:hover:not(:disabled) { background: var(--bg3); border-color: var(--border-strong); color: var(--text); }
+.ui-btn--secondary:active:not(:disabled) { background: var(--bg4); }
+
+.ui-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text2);
+  font-weight: 500;
+}
+.ui-btn--ghost:hover:not(:disabled) { background: var(--bg3); color: var(--text); }
+.ui-btn--ghost:active:not(:disabled) { background: var(--bg4); }
+
+.ui-btn--danger {
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
+  border-color: color-mix(in oklab, var(--danger) 22%, transparent);
+  color: var(--danger);
+  font-weight: 500;
+}
+.ui-btn--danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--danger) 14%, transparent);
+  border-color: color-mix(in oklab, var(--danger) 32%, transparent);
+}
+
+/* ============================================================
+ *  Tabs primitive (components/ui/Tabs.tsx) — accessible tablist.
+ *  Minimal underline style: 4px grid, accent underline on active tab.
+ * ============================================================ */
+.tabs { display: flex; flex-direction: column; }
+.tabs__list {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-5);
+  overflow-x: auto;
+}
+.tabs__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-3) var(--space-1);
+  margin-bottom: -1px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.tabs__tab + .tabs__tab { margin-left: var(--space-5); }
+.tabs__tab:hover:not(:disabled) { color: var(--text); }
+.tabs__tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tabs__tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs__tab:disabled { opacity: 0.5; cursor: not-allowed; }
+.tabs__panel { animation: fadeIn .15s ease; }
+.tabs__panel:focus-visible { outline: none; }
+
 /* ── TOASTS ── */
 #toast-host { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 2000; pointer-events: none; }
 .toast { background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid var(--red); border-radius: var(--r-sm); padding: 10px 14px; box-shadow: 0 4px 12px rgba(0,0,0,.1); font-size: 15px; color: var(--text); min-width: 240px; max-width: 360px; pointer-events: auto; animation: toast-in .15s ease; }
