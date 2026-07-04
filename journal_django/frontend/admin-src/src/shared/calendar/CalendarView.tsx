@@ -8,7 +8,7 @@ import {
 import { WeekGrid } from './WeekGrid';
 import { MonthGrid } from './MonthGrid';
 import { DayList } from './DayList';
-import { LessonPopup } from './LessonPopup';
+import { LessonPopup, type LessonActionKind } from './LessonPopup';
 
 function useIsNarrow(bp = 768): boolean {
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < bp);
@@ -56,14 +56,21 @@ export interface CalendarViewProps {
    * игнорировать — окно не обязательно рефетчить.
    */
   onVisibleRangeChange: (fromIso: string, toIso: string) => void;
-  /** Не используется для ветвления рендера сейчас — задел на шаг 7 (операции). */
+  /** Используется для ветвления быстрых действий в LessonPopup (см. onAction). */
   role?: 'teacher' | 'admin';
   /**
-   * Шаг 7 подключит операции (отметить/перенести/отменить). Сейчас, если
-   * передан, добавляет кнопку «Отметить урок» в LessonPopup — по умолчанию
-   * не передаётся, календарь строго read-only.
+   * Если передан, добавляет кнопку «Отметить урок» в LessonPopup — по
+   * умолчанию не передаётся (не путать с onAction — операциями плана).
    */
   onLessonAction?: (occ: Occurrence) => void;
+  /**
+   * Шаг 7: быстрые действия admin по клику на урок (перенести/отменить/
+   * сменить преподавателя) — кнопки в LessonPopup, видны только при
+   * role='admin'. Вызывающая сторона (GroupDetailPage) открывает
+   * соответствующую модалку операции плана, предзаполненную по occ.
+   * teacher не передаёт — регресс исключён (LessonPopup гейтит по role).
+   */
+  onAction?: (kind: LessonActionKind, occ: Occurrence) => void;
 }
 
 /**
@@ -81,6 +88,8 @@ export function CalendarView({
   isFetching,
   onVisibleRangeChange,
   onLessonAction,
+  role,
+  onAction,
 }: CalendarViewProps) {
   const [monday, setMonday] = useState(() => currentMondayMsk());
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonthMsk());
@@ -316,6 +325,8 @@ export function CalendarView({
           lesson={selected}
           onClose={() => setSelected(null)}
           onSubmit={onLessonAction ? () => onLessonAction(selected) : undefined}
+          onAction={onAction ? (kind, occ) => { setSelected(null); onAction(kind, occ); } : undefined}
+          role={role}
         />
       )}
     </div>

@@ -18,6 +18,13 @@ export interface OccStudent {
 }
 
 export interface Occurrence {
+  /**
+   * PlannedLesson.id — заполняется ТОЛЬКО admin-мапингом (useGroupPlanCalendar),
+   * нужен для операций плана (reschedule/cancel по id). Teacher /api/calendar
+   * это поле не отдаёт (не входит в замороженный ответ, см. services.py) —
+   * поэтому optional, чтобы не требовать его от teacher-src/src/lib/types.ts.
+   */
+  id?: number | null;
   group: string;
   groupDisplay: string;
   teacher: string;

@@ -1,25 +1,40 @@
 import { Modal } from './Modal';
 import { StatusPill } from './StatusPill';
+import { Button } from '../../components/ui/Button';
 import type { Occurrence } from './types';
 import { parseIsoDate, columnIndexOfIsoDate, dayMonth } from './lib';
 
 const DAY_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 
+export type LessonActionKind = 'reschedule' | 'cancel' | 'change-teacher';
+
 /**
  * Read-only детали занятия (Occurrence из /api/calendar или /plan) +
- * необязательная кнопка «Отметить урок» (шаг 7 подключит операции через
- * onSubmit/CalendarView.onLessonAction — сейчас проп остаётся, но без вызова
- * из CalendarView, т.к. этот шаг строго read-only).
+ * необязательная кнопка «Отметить урок» (onSubmit/CalendarView.onLessonAction)
+ * + необязательные быстрые действия admin (onAction, шаг 7) — перенос/отмена/
+ * смена преподавателя конкретного занятия. Оба набора кнопок не связаны:
+ * onSubmit — отметка урока (не задействован ни в одном SPA сейчас), onAction —
+ * операции плана (только admin: role='admin' И передан onAction). teacher
+ * ничего из этого не передаёт — регресс исключён (компонент общий).
  */
 export function LessonPopup({
   lesson,
   onClose,
   onSubmit,
+  onAction,
+  role,
 }: {
   lesson: Occurrence;
   onClose: () => void;
   onSubmit?: () => void;
+  onAction?: (kind: LessonActionKind, lesson: Occurrence) => void;
+  role?: 'teacher' | 'admin';
 }) {
+  // done — занятие уже проведено, операции плана его не трогают (инвариант
+  // "никогда не двигать done", docs/lesson-scheduling.md). Отмена — только
+  // для курсовых строк (seq != null, не доп. занятие).
+  const canModifyPlan = role === 'admin' && !!onAction && lesson.status !== 'done';
+  const canCancelPlan = canModifyPlan && !lesson.isExtra && lesson.seq != null;
   const dayName = DAY_FULL[columnIndexOfIsoDate(lesson.date)];
   const dateLabel = dayMonth(parseIsoDate(lesson.date));
   const when = lesson.time
@@ -57,6 +72,16 @@ export function LessonPopup({
               <div key={`${s.name}-${i}`} className="t-student"><span>{s.name}</span></div>
             ))}
           </div>
+        </div>
+      )}
+
+      {canModifyPlan && (
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <Button size="sm" onClick={() => onAction!('reschedule', lesson)}>Перенести</Button>
+          <Button size="sm" onClick={() => onAction!('change-teacher', lesson)}>Сменить преподавателя</Button>
+          {canCancelPlan && (
+            <Button size="sm" variant="danger" onClick={() => onAction!('cancel', lesson)}>Отменить</Button>
+          )}
         </div>
       )}
 

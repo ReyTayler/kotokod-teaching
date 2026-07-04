@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useParams, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGroup, useGroupMutations } from '../../hooks/useGroups';
 import { useTeachers } from '../../hooks/useTeachers';
@@ -22,6 +22,7 @@ import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
 import GroupMembersBlock from './GroupMembersBlock';
 import GroupScheduleBlock from './GroupScheduleBlock';
+import GroupPlanActions, { type GroupPlanActionsHandle } from './GroupPlanActions';
 
 const GROUP_TABS = ['overview', 'students', 'lessons', 'schedule'] as const;
 type GroupTab = (typeof GROUP_TABS)[number];
@@ -44,6 +45,7 @@ export default function GroupDetailPage() {
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<{ slot: number; lessonId: number | null } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const planActionsRef = useRef<GroupPlanActionsHandle>(null);
 
   // Направление/преподаватель считаем ДО ранних return — нужны для
   // useGroupPlanCalendar, который обязан вызываться безусловно (Rules of
@@ -147,6 +149,7 @@ export default function GroupDetailPage() {
       label: 'Расписание',
       content: (
         <div className="detail__section" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          <GroupPlanActions ref={planActionsRef} group={group} />
           <CalendarView
             occurrences={planCalendar.occurrences}
             unscheduled={[]}
@@ -155,6 +158,7 @@ export default function GroupDetailPage() {
             isFetching={planCalendar.isFetching}
             onVisibleRangeChange={() => {}}
             role="admin"
+            onAction={(kind, occ) => planActionsRef.current?.quickAction(kind, occ)}
           />
           <GroupScheduleBlock groupId={group.id} />
         </div>

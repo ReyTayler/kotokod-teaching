@@ -20,7 +20,8 @@ export interface PlanRow {
   is_extra: boolean;
 }
 
-const KEY = (groupId: number) => ['group-plan', groupId] as const;
+/** Экспортируется — useGroupPlan.ts (мутации операций плана) инвалидирует по тому же ключу. */
+export const groupPlanKey = (groupId: number) => ['group-plan', groupId] as const;
 
 /** Готовые подписи статуса — зеркало apps/scheduling/services.py::_LABELS
  * (тот же текст, что видит преподаватель в /api/calendar). */
@@ -44,7 +45,7 @@ function dayOfWeek(iso: string): number {
  */
 export function useGroupPlan(groupId: number) {
   return useQuery({
-    queryKey: KEY(groupId),
+    queryKey: groupPlanKey(groupId),
     queryFn: () => api<PlanRow[]>('GET', `/api/admin/groups/${groupId}/plan`),
     enabled: Number.isFinite(groupId) && groupId > 0,
     placeholderData: keepPreviousData,
@@ -79,6 +80,7 @@ export function useGroupPlanCalendar(
       const rowTeacherName = r.teacher_name ?? groupTeacherName ?? '—';
       const isOverride = group.teacher_id != null && r.teacher_id != null && r.teacher_id !== group.teacher_id;
       return {
+        id: r.id,
         group: group.name,
         groupDisplay: group.name,
         teacher: isOverride ? (groupTeacherName ?? rowTeacherName) : rowTeacherName,
