@@ -46,10 +46,15 @@ class PlannedRow:
 _MUTABLE = frozenset({'pending', 'overdue'})
 
 
-def _far_future(start: datetime.date, total_lessons: int) -> datetime.date:
-    """Верхняя граница генерации для _walk: total_lessons недель с запасом
-    (при >=1 слоте в неделю N уроков укладываются максимум в N недель)."""
-    return start + datetime.timedelta(weeks=total_lessons + 2)
+def _far_future(start: datetime.date, total_lessons: int, step: Decimal) -> datetime.date:
+    """Верхняя граница генерации для _walk (в неделях, с запасом).
+
+    Число сессий до достижения total = total_lessons / step (полуурок step=0.5 →
+    вдвое больше сессий). При >=1 слоте в неделю столько же недель максимум.
+    Раньше граница считалась как total_lessons+2 (ошибочно — 1 сессия/неделю),
+    из-за чего полуурочные курсы обрезались вдвое."""
+    weeks = int(Decimal(total_lessons) / step) + 2
+    return start + datetime.timedelta(weeks=weeks)
 
 
 def generate(
@@ -66,7 +71,7 @@ def generate(
     if total_lessons is None or not slots:
         return []
     step = _step_for(duration_minutes)
-    occ = _walk(start_date, slots, step, total_lessons, _far_future(start_date, total_lessons))
+    occ = _walk(start_date, slots, step, total_lessons, _far_future(start_date, total_lessons, step))
     return [
         PlannedRow(
             seq=o.seq,

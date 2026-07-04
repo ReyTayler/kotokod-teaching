@@ -55,6 +55,21 @@ def test_generate_half_lesson_step():
     assert [r.lesson_number for r in rows] == [Decimal('0.5'), Decimal('1.0'), Decimal('1.5'), Decimal('2.0')]
 
 
+def test_generate_half_lesson_long_course_not_truncated():
+    """Регресс: _far_future считал 1 урок/неделю, обрезая полуурочные курсы вдвое.
+    45-мин курс (step 0.5) с 1 слотом/неделю и total=6 → 12 сессий (0.5..6.0) на
+    12 недель. До фикса генерировалось ~10 (num обрывался ~5.0)."""
+    rows = generate(
+        start_date=D(2026, 6, 1), slots=[_slot(MON, 10)],
+        total_lessons=6, duration_minutes=45, default_teacher_id=1,
+    )
+    assert len(rows) == 12
+    assert rows[-1].lesson_number == Decimal('6.0')
+    # Недельная каденция сохранена (каждая строка на 7 дней позже предыдущей).
+    dates = [r.scheduled_date for r in rows]
+    assert all((dates[i] - dates[i - 1]).days == 7 for i in range(1, len(dates)))
+
+
 def test_generate_sunday_slot_maps_to_correct_date():
     rows = generate(
         start_date=D(2026, 6, 1), slots=[_slot(SUN, 12)],

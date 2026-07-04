@@ -256,19 +256,21 @@ def persist_plan(group_id: int, rows: list[PlannedRow]) -> int:
 
 def link_facts(group_id: int) -> int:
     """
-    Слинковать плановые строки группы с проведёнными уроками (факт) и проставить
-    status='done'.
+    Слинковать плановые строки группы с проведёнными уроками (факт), проставить
+    status='done' и подтянуть РЕАЛЬНУЮ дату факта в scheduled_date.
 
-    Для каждой ещё непривязанной строки (fact_lesson IS NULL) ищем факт той же
-    группы с совпадающей scheduled_date == Lesson.lesson_date. При неоднозначности
-    (несколько уроков в одну дату) — уточняем по lesson_number. Один факт ↔ одна
-    плановая строка (fact_lesson unique): уже привязанные факты исключаются, а
-    выбранный кандидат снимается из пула в рамках прогона.
+    Порядок матчинга (по надёжности):
+      1. по `lesson_number` — позиция урока в курсе, записанная при проведении:
+         надёжнее даты (уроки прошлого часто на сдвинутых датах — праздники,
+         разовые переносы до этой системы). Совпадение по номеру → плановая строка
+         получает фактическую дату урока (прошлое отражает реальность, а не голую
+         recurrence-проекцию) и статус done.
+      2. по точной дате (fallback) — для фактов без совпадения по номеру
+         (напр. lesson_number не записан), но с датой, равной плановой.
 
-    Батч (без N+1): три запроса на группу. Идемпотентно — повторный прогон линкует
-    0 (все совпадения уже привязаны).
-
-    Возвращает число новых линковок.
+    Один факт ↔ одна плановая строка (fact_lesson unique): уже привязанные факты
+    исключаются, каждый кандидат используется один раз за прогон. Батч, без N+1.
+    Идемпотентно — повторный прогон линкует 0. Возвращает число новых линковок.
     """
     now = msk_now()
     with transaction.atomic():
@@ -278,16 +280,22 @@ def link_facts(group_id: int) -> int:
             .values_list('fact_lesson_id', flat=True)
         )
 
-        by_date: dict[datetime.date, list[dict]] = defaultdict(list)
-        for f in Lesson.objects.filter(group_id=group_id).values(
-            'id', 'lesson_date', 'lesson_number',
-        ):
-            if f['id'] in already_linked:
-                continue
-            by_date[f['lesson_date']].append(f)
-
-        if not by_date:
+        # Непривязанные факты; по номеру берём самый ранний по дате (детерминизм).
+        facts = [
+            f for f in Lesson.objects.filter(group_id=group_id)
+            .order_by('lesson_date', 'id')
+            .values('id', 'lesson_date', 'lesson_number')
+            if f['id'] not in already_linked
+        ]
+        if not facts:
             return 0
+
+        by_number: dict[object, list[dict]] = defaultdict(list)
+        by_date: dict[datetime.date, list[dict]] = defaultdict(list)
+        for f in facts:
+            if f['lesson_number'] is not None:
+                by_number[f['lesson_number']].append(f)
+            by_date[f['lesson_date']].append(f)
 
         rows = list(
             PlannedLesson.objects
@@ -295,20 +303,39 @@ def link_facts(group_id: int) -> int:
             .order_by('seq')
         )
 
+        used_fact_ids: set = set()
         to_update: list[PlannedLesson] = []
+
+        def _take(cands: list[dict]):
+            for f in cands:
+                if f['id'] not in used_fact_ids:
+                    return f
+            return None
+
+        # Проход 1: по lesson_number (подтягиваем фактическую дату).
         for p in rows:
-            cands = by_date.get(p.scheduled_date)
-            if not cands:
+            if p.lesson_number is None:
                 continue
-            chosen = None
-            if p.lesson_number is not None:
-                for f in cands:
-                    if f['lesson_number'] == p.lesson_number:
-                        chosen = f
-                        break
+            chosen = _take(by_number.get(p.lesson_number, []))
             if chosen is None:
-                chosen = cands[0]
-            cands.remove(chosen)
+                continue
+            used_fact_ids.add(chosen['id'])
+            p.fact_lesson_id = chosen['id']
+            p.scheduled_date = chosen['lesson_date']
+            p.status = DONE
+            p.updated_at = now
+            to_update.append(p)
+
+        linked_row_ids = {id(p) for p in to_update}
+
+        # Проход 2: по точной дате (fallback) для ещё не привязанных строк.
+        for p in rows:
+            if id(p) in linked_row_ids:
+                continue
+            chosen = _take(by_date.get(p.scheduled_date, []))
+            if chosen is None:
+                continue
+            used_fact_ids.add(chosen['id'])
             p.fact_lesson_id = chosen['id']
             p.status = DONE
             p.updated_at = now
@@ -316,7 +343,7 @@ def link_facts(group_id: int) -> int:
 
         if to_update:
             PlannedLesson.objects.bulk_update(
-                to_update, ['fact_lesson', 'status', 'updated_at'],
+                to_update, ['fact_lesson', 'scheduled_date', 'status', 'updated_at'],
             )
 
     return len(to_update)
