@@ -273,7 +273,11 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
             '(не отменённого/перенесённого/проведённого).'
         )
     from_date = anchor['scheduled_date']
-    plan = repository.cancel_lesson(group_id, from_date)
+    plan = repository.cancel_lesson(
+        group_id, from_date,
+        marker_time=anchor['scheduled_time'],
+        marker_teacher_id=anchor['teacher_id'],
+    )
     log_event(
         'plan_cancel',
         actor_email=_actor(request),

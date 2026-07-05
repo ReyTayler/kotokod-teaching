@@ -46,8 +46,7 @@
   font-family: inherit; font-size: 12px; font-weight: 600;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.seg-btn.active { background: var(--bg2); color: var(--text); box-shadow: 0 1px 2px rgba(15,23,42,.08); }
-[data-theme="dark"] .seg-btn.active { box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.seg-btn.active { background: var(--bg2); color: var(--text); box-shadow: var(--shadow-xs); }
 
 /* Тумблер Мои/Все */
 .cal-scope-btn {
@@ -239,9 +238,20 @@
 .st--cancelled { color: var(--text4); background: var(--bg3); text-decoration: line-through; }
 .st--moved { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); }
 
-/* Отменённые занятия — приглушённо/зачёркнуто в любом представлении календаря */
-.lrow.cancelled, .lb.cancelled, .month-chip.cancelled { opacity: .55; }
-.lrow.cancelled .lrow-title, .lb.cancelled .lb-title, .month-chip.cancelled .month-chip-title { text-decoration: line-through; }
+/* Отменённые занятия — приглушённо и зачёркнуто ВСЁ окно в любом представлении */
+.lrow.cancelled, .lb.cancelled, .month-chip.cancelled {
+  opacity: .55;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* Метка «перенесён» — компактный ненавязчивый значок на занятии */
+.cal-moved {
+  color: var(--info);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.lb .cal-moved { position: absolute; top: 3px; right: 5px; font-size: 12px; line-height: 1; }
 
 /* Бейдж «N групп без расписания» — data-quality сигнал, ненавязчивый */
 .cal-unscheduled {

@@ -52,7 +52,10 @@ export function DayList({
                 >
                   <div className="lrow-time">{occ.time ?? '—'}</div>
                   <div style={{ minWidth: 0 }}>
-                    <div className="lrow-title">{occ.groupDisplay}</div>
+                    <div className="lrow-title">
+                      {occ.movedFrom && <span className="cal-moved" title={`Перенесён с ${occ.movedFrom}`} aria-label="перенесён">↪ </span>}
+                      {occ.groupDisplay}
+                    </div>
                     <div className="lrow-meta">{occ.isGroup ? `${occ.students.length} уч.` : occ.teacher}</div>
                   </div>
                   <StatusPill status={occ.status} label={occ.label} />

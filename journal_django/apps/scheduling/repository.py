@@ -21,7 +21,7 @@ from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import planner
 from apps.scheduling.models import PlannedLesson
-from apps.scheduling.occurrences import DONE, OVERDUE, PENDING, Slot
+from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING, Slot
 from apps.scheduling.planner import PlannedRow
 
 
@@ -456,7 +456,7 @@ def get_plan_lesson(group_id: int, lesson_id: int) -> dict | None:
     return (
         PlannedLesson.objects
         .filter(group_id=group_id, id=lesson_id)
-        .values('id', 'seq', 'scheduled_date', 'scheduled_time', 'status')
+        .values('id', 'seq', 'scheduled_date', 'scheduled_time', 'teacher_id', 'status')
         .first()
     )
 
@@ -613,14 +613,23 @@ def permanent_change(
     return get_plan(group_id)
 
 
-def cancel_lesson(group_id: int, from_date: datetime.date) -> list[dict]:
+def cancel_lesson(
+    group_id: int,
+    from_date: datetime.date,
+    *,
+    marker_time: datetime.time,
+    marker_teacher_id: int | None,
+) -> list[dict]:
     """
     Отмена со сдвигом: непроведённые строки (status != 'done') с
     scheduled_date >= from_date сдвигаются на +7 дней (день недели/время
-    сохраняются — курс продлевается на неделю, уроки не списываются).
+    сохраняются — курс продлевается на неделю, уроки не списываются). На исходную
+    дату вставляется НЕ-курсовой маркер status='cancelled' (seq=NULL) — календарь
+    показывает «отменённое» занятие зачёркнутым. Маркер несёт время/преподавателя
+    отменённого занятия (чтобы попасть в нужный столбец/календарь).
 
-    Батч (без N+1): один SELECT + один bulk_update. Абонемент не трогаем.
-    Возвращает новый план (get_plan).
+    Батч (без N+1): один SELECT + один bulk_update + один INSERT маркера. Абонемент
+    не трогаем. Возвращает новый план (get_plan).
     """
     now = msk_now()
     with transaction.atomic():
@@ -635,6 +644,13 @@ def cancel_lesson(group_id: int, from_date: datetime.date) -> list[dict]:
                 p.scheduled_date = p.scheduled_date + datetime.timedelta(days=7)
                 p.updated_at = now
             PlannedLesson.objects.bulk_update(tail, ['scheduled_date', 'updated_at'])
+
+        PlannedLesson.objects.create(
+            group_id=group_id, seq=None, lesson_number=None,
+            scheduled_date=from_date, scheduled_time=marker_time,
+            teacher_id=marker_teacher_id, status=CANCELLED,
+            created_at=now, updated_at=now,
+        )
 
     return get_plan(group_id)
 

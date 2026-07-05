@@ -58,8 +58,11 @@ export function LessonPopup({
             <div className="t-info-row"><span className="t-info-ico">🔁</span><span>Замена вместо: {lesson.teacher}</span></div>
           )}
           {lesson.direction && <div className="t-info-row"><span className="t-info-ico">🧭</span><span>Направление: {lesson.direction}</span></div>}
-          {lesson.movedFrom && lesson.movedTo && (
-            <div className="t-info-row"><span className="t-info-ico">📅</span><span>Перенесён: {lesson.movedFrom} → {lesson.movedTo}</span></div>
+          {!lesson.isExtra && lesson.lessonNumber != null && (
+            <div className="t-info-row"><span className="t-info-ico">#️⃣</span><span>Урок №{lesson.lessonNumber}</span></div>
+          )}
+          {lesson.movedFrom && (
+            <div className="t-info-row"><span className="t-info-ico">↪️</span><span>Перенесён с {lesson.movedFrom}{lesson.movedTo ? ` → ${lesson.movedTo}` : ''}</span></div>
           )}
         </div>
       </div>

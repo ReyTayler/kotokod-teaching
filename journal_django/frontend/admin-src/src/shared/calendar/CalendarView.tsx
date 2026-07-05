@@ -132,7 +132,16 @@ export function CalendarView({
     return directionFilter === NO_DIRECTION_KEY ? d == null : d === directionFilter;
   }, [directionFilter]);
 
-  const lessons = useMemo(() => occAll.filter(directionMatch), [occAll, directionMatch]);
+  // Занятия ВИДИМОГО окна: teacher уже получает данные под окно с сервера, но
+  // admin грузит весь план группы разом (useGroupPlanCalendar), а сетки
+  // раскладывают по дню недели (columnIndexOfIsoDate) — без этого фильтра
+  // занятия ВСЕХ недель навалились бы на текущую (напр. каждая среда курса — в
+  // одну видимую среду). Фильтруем по дате в [windowFrom, windowTo] (ISO-строки
+  // сравниваются лексикографически). Для teacher фильтр — no-op.
+  const lessons = useMemo(
+    () => occAll.filter((o) => directionMatch(o) && o.date >= windowFrom && o.date <= windowTo),
+    [occAll, directionMatch, windowFrom, windowTo],
+  );
   const timedLessons = useMemo(() => lessons.filter((o) => o.time), [lessons]);
   const noTimeLessons = useMemo(() => lessons.filter((o) => !o.time), [lessons]);
 

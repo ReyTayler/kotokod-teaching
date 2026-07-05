@@ -65,7 +65,10 @@ export function MonthGrid({
                       title={occ.status === 'moved' || occ.status === 'cancelled' ? occ.label : undefined}
                     >
                       <span className="month-chip-time">{occ.time ?? '—'}</span>
-                      <span className="month-chip-title">{occ.groupDisplay}</span>
+                      <span className="month-chip-title">
+                        {occ.movedFrom && <span className="cal-moved" title={`Перенесён с ${occ.movedFrom}`} aria-label="перенесён">↪ </span>}
+                        {occ.groupDisplay}
+                      </span>
                     </div>
                   ))}
                   {rest > 0 && <div className="month-more">+{rest} ещё</div>}

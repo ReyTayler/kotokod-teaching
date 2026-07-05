@@ -176,6 +176,9 @@
                   0 2px 6px  rgba(15, 23, 42, 0.04);
   --shadow-popover: 0 4px 12px rgba(15, 23, 42, 0.08),
                     0 1px 3px  rgba(15, 23, 42, 0.04);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.08);
+  /* Затемняющая подложка модалок/оверлеев */
+  --overlay: rgba(15, 23, 42, 0.45);
 
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -221,6 +224,8 @@
                     0 4px 8px   rgba(0, 0, 0, 0.3);
   --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.4),
                     0 1px 4px  rgba(0, 0, 0, 0.2);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --overlay: rgba(0, 0, 0, 0.6);
 }
 /* Dark theme: boost font-weight on small label-like text so contrast compensates for size */
 [data-theme="dark"] .entity-card__label { font-weight: 700; }

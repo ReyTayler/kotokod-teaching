@@ -78,6 +78,7 @@ export function WeekGrid({
                 onKeyDown={(e) => { if (e.key === 'Enter') onSelect(occ); }}
                 title={occ.status === 'moved' || occ.status === 'cancelled' ? occ.label : undefined}
               >
+                {occ.movedFrom && <span className="cal-moved" title={`Перенесён с ${occ.movedFrom}`} aria-label="перенесён">↪</span>}
                 <div className="lb-time">{occ.time}</div>
                 <div className="lb-title">{occ.groupDisplay}</div>
                 <div className="lb-meta">

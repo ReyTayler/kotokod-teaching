@@ -343,6 +343,24 @@ class TestCancel:
         assert after[4]['status'] == 'done'
         assert after[5]['scheduled_date'] == '2026-07-06'   # +7 от 06-29
 
+    def test_cancel_creates_cancelled_marker(self, manager_client, plan_group):
+        """Отмена вставляет НЕ-курсовой маркер status='cancelled' на исходную дату
+        (календарь показывает зачёркнутое занятие); сам урок сдвигается +7."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        anchor = _by_seq(plan)[3]            # 2026-06-15
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{anchor["id"]}/cancel', {}, format='json',
+        )
+        assert resp.status_code == 200
+        markers = [r for r in resp.json() if r['status'] == 'cancelled']
+        assert len(markers) == 1
+        m = markers[0]
+        assert m['scheduled_date'] == anchor['scheduled_date']   # на исходной дате
+        assert m['scheduled_time'] == anchor['scheduled_time']
+        assert m['seq'] is None
+        assert m['is_extra'] is True
+
     def test_missing_lesson_404(self, manager_client, plan_group):
         gid = plan_group['group_id']
         _generate(manager_client, gid)
