@@ -266,15 +266,15 @@ def persist_plan(group_id: int, rows: list[PlannedRow]) -> int:
 
 def link_facts(group_id: int) -> int:
     """
-    Слинковать плановые строки группы с проведёнными уроками (факт), проставить
-    status='done' и подтянуть РЕАЛЬНУЮ дату факта в scheduled_date.
+    Слинковать плановые строки группы с проведёнными уроками (факт) и проставить
+    status='done'. Плановая дата (scheduled_date) НЕ перезаписывается — она хранит
+    дату планового проведения; фактическая дата берётся из fact_lesson.lesson_date
+    (см. get_plan → fact_date). Так во «Обзоре» видны обе даты: плановая и факт.
 
     Порядок матчинга (по надёжности):
       1. по `lesson_number` — позиция урока в курсе, записанная при проведении:
          надёжнее даты (уроки прошлого часто на сдвинутых датах — праздники,
-         разовые переносы до этой системы). Совпадение по номеру → плановая строка
-         получает фактическую дату урока (прошлое отражает реальность, а не голую
-         recurrence-проекцию) и статус done.
+         разовые переносы до этой системы).
       2. по точной дате (fallback) — для фактов без совпадения по номеру
          (напр. lesson_number не записан), но с датой, равной плановой.
 
@@ -322,7 +322,7 @@ def link_facts(group_id: int) -> int:
                     return f
             return None
 
-        # Проход 1: по lesson_number (подтягиваем фактическую дату).
+        # Проход 1: по lesson_number (плановую дату НЕ трогаем — факт-дата в fact_lesson).
         for p in rows:
             if p.lesson_number is None:
                 continue
@@ -331,7 +331,6 @@ def link_facts(group_id: int) -> int:
                 continue
             used_fact_ids.add(chosen['id'])
             p.fact_lesson_id = chosen['id']
-            p.scheduled_date = chosen['lesson_date']
             p.status = DONE
             p.updated_at = now
             to_update.append(p)
@@ -353,7 +352,7 @@ def link_facts(group_id: int) -> int:
 
         if to_update:
             PlannedLesson.objects.bulk_update(
-                to_update, ['fact_lesson', 'scheduled_date', 'status', 'updated_at'],
+                to_update, ['fact_lesson', 'status', 'updated_at'],
             )
 
     return len(to_update)
@@ -390,6 +389,10 @@ def _plan_row_dict(r: dict, tnames: dict[int, str]) -> dict:
         'teacher_name': tnames.get(r['teacher_id']),
         'status': r['status'],
         'fact_lesson_id': r['fact_lesson_id'],
+        # Фактическая дата проведения (из связанного факта) — отдельно от плановой
+        # scheduled_date; None если урок ещё не проведён.
+        'fact_date': _iso(r.get('fact_date')),
+        'record_url': r.get('record_url'),
         'moved_from_date': _iso(r['moved_from_date']),
         'moved_to_date': _iso(r['moved_to_date']),
         'is_extra': r['seq'] is None,
@@ -442,6 +445,8 @@ def get_plan(group_id: int) -> list[dict] | None:
         .values(
             'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
             'teacher_id', 'status', 'fact_lesson_id', 'moved_from_date', 'moved_to_date',
+            fact_date=F('fact_lesson__lesson_date'),
+            record_url=F('fact_lesson__record_url'),
         )
     )
     tnames = teacher_names()

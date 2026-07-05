@@ -23,6 +23,7 @@ import GroupFormModal from './GroupFormModal';
 import GroupMembersBlock from './GroupMembersBlock';
 import GroupScheduleBlock from './GroupScheduleBlock';
 import GroupPlanActions, { type GroupPlanActionsHandle } from './GroupPlanActions';
+import GroupPlanTable from './GroupPlanTable';
 
 const GROUP_TABS = ['overview', 'students', 'lessons', 'schedule'] as const;
 type GroupTab = (typeof GROUP_TABS)[number];
@@ -99,7 +100,7 @@ export default function GroupDetailPage() {
       value: 'overview',
       label: 'Обзор',
       content: (
-        <>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           <EntityCard title="Данные группы" row={group} fields={fields} />
           {teacher && (
             <div className="teacher-info-card">
@@ -111,7 +112,8 @@ export default function GroupDetailPage() {
               </div>
             </div>
           )}
-        </>
+          <GroupPlanTable groupId={group.id} />
+        </div>
       ),
     },
     {

@@ -16,6 +16,8 @@ export interface PlanRow {
   teacher_name: string | null;
   status: OccStatus;
   fact_lesson_id: number | null;
+  fact_date: string | null;      // фактическая дата проведения ('YYYY-MM-DD') или null
+  record_url: string | null;     // ссылка на запись урока (из факта) или null
   moved_from_date: string | null;
   is_extra: boolean;
 }
