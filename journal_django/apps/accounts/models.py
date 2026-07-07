@@ -66,13 +66,17 @@ class Account(AbstractUser):
         TEACHER = 'teacher', 'Учитель'
         MANAGER = 'manager', 'Менеджер'
         ADMIN = 'admin', 'Администратор'
-    
+        SUPERADMIN = 'superadmin', 'Суперадминистратор'
+
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
         verbose_name='role',
     )
-    
+
+    # Отображаемое имя (для manager/admin/superadmin; у teacher берётся из преподавателя)
+    full_name = models.CharField(max_length=200, null=True, blank=True, verbose_name='full name')
+
     # FK на учителя (только для роли teacher)
     teacher = models.ForeignKey(
         'teachers.Teacher',
@@ -117,7 +121,7 @@ class Account(AbstractUser):
         constraints = [
             models.CheckConstraint(
                 name='accounts_role_check',
-                condition=models.Q(role__in=['teacher', 'manager', 'admin']),
+                condition=models.Q(role__in=['teacher', 'manager', 'admin', 'superadmin']),
             ),
             models.CheckConstraint(
                 name='accounts_twofa_method_check',
@@ -158,7 +162,11 @@ class Account(AbstractUser):
     @property
     def is_admin(self):
         return self.role == self.Role.ADMIN
-    
+
+    @property
+    def is_superadmin(self):
+        return self.role == self.Role.SUPERADMIN
+
     def has_role(self, *roles):
         """Проверить, что пользователь имеет одну из указанных ролей."""
         return self.role in roles
