@@ -2,7 +2,7 @@ import { createContext, useState, useEffect, type ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
 
 export interface Me {
-  account_id: number; email: string; role: 'teacher' | 'manager' | 'admin';
+  account_id: number; email: string; role: 'teacher' | 'manager' | 'admin' | 'superadmin';
   teacher_id: number | null; name: string; twofa_enabled: boolean;
 }
 export interface AuthState {
