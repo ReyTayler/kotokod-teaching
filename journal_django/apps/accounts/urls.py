@@ -19,6 +19,7 @@ from apps.accounts.views import (
     AccountListCreateView,
     AccountReset2faView,
     AccountResetPasswordView,
+    AccountSetActiveView,
 )
 
 urlpatterns = [
@@ -29,4 +30,5 @@ urlpatterns = [
     # invite/revoke ПЕРЕД invite — длинный литерал раньше (иначе Django не добирается до /revoke)
     path('/<int:pk>/invite/revoke', AccountInviteRevokeView.as_view(), name='accounts-invite-revoke'),
     path('/<int:pk>/invite', AccountInviteView.as_view(), name='accounts-invite'),
+    path('/<int:pk>/set-active', AccountSetActiveView.as_view(), name='accounts-set-active'),
 ]

@@ -231,3 +231,18 @@ def soft_delete(account_id: int, actor_account_id: int, request: Request) -> boo
         target_id=account_id, request=request,
     )
     return True
+
+
+def set_active(account_id: int, active: bool, actor_account_id, request: Request) -> bool:
+    """Отключить/включить учётку (обратимо). False если не найдена."""
+    acc = repository.get_by_id(account_id)
+    if acc is None:
+        return False
+    repository.set_active(account_id, active)
+    if not active:
+        repository.bump_token_version(account_id)
+    log_event(
+        event='account_enabled' if active else 'account_disabled',
+        account_id=actor_account_id, target_id=account_id, request=request,
+    )
+    return True

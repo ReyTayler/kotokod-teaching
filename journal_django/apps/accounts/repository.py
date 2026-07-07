@@ -179,6 +179,10 @@ def soft_delete(account_id: int) -> bool:
     return Account.objects.filter(id=account_id).update(is_active=False) > 0
 
 
+def set_active(account_id: int, active: bool) -> bool:
+    return Account.objects.filter(id=account_id).update(is_active=active) > 0
+
+
 def reset_twofa(account_id: int) -> Optional[dict]:
     with transaction.atomic():
         AccountRecoveryCode.objects.filter(account_id=account_id).delete()

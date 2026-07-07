@@ -10,6 +10,7 @@
   POST   /:id/reset-2fa         → 200 {ok:true} | 404
   POST   /:id/invite/revoke     → 200 {ok:true} | 404
   POST   /:id/invite            → 200 {invite_url,expires_at} | 404
+  POST   /:id/set-active        → 200 {ok:true,active} | 404
   DELETE /:id                   → 204 | 404
 
 ⚠️ Ни один ответ не содержит password_hash / twofa_secret.
@@ -115,6 +116,19 @@ class AccountDetailView(APIView):
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AccountSetActiveView(APIView):
+    """POST /:id/set-active — {active: bool}. Отключить/включить учётку."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        active = bool(request.data.get('active'))
+        ok = services.set_active(pk, active, actor_account_id=request.user.id, request=request)
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response({'ok': True, 'active': active})
 
 
 class AccountResetPasswordView(APIView):

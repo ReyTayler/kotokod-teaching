@@ -470,3 +470,90 @@ def test_list_status_disabled(account_factory):
     rows = resp.json()['rows']
     assert len(rows) == 1
     assert rows[0]['status'] == 'disabled'
+
+
+# ---------------------------------------------------------------------------
+# POST /:id/set-active — обратимое отключение/включение (Task 10)
+# ---------------------------------------------------------------------------
+
+def test_set_active_disable_and_enable(account_factory):
+    actor_id = account_factory(email='__actor_setact__@example.com', role='superadmin')
+    acc_id = account_factory(email='__acc_setact__@example.com')
+
+    resp = _client('superadmin', account_id=actor_id).post(
+        f'{BASE}/{acc_id}/set-active', {'active': False}, format='json'
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {'ok': True, 'active': False}
+    with connection.cursor() as cur:
+        cur.execute('SELECT is_active FROM accounts WHERE id=%s', [acc_id])
+        assert cur.fetchone()[0] is False
+
+    resp = _client('superadmin', account_id=actor_id).post(
+        f'{BASE}/{acc_id}/set-active', {'active': True}, format='json'
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {'ok': True, 'active': True}
+    with connection.cursor() as cur:
+        cur.execute('SELECT is_active FROM accounts WHERE id=%s', [acc_id])
+        assert cur.fetchone()[0] is True
+
+
+def test_set_active_disable_bumps_token_version(account_factory):
+    """Отключение немедленно инвалидирует сессии (bump token_version)."""
+    actor_id = account_factory(email='__actor_setact2__@example.com', role='superadmin')
+    acc_id = account_factory(email='__acc_setact2__@example.com')
+    with connection.cursor() as cur:
+        cur.execute('SELECT token_version FROM accounts WHERE id=%s', [acc_id])
+        before = cur.fetchone()[0]
+
+    resp = _client('superadmin', account_id=actor_id).post(
+        f'{BASE}/{acc_id}/set-active', {'active': False}, format='json'
+    )
+    assert resp.status_code == 200
+    with connection.cursor() as cur:
+        cur.execute('SELECT token_version FROM accounts WHERE id=%s', [acc_id])
+        after = cur.fetchone()[0]
+    assert after == before + 1, 'set-active(active=False) должен инкрементить token_version'
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM security_audit_log WHERE event='account_disabled' AND target_id=%s",
+            [acc_id],
+        )
+        assert cur.fetchone()[0] == 1
+
+
+def test_set_active_enable_no_bump(account_factory):
+    """Включение НЕ инвалидирует сессии (нет причины разлогинивать при возврате доступа)."""
+    actor_id = account_factory(email='__actor_setact3__@example.com', role='superadmin')
+    acc_id = account_factory(email='__acc_setact3__@example.com', is_active=False)
+    with connection.cursor() as cur:
+        cur.execute('SELECT token_version FROM accounts WHERE id=%s', [acc_id])
+        before = cur.fetchone()[0]
+
+    resp = _client('superadmin', account_id=actor_id).post(
+        f'{BASE}/{acc_id}/set-active', {'active': True}, format='json'
+    )
+    assert resp.status_code == 200
+    with connection.cursor() as cur:
+        cur.execute('SELECT token_version FROM accounts WHERE id=%s', [acc_id])
+        after = cur.fetchone()[0]
+    assert after == before, 'set-active(active=True) НЕ должен менять token_version'
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM security_audit_log WHERE event='account_enabled' AND target_id=%s",
+            [acc_id],
+        )
+        assert cur.fetchone()[0] == 1
+
+
+def test_set_active_404():
+    resp = _client('superadmin').post(f'{BASE}/999999999/set-active', {'active': False}, format='json')
+    assert resp.status_code == 404
+
+
+def test_set_active_forbidden_for_manager(manager_client):
+    resp = manager_client.post(f'{BASE}/1/set-active', {'active': False}, format='json')
+    assert resp.status_code == 403
