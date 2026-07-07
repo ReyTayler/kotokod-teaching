@@ -6,7 +6,7 @@
   GET   /api/admin/payroll/summary  → сводка по учителю [...]
   PATCH /api/admin/payroll/:id      → 200 | 404 {error:'Not found'}
 
-Права: только manager или admin (IsManagerOrAdmin).
+Права: только superadmin (IsSuperAdmin).
 Сортировка: тихий fallback на default (как Express paginate()), без 400.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.permissions import IsSuperAdmin
 from apps.payroll import services
 from apps.payroll.serializers import PayrollUpdateSerializer
 
@@ -66,7 +66,7 @@ def _parse_list_params(request: Request) -> dict:
 class PayrollListView(APIView):
     """GET /api/admin/payroll — список расчётного листа."""
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def get(self, request: Request) -> Response:
         return Response(services.list_payroll(**_parse_list_params(request)))
@@ -75,7 +75,7 @@ class PayrollListView(APIView):
 class PayrollSummaryView(APIView):
     """GET /api/admin/payroll/summary — сводка по учителю (фильтры date_from/date_to/teacher_id)."""
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def get(self, request: Request) -> Response:
         qp = request.query_params
@@ -90,7 +90,7 @@ class PayrollSummaryView(APIView):
 class PayrollDetailView(APIView):
     """PATCH /api/admin/payroll/:id — частичное обновление."""
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def patch(self, request: Request, pk: int) -> Response:
         serializer = PayrollUpdateSerializer(data=request.data)

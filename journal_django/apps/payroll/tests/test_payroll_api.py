@@ -23,6 +23,7 @@ _ROLE_EMAILS = {
     'admin': '__pr_admin__@example.com',
     'manager': '__pr_manager__@example.com',
     'teacher': '__pr_teacher_acc__@example.com',
+    'superadmin': '__pr_superadmin__@example.com',
 }
 _CREATED_IDS: list[int] = []
 
@@ -67,15 +68,17 @@ def test_list_teacher_forbidden():
     assert _client('teacher').get(BASE_URL).status_code == 403
 
 
-@pytest.mark.parametrize('role', ['manager', 'admin'])
-def test_list_allowed(role):
-    resp = _client(role).get(BASE_URL)
+def test_list_superadmin_only(manager_client, admin_client, superadmin_client):
+    """КРИТИЧНО: payroll доступен только superadmin — manager и admin получают 403."""
+    for c in (manager_client, admin_client):
+        assert c.get(BASE_URL).status_code == 403
+    resp = superadmin_client.get(BASE_URL)
     assert resp.status_code == 200
     assert set(resp.json().keys()) == {'rows', 'total', 'page', 'page_size'}
 
 
 def test_list_filter(payroll_fixture, teacher_id_fixture, group_fixture):
-    resp = _client('manager').get(
+    resp = _client('superadmin').get(
         BASE_URL, {'filter[teacher_id]': teacher_id_fixture, 'filter[group_id]': group_fixture}
     )
     assert resp.status_code == 200
@@ -85,7 +88,7 @@ def test_list_filter(payroll_fixture, teacher_id_fixture, group_fixture):
 
 
 def test_summary_string_count(payroll_fixture, teacher_id_fixture):
-    resp = _client('manager').get(f'{BASE_URL}/summary', {'teacher_id': teacher_id_fixture})
+    resp = _client('superadmin').get(f'{BASE_URL}/summary', {'teacher_id': teacher_id_fixture})
     assert resp.status_code == 200
     rows = resp.json()
     assert len(rows) == 1
@@ -95,7 +98,7 @@ def test_summary_string_count(payroll_fixture, teacher_id_fixture):
 
 def test_patch_payroll(payroll_fixture):
     payroll_id, _ = payroll_fixture
-    resp = _client('manager').patch(
+    resp = _client('superadmin').patch(
         f'{BASE_URL}/{payroll_id}', {'penalty': 40}, format='json'
     )
     assert resp.status_code == 200
@@ -103,13 +106,13 @@ def test_patch_payroll(payroll_fixture):
 
 
 def test_patch_404():
-    resp = _client('manager').patch(f'{BASE_URL}/999999999', {'penalty': 40}, format='json')
+    resp = _client('superadmin').patch(f'{BASE_URL}/999999999', {'penalty': 40}, format='json')
     assert resp.status_code == 404
     assert resp.json() == {'error': 'Not found'}
 
 
 def test_list_no_n_plus_1(payroll_fixture, teacher_id_fixture):
-    client = _client('manager')
+    client = _client('superadmin')
     with CaptureQueriesContext(connection) as ctx:
         resp = client.get(BASE_URL, {'filter[teacher_id]': teacher_id_fixture})
         assert resp.status_code == 200

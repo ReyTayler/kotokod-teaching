@@ -1,8 +1,9 @@
 """
 E2E тесты для /api/admin/accounts (DRF APIClient, реальная БД managed=False).
 
-Фокус безопасности: admin-only (manager/teacher → 403), НИ ОДИН ответ не содержит
-password_hash / twofa_secret, мутации логируются в security_audit_log с санитизацией.
+Фокус безопасности: superadmin-only (manager/admin/teacher → 403), НИ ОДИН ответ не
+содержит password_hash / twofa_secret, мутации логируются в security_audit_log с
+санитизацией.
 """
 from __future__ import annotations
 
@@ -18,15 +19,15 @@ pytestmark = pytest.mark.django_db
 
 BASE = '/api/admin/accounts'
 
-# Shared admin аккаунт для тестов, которые вызывают _client('admin') без actor_id.
-# Создаётся один раз в _shared_admin_account, живёт весь модуль, удаляется в teardown.
-_SHARED_ADMIN_ID: int | None = None
+# Shared superadmin аккаунт для тестов, которые вызывают _client('superadmin') без actor_id.
+# Создаётся один раз в _shared_superadmin_account, живёт весь модуль, удаляется в teardown.
+_SHARED_SUPERADMIN_ID: int | None = None
 
 
 @pytest.fixture(autouse=True)
-def _shared_admin_account():
-    """Создаём shared admin аккаунт для каждого теста — для вызовов _client('admin')."""
-    global _SHARED_ADMIN_ID  # noqa: PLW0603
+def _shared_superadmin_account():
+    """Создаём shared superadmin аккаунт для каждого теста — для вызовов _client('superadmin')."""
+    global _SHARED_SUPERADMIN_ID  # noqa: PLW0603
     with connection.cursor() as cur:
         # Используем ON CONFLICT чтобы не падать если предыдущий тест не почистил
         cur.execute(
@@ -35,16 +36,16 @@ def _shared_admin_account():
             "VALUES (%s, %s, %s, true, false, false, '', '', NOW(), 0) "
             'ON CONFLICT (email) DO UPDATE SET is_active=true, token_version=0 '
             'RETURNING id',
-            ['__shared_admin__@example.com', make_password('testpass123'), 'admin'],
+            ['__shared_superadmin__@example.com', make_password('testpass123'), 'superadmin'],
         )
-        _SHARED_ADMIN_ID = cur.fetchone()[0]
+        _SHARED_SUPERADMIN_ID = cur.fetchone()[0]
     yield
     # Teardown — только инвайты и аудит, сам аккаунт оставляем для ON CONFLICT
     with connection.cursor() as cur:
-        cur.execute('DELETE FROM account_invites WHERE account_id = %s', [_SHARED_ADMIN_ID])
+        cur.execute('DELETE FROM account_invites WHERE account_id = %s', [_SHARED_SUPERADMIN_ID])
         cur.execute('DELETE FROM security_audit_log WHERE account_id = %s OR target_id = %s',
-                    [_SHARED_ADMIN_ID, _SHARED_ADMIN_ID])
-    _SHARED_ADMIN_ID = None
+                    [_SHARED_SUPERADMIN_ID, _SHARED_SUPERADMIN_ID])
+    _SHARED_SUPERADMIN_ID = None
 
 
 def _jwt_client_for(account_id: int) -> APIClient:
@@ -63,16 +64,16 @@ def _client(role: str | None, account_id: int | None = None) -> APIClient:
 
     Если role=None — анонимный клиент.
     Если account_id задан — JWT для этого аккаунта.
-    Если нет account_id и role='admin' — использует _SHARED_ADMIN_ID.
+    Если нет account_id и role='superadmin' — использует _SHARED_SUPERADMIN_ID.
     """
     if role is None:
         return APIClient()
     if account_id is not None:
         return _jwt_client_for(account_id)
-    if role == 'admin':
-        assert _SHARED_ADMIN_ID is not None, '_shared_admin_account не был создан'
-        return _jwt_client_for(_SHARED_ADMIN_ID)
-    raise ValueError(f'_client({role!r}) без account_id не поддерживается (только admin)')
+    if role == 'superadmin':
+        assert _SHARED_SUPERADMIN_ID is not None, '_shared_superadmin_account не был создан'
+        return _jwt_client_for(_SHARED_SUPERADMIN_ID)
+    raise ValueError(f'_client({role!r}) без account_id не поддерживается (только superadmin)')
 
 
 def _assert_no_secrets(obj):
@@ -88,7 +89,7 @@ def _assert_no_secrets(obj):
 
 
 # ---------------------------------------------------------------------------
-# Auth — admin-only
+# Auth — superadmin-only
 # ---------------------------------------------------------------------------
 
 def test_no_cookie_401(anon_client):
@@ -100,13 +101,26 @@ def test_teacher_forbidden(teacher_client):
 
 
 def test_manager_forbidden(manager_client):
-    # accounts — admin-only: даже manager получает 403.
+    # accounts — superadmin-only: даже manager получает 403.
     assert manager_client.get(BASE).status_code == 403
+
+
+def test_admin_forbidden(admin_client):
+    # КРИТИЧНО: accounts — superadmin-only, admin (не superadmin) получает 403.
+    assert admin_client.get(BASE).status_code == 403
+
+
+def test_superadmin_only(manager_client, admin_client, superadmin_client):
+    for c in (manager_client, admin_client):
+        assert c.get(BASE).status_code == 403
+    resp = superadmin_client.get(BASE)
+    assert resp.status_code == 200
+    assert set(resp.json().keys()) == {'rows', 'total', 'page', 'page_size'}
 
 
 def test_admin_list_ok(account_factory):
     account_factory(email='__acc_api_list__@example.com')
-    resp = _client('admin').get(BASE, {'filter[email]': '__acc_api_list__'})
+    resp = _client('superadmin').get(BASE, {'filter[email]': '__acc_api_list__'})
     assert resp.status_code == 200
     body = resp.json()
     assert set(body.keys()) == {'rows', 'total', 'page', 'page_size'}
@@ -120,7 +134,7 @@ def test_admin_list_ok(account_factory):
 def test_get_detail_no_secrets(teacher_fixture, account_factory):
     acc_id = account_factory(email='__acc_get__@example.com', role='teacher',
                              teacher_id=teacher_fixture, twofa=True)
-    resp = _client('admin').get(f'{BASE}/{acc_id}')
+    resp = _client('superadmin').get(f'{BASE}/{acc_id}')
     assert resp.status_code == 200
     body = resp.json()
     _assert_no_secrets(body)
@@ -131,7 +145,7 @@ def test_get_detail_no_secrets(teacher_fixture, account_factory):
 
 
 def test_get_detail_404():
-    resp = _client('admin').get(f'{BASE}/999999999')
+    resp = _client('superadmin').get(f'{BASE}/999999999')
     assert resp.status_code == 404
     assert resp.json() == {'error': 'Not found'}
 
@@ -143,9 +157,9 @@ def test_get_detail_404():
 def test_create_returns_password_no_secrets(account_factory, cleanup_email):
     # Создаём реального actor-аккаунта — stateful-auth пройдёт (active, token_version=0)
     # и FK аудита не сломается.
-    actor_id = account_factory(email='__actor_create__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_create__@example.com', role='superadmin')
     cleanup_email.append('__acc_create__@example.com')
-    resp = _client('admin', account_id=actor_id).post(
+    resp = _client('superadmin', account_id=actor_id).post(
         BASE, {'email': '__acc_create__@example.com', 'role': 'manager'}, format='json'
     )
     assert resp.status_code == 201
@@ -171,7 +185,7 @@ def test_create_returns_password_no_secrets(account_factory, cleanup_email):
 
 def test_create_email_normalized_lowercase(cleanup_email):
     cleanup_email.append('__acc_upper__@example.com')
-    resp = _client('admin').post(
+    resp = _client('superadmin').post(
         BASE, {'email': '  __ACC_UPPER__@Example.com  ', 'role': 'manager'}, format='json'
     )
     assert resp.status_code == 201
@@ -180,7 +194,7 @@ def test_create_email_normalized_lowercase(cleanup_email):
 
 def test_create_duplicate_email_409(account_factory):
     account_factory(email='__acc_dup__@example.com', role='manager')
-    resp = _client('admin').post(
+    resp = _client('superadmin').post(
         BASE, {'email': '__acc_dup__@example.com', 'role': 'manager'}, format='json'
     )
     assert resp.status_code == 409
@@ -189,13 +203,13 @@ def test_create_duplicate_email_409(account_factory):
 
 def test_create_teacher_requires_teacher_id():
     # role=teacher без teacher_id → 400 (refine).
-    resp = _client('admin').post(BASE, {'email': '__x__@example.com', 'role': 'teacher'}, format='json')
+    resp = _client('superadmin').post(BASE, {'email': '__x__@example.com', 'role': 'teacher'}, format='json')
     assert resp.status_code == 400
 
 
 def test_create_non_teacher_with_teacher_id(teacher_fixture):
     # role=manager с teacher_id → 400 (refine).
-    resp = _client('admin').post(
+    resp = _client('superadmin').post(
         BASE, {'email': '__y__@example.com', 'role': 'manager', 'teacher_id': teacher_fixture},
         format='json',
     )
@@ -204,7 +218,7 @@ def test_create_non_teacher_with_teacher_id(teacher_fixture):
 
 def test_create_teacher_ok(teacher_fixture, cleanup_email):
     cleanup_email.append('__acc_teacher_ok__@example.com')
-    resp = _client('admin').post(
+    resp = _client('superadmin').post(
         BASE,
         {'email': '__acc_teacher_ok__@example.com', 'role': 'teacher', 'teacher_id': teacher_fixture},
         format='json',
@@ -219,7 +233,7 @@ def test_create_teacher_ok(teacher_fixture, cleanup_email):
 
 def test_patch_no_secrets(account_factory):
     acc_id = account_factory(email='__acc_patch__@example.com', role='manager')
-    resp = _client('admin').patch(f'{BASE}/{acc_id}', {'active': False}, format='json')
+    resp = _client('superadmin').patch(f'{BASE}/{acc_id}', {'active': False}, format='json')
     assert resp.status_code == 200
     body = resp.json()
     _assert_no_secrets(body)
@@ -227,7 +241,7 @@ def test_patch_no_secrets(account_factory):
 
 
 def test_patch_404():
-    resp = _client('admin').patch(f'{BASE}/999999999', {'active': False}, format='json')
+    resp = _client('superadmin').patch(f'{BASE}/999999999', {'active': False}, format='json')
     assert resp.status_code == 404
 
 
@@ -237,9 +251,9 @@ def test_patch_404():
 
 def test_reset_password(account_factory):
     # Создаём реального actor-аккаунта — FK аудита не сломается.
-    actor_id = account_factory(email='__actor_rp__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_rp__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_rp__@example.com')
-    resp = _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/reset-password')
+    resp = _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/reset-password')
     assert resp.status_code == 200
     body = resp.json()
     # Новый контракт: invite_url + expires_at вместо password
@@ -257,12 +271,12 @@ def test_reset_password(account_factory):
 
 def test_reset_password_invalidates_sessions(account_factory):
     """Сброс пароля админом немедленно инвалидирует активные сессии (bump token_version)."""
-    actor_id = account_factory(email='__actor_rpb__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_rpb__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_rpb__@example.com')
     with connection.cursor() as cur:
         cur.execute('SELECT token_version FROM accounts WHERE id=%s', [acc_id])
         before = cur.fetchone()[0]
-    resp = _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/reset-password')
+    resp = _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/reset-password')
     assert resp.status_code == 200
     with connection.cursor() as cur:
         cur.execute('SELECT token_version FROM accounts WHERE id=%s', [acc_id])
@@ -277,12 +291,12 @@ def test_reset_password_clears_old_password(account_factory):
     пользуясь invite-ссылкой. verify_password(пустой хэш) → False, поэтому очистка
     хэша делает вход возможным только после установки нового пароля по invite.
     """
-    actor_id = account_factory(email='__actor_rpc__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_rpc__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_rpc__@example.com')
     with connection.cursor() as cur:
         cur.execute('SELECT password FROM accounts WHERE id=%s', [acc_id])
         assert cur.fetchone()[0] is not None  # до сброса пароль установлен
-    assert _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/reset-password').status_code == 200
+    assert _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/reset-password').status_code == 200
     with connection.cursor() as cur:
         cur.execute('SELECT password FROM accounts WHERE id=%s', [acc_id])
         pw_val = cur.fetchone()[0]
@@ -292,12 +306,12 @@ def test_reset_password_clears_old_password(account_factory):
 
 
 def test_reset_password_404():
-    assert _client('admin').post(f'{BASE}/999999999/reset-password').status_code == 404
+    assert _client('superadmin').post(f'{BASE}/999999999/reset-password').status_code == 404
 
 
 def test_reset_2fa(account_factory):
     acc_id = account_factory(email='__acc_r2fa__@example.com', twofa=True)
-    resp = _client('admin').post(f'{BASE}/{acc_id}/reset-2fa')
+    resp = _client('superadmin').post(f'{BASE}/{acc_id}/reset-2fa')
     assert resp.status_code == 200
     assert resp.json() == {'ok': True}
     with connection.cursor() as cur:
@@ -306,12 +320,12 @@ def test_reset_2fa(account_factory):
 
 
 def test_reset_2fa_404():
-    assert _client('admin').post(f'{BASE}/999999999/reset-2fa').status_code == 404
+    assert _client('superadmin').post(f'{BASE}/999999999/reset-2fa').status_code == 404
 
 
 def test_delete_soft(account_factory):
     acc_id = account_factory(email='__acc_softdel__@example.com')
-    resp = _client('admin').delete(f'{BASE}/{acc_id}')
+    resp = _client('superadmin').delete(f'{BASE}/{acc_id}')
     assert resp.status_code == 204
     with connection.cursor() as cur:
         cur.execute('SELECT is_active FROM accounts WHERE id=%s', [acc_id])
@@ -319,7 +333,7 @@ def test_delete_soft(account_factory):
 
 
 def test_delete_404():
-    assert _client('admin').delete(f'{BASE}/999999999').status_code == 404
+    assert _client('superadmin').delete(f'{BASE}/999999999').status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -328,9 +342,9 @@ def test_delete_404():
 
 def test_invite_regenerate(account_factory):
     """POST /:id/invite возвращает {invite_url, expires_at}."""
-    actor_id = account_factory(email='__actor_inv__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_inv__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_inv__@example.com')
-    resp = _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
+    resp = _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
     assert resp.status_code == 200
     body = resp.json()
     assert set(body.keys()) == {'invite_url', 'expires_at'}
@@ -339,20 +353,20 @@ def test_invite_regenerate(account_factory):
 
 
 def test_invite_regenerate_404():
-    assert _client('admin').post(f'{BASE}/999999999/invite').status_code == 404
+    assert _client('superadmin').post(f'{BASE}/999999999/invite').status_code == 404
 
 
 def test_invite_regenerate_revokes_old(account_factory):
     """Перевыпуск отзывает старый инвайт и создаёт новый активный."""
-    actor_id = account_factory(email='__actor_inv2__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_inv2__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_inv2__@example.com')
 
     # Первый инвайт
-    resp1 = _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
+    resp1 = _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
     token1_url = resp1.json()['invite_url']
 
     # Второй инвайт — должен отозвать первый
-    resp2 = _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
+    resp2 = _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
     token2_url = resp2.json()['invite_url']
 
     assert token1_url != token2_url
@@ -373,14 +387,14 @@ def test_invite_regenerate_revokes_old(account_factory):
 
 def test_invite_revoke(account_factory):
     """POST /:id/invite/revoke → {ok: True} и инвайт отозван."""
-    actor_id = account_factory(email='__actor_rev__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_rev__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_rev__@example.com')
 
     # Выпускаем инвайт
-    _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
+    _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
 
     # Отзываем
-    resp = _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite/revoke')
+    resp = _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite/revoke')
     assert resp.status_code == 200
     assert resp.json() == {'ok': True}
 
@@ -403,7 +417,7 @@ def test_invite_revoke(account_factory):
 
 
 def test_invite_revoke_404():
-    assert _client('admin').post(f'{BASE}/999999999/invite/revoke').status_code == 404
+    assert _client('superadmin').post(f'{BASE}/999999999/invite/revoke').status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -412,10 +426,10 @@ def test_invite_revoke_404():
 
 def test_list_status_field(account_factory):
     """list_accounts возвращает поля has_active_invite и status в каждой строке."""
-    actor_id = account_factory(email='__actor_lst__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_lst__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_lst_status__@example.com')
 
-    resp = _client('admin', account_id=actor_id).get(BASE, {'filter[email]': '__acc_lst_status__'})
+    resp = _client('superadmin', account_id=actor_id).get(BASE, {'filter[email]': '__acc_lst_status__'})
     assert resp.status_code == 200
     rows = resp.json()['rows']
     assert len(rows) == 1
@@ -429,13 +443,13 @@ def test_list_status_field(account_factory):
 
 def test_list_status_invited(account_factory):
     """Учётка с активным инвайтом → status='invited'."""
-    actor_id = account_factory(email='__actor_lst2__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_lst2__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_lst_invited__@example.com')
 
     # Выпускаем инвайт
-    _client('admin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
+    _client('superadmin', account_id=actor_id).post(f'{BASE}/{acc_id}/invite')
 
-    resp = _client('admin', account_id=actor_id).get(BASE, {'filter[email]': '__acc_lst_invited__'})
+    resp = _client('superadmin', account_id=actor_id).get(BASE, {'filter[email]': '__acc_lst_invited__'})
     assert resp.status_code == 200
     rows = resp.json()['rows']
     assert len(rows) == 1
@@ -445,13 +459,13 @@ def test_list_status_invited(account_factory):
 
 def test_list_status_disabled(account_factory):
     """Неактивная учётка → status='disabled' независимо от инвайта."""
-    actor_id = account_factory(email='__actor_lst3__@example.com', role='admin')
+    actor_id = account_factory(email='__actor_lst3__@example.com', role='superadmin')
     acc_id = account_factory(email='__acc_lst_disabled__@example.com')
 
     # Деактивируем
-    _client('admin', account_id=actor_id).patch(f'{BASE}/{acc_id}', {'active': False}, format='json')
+    _client('superadmin', account_id=actor_id).patch(f'{BASE}/{acc_id}', {'active': False}, format='json')
 
-    resp = _client('admin', account_id=actor_id).get(BASE, {'filter[email]': '__acc_lst_disabled__'})
+    resp = _client('superadmin', account_id=actor_id).get(BASE, {'filter[email]': '__acc_lst_disabled__'})
     assert resp.status_code == 200
     rows = resp.json()['rows']
     assert len(rows) == 1

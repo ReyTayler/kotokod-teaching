@@ -5,7 +5,7 @@ AuditView — ViewSet для /api/admin/audit-log.
   GET /api/admin/audit-log → list() → 200 { rows, total, page, page_size }
 
 ТОЛЬКО GET — запись через services/audit.js (logEvent).
-Права: ТОЛЬКО admin (IsAdmin) — не manager.
+Права: ТОЛЬКО superadmin (IsSuperAdmin) — не admin, не manager.
 Сортировка по умолчанию: occurred_at DESC.
 
 Допустимые sort_by: occurred_at, event.
@@ -17,7 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsAdmin
+from apps.core.permissions import IsSuperAdmin
 from apps.audit import services
 
 # Whitelist sort_by
@@ -68,7 +68,7 @@ class AuditLogListView(APIView):
     GET /api/admin/audit-log — список записей аудита с пагинацией.
     """
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def get(self, request: Request) -> Response:
         params = _parse_list_params(request)

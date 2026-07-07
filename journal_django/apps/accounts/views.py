@@ -1,5 +1,5 @@
 """
-Тонкие APIView для /api/admin/accounts (роль ADMIN, управление доступами).
+Тонкие APIView для /api/admin/accounts (роль SUPERADMIN, управление доступами).
 
 Зеркалит Express routes/admin/accounts.js (router.use(requireRole('admin'))):
   GET    /                      → список (без секретов) {rows,total,page,page_size}
@@ -24,7 +24,7 @@ from rest_framework.views import APIView
 
 from apps.accounts import services
 from apps.accounts.serializers import AccountCreateSerializer, AccountUpdateSerializer
-from apps.core.permissions import IsAdmin
+from apps.core.permissions import IsSuperAdmin
 
 _DEFAULT_SORT_BY = 'email'
 _DEFAULT_SORT_DIR = 'asc'
@@ -68,7 +68,7 @@ def _parse_list_params(request: Request) -> dict:
 class AccountListCreateView(APIView):
     """GET список / POST создание учётки."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def get(self, request: Request) -> Response:
         return Response(services.list_accounts(**_parse_list_params(request)))
@@ -93,7 +93,7 @@ class AccountListCreateView(APIView):
 class AccountDetailView(APIView):
     """GET одна учётка / PATCH / DELETE (soft)."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
         acc = services.get_account(pk)
@@ -120,7 +120,7 @@ class AccountDetailView(APIView):
 class AccountResetPasswordView(APIView):
     """POST /:id/reset-password — новый temp-пароль."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
         result = services.reset_password(pk, actor_account_id=request.user.id, request=request)
@@ -132,7 +132,7 @@ class AccountResetPasswordView(APIView):
 class AccountReset2faView(APIView):
     """POST /:id/reset-2fa — сброс 2FA + recovery-кодов."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
         ok = services.reset_twofa(pk, actor_account_id=request.user.id, request=request)
@@ -144,7 +144,7 @@ class AccountReset2faView(APIView):
 class AccountInviteRevokeView(APIView):
     """POST /:id/invite/revoke — отзыв активных инвайтов аккаунта."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
         ok = services.revoke_invite(pk, actor_account_id=request.user.id, request=request)
@@ -156,7 +156,7 @@ class AccountInviteRevokeView(APIView):
 class AccountInviteView(APIView):
     """POST /:id/invite — перевыпустить invite-ссылку для установки пароля."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
         result = services.regenerate_invite(
