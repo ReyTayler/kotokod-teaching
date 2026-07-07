@@ -130,7 +130,10 @@ class LessonListCreateView(APIView):
 
         lesson_id = services.create_lesson_full(serializer.validated_data)
         full = services.get_lesson_full(lesson_id)
-        return Response(full, status=status.HTTP_201_CREATED)
+        return Response(
+            _strip_payroll_for_role(full, request.user.role),
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class LessonDetailView(APIView):

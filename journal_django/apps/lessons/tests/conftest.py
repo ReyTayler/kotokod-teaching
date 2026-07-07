@@ -16,18 +16,15 @@ def django_db_setup():
     pass
 
 
-def _get_teacher_id() -> int:
-    with connection.cursor() as cur:
-        cur.execute('SELECT id FROM teachers LIMIT 1')
-        row = cur.fetchone()
-    if not row:
-        pytest.skip('No teachers in DB — skipping lessons tests')
-    return row[0]
-
-
 @pytest.fixture
 def teacher_id_fixture():
-    return _get_teacher_id()
+    """Самосев учителя в journal_test (как direction/group/student fixtures)."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO teachers (name) VALUES ('__les_test_teacher__') RETURNING id")
+        teacher_id = cur.fetchone()[0]
+    yield teacher_id
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM teachers WHERE id = %s', [teacher_id])
 
 
 @pytest.fixture
