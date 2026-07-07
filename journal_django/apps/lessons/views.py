@@ -9,7 +9,11 @@
   DELETE /api/admin/lessons/:id                               → 204 | 404
   PATCH  /api/admin/lessons/:lessonId/attendance/:studentId   → 200 {ok:true} | 404
 
-Права: только manager или admin (IsManagerOrAdmin).
+Права (ReadStaffWriteAdmin): GET — manager/admin/superadmin; POST/PATCH/DELETE
+и toggle посещаемости — только admin/superadmin (manager — read-only).
+Зарплата за урок (payroll: вложенный объект в detail, плоские поля payroll_id/
+total_students/present_count/payment/penalty в списке) видна ТОЛЬКО superadmin —
+вырезается из GET-ответов для остальных ролей (_strip_payroll_for_role).
 
 Сортировка: тихий fallback на default (как Express paginate()), без 400.
 Back-compat: top-level query group_id/teacher_id/date_from/date_to мержатся
@@ -23,7 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.permissions import ReadStaffWriteAdmin
 from apps.lessons import services
 from apps.lessons.serializers import (
     AttendanceUpdateSerializer,
@@ -89,17 +93,36 @@ def _parse_list_params(request: Request) -> dict:
     }
 
 
+_PAYROLL_ROW_KEYS = ('payroll_id', 'total_students', 'present_count', 'payment', 'penalty')
+
+
+def _row_without_payroll(row: dict) -> dict:
+    return {k: v for k, v in row.items() if k not in _PAYROLL_ROW_KEYS}
+
+
+def _strip_payroll_for_role(data: dict, role: str) -> dict:
+    """Зарплата за урок (payroll) видна только superadmin — вырезаем для остальных."""
+    if role == 'superadmin':
+        return data
+    if 'payroll' in data:
+        data = {**data, 'payroll': None}
+    if isinstance(data.get('rows'), list):
+        data = {**data, 'rows': [_row_without_payroll(r) for r in data['rows']]}
+    return data
+
+
 class LessonListCreateView(APIView):
     """
     GET  /api/admin/lessons  — список уроков
     POST /api/admin/lessons  — создать урок (транзакция)
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteAdmin]
 
     def get(self, request: Request) -> Response:
         params = _parse_list_params(request)
-        return Response(services.list_lessons(**params))
+        data = services.list_lessons(**params)
+        return Response(_strip_payroll_for_role(data, request.user.role))
 
     def post(self, request: Request) -> Response:
         serializer = LessonCreateSerializer(data=request.data)
@@ -117,13 +140,13 @@ class LessonDetailView(APIView):
     DELETE /api/admin/lessons/:id  — удалить (CASCADE)
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
         lesson = services.get_lesson_full(pk)
         if lesson is None:
             raise NotFound({'error': 'Not found'})
-        return Response(lesson)
+        return Response(_strip_payroll_for_role(lesson, request.user.role))
 
     def patch(self, request: Request, pk: int) -> Response:
         serializer = LessonUpdateSerializer(data=request.data)
@@ -146,7 +169,7 @@ class AttendanceCellView(APIView):
     PATCH /api/admin/lessons/:lessonId/attendance/:studentId — toggle одной ячейки.
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteAdmin]
 
     def patch(self, request: Request, lesson_id: int, student_id: int) -> Response:
         serializer = AttendanceUpdateSerializer(data=request.data)

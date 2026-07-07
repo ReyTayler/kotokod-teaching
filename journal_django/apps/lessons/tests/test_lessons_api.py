@@ -30,6 +30,7 @@ _ROLE_EMAILS = {
     'admin': '__les_admin__@example.com',
     'manager': '__les_manager__@example.com',
     'teacher': '__les_teacher__@example.com',
+    'superadmin': '__les_super__@example.com',
 }
 _CREATED_IDS: list[int] = []
 
@@ -165,7 +166,7 @@ def test_post_creates_lesson(group_fixture, teacher_id_fixture, student_fixture,
         'lesson_duration_minutes': 60,
         'attendance': [{'student_id': student_fixture, 'present': True}],
     }
-    resp = _client('manager').post(BASE_URL, payload, format='json')
+    resp = _client('admin').post(BASE_URL, payload, format='json')
     assert resp.status_code == 201
     body = resp.json()
     lesson_id = body['id']
@@ -183,14 +184,14 @@ def test_post_invalid_body_400(group_fixture, teacher_id_fixture):
         'teacher_id': teacher_id_fixture,
         'lesson_number': 1,
     }
-    resp = _client('manager').post(BASE_URL, payload, format='json')
+    resp = _client('admin').post(BASE_URL, payload, format='json')
     assert resp.status_code == 400
 
 
 def test_patch_lesson(group_fixture, teacher_id_fixture):
     lesson_id = _create_lesson(group_fixture, teacher_id_fixture)
     try:
-        resp = _client('manager').patch(
+        resp = _client('admin').patch(
             f'{BASE_URL}/{lesson_id}', {'lesson_type': 'reschedule'}, format='json'
         )
         assert resp.status_code == 200
@@ -200,7 +201,7 @@ def test_patch_lesson(group_fixture, teacher_id_fixture):
 
 
 def test_patch_404():
-    resp = _client('manager').patch(
+    resp = _client('admin').patch(
         f'{BASE_URL}/999999999', {'lesson_type': 'regular'}, format='json'
     )
     assert resp.status_code == 404
@@ -208,7 +209,7 @@ def test_patch_404():
 
 def test_delete_lesson(group_fixture, teacher_id_fixture):
     lesson_id = _create_lesson(group_fixture, teacher_id_fixture)
-    resp = _client('manager').delete(f'{BASE_URL}/{lesson_id}')
+    resp = _client('admin').delete(f'{BASE_URL}/{lesson_id}')
     assert resp.status_code == 204
     with connection.cursor() as cur:
         cur.execute('SELECT COUNT(*) FROM lessons WHERE id = %s', [lesson_id])
@@ -216,7 +217,7 @@ def test_delete_lesson(group_fixture, teacher_id_fixture):
 
 
 def test_delete_404():
-    resp = _client('manager').delete(f'{BASE_URL}/999999999')
+    resp = _client('admin').delete(f'{BASE_URL}/999999999')
     assert resp.status_code == 404
 
 
@@ -227,7 +228,7 @@ def test_delete_404():
 def test_attendance_toggle(group_fixture, teacher_id_fixture, student_fixture, membership_fixture):
     lesson_id = _create_lesson(group_fixture, teacher_id_fixture)
     try:
-        resp = _client('manager').patch(
+        resp = _client('admin').patch(
             f'{BASE_URL}/{lesson_id}/attendance/{student_fixture}',
             {'present': True},
             format='json',
@@ -239,7 +240,7 @@ def test_attendance_toggle(group_fixture, teacher_id_fixture, student_fixture, m
 
 
 def test_attendance_toggle_404_missing_lesson(student_fixture):
-    resp = _client('manager').patch(
+    resp = _client('admin').patch(
         f'{BASE_URL}/999999999/attendance/{student_fixture}',
         {'present': True},
         format='json',
@@ -266,3 +267,89 @@ def test_list_no_n_plus_1(group_fixture, teacher_id_fixture):
     finally:
         for lid in ids:
             _delete_lesson(lid)
+
+
+# ---------------------------------------------------------------------------
+# RBAC: manager — только просмотр; запись/посещаемость — admin/superadmin;
+# зарплата за урок (payroll) видна только superadmin.
+# ---------------------------------------------------------------------------
+
+def test_lessons_get_allowed_for_staff():
+    for role in ('manager', 'admin', 'superadmin'):
+        assert _client(role).get(BASE_URL).status_code == 200
+
+
+def test_lessons_write_forbidden_for_manager(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture
+):
+    payload = {
+        'lesson_date': '2026-03-25',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+    }
+    resp_manager = _client('manager').post(BASE_URL, payload, format='json')
+    assert resp_manager.status_code == 403
+
+    resp_admin = _client('admin').post(BASE_URL, payload, format='json')
+    assert resp_admin.status_code in (200, 201, 400, 409)
+    if resp_admin.status_code == 201:
+        _delete_lesson(resp_admin.json()['id'])
+
+
+def test_attendance_toggle_forbidden_for_manager(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture
+):
+    payload = {
+        'lesson_date': '2026-03-26',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+    }
+    created = _client('superadmin').post(BASE_URL, payload, format='json')
+    assert created.status_code == 201
+    lesson_id = created.json()['id']
+    try:
+        detail = _client('superadmin').get(f'{BASE_URL}/{lesson_id}').json()
+        sid = detail['attendance'][0]['student_id']
+        url = f'{BASE_URL}/{lesson_id}/attendance/{sid}'
+        assert _client('manager').patch(url, {'present': True}, format='json').status_code == 403
+        assert _client('admin').patch(url, {'present': True}, format='json').status_code in (200, 404)
+    finally:
+        _delete_lesson(lesson_id)
+
+
+def test_payroll_visible_only_to_superadmin(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture
+):
+    payload = {
+        'lesson_date': '2026-03-27',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+        'payroll': {
+            'total_students': 1,
+            'present_count': 1,
+            'payment': 500,
+            'penalty': 0,
+        },
+    }
+    created = _client('superadmin').post(BASE_URL, payload, format='json')
+    assert created.status_code == 201
+    lesson_id = created.json()['id']
+    try:
+        body_admin = _client('admin').get(f'{BASE_URL}/{lesson_id}').json()
+        body_super = _client('superadmin').get(f'{BASE_URL}/{lesson_id}').json()
+        assert body_admin.get('payroll') is None
+        assert body_super.get('payroll') is not None
+
+        rows_admin = _client('admin').get(BASE_URL, {'group_id': group_fixture}).json()['rows']
+        assert all('payment' not in r and 'penalty' not in r for r in rows_admin)
+    finally:
+        _delete_lesson(lesson_id)
