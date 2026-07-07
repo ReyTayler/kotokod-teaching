@@ -153,3 +153,12 @@ def teacher_client(db):
     client = _jwt_client_for_id(acc_id)
     yield client
     _delete_account(acc_id, teacher_id)
+
+
+@pytest.fixture
+def superadmin_client(db):
+    """APIClient с JWT для superadmin (полный доступ к admin-платформе)."""
+    acc_id, _ = _create_account('__root_superadmin__@test.local', 'superadmin')
+    client = _jwt_client_for_id(acc_id)
+    yield client
+    _delete_account(acc_id)
