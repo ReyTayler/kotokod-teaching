@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGate } from './components/shell/AuthGate';
 import { AppShell } from './components/shell/AppShell';
+import { RequireRole } from './components/shell/RequireRole';
 import StudentsListPage from './pages/students/StudentsListPage';
 import GroupsListPage from './pages/groups/GroupsListPage';
 import TeachersListPage from './pages/teachers/TeachersListPage';
@@ -45,13 +46,13 @@ export function App() {
             <Route path="/admin/lessons" element={<LessonsListPage />} />
             <Route path="/admin/lessons/:id" element={<LessonDetailPage />} />
 
-            <Route path="/admin/payroll" element={<PayrollPage />} />
+            <Route path="/admin/payroll" element={<RequireRole roles={['superadmin']}><PayrollPage /></RequireRole>} />
             <Route path="/admin/subscriptions" element={<SubscriptionsPage />} />
             <Route path="/admin/archive" element={<ArchivePage />} />
             <Route path="/admin/settings" element={<SettingsPage />} />
-            <Route path="/admin/audit" element={<AuditPage />} />
-            <Route path="/admin/accounts" element={<AccountsPage />} />
-            <Route path="/admin/changelog" element={<ChangelogListPage />} />
+            <Route path="/admin/audit" element={<RequireRole roles={['superadmin']}><AuditPage /></RequireRole>} />
+            <Route path="/admin/accounts" element={<RequireRole roles={['superadmin']}><AccountsPage /></RequireRole>} />
+            <Route path="/admin/changelog" element={<RequireRole roles={['manager','admin','superadmin']}><ChangelogListPage /></RequireRole>} />
 
             <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
           </Route>
