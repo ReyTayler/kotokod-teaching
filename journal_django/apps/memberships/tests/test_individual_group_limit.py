@@ -117,18 +117,18 @@ def _insert_inactive(group_id: int, student_id: int) -> int:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_first_student_into_empty_individual_group_201(admin_client, seed, individual_group):
-    resp = _post_member(admin_client, individual_group['id'], seed['s1'])
+def test_first_student_into_empty_individual_group_201(superadmin_client, seed, individual_group):
+    resp = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert resp.status_code == 201
     assert resp.json()['active'] is True
 
 
 @pytest.mark.django_db
-def test_second_different_student_409(admin_client, seed, individual_group):
-    r1 = _post_member(admin_client, individual_group['id'], seed['s1'])
+def test_second_different_student_409(superadmin_client, seed, individual_group):
+    r1 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r1.status_code == 201
 
-    r2 = _post_member(admin_client, individual_group['id'], seed['s2'])
+    r2 = _post_member(superadmin_client, individual_group['id'], seed['s2'])
     assert r2.status_code == 409
     assert 'error' in r2.json()
 
@@ -143,40 +143,40 @@ def test_second_different_student_409(admin_client, seed, individual_group):
 
 
 @pytest.mark.django_db
-def test_repost_same_active_student_reactivation_201(admin_client, seed, individual_group):
+def test_repost_same_active_student_reactivation_201(superadmin_client, seed, individual_group):
     """Повторный POST того же уже активного ученика → 201 (UPSERT active=true)."""
-    r1 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r1 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r1.status_code == 201
     mid = r1.json()['id']
 
-    r2 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r2 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r2.status_code == 201
     assert r2.json()['id'] == mid
     assert r2.json()['active'] is True
 
 
 @pytest.mark.django_db
-def test_repost_same_inactive_student_reactivation_201(admin_client, seed, individual_group):
+def test_repost_same_inactive_student_reactivation_201(superadmin_client, seed, individual_group):
     """POST того же ЕДИНСТВЕННОГО (деактивированного) ученика → реактивация ок."""
-    r1 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r1 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r1.status_code == 201
     mid = r1.json()['id']
     _set_active(mid, False)
 
-    r2 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r2 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r2.status_code == 201
     assert r2.json()['id'] == mid
     assert r2.json()['active'] is True
 
 
 @pytest.mark.django_db
-def test_post_other_inactive_student_while_active_409(admin_client, seed, individual_group):
+def test_post_other_inactive_student_while_active_409(superadmin_client, seed, individual_group):
     """Второй ученик существует как inactive; активен первый → POST второго → 409."""
-    r1 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r1 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r1.status_code == 201
     _insert_inactive(individual_group['id'], seed['s2'])
 
-    r2 = _post_member(admin_client, individual_group['id'], seed['s2'])
+    r2 = _post_member(superadmin_client, individual_group['id'], seed['s2'])
     assert r2.status_code == 409
 
 
@@ -185,13 +185,13 @@ def test_post_other_inactive_student_while_active_409(admin_client, seed, indivi
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_patch_activate_other_while_active_409(admin_client, seed, individual_group):
+def test_patch_activate_other_while_active_409(superadmin_client, seed, individual_group):
     """PATCH active=true второго membership при активном первом → 409."""
-    r1 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r1 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r1.status_code == 201
     mid2 = _insert_inactive(individual_group['id'], seed['s2'])
 
-    resp = admin_client.patch(f'{BASE_URL}/{mid2}', {'active': True}, format='json')
+    resp = superadmin_client.patch(f'{BASE_URL}/{mid2}', {'active': True}, format='json')
     assert resp.status_code == 409
 
     with connection.cursor() as cur:
@@ -200,30 +200,30 @@ def test_patch_activate_other_while_active_409(admin_client, seed, individual_gr
 
 
 @pytest.mark.django_db
-def test_patch_activate_only_inactive_200(admin_client, seed, individual_group):
+def test_patch_activate_only_inactive_200(superadmin_client, seed, individual_group):
     """PATCH active=true единственного (деактивированного) ученика → 200."""
-    r1 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r1 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     mid = r1.json()['id']
     _set_active(mid, False)
 
-    resp = admin_client.patch(f'{BASE_URL}/{mid}', {'active': True}, format='json')
+    resp = superadmin_client.patch(f'{BASE_URL}/{mid}', {'active': True}, format='json')
     assert resp.status_code == 200
     assert resp.json()['active'] is True
 
 
 @pytest.mark.django_db
-def test_patch_non_active_field_skips_check(admin_client, seed, individual_group):
+def test_patch_non_active_field_skips_check(superadmin_client, seed, individual_group):
     """
     PATCH только lessons_done (без active) в занятой инд. группе → 200.
 
     Даже если в группе уже есть активный — проверка не запускается для PATCH,
     не трогающего active. Обновляем второй (inactive) membership.
     """
-    r1 = _post_member(admin_client, individual_group['id'], seed['s1'])
+    r1 = _post_member(superadmin_client, individual_group['id'], seed['s1'])
     assert r1.status_code == 201
     mid2 = _insert_inactive(individual_group['id'], seed['s2'])
 
-    resp = admin_client.patch(f'{BASE_URL}/{mid2}', {'lessons_done': 3}, format='json')
+    resp = superadmin_client.patch(f'{BASE_URL}/{mid2}', {'lessons_done': 3}, format='json')
     assert resp.status_code == 200
 
 
@@ -232,10 +232,10 @@ def test_patch_non_active_field_skips_check(admin_client, seed, individual_group
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_regular_group_allows_two_active(admin_client, seed, regular_group):
+def test_regular_group_allows_two_active(superadmin_client, seed, regular_group):
     """is_individual=false: двое активных учеников — ок."""
-    r1 = _post_member(admin_client, regular_group['id'], seed['s1'])
-    r2 = _post_member(admin_client, regular_group['id'], seed['s2'])
+    r1 = _post_member(superadmin_client, regular_group['id'], seed['s1'])
+    r2 = _post_member(superadmin_client, regular_group['id'], seed['s2'])
     assert r1.status_code == 201
     assert r2.status_code == 201
     assert r1.json()['active'] is True

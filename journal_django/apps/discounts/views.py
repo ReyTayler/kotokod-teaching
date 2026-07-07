@@ -9,7 +9,7 @@ DiscountsView — тонкий ViewSet для /api/admin/discounts.
   DELETE /api/admin/discounts/:id    → destroy()  → 204 | 404
 
 Параметры: ?include_inactive=1 (GET список).
-Права: только manager или admin (IsManagerOrAdmin).
+Права: чтение — manager/admin/superadmin; запись — только superadmin (ReadStaffWriteSuperAdmin).
 
 Примечание: Express не ловит 409 при создании скидок (нет UNIQUE по name).
 """
@@ -21,7 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.permissions import ReadStaffWriteSuperAdmin
 from apps.discounts import services
 from apps.discounts.serializers import DiscountUpdateSerializer, DiscountWriteSerializer
 
@@ -32,7 +32,7 @@ class DiscountListCreateView(APIView):
     POST /api/admin/discounts  — создать скидку
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def get(self, request: Request) -> Response:
         include_inactive = request.query_params.get('include_inactive') == '1'
@@ -53,7 +53,7 @@ class DiscountDetailView(APIView):
     DELETE /api/admin/discounts/:id  — мягкое удаление
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
         discount = services.get_discount(pk)

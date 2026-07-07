@@ -7,7 +7,7 @@ MembershipsView — тонкие APIView для /api/admin/memberships.
   PATCH  /api/admin/memberships/:id → обновить → 200 | 404
   DELETE /api/admin/memberships/:id → soft-delete (active=false) → 204 | 404
 
-Права: только manager или admin (IsManagerOrAdmin).
+Права: чтение — manager/admin/superadmin; запись — только superadmin (ReadStaffWriteSuperAdmin).
 Фильтры: group_id, student_id (числа), include_inactive ('1' → True).
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.permissions import ReadStaffWriteSuperAdmin
 from apps.memberships import services
 from apps.memberships.exceptions import IndividualGroupFull
 from apps.memberships.serializers import MembershipUpdateSerializer, MembershipWriteSerializer
@@ -40,7 +40,7 @@ class MembershipListCreateView(APIView):
     POST /api/admin/memberships  — UPSERT membership
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def get(self, request: Request) -> Response:
         qp = request.query_params
@@ -73,7 +73,7 @@ class MembershipDetailView(APIView):
     DELETE /api/admin/memberships/:id  — мягкое удаление
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def patch(self, request: Request, pk: int) -> Response:
         serializer = MembershipUpdateSerializer(data=request.data)

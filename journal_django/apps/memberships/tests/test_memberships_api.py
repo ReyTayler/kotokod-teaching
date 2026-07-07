@@ -180,12 +180,12 @@ def test_list_filter_nonexistent_group_empty(admin_client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_post_returns_201(admin_client):
+def test_post_returns_201(superadmin_client):
     group_id = _get_valid_group_id()
     student_id = _get_valid_student_id()
     _cleanup_pair(group_id, student_id)
     try:
-        resp = admin_client.post(
+        resp = superadmin_client.post(
             BASE_URL,
             {'group_id': group_id, 'student_id': student_id},
             format='json',
@@ -196,12 +196,12 @@ def test_post_returns_201(admin_client):
 
 
 @pytest.mark.django_db
-def test_post_creates_membership(admin_client):
+def test_post_creates_membership(superadmin_client):
     group_id = _get_valid_group_id()
     student_id = _get_valid_student_id()
     _cleanup_pair(group_id, student_id)
     try:
-        resp = admin_client.post(
+        resp = superadmin_client.post(
             BASE_URL,
             {'group_id': group_id, 'student_id': student_id},
             format='json',
@@ -216,12 +216,12 @@ def test_post_creates_membership(admin_client):
 
 
 @pytest.mark.django_db
-def test_post_with_start_date(admin_client):
+def test_post_with_start_date(superadmin_client):
     group_id = _get_valid_group_id()
     student_id = _get_valid_student_id()
     _cleanup_pair(group_id, student_id)
     try:
-        resp = admin_client.post(
+        resp = superadmin_client.post(
             BASE_URL,
             {'group_id': group_id, 'student_id': student_id, 'start_date': '2025-09-01'},
             format='json',
@@ -233,7 +233,7 @@ def test_post_with_start_date(admin_client):
 
 
 @pytest.mark.django_db
-def test_post_upsert_reactivation(admin_client):
+def test_post_upsert_reactivation(superadmin_client):
     """
     UPSERT: повторный POST той же пары после удаления → 201 с active=true.
 
@@ -244,7 +244,7 @@ def test_post_upsert_reactivation(admin_client):
     _cleanup_pair(group_id, student_id)
     try:
         # Создаём
-        resp1 = admin_client.post(
+        resp1 = superadmin_client.post(
             BASE_URL,
             {'group_id': group_id, 'student_id': student_id},
             format='json',
@@ -260,7 +260,7 @@ def test_post_upsert_reactivation(admin_client):
             )
 
         # Повторный POST → реактивация
-        resp2 = admin_client.post(
+        resp2 = superadmin_client.post(
             BASE_URL,
             {'group_id': group_id, 'student_id': student_id},
             format='json',
@@ -274,23 +274,23 @@ def test_post_upsert_reactivation(admin_client):
 
 
 @pytest.mark.django_db
-def test_post_missing_group_id_returns_400(admin_client):
+def test_post_missing_group_id_returns_400(superadmin_client):
     student_id = _get_valid_student_id()
-    resp = admin_client.post(BASE_URL, {'student_id': student_id}, format='json')
+    resp = superadmin_client.post(BASE_URL, {'student_id': student_id}, format='json')
     assert resp.status_code == 400
 
 
 @pytest.mark.django_db
-def test_post_missing_student_id_returns_400(admin_client):
+def test_post_missing_student_id_returns_400(superadmin_client):
     group_id = _get_valid_group_id()
-    resp = admin_client.post(BASE_URL, {'group_id': group_id}, format='json')
+    resp = superadmin_client.post(BASE_URL, {'group_id': group_id}, format='json')
     assert resp.status_code == 400
 
 
 @pytest.mark.django_db
-def test_post_invalid_group_id_zero_returns_400(admin_client):
+def test_post_invalid_group_id_zero_returns_400(superadmin_client):
     student_id = _get_valid_student_id()
-    resp = admin_client.post(
+    resp = superadmin_client.post(
         BASE_URL,
         {'group_id': 0, 'student_id': student_id},
         format='json',
@@ -325,8 +325,8 @@ def existing_membership():
 
 
 @pytest.mark.django_db
-def test_patch_returns_200(admin_client, existing_membership):
-    resp = admin_client.patch(
+def test_patch_returns_200(superadmin_client, existing_membership):
+    resp = superadmin_client.patch(
         f"{BASE_URL}/{existing_membership['id']}",
         {'active': False},
         format='json',
@@ -335,8 +335,8 @@ def test_patch_returns_200(admin_client, existing_membership):
 
 
 @pytest.mark.django_db
-def test_patch_updates_active(admin_client, existing_membership):
-    resp = admin_client.patch(
+def test_patch_updates_active(superadmin_client, existing_membership):
+    resp = superadmin_client.patch(
         f"{BASE_URL}/{existing_membership['id']}",
         {'active': False},
         format='json',
@@ -346,8 +346,8 @@ def test_patch_updates_active(admin_client, existing_membership):
 
 
 @pytest.mark.django_db
-def test_patch_updates_start_date(admin_client, existing_membership):
-    resp = admin_client.patch(
+def test_patch_updates_start_date(superadmin_client, existing_membership):
+    resp = superadmin_client.patch(
         f"{BASE_URL}/{existing_membership['id']}",
         {'start_date': '2025-06-01'},
         format='json',
@@ -357,8 +357,8 @@ def test_patch_updates_start_date(admin_client, existing_membership):
 
 
 @pytest.mark.django_db
-def test_patch_nonexistent_returns_404(admin_client):
-    resp = admin_client.patch(
+def test_patch_nonexistent_returns_404(superadmin_client):
+    resp = superadmin_client.patch(
         f'{BASE_URL}/999999999',
         {'active': False},
         format='json',
@@ -372,7 +372,7 @@ def test_patch_nonexistent_returns_404(admin_client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_delete_returns_204(admin_client):
+def test_delete_returns_204(superadmin_client):
     group_id = _get_valid_group_id()
     student_id = _get_valid_student_id()
     _cleanup_pair(group_id, student_id)
@@ -388,14 +388,14 @@ def test_delete_returns_204(admin_client):
         )
         membership_id = cur.fetchone()[0]
     try:
-        resp = admin_client.delete(f'{BASE_URL}/{membership_id}')
+        resp = superadmin_client.delete(f'{BASE_URL}/{membership_id}')
         assert resp.status_code == 204
     finally:
         _cleanup_pair(group_id, student_id)
 
 
 @pytest.mark.django_db
-def test_delete_sets_active_false(admin_client):
+def test_delete_sets_active_false(superadmin_client):
     group_id = _get_valid_group_id()
     student_id = _get_valid_student_id()
     _cleanup_pair(group_id, student_id)
@@ -411,7 +411,7 @@ def test_delete_sets_active_false(admin_client):
         )
         membership_id = cur.fetchone()[0]
     try:
-        admin_client.delete(f'{BASE_URL}/{membership_id}')
+        superadmin_client.delete(f'{BASE_URL}/{membership_id}')
         # Проверяем через БД
         with connection.cursor() as cur:
             cur.execute(
@@ -425,7 +425,48 @@ def test_delete_sets_active_false(admin_client):
 
 
 @pytest.mark.django_db
-def test_delete_nonexistent_returns_404(admin_client):
-    resp = admin_client.delete(f'{BASE_URL}/999999999')
+def test_delete_nonexistent_returns_404(superadmin_client):
+    resp = superadmin_client.delete(f'{BASE_URL}/999999999')
     assert resp.status_code == 404
     assert resp.json() == {'error': 'Not found'}
+
+
+# ---------------------------------------------------------------------------
+# RBAC: чтение — manager/admin/superadmin; запись — только superadmin
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_memberships_read_staff_write_superadmin(manager_client, admin_client, superadmin_client):
+    for c in (manager_client, admin_client, superadmin_client):
+        assert c.get(BASE_URL).status_code == 200
+
+    group_id = _get_valid_group_id()
+    student_id = _get_valid_student_id()
+    _cleanup_pair(group_id, student_id)
+    payload = {'group_id': group_id, 'student_id': student_id}
+    try:
+        resp_manager = manager_client.post(BASE_URL, payload, format='json')
+        resp_admin = admin_client.post(BASE_URL, payload, format='json')
+        assert resp_manager.status_code == 403
+        assert resp_admin.status_code == 403
+
+        resp_super = superadmin_client.post(BASE_URL, payload, format='json')
+        assert resp_super.status_code in (200, 201, 409)
+    finally:
+        _cleanup_pair(group_id, student_id)
+
+
+@pytest.mark.django_db
+def test_memberships_patch_delete_forbidden_for_manager_and_admin(manager_client, admin_client, existing_membership):
+    resp = manager_client.patch(
+        f"{BASE_URL}/{existing_membership['id']}", {'active': False}, format='json'
+    )
+    assert resp.status_code == 403
+    resp = admin_client.patch(
+        f"{BASE_URL}/{existing_membership['id']}", {'active': False}, format='json'
+    )
+    assert resp.status_code == 403
+    resp = manager_client.delete(f"{BASE_URL}/{existing_membership['id']}")
+    assert resp.status_code == 403
+    resp = admin_client.delete(f"{BASE_URL}/{existing_membership['id']}")
+    assert resp.status_code == 403

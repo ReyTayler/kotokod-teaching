@@ -101,29 +101,29 @@ def test_retrieve_existing_returns_200(admin_client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_create_returns_201(admin_client):
+def test_create_returns_201(superadmin_client):
     payload = _direction_payload(name='__test_post_dir_201__')
-    resp = admin_client.post(BASE_URL, payload, format='json')
+    resp = superadmin_client.post(BASE_URL, payload, format='json')
     if resp.status_code == 201:
         _cleanup_direction(resp.json()['id'])
     assert resp.status_code == 201
 
 
 @pytest.mark.django_db
-def test_create_missing_required_returns_400(admin_client):
-    resp = admin_client.post(BASE_URL, {'name': 'X'}, format='json')
+def test_create_missing_required_returns_400(superadmin_client):
+    resp = superadmin_client.post(BASE_URL, {'name': 'X'}, format='json')
     assert resp.status_code == 400
 
 
 @pytest.mark.django_db
-def test_create_invalid_color_returns_400(admin_client):
+def test_create_invalid_color_returns_400(superadmin_client):
     payload = _direction_payload(name='__bad_color__', color='red')
-    resp = admin_client.post(BASE_URL, payload, format='json')
+    resp = superadmin_client.post(BASE_URL, payload, format='json')
     assert resp.status_code == 400
 
 
 @pytest.mark.django_db(transaction=True)
-def test_create_duplicate_name_returns_409(admin_client):
+def test_create_duplicate_name_returns_409(superadmin_client):
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_dup_dir__',
@@ -131,7 +131,7 @@ def test_create_duplicate_name_returns_409(admin_client):
         'is_individual': False,
     })
     try:
-        resp = admin_client.post(
+        resp = superadmin_client.post(
             BASE_URL,
             {'name': '__test_dup_dir__', 'sheet_name': 'S', 'is_individual': False},
             format='json',
@@ -146,7 +146,7 @@ def test_create_duplicate_name_returns_409(admin_client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_patch_returns_200(admin_client):
+def test_patch_returns_200(superadmin_client):
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_patch_dir__',
@@ -154,7 +154,7 @@ def test_patch_returns_200(admin_client):
         'is_individual': False,
     })
     try:
-        resp = admin_client.patch(
+        resp = superadmin_client.patch(
             f"{BASE_URL}/{d['id']}",
             {'name': '__test_patch_dir_upd__'},
             format='json',
@@ -166,8 +166,8 @@ def test_patch_returns_200(admin_client):
 
 
 @pytest.mark.django_db
-def test_patch_nonexistent_returns_404(admin_client):
-    resp = admin_client.patch(
+def test_patch_nonexistent_returns_404(superadmin_client):
+    resp = superadmin_client.patch(
         f'{BASE_URL}/999999999', {'name': 'X'}, format='json'
     )
     assert resp.status_code == 404
@@ -178,7 +178,7 @@ def test_patch_nonexistent_returns_404(admin_client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_delete_no_payments_returns_204(admin_client):
+def test_delete_no_payments_returns_204(superadmin_client):
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_del_dir_204__',
@@ -186,13 +186,57 @@ def test_delete_no_payments_returns_204(admin_client):
         'is_individual': False,
     })
     try:
-        resp = admin_client.delete(f"{BASE_URL}/{d['id']}")
+        resp = superadmin_client.delete(f"{BASE_URL}/{d['id']}")
         assert resp.status_code == 204
     finally:
         _cleanup_direction(d['id'])
 
 
 @pytest.mark.django_db
-def test_delete_nonexistent_returns_404(admin_client):
-    resp = admin_client.delete(f'{BASE_URL}/999999999')
+def test_delete_nonexistent_returns_404(superadmin_client):
+    resp = superadmin_client.delete(f'{BASE_URL}/999999999')
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# RBAC: чтение — manager/admin/superadmin; запись — только superadmin
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_directions_read_staff_write_superadmin(manager_client, admin_client, superadmin_client):
+    for c in (manager_client, admin_client, superadmin_client):
+        assert c.get(BASE_URL).status_code == 200
+
+    payload = _direction_payload(name='__test_rbac_direction__')
+    resp_manager = manager_client.post(BASE_URL, payload, format='json')
+    resp_admin = admin_client.post(BASE_URL, payload, format='json')
+    assert resp_manager.status_code == 403
+    assert resp_admin.status_code == 403
+
+    resp_super = superadmin_client.post(BASE_URL, payload, format='json')
+    try:
+        assert resp_super.status_code in (200, 201, 409)
+    finally:
+        if resp_super.status_code == 201:
+            _cleanup_direction(resp_super.json()['id'])
+
+
+@pytest.mark.django_db
+def test_directions_patch_delete_forbidden_for_manager_and_admin(manager_client, admin_client, superadmin_client):
+    from apps.directions import repository
+    d = repository.create_direction({
+        'name': '__test_rbac_direction_write__',
+        'sheet_name': 'S',
+        'is_individual': False,
+    })
+    try:
+        resp = manager_client.patch(f"{BASE_URL}/{d['id']}", {'name': 'x'}, format='json')
+        assert resp.status_code == 403
+        resp = admin_client.patch(f"{BASE_URL}/{d['id']}", {'name': 'x'}, format='json')
+        assert resp.status_code == 403
+        resp = manager_client.delete(f"{BASE_URL}/{d['id']}")
+        assert resp.status_code == 403
+        resp = admin_client.delete(f"{BASE_URL}/{d['id']}")
+        assert resp.status_code == 403
+    finally:
+        _cleanup_direction(d['id'])

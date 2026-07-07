@@ -9,7 +9,7 @@ TeachersView — тонкий ViewSet для /api/admin/teachers.
   DELETE /api/admin/teachers/:id    → destroy()        → 204 | 404
 
 Параметры: ?include_inactive=1 (GET список).
-Права: только manager или admin (IsManagerOrAdmin).
+Права: чтение — manager/admin/superadmin; запись — только superadmin (ReadStaffWriteSuperAdmin).
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.permissions import ReadStaffWriteSuperAdmin
 from apps.teachers import services
 from apps.teachers.serializers import TeacherUpdateSerializer, TeacherWriteSerializer
 
@@ -31,7 +31,7 @@ class TeacherListCreateView(APIView):
     POST /api/admin/teachers  — создать преподавателя
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def get(self, request: Request) -> Response:
         include_inactive = request.query_params.get('include_inactive') == '1'
@@ -62,7 +62,7 @@ class TeacherDetailView(APIView):
     DELETE /api/admin/teachers/:id  — мягкое удаление
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
         teacher = services.get_teacher(pk)

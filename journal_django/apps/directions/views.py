@@ -9,7 +9,7 @@ DirectionsView — тонкий ViewSet для /api/admin/directions.
   DELETE /api/admin/directions/:id    → destroy()  → 204 | 404 | 409 (has_payments)
 
 Параметры: ?include_inactive=1 (GET список).
-Права: только manager или admin (IsManagerOrAdmin).
+Права: чтение — manager/admin/superadmin; запись — только superadmin (ReadStaffWriteSuperAdmin).
 
 DELETE: если у направления есть оплаты — 409 {error: 'has_payments', ...}.
 """
@@ -22,7 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.permissions import ReadStaffWriteSuperAdmin
 from apps.directions import services
 from apps.directions.serializers import DirectionUpdateSerializer, DirectionWriteSerializer
 
@@ -33,7 +33,7 @@ class DirectionListCreateView(APIView):
     POST /api/admin/directions  — создать направление
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def get(self, request: Request) -> Response:
         include_inactive = request.query_params.get('include_inactive') == '1'
@@ -64,7 +64,7 @@ class DirectionDetailView(APIView):
     DELETE /api/admin/directions/:id  — мягкое удаление (с проверкой payments)
     """
 
-    permission_classes = [IsManagerOrAdmin]
+    permission_classes = [ReadStaffWriteSuperAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
         direction = services.get_direction(pk)
