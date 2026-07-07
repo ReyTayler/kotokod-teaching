@@ -11,7 +11,7 @@
   POST   /:id/invite/revoke     → 200 {ok:true} | 404
   POST   /:id/invite            → 200 {invite_url,expires_at} | 404
   POST   /:id/set-active        → 200 {ok:true,active} | 404
-  DELETE /:id                   → 204 | 404
+  DELETE /:id                   → 204 | 404 (физическое удаление; отключение — через set-active)
 
 ⚠️ Ни один ответ не содержит password_hash / twofa_secret.
 """
@@ -92,7 +92,7 @@ class AccountListCreateView(APIView):
 
 
 class AccountDetailView(APIView):
-    """GET одна учётка / PATCH / DELETE (soft)."""
+    """GET одна учётка / PATCH / DELETE (физическое удаление)."""
 
     permission_classes = [IsSuperAdmin]
 
@@ -112,7 +112,7 @@ class AccountDetailView(APIView):
         return Response(updated)
 
     def delete(self, request: Request, pk: int) -> Response:
-        ok = services.soft_delete(pk, actor_account_id=request.user.id, request=request)
+        ok = services.hard_delete(pk, actor_account_id=request.user.id, request=request)
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)

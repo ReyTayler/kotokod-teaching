@@ -233,6 +233,23 @@ def soft_delete(account_id: int, actor_account_id: int, request: Request) -> boo
     return True
 
 
+def hard_delete(account_id: int, actor_account_id, request: Request) -> bool:
+    """Физическое удаление учётки. False если не найдена.
+
+    Аудит-событие пишем ДО удаления строки — иначе target_id ссылался бы
+    на уже несуществующий аккаунт в момент записи.
+    """
+    acc = repository.get_by_id(account_id)
+    if acc is None:
+        return False
+    log_event(
+        event='account_deleted', account_id=actor_account_id,
+        target_id=account_id, meta={'email': acc['email'], 'role': acc['role']},
+        request=request,
+    )
+    return repository.hard_delete(account_id)
+
+
 def set_active(account_id: int, active: bool, actor_account_id, request: Request) -> bool:
     """Отключить/включить учётку (обратимо). False если не найдена."""
     acc = repository.get_by_id(account_id)

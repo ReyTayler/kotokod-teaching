@@ -323,13 +323,13 @@ def test_reset_2fa_404():
     assert _client('superadmin').post(f'{BASE}/999999999/reset-2fa').status_code == 404
 
 
-def test_delete_soft(account_factory):
-    acc_id = account_factory(email='__acc_softdel__@example.com')
+def test_delete_hard(account_factory):
+    acc_id = account_factory(email='__acc_harddel__@example.com')
     resp = _client('superadmin').delete(f'{BASE}/{acc_id}')
     assert resp.status_code == 204
     with connection.cursor() as cur:
-        cur.execute('SELECT is_active FROM accounts WHERE id=%s', [acc_id])
-        assert cur.fetchone()[0] is False  # soft-delete, строка на месте
+        cur.execute('SELECT 1 FROM accounts WHERE id=%s', [acc_id])
+        assert cur.fetchone() is None  # hard-delete, строка физически удалена
 
 
 def test_delete_404():
