@@ -7,6 +7,8 @@ pytestmark = pytest.mark.django_db
 
 
 def _create_and_rename(client):
+    # Запись направлений — только superadmin (ReadStaffWriteSuperAdmin),
+    # поэтому генератор событий здесь — superadmin_client.
     resp = client.post('/api/admin/directions', {
         'name': '__chg_det_1__', 'sheet_name': 'chg', 'is_individual': False,
     }, format='json')
@@ -18,12 +20,12 @@ def _create_and_rename(client):
     return direction_id, update_op['id']
 
 
-def test_detail_diff(admin_client):
-    direction_id, ctx_id = _create_and_rename(admin_client)
-    data = admin_client.get(f'/api/admin/changelog/{ctx_id}').json()
+def test_detail_diff(superadmin_client):
+    direction_id, ctx_id = _create_and_rename(superadmin_client)
+    data = superadmin_client.get(f'/api/admin/changelog/{ctx_id}').json()
     assert data['operation'] == 'direction.update'
     assert data['revertable'] is True
-    assert data['actor']['role'] == 'admin'
+    assert data['actor']['role'] == 'superadmin'
     assert len(data['events']) == 1
     ev = data['events'][0]
     assert ev['entity'] == 'direction'
@@ -43,27 +45,36 @@ def test_detail_diff(admin_client):
     assert data['not_revertable_reason'] is None
 
 
-def test_detail_revert_not_revertable(admin_client):
+def test_detail_revert_not_revertable(superadmin_client):
     """Детали самой revert-операции: revertable=False (откат отката запрещён)."""
-    resp = admin_client.post('/api/admin/directions', {
+    resp = superadmin_client.post('/api/admin/directions', {
         'name': '__chg_det_rev__', 'sheet_name': 'chg', 'is_individual': False,
     }, format='json')
     assert resp.status_code in (200, 201)
-    op_id = admin_client.get('/api/admin/changelog?page_size=1').json()['rows'][0]['id']
-    assert admin_client.post(f'/api/admin/changelog/{op_id}/revert').status_code == 200
-    rows = admin_client.get('/api/admin/changelog?page_size=5').json()['rows']
+    op_id = superadmin_client.get('/api/admin/changelog?page_size=1').json()['rows'][0]['id']
+    assert superadmin_client.post(f'/api/admin/changelog/{op_id}/revert').status_code == 200
+    rows = superadmin_client.get('/api/admin/changelog?page_size=5').json()['rows']
     revert_id = next(r['id'] for r in rows if r['operation'] == 'changelog.revert')
-    data = admin_client.get(f'/api/admin/changelog/{revert_id}').json()
+    data = superadmin_client.get(f'/api/admin/changelog/{revert_id}').json()
     assert data['operation'] == 'changelog.revert'
     assert data['revertable'] is False
     assert data['not_revertable_reason'] == 'операции отката не откатываются'
 
 
 def test_detail_404(admin_client):
+    # Просмотр деталей разрешён admin (IsManagerOrAdmin) — несуществующий uuid → 404.
     resp = admin_client.get('/api/admin/changelog/00000000-0000-0000-0000-000000000000')
     assert resp.status_code == 404
 
 
 def test_detail_rbac(manager_client):
+    """Manager теперь имеет доступ на просмотр (IsManagerOrAdmin) — 404, а не 403."""
     resp = manager_client.get('/api/admin/changelog/00000000-0000-0000-0000-000000000000')
-    assert resp.status_code == 403
+    assert resp.status_code == 404
+
+
+def test_detail_rbac_teacher_and_anon_forbidden(teacher_client, anon_client):
+    """Teacher/anon по-прежнему без доступа к деталям."""
+    url = '/api/admin/changelog/00000000-0000-0000-0000-000000000000'
+    assert teacher_client.get(url).status_code == 403
+    assert anon_client.get(url).status_code in (401, 403)

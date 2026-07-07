@@ -10,8 +10,10 @@ from django.apps import apps
 pytestmark = pytest.mark.django_db
 
 
-def test_api_mutation_has_actor_and_url(admin_client):
-    resp = admin_client.post('/api/admin/directions', {
+def test_api_mutation_has_actor_and_url(superadmin_client):
+    # Запись направлений — только superadmin (ReadStaffWriteSuperAdmin), поэтому
+    # актор события здесь superadmin, а не admin.
+    resp = superadmin_client.post('/api/admin/directions', {
         'name': '__chg_ctx_dir__', 'sheet_name': 'chg', 'is_individual': False,
     }, format='json')
     assert resp.status_code in (200, 201), resp.content
@@ -23,8 +25,8 @@ def test_api_mutation_has_actor_and_url(admin_client):
     meta = ev.pgh_context.metadata
     assert meta['url'] == '/api/admin/directions'
     assert meta['method'] == 'POST'
-    assert meta['email'] == '__root_admin__@test.local'
-    assert meta['role'] == 'admin'
+    assert meta['email'] == '__root_superadmin__@test.local'
+    assert meta['role'] == 'superadmin'
     assert isinstance(meta['account_id'], int)
 
 

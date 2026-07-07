@@ -1,7 +1,8 @@
 """
 Views раздела «Журнал изменений» (/api/admin/changelog).
 
-RBAC: ВЕСЬ раздел — только admin (решение владельца, спека §11).
+RBAC: просмотр (лента, детали) — manager/admin/superadmin;
+откат операции — только admin/superadmin.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from rest_framework.views import APIView
 
 from apps.changelog import services
 from apps.changelog.revert import RevertConflict, RevertError, RevertForbidden
-from apps.core.permissions import IsAdmin
+from apps.core.permissions import IsAdminOrSuperAdmin, IsManagerOrAdmin
 
 
 def _parse_list_params(request: Request) -> dict:
@@ -31,7 +32,7 @@ def _parse_list_params(request: Request) -> dict:
 class ChangelogListView(APIView):
     """GET /api/admin/changelog — лента операций."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsManagerOrAdmin]
 
     def get(self, request: Request) -> Response:
         return Response(services.list_operations(**_parse_list_params(request)))
@@ -40,7 +41,7 @@ class ChangelogListView(APIView):
 class ChangelogDetailView(APIView):
     """GET /api/admin/changelog/<uuid:context_id> — детали операции."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsManagerOrAdmin]
 
     def get(self, request: Request, context_id) -> Response:
         data = services.get_operation(context_id)
@@ -52,7 +53,7 @@ class ChangelogDetailView(APIView):
 class ChangelogRevertView(APIView):
     """POST /api/admin/changelog/<uuid:context_id>/revert — откат операции."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def post(self, request: Request, context_id) -> Response:
         try:
