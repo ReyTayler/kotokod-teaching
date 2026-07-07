@@ -1,9 +1,13 @@
 """
-test_bootstrap_command.py — TDD-тесты для команды bootstrap_admin (Task 5.2).
+test_bootstrap_command.py — TDD-тесты для команды bootstrap_admin (Task 5.2, Task 12).
 
 Покрывает:
-  - создаёт admin без пароля + печатает invite-URL с '/login/set-password?token='
-  - --if-empty: пропускает если уже есть admin-учётка (idempotent)
+  - создаёт superadmin без пароля + печатает invite-URL с '/login/set-password?token='
+  - --if-empty: пропускает если уже есть superadmin-учётка (idempotent)
+
+Task 12: доступ к Учёткам/Журналу ИБ/Зарплате теперь только у роли superadmin,
+поэтому bootstrap_admin обязан создавать именно superadmin, иначе после
+свежего разворачивания некому будет управлять доступами.
 """
 from __future__ import annotations
 
@@ -39,9 +43,9 @@ def cleanup_admin():
 
 
 @pytest.mark.django_db
-def test_bootstrap_creates_admin_and_prints_invite(cleanup_admin, settings):
+def test_bootstrap_creates_superadmin_and_prints_invite(cleanup_admin, settings):
     """
-    bootstrap_admin --email=… создаёт admin БЕЗ пароля и печатает invite-URL
+    bootstrap_admin --email=… создаёт superadmin БЕЗ пароля и печатает invite-URL
     вида '/login/set-password?token=…'.
     """
     settings.ADMIN_COOKIE_SECRET = 'deadbeef' * 16
@@ -50,7 +54,7 @@ def test_bootstrap_creates_admin_and_prints_invite(cleanup_admin, settings):
     call_command('bootstrap_admin', '--email=__boot__@x.com', stdout=out)
     output = out.getvalue()
     assert '/login/set-password?token=' in output
-    # Проверяем БД: role=admin, пароль не задан. После миграции на AbstractUser
+    # Проверяем БД: role=superadmin, пароль не задан. После миграции на AbstractUser
     # колонка называется password и NOT NULL — create_account кладёт '' (пустой,
     # невалидный хеш → войти нельзя до приёма invite).
     with connection.cursor() as cur:
@@ -60,25 +64,25 @@ def test_bootstrap_creates_admin_and_prints_invite(cleanup_admin, settings):
         row = cur.fetchone()
     assert row is not None, 'Учётка не создана'
     role, pw = row
-    assert role == 'admin'
+    assert role == 'superadmin'
     assert not pw  # '' — пароль не установлен
 
 
 @pytest.mark.django_db
 def test_if_empty_skips_when_admin_exists(cleanup_admin, settings):
     """
-    --if-empty: если уже есть admin-учётка, команда выводит сообщение о пропуске
-    и НЕ создаёт новую учётку.
+    --if-empty: если уже есть superadmin-учётка, команда выводит сообщение
+    о пропуске и НЕ создаёт новую учётку.
     """
     settings.ADMIN_COOKIE_SECRET = 'deadbeef' * 16
-    # Создаём существующего admin напрямую в БД
+    # Создаём существующего superadmin напрямую в БД
     cleanup_admin.append('__existing_admin__@x.com')
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO accounts "
             "(email, password, role, teacher_id, is_active, is_staff, is_superuser, "
             " first_name, last_name, date_joined, token_version) "
-            "VALUES ('__existing_admin__@x.com', '', 'admin', NULL, true, false, false, "
+            "VALUES ('__existing_admin__@x.com', '', 'superadmin', NULL, true, false, false, "
             " '', '', NOW(), 0) RETURNING id"
         )
 
@@ -92,3 +96,21 @@ def test_if_empty_skips_when_admin_exists(cleanup_admin, settings):
     with connection.cursor() as cur:
         cur.execute("SELECT id FROM accounts WHERE email='__boot2__@x.com'")
         assert cur.fetchone() is None
+
+
+@pytest.mark.django_db
+def test_bootstrap_creates_superadmin(cleanup_admin):
+    """
+    Task 12: bootstrap_admin обязан создавать роль superadmin, а не admin —
+    иначе после свежего разворачивания некому будет управлять
+    Учётками/Журналом ИБ/Зарплатой (доступ туда только у superadmin).
+    """
+    cleanup_admin.append('__boot_super__@example.com')
+    call_command('bootstrap_admin', '--email=__boot_super__@example.com')
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT role FROM accounts WHERE email='__boot_super__@example.com'"
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row[0] == 'superadmin'

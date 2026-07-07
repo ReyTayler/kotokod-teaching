@@ -336,7 +336,7 @@ def accept_invite(invite_id: int, password_hash: str) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 def admin_exists() -> bool:
-    return Account.objects.filter(role='admin').exists()
+    return Account.objects.filter(role='superadmin').exists()
 
 
 def _account_full_fields() -> tuple[str, ...]:
