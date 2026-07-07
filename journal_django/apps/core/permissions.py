@@ -3,7 +3,7 @@ Permission classes for journal_django.
 """
 from __future__ import annotations
 
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import BasePermission, SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
@@ -43,8 +43,44 @@ class IsAdmin(BasePermission):
 
 
 class IsManagerOrAdmin(BasePermission):
-    """Allow access to accounts with role 'manager' or 'admin'."""
+    """Allow access to manager, admin or superadmin."""
     message = 'Manager or admin role required.'
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return _authenticated_with_role(request, 'manager', 'admin')
+        return _authenticated_with_role(request, 'manager', 'admin', 'superadmin')
+
+
+class IsSuperAdmin(BasePermission):
+    """Allow access only to superadmin."""
+    message = 'Superadmin role required.'
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return _authenticated_with_role(request, 'superadmin')
+
+
+class IsAdminOrSuperAdmin(BasePermission):
+    """Allow access to admin or superadmin."""
+    message = 'Admin or superadmin role required.'
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return _authenticated_with_role(request, 'admin', 'superadmin')
+
+
+class ReadStaffWriteSuperAdmin(BasePermission):
+    """SAFE-методы — manager/admin/superadmin; мутации — только superadmin."""
+    message = 'Read for staff; write for superadmin only.'
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if request.method in SAFE_METHODS:
+            return _authenticated_with_role(request, 'manager', 'admin', 'superadmin')
+        return _authenticated_with_role(request, 'superadmin')
+
+
+class ReadStaffWriteAdmin(BasePermission):
+    """SAFE-методы — manager/admin/superadmin; мутации — admin/superadmin."""
+    message = 'Read for staff; write for admin or superadmin.'
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if request.method in SAFE_METHODS:
+            return _authenticated_with_role(request, 'manager', 'admin', 'superadmin')
+        return _authenticated_with_role(request, 'admin', 'superadmin')
