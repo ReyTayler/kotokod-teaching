@@ -586,6 +586,22 @@ def test_me_returns_correct_shape(account_factory):
     assert 'twofa_enabled' in data
 
 
+def test_me_name_prefers_full_name_over_email(account_factory):
+    """full_name (manager/admin) должен перекрывать email-fallback в /me."""
+    from apps.accounts import repository as accounts_repo
+
+    acc = account_factory(
+        email='__auth_me_fullname__@example.com',
+        role='manager',
+        password=_PASSWORD,
+    )
+    accounts_repo.update_full_name(acc['id'], 'Иван Тестов')
+    c = _jwt_client_for_account(acc)
+    resp = c.get(f'{BASE}/me')
+    assert resp.status_code == 200
+    assert resp.data['name'] == 'Иван Тестов'
+
+
 def test_me_unauthenticated():
     resp = APIClient().get(f'{BASE}/me')
     assert resp.status_code == 401

@@ -165,7 +165,7 @@ def test_create_returns_password_no_secrets(account_factory, cleanup_email):
     assert resp.status_code == 201
     body = resp.json()
     # Новый контракт: invite_url + expires_at вместо password
-    assert set(body.keys()) == {'id', 'email', 'role', 'teacher_id', 'invite_url', 'expires_at'}
+    assert set(body.keys()) == {'id', 'email', 'role', 'teacher_id', 'full_name', 'invite_url', 'expires_at'}
     assert body['email'] == '__acc_create__@example.com'
     assert body['invite_url'].startswith('/login/set-password?token=')
     assert body['expires_at']

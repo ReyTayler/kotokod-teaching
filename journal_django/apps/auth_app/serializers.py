@@ -35,7 +35,7 @@ class MeSerializer(serializers.ModelSerializer):
     
     def get_name(self, obj) -> str:
         teacher_name = getattr(obj, 'teacher_name', None)
-        return teacher_name or obj.email
+        return obj.full_name or teacher_name or obj.email
 
 
 class LoginSerializer(serializers.Serializer):

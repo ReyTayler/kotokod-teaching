@@ -27,7 +27,7 @@ from .models import Account, AccountInvite, AccountRecoveryCode
 
 _LIST_FIELDS = (
     'id', 'email', 'role', 'teacher_id', 'is_active', 'twofa_enabled',
-    'twofa_method', 'last_login',
+    'twofa_method', 'last_login', 'full_name',
 )
 
 _SORTABLE: dict[str, str] = {
@@ -116,6 +116,7 @@ def list_accounts(
 
     for row in rows:
         row['status'] = _account_status(row)
+        row['name'] = row.get('full_name') or row.get('teacher_name') or row['email']
 
     return {'rows': rows, 'total': total, 'page': page, 'page_size': page_size}
 
@@ -136,18 +137,19 @@ def get_by_id_with_teacher(account_id: int) -> Optional[dict]:
     )
 
 
-def create_account(email: str, role: str, teacher_id=None, password: str = None) -> dict:
+def create_account(email: str, role: str, teacher_id=None, password: str = None, full_name: str = None) -> dict:
     obj = Account.objects.create(
         email=email,
         password=password or '',  # AbstractUser требует не-null password
         role=role,
         teacher_id=teacher_id,
+        full_name=full_name,
         date_joined=Now(),
     )
     return dictrow(Account.objects.filter(pk=obj.pk).values())
 
 
-def update_account(account_id: int, email=None, role=None, active=None) -> Optional[dict]:
+def update_account(account_id: int, email=None, role=None, active=None, full_name=None) -> Optional[dict]:
     obj = Account.objects.filter(id=account_id).first()
     if obj is None:
         return None
@@ -157,8 +159,14 @@ def update_account(account_id: int, email=None, role=None, active=None) -> Optio
         obj.role = role
     if active is not None:
         obj.is_active = active
+    if full_name is not None:
+        obj.full_name = full_name
     obj.save()
     return dictrow(Account.objects.filter(id=account_id).values())
+
+
+def update_full_name(account_id: int, full_name: Optional[str]) -> bool:
+    return Account.objects.filter(id=account_id).update(full_name=full_name) > 0
 
 
 def set_password(account_id: int, password: Optional[str]) -> bool:

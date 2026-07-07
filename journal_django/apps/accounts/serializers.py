@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-ROLES = ('teacher', 'manager', 'admin')
+ROLES = ('teacher', 'manager', 'admin', 'superadmin')
 
 
 class AccountCreateSerializer(serializers.Serializer):
@@ -23,6 +23,7 @@ class AccountCreateSerializer(serializers.Serializer):
     email = serializers.EmailField()
     role = serializers.ChoiceField(choices=ROLES)
     teacher_id = serializers.IntegerField(min_value=1, allow_null=True, required=False)
+    full_name = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=200)
 
     def validate_email(self, value: str) -> str:
         # Zod emailStr = trim().toLowerCase().email() — EmailField уже триммит.
@@ -41,6 +42,8 @@ class AccountCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 'teacher role requires teacher_id (and only teacher)'
             )
+        if is_teacher and attrs.get('full_name'):
+            raise serializers.ValidationError('full_name недопустим для teacher-аккаунта')
         return attrs
 
 
@@ -50,6 +53,7 @@ class AccountUpdateSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False)
     role = serializers.ChoiceField(choices=ROLES, required=False)
     active = serializers.BooleanField(required=False)
+    full_name = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=200)
 
     def validate_email(self, value: str) -> str:
         return value.strip().lower()

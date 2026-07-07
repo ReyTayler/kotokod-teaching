@@ -47,7 +47,10 @@ def list_accounts(**params) -> dict:
 
 def get_account(account_id: int) -> Optional[dict]:
     """Учётка + teacher_name, без секретов. None если не найдена."""
-    return _strip_secrets(repository.get_by_id_with_teacher(account_id))
+    row = _strip_secrets(repository.get_by_id_with_teacher(account_id))
+    if row is not None:
+        row['name'] = row.get('full_name') or row.get('teacher_name') or row['email']
+    return row
 
 
 def create_account(data: dict, actor_account_id: int, request: Request) -> dict:
@@ -66,7 +69,7 @@ def create_account(data: dict, actor_account_id: int, request: Request) -> dict:
         return {'error': 'email_taken'}
 
     acc = repository.create_account(
-        email=email, role=role, teacher_id=teacher_id,
+        email=email, role=role, teacher_id=teacher_id, full_name=data.get('full_name'),
     )
     log_event(
         event='account_created',
@@ -82,6 +85,7 @@ def create_account(data: dict, actor_account_id: int, request: Request) -> dict:
         'email': acc['email'],
         'role': acc['role'],
         'teacher_id': acc['teacher_id'],
+        'full_name': acc.get('full_name'),
         'invite_url': invite['invite_url'],
         'expires_at': invite['expires_at'],
     }
@@ -97,6 +101,7 @@ def update_account(account_id: int, data: dict) -> Optional[dict]:
         email=data.get('email'),
         role=data.get('role'),
         active=data.get('active'),
+        full_name=data.get('full_name'),
     )
     if row is not None and data.get('email') is not None:
         repository.bump_token_version(account_id)

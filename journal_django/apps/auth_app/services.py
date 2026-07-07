@@ -251,7 +251,7 @@ def me(account_id: int) -> Tuple[dict, int]:
         'email': acc['email'],
         'role': acc['role'],
         'teacher_id': acc.get('teacher_id'),
-        'name': acc.get('teacher_name') or acc['email'],
+        'name': acc.get('full_name') or acc.get('teacher_name') or acc['email'],
         'twofa_enabled': acc.get('twofa_enabled', False),
     }, 200
 
