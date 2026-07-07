@@ -15,7 +15,8 @@ function canAccessTeacher(me: Me | null): boolean {
 
 /** Куда отправить аутентифицированного, но не имеющего доступа в кабинет. */
 function redirectFor(me: Me | null): string {
-  return me && (me.role === 'admin' || me.role === 'manager') ? '/admin' : '/login';
+  return me && (me.role === 'admin' || me.role === 'manager' || me.role === 'superadmin')
+    ? '/admin' : '/login';
 }
 
 export function AuthGate() {

@@ -5,12 +5,13 @@ import type { Me } from '../../providers/AuthProvider';
 
 /**
  * Роли, которым разрешён вход в admin SPA.
- * Зеркалит серверный критерий apps/auth_app/services.py:
- *   account_role in ('manager', 'admin')
- * Реальная защита данных — на API (IsManagerOrAdmin / IsAdmin); этот guard
- * лишь не даёт отрисовать оболочку админки чужой роли и уводит её в свой раздел.
+ * Зеркалит серверный критерий apps/auth_app/services.py:role_matches:
+ *   account_role in ('manager', 'admin', 'superadmin')
+ * Реальная защита данных — на API (IsManagerOrAdmin / IsAdmin / IsSuperAdmin);
+ * этот guard лишь не даёт отрисовать оболочку админки чужой роли и уводит её
+ * в свой раздел.
  */
-const ADMIN_ROLES: ReadonlyArray<Me['role']> = ['admin', 'manager'];
+const ADMIN_ROLES: ReadonlyArray<Me['role']> = ['admin', 'manager', 'superadmin'];
 
 function canAccessAdmin(me: Me | null): boolean {
   return !!me && ADMIN_ROLES.includes(me.role);

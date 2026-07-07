@@ -47,10 +47,10 @@ def hash_invite_token(token: str) -> str:
 
 
 def role_matches(button_role: str, account_role: str) -> bool:
-    """teacher-кнопка ↔ роль teacher; admin-кнопка ↔ manager|admin."""
+    """teacher-кнопка ↔ роль teacher; admin-кнопка ↔ manager|admin|superadmin."""
     if button_role == 'teacher':
         return account_role == 'teacher'
-    return account_role in ('manager', 'admin')
+    return account_role in ('manager', 'admin', 'superadmin')
 
 
 def redirect_for(role: str) -> str:

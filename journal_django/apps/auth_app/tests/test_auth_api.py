@@ -134,6 +134,21 @@ def test_login_role_mismatch(account_factory):
     assert resp.status_code == 401
 
 
+def test_login_superadmin_via_admin_button(account_factory):
+    """Суперадмин входит через кнопку «админ/менеджер» → НЕ 401 (role_matches учитывает superadmin)."""
+    account_factory(
+        email='__auth_super__@example.com',
+        role='superadmin',
+        password=_PASSWORD,
+    )
+    resp = APIClient().post(f'{BASE}/login', {
+        'email': '__auth_super__@example.com',
+        'password': _PASSWORD,
+        'role': 'admin',
+    }, format='json')
+    assert resp.status_code != 401
+
+
 def test_login_locked_account():
     """Заблокированный аккаунт → 429."""
     from django.contrib.auth.hashers import make_password
