@@ -99,7 +99,15 @@ class MeView(RetrieveAPIView):
     serializer_class = MeSerializer
 
     def get_object(self):
-        return self.request.user
+        # self.request.user (CookieJWTAuthentication) не несёт teacher_name —
+        # без annotate MeSerializer.get_name() для teacher-учёток отдавал бы email.
+        from django.db.models import F
+
+        from apps.accounts.models import Account
+
+        return Account.objects.annotate(
+            teacher_name=F('teacher__name'),
+        ).get(pk=self.request.user.pk)
 
 
 # ---------------------------------------------------------------------------

@@ -602,6 +602,15 @@ def test_me_name_prefers_full_name_over_email(account_factory):
     assert resp.data['name'] == 'Иван Тестов'
 
 
+def test_me_name_uses_teacher_name_for_teacher_account(account_factory):
+    """Для teacher-учётки /me должен отдавать имя преподавателя, а не email."""
+    acc = account_factory(role='teacher', password=_PASSWORD)
+    c = _jwt_client_for_account(acc)
+    resp = c.get(f'{BASE}/me')
+    assert resp.status_code == 200
+    assert resp.data['name'] == '__auth_teacher__'
+
+
 def test_me_unauthenticated():
     resp = APIClient().get(f'{BASE}/me')
     assert resp.status_code == 401
