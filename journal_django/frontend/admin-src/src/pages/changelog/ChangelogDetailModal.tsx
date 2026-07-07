@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Dialog } from '../../components/ui/Dialog';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { useAuth } from '../../hooks/useAuth';
+import { canRevertChangelog, type Role } from '../../lib/permissions';
 import { useChangelogDetail } from '../../hooks/useChangelog';
 import { DiffView, snapshotToDiff } from '../../components/changelog/DiffView';
 import { ApiError } from '../../lib/api';
@@ -198,7 +199,7 @@ export function ChangelogDetailModal({ contextId, onClose, onRevert }: {
           <button type="button" className="btn-cancel" onClick={onClose}>
             Закрыть
           </button>
-          {data && me?.role === 'admin' && data.revertable && (
+          {data && canRevertChangelog(me?.role as Role) && data.revertable && (
             <button
               type="button"
               className="btn-danger"

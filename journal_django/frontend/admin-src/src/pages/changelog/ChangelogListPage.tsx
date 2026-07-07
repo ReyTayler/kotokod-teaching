@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { useChangelogList } from '../../hooks/useChangelog';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useAuth } from '../../hooks/useAuth';
+import { canRevertChangelog, type Role } from '../../lib/permissions';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SelectInput } from '../../components/form/SelectInput';
@@ -150,7 +151,7 @@ export default function ChangelogListPage() {
       label: '',
       width: '8rem',
       cell: (r) =>
-        me?.role === 'admin' && r.revertable ? (
+        canRevertChangelog(me?.role as Role) && r.revertable ? (
           <button
             type="button"
             className="btn-cancel"
