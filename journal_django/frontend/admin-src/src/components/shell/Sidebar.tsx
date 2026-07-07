@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { ThemeToggle } from './ThemeToggle';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
+import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, type Role } from '../../lib/permissions';
 
 export const NAV_ICONS: Record<string, ReactElement> = {
   dashboard: (
@@ -154,6 +155,8 @@ function PayButton() {
 
 export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
   const { me, logout } = useAuth();
+  const role = me?.role as Role | undefined;
+  const visibleSections = SECTIONS.filter((s) => s.key !== 'payroll' || canSeePayroll(role));
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -187,7 +190,7 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
         )}
       </div>
       <nav className="sidebar-nav">
-        {SECTIONS.map((s) => (
+        {visibleSections.map((s) => (
           <div key={s.key}>
             {s.key === 'archive' && <div className="nav-sep" />}
             <NavLink
@@ -200,28 +203,32 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
         ))}
         <div className="nav-sep" />
         <PayButton />
-        {me?.role === 'admin' && (
-          <>
-            <div className="nav-sep" />
-            <NavLink
-              to="/admin/accounts"
-              className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-            >
-              {NAV_ICONS['accounts']} Учётки
-            </NavLink>
-            <NavLink
-              to="/admin/audit"
-              className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-            >
-              {NAV_ICONS['audit']} Журнал ИБ
-            </NavLink>
-            <NavLink
-              to="/admin/changelog"
-              className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-            >
-              {NAV_ICONS['changelog']} Журнал изменений
-            </NavLink>
-          </>
+        {(canSeeAccounts(role) || canSeeAudit(role) || canSeeChangelog(role)) && (
+          <div className="nav-sep" />
+        )}
+        {canSeeAccounts(role) && (
+          <NavLink
+            to="/admin/accounts"
+            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
+          >
+            {NAV_ICONS['accounts']} Учётки
+          </NavLink>
+        )}
+        {canSeeAudit(role) && (
+          <NavLink
+            to="/admin/audit"
+            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
+          >
+            {NAV_ICONS['audit']} Журнал ИБ
+          </NavLink>
+        )}
+        {canSeeChangelog(role) && (
+          <NavLink
+            to="/admin/changelog"
+            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
+          >
+            {NAV_ICONS['changelog']} Журнал изменений
+          </NavLink>
         )}
       </nav>
       <div className="sidebar-footer">
