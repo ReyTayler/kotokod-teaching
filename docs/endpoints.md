@@ -36,6 +36,16 @@
 | POST | `/api/admin/accounts/:id/reset-2fa` | Сброс 2FA |
 | GET | `/api/admin/audit-log` | security_audit_log |
 
+### Changelog — журнал изменений данных (только admin)
+
+Захват — триггеры django-pghistory (спека `docs/superpowers/specs/2026-07-06-changelog-design.md`).
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| GET | `/api/admin/changelog?page=&page_size=&filter[k]=v` | Лента операций `{rows,total,page,page_size}`; фильтры: `actor`, `operation`, `entity`, `entity_id`, `date_from`, `date_to` |
+| GET | `/api/admin/changelog/:context_id` | Детали операции: события с diff «было/стало» |
+| POST | `/api/admin/changelog/:context_id/revert` | Откат операции целиком; 409 — конфликт (данные менялись позже), 400 — неоткатываемая (accounts/пустая); пишет `changelog_revert` в security_audit_log |
+
 ### Students (paginated)
 
 | Метод | Путь | Назначение |

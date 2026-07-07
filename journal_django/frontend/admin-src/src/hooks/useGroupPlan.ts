@@ -61,6 +61,33 @@ export function usePermanentChange(groupId: number) {
   });
 }
 
+/** POST /plan/<lid>/change-teacher — разовая смена преподавателя одной строки. */
+export function useChangeTeacher(groupId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ lessonId, newTeacherId }: { lessonId: number; newTeacherId: number }) =>
+      api<PlanRow>('POST', `/api/admin/groups/${groupId}/plan/${lessonId}/change-teacher`, {
+        new_teacher_id: newTeacherId,
+      }),
+    onSuccess: () => invalidatePlan(qc, groupId),
+  });
+}
+
+export interface ChangeTeacherPermanentPayload {
+  from_seq: number;
+  new_teacher_id: number;
+}
+
+/** POST /plan/change-teacher-permanent — смена преподавателя хвоста (seq>=from_seq). */
+export function useChangeTeacherPermanent(groupId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ChangeTeacherPermanentPayload) =>
+      api<PlanRow[]>('POST', `/api/admin/groups/${groupId}/plan/change-teacher-permanent`, body),
+    onSuccess: () => invalidatePlan(qc, groupId),
+  });
+}
+
 /** POST /plan/<lid>/cancel — отмена со сдвигом хвоста на +7 дней (без тела). */
 export function useCancelLesson(groupId: number) {
   const qc = useQueryClient();

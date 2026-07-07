@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime
 
+import pghistory
 from django.db import models
 
 # Sentinel «действует с начала времён» для effective_from слотов без явной даты
@@ -20,6 +21,11 @@ from django.db import models
 SLOT_EFFECTIVE_SENTINEL = datetime.date(2000, 1, 1)
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class Group(models.Model):
     """
     Группа занятий.
@@ -71,6 +77,11 @@ class Group(models.Model):
         ]
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class GroupScheduleSlot(models.Model):
     """
     Слот расписания группы (версионируемый по датам действия).

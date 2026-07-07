@@ -40,6 +40,18 @@ class PlannedRow:
     moved_from_date: Optional[datetime.date] = None
     moved_to_date: Optional[datetime.date] = None
     is_extra: bool = False
+    # Прямая связь план→факт (id проведённого урока). Заполняется бэкфиллом
+    # из фактов (link_facts_positional) для done-строк; иначе None.
+    fact_lesson_id: Optional[int] = None
+
+
+@dataclass
+class Fact:
+    """Лёгкий носитель проведённого урока (значения из lessons.Lesson) для
+    позиционной линковки бэкфилла. Собирается в repository, planner не трогает ORM."""
+    lesson_date: datetime.date
+    teacher_id: Optional[int]
+    fact_lesson_id: int
 
 
 # Активные (непроведённые) статусы, которые операции могут двигать.
@@ -85,6 +97,78 @@ def generate(
     ]
 
 
+def generate_from_facts(
+    *,
+    facts: list[Fact],
+    current_slots: list[Slot],
+    total_lessons: int,
+    duration_minutes: int,
+    default_teacher_id: Optional[int],
+    group_start_date: Optional[datetime.date],
+) -> list[PlannedRow]:
+    """Пересборка плана из фактов (бэкфилл, Механизм 2).
+
+    ПРОШЛОЕ = факты: i-й факт (сорт по (lesson_date, id)) → строка seq i, status=done,
+    scheduled_date = fact.lesson_date (плановая дата = фактическая), номер по порядку
+    (кумулятивный step), преподаватель и fact_lesson_id из факта. Время done-строк —
+    время текущего слота (у факта времени нет; на статус done не влияет).
+
+    БУДУЩЕЕ = оставшиеся уроки (total − проведено) разворачиваются по ТЕКУЩЕМУ слоту,
+    начиная с ближайшего слот-дня СТРОГО ПОСЛЕ даты последнего проведённого урока
+    (а не от «сегодня»): план продолжается непрерывно с того места, где группа
+    остановилась. Пример: последний (27-й) урок в СБ 04.07 → 28-й в СБ 11.07.
+    Если фактов нет — будущее от group_start_date. Номера/seq продолжают прошлое.
+
+    Непроведённые будущие строки со временем в прошлом читаются как overdue
+    (_planned_status на чтении) — отдельного «overdue-прошлого» не материализуем.
+
+    Клэмп: фактов >= total (проведено больше длины курса) или нет открытого слота →
+    только done-строки, будущего нет. Вход не мутируется; результат today-независим."""
+    step = _step_for(duration_minutes)
+    ordered = sorted(facts, key=lambda f: (f.lesson_date, f.fact_lesson_id))
+    done_time = current_slots[0].start_time if current_slots else datetime.time(0, 0)
+
+    done: list[PlannedRow] = []
+    num = Decimal('0')
+    for i, f in enumerate(ordered):
+        num += step
+        done.append(PlannedRow(
+            seq=i + 1,
+            lesson_number=num,
+            scheduled_date=f.lesson_date,
+            scheduled_time=done_time,
+            teacher_id=f.teacher_id,
+            status=DONE,
+            fact_lesson_id=f.fact_lesson_id,
+        ))
+
+    remaining = total_lessons - num  # в единицах уроков (Decimal; half-lesson учтён)
+    if remaining <= 0 or not current_slots:
+        return done  # курс пройден / нет открытого слота → только прошлое
+
+    if ordered:
+        anchor = ordered[-1].lesson_date + datetime.timedelta(days=1)  # день ПОСЛЕ последнего факта
+    elif group_start_date is not None:
+        anchor = group_start_date
+    else:
+        return done  # некуда ставить будущее
+
+    f_count = len(ordered)
+    occ = _walk(anchor, current_slots, step, remaining, _far_future(anchor, remaining, step))
+    future = [
+        PlannedRow(
+            seq=f_count + o.seq,
+            lesson_number=num + o.lesson_number,
+            scheduled_date=o.date,
+            scheduled_time=o.time,
+            teacher_id=default_teacher_id,
+            status=PENDING,
+        )
+        for o in occ
+    ]
+    return done + future
+
+
 def reschedule(
     row: PlannedRow,
     *,
@@ -92,18 +176,46 @@ def reschedule(
     new_time: Optional[datetime.time] = None,
     new_teacher_id: Optional[int] = None,
 ) -> PlannedRow:
-    """Разовый перенос одной строки: новые дата/время (+опц. преподаватель),
-    прежняя дата фиксируется в moved_from_date. seq/lesson_number сохраняются.
-    Проведённое (DONE) переносить нельзя."""
+    """Разовый перенос одной строки: новые дата/время (+опц. преподаватель).
+    seq/lesson_number сохраняются. Проведённое (DONE) переносить нельзя.
+
+    moved_from_date фиксируется ТОЛЬКО при реальной смене даты (new_date отличается
+    от текущей). Перенос на ту же дату (напр. правка только времени) не помечает
+    строку перенесённой — иначе ↪-значок «Перенесён» появлялся бы без смены даты."""
     if row.status == DONE:
         raise ValueError('Нельзя перенести проведённое занятие (status=done).')
+    moved_from = row.scheduled_date if new_date != row.scheduled_date else row.moved_from_date
     return replace(
         row,
         scheduled_date=new_date,
         scheduled_time=new_time if new_time is not None else row.scheduled_time,
         teacher_id=new_teacher_id if new_teacher_id is not None else row.teacher_id,
-        moved_from_date=row.scheduled_date,
+        moved_from_date=moved_from,
     )
+
+
+def change_teacher(row: PlannedRow, *, new_teacher_id: int) -> PlannedRow:
+    """Разовая смена преподавателя одной строки: меняет ТОЛЬКО teacher_id.
+    Дата/время/moved_from не трогаются (в отличие от reschedule) — занятие не
+    становится «перенесённым». Проведённое (DONE) менять нельзя."""
+    if row.status == DONE:
+        raise ValueError('Нельзя сменить преподавателя проведённого занятия (status=done).')
+    return replace(row, teacher_id=new_teacher_id)
+
+
+def change_teacher_tail(
+    rows: list[PlannedRow], *, from_seq: int, new_teacher_id: int,
+) -> list[PlannedRow]:
+    """Смена преподавателя навсегда: проставить teacher_id всем курсовым строкам
+    seq>=from_seq со статусом pending/overdue. Даты/время/дни НЕ трогаются (в
+    отличие от permanent_change). Проведённые и голова (seq<from_seq) не меняются."""
+    out: list[PlannedRow] = []
+    for r in rows:
+        if r.seq is not None and r.seq >= from_seq and r.status in _MUTABLE:
+            out.append(replace(r, teacher_id=new_teacher_id))
+        else:
+            out.append(replace(r))
+    return out
 
 
 def _shift_to_weekday(d: datetime.date, new_dow_sun0: int) -> datetime.date:
@@ -139,12 +251,15 @@ def permanent_change(
 
 
 def cancel(rows: list[PlannedRow], *, from_date: datetime.date) -> list[PlannedRow]:
-    """Отмена со сдвигом: все непроведённые строки с scheduled_date>=from_date
-    сдвигаются на +7 дней (день недели/время сохраняются — курс продлевается на
-    неделю, уроки не списываются). Проведённые (DONE) не трогаются."""
+    """Отмена со сдвигом: КУРСОВЫЕ строки (seq задан) в статусе pending/overdue с
+    scheduled_date>=from_date сдвигаются на +7 дней (день недели/время сохраняются —
+    курс продлевается на неделю, уроки не списываются).
+
+    Неподвижны: проведённые (DONE), доп. занятия и маркеры отмены (seq=None) — их
+    дата не меняется, чтобы прежние пины «Отменён»/«Доп.» не уезжали при новой отмене."""
     out: list[PlannedRow] = []
     for r in rows:
-        if r.scheduled_date >= from_date and r.status != DONE:
+        if r.seq is not None and r.status in _MUTABLE and r.scheduled_date >= from_date:
             out.append(replace(r, scheduled_date=r.scheduled_date + datetime.timedelta(days=7)))
         else:
             out.append(replace(r))

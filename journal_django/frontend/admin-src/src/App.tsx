@@ -18,6 +18,7 @@ import LessonDetailPage from './pages/lessons/LessonDetailPage';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import AuditPage from './pages/audit/AuditPage';
 import AccountsPage from './pages/accounts/AccountsPage';
+import ChangelogListPage from './pages/changelog/ChangelogListPage';
 
 export function App() {
   return (
@@ -50,6 +51,7 @@ export function App() {
             <Route path="/admin/settings" element={<SettingsPage />} />
             <Route path="/admin/audit" element={<AuditPage />} />
             <Route path="/admin/accounts" element={<AccountsPage />} />
+            <Route path="/admin/changelog" element={<ChangelogListPage />} />
 
             <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
           </Route>

@@ -14,9 +14,10 @@ from decimal import Decimal
 
 import pytest
 
-from apps.scheduling.occurrences import DONE, PENDING, Slot
+from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING, Slot
 from apps.scheduling.planner import (
-    PlannedRow, cancel, extra, generate, permanent_change, reschedule,
+    Fact, PlannedRow, cancel, change_teacher, change_teacher_tail, extra, generate,
+    generate_from_facts, permanent_change, reschedule,
 )
 
 D = datetime.date
@@ -164,6 +165,65 @@ def test_reschedule_done_raises():
         reschedule(_row(status=DONE), new_date=D(2026, 6, 10))
 
 
+def test_reschedule_same_date_does_not_set_moved_from():
+    """Перенос на ту же дату (напр. меняем только время/препода через reschedule)
+    НЕ должен помечать строку перенесённой — moved_from_date остаётся None."""
+    out = reschedule(_row(date=D(2026, 6, 8)), new_date=D(2026, 6, 8), new_time=T(12, 0))
+    assert out.moved_from_date is None
+    assert out.scheduled_time == T(12, 0)
+
+
+def test_reschedule_real_date_change_sets_moved_from():
+    out = reschedule(_row(date=D(2026, 6, 8)), new_date=D(2026, 6, 15))
+    assert out.moved_from_date == D(2026, 6, 8)
+
+
+# --------------------------------------------------------------------------- #
+# change_teacher (разовая смена преподавателя — только teacher_id одной строки)
+# --------------------------------------------------------------------------- #
+
+def test_change_teacher_only_changes_teacher():
+    out = change_teacher(_row(teacher=7, date=D(2026, 6, 8), time=T(10, 0)), new_teacher_id=9)
+    assert out.teacher_id == 9
+    assert out.scheduled_date == D(2026, 6, 8)   # дата не тронута
+    assert out.scheduled_time == T(10, 0)        # время не тронуто
+    assert out.moved_from_date is None           # НЕ помечается перенесённой
+    assert out.seq == 2
+    assert out.lesson_number == Decimal('2')
+
+
+def test_change_teacher_done_raises():
+    with pytest.raises(ValueError):
+        change_teacher(_row(status=DONE), new_teacher_id=9)
+
+
+# --------------------------------------------------------------------------- #
+# change_teacher_tail (смена преподавателя навсегда — teacher_id хвоста)
+# --------------------------------------------------------------------------- #
+
+def test_change_teacher_tail_sets_teacher_from_seq_only():
+    out = change_teacher_tail(_plan_mon(), from_seq=3, new_teacher_id=9)
+    by_seq = {r.seq: r for r in out}
+    assert by_seq[1].teacher_id == 7
+    assert by_seq[2].teacher_id == 7
+    assert by_seq[3].teacher_id == 9
+    assert by_seq[4].teacher_id == 9
+    # Даты/время не трогаются — только преподаватель.
+    assert [by_seq[s].scheduled_date for s in (1, 2, 3, 4)] == [
+        D(2026, 6, 1), D(2026, 6, 8), D(2026, 6, 15), D(2026, 6, 22),
+    ]
+
+
+def test_change_teacher_tail_skips_done():
+    rows = _plan_mon()
+    rows[2].status = DONE  # seq=3 проведён
+    out = change_teacher_tail(rows, from_seq=2, new_teacher_id=9)
+    by_seq = {r.seq: r for r in out}
+    assert by_seq[2].teacher_id == 9
+    assert by_seq[3].teacher_id == 7   # done не тронут
+    assert by_seq[4].teacher_id == 9
+
+
 # --------------------------------------------------------------------------- #
 # permanent_change
 # --------------------------------------------------------------------------- #
@@ -236,6 +296,32 @@ def test_cancel_preserves_weekday_and_time():
     assert moved.scheduled_time == T(10, 0)
 
 
+def test_cancel_does_not_move_extra_or_markers():
+    """Сдвиг +7 при отмене касается ТОЛЬКО курсовых pending/overdue строк.
+    Доп. занятия (extra, seq=None) и маркеры отмены (cancelled, seq=None) —
+    неподвижные пины, их дата не меняется."""
+    rows = _plan_mon()
+    rows.append(extra(date=D(2026, 6, 20), time=T(15, 0), teacher_id=3))
+    rows.append(PlannedRow(
+        seq=None, lesson_number=None, scheduled_date=D(2026, 6, 15),
+        scheduled_time=T(10, 0), teacher_id=7, status=CANCELLED,
+    ))
+    out = cancel(rows, from_date=D(2026, 6, 8))
+    extra_out = next(r for r in out if r.is_extra and r.status != CANCELLED)
+    marker_out = next(r for r in out if r.status == CANCELLED)
+    assert extra_out.scheduled_date == D(2026, 6, 20)     # extra не сдвинут
+    assert marker_out.scheduled_date == D(2026, 6, 15)    # маркер не сдвинут
+
+
+def test_cancel_shifts_overdue_course_rows():
+    """Курсовая строка в статусе overdue (не только pending) тоже сдвигается."""
+    rows = _plan_mon()
+    rows[1].status = OVERDUE  # seq=2
+    out = cancel(rows, from_date=D(2026, 6, 8))
+    by_seq = {r.seq: r for r in out}
+    assert by_seq[2].scheduled_date == D(2026, 6, 15)
+
+
 # --------------------------------------------------------------------------- #
 # extra
 # --------------------------------------------------------------------------- #
@@ -249,3 +335,104 @@ def test_extra_row_is_non_course():
     assert r.scheduled_time == T(15, 0)
     assert r.teacher_id == 3
     assert r.status == PENDING
+
+
+# --------------------------------------------------------------------------- #
+# generate_from_facts (бэкфилл: прошлое=факты, будущее от последнего факта по слоту)
+# --------------------------------------------------------------------------- #
+
+def _gff(*, facts, current_slots, total, duration=90, teacher=7, start=D(2026, 6, 1)):
+    return generate_from_facts(
+        facts=facts, current_slots=current_slots, total_lessons=total,
+        duration_minutes=duration, default_teacher_id=teacher, group_start_date=start,
+    )
+
+
+def test_gff_past_is_facts_collapsed_and_done():
+    facts = [
+        Fact(lesson_date=D(2026, 6, 2), teacher_id=11, fact_lesson_id=101),   # сдвинут с плана
+        Fact(lesson_date=D(2026, 6, 9), teacher_id=12, fact_lesson_id=102),
+    ]
+    out = _gff(facts=facts, current_slots=[_slot(MON, 10)], total=4)
+    by_seq = {r.seq: r for r in out}
+    assert by_seq[1].status == DONE
+    assert by_seq[1].scheduled_date == D(2026, 6, 2)     # дата = фактическая
+    assert by_seq[1].teacher_id == 11                    # препод из факта
+    assert by_seq[1].fact_lesson_id == 101
+    assert by_seq[1].lesson_number == Decimal('1')
+    assert by_seq[2].scheduled_date == D(2026, 6, 9)
+    assert by_seq[2].fact_lesson_id == 102
+
+
+def test_gff_future_starts_after_last_fact_by_slot():
+    """Ключевой сценарий: последний урок в СБ 04.07 → следующий в СБ 11.07 (не от today)."""
+    facts = [
+        Fact(lesson_date=D(2026, 6, 27), teacher_id=7, fact_lesson_id=201),  # СБ
+        Fact(lesson_date=D(2026, 7, 4), teacher_id=7, fact_lesson_id=202),   # СБ (последний)
+    ]
+    out = _gff(facts=facts, current_slots=[_slot(SAT, 18)], total=4)
+    by_seq = {r.seq: r for r in out}
+    assert by_seq[3].status == PENDING
+    assert by_seq[3].scheduled_date == D(2026, 7, 11)    # ближайшая СБ ПОСЛЕ 04.07
+    assert by_seq[3].scheduled_time == T(18, 0)
+    assert by_seq[3].lesson_number == Decimal('3')       # номер продолжает прошлое
+    assert by_seq[4].scheduled_date == D(2026, 7, 18)
+
+
+def test_gff_future_independent_of_today():
+    """Результат today-независим: тот же вход → тот же план (даты от фактов)."""
+    facts = [Fact(lesson_date=D(2026, 7, 4), teacher_id=7, fact_lesson_id=1)]
+    a = _gff(facts=facts, current_slots=[_slot(SAT, 18)], total=3)
+    b = _gff(facts=facts, current_slots=[_slot(SAT, 18)], total=3)
+    assert [r.scheduled_date for r in a] == [r.scheduled_date for r in b]
+    fut = [r.scheduled_date for r in a if r.status == PENDING]
+    assert fut == [D(2026, 7, 11), D(2026, 7, 18)]
+
+
+def test_gff_zero_facts_future_from_start():
+    out = _gff(facts=[], current_slots=[_slot(MON, 10)], total=3, start=D(2026, 6, 1))
+    assert all(r.status == PENDING for r in out)
+    assert [r.scheduled_date for r in out] == [D(2026, 6, 1), D(2026, 6, 8), D(2026, 6, 15)]
+    assert [r.seq for r in out] == [1, 2, 3]
+
+
+def test_gff_facts_cover_course_no_future():
+    facts = [
+        Fact(lesson_date=D(2026, 6, 1), teacher_id=7, fact_lesson_id=1),
+        Fact(lesson_date=D(2026, 6, 8), teacher_id=7, fact_lesson_id=2),
+        Fact(lesson_date=D(2026, 6, 15), teacher_id=7, fact_lesson_id=3),  # фактов >= total
+    ]
+    out = _gff(facts=facts, current_slots=[_slot(MON, 10)], total=2)
+    assert all(r.status == DONE for r in out)
+    assert len(out) == 3   # все факты сохранены, будущего нет
+
+
+def test_gff_no_open_slots_only_past():
+    facts = [Fact(lesson_date=D(2026, 6, 1), teacher_id=7, fact_lesson_id=1)]
+    out = _gff(facts=facts, current_slots=[], total=4)
+    assert len(out) == 1 and out[0].status == DONE
+
+
+def test_gff_half_lesson_numbering():
+    # step 0.5: 1 факт = 0.5 юнита done; remaining = 2 − 0.5 = 1.5 юнита = 3 сессии.
+    facts = [Fact(lesson_date=D(2026, 7, 4), teacher_id=7, fact_lesson_id=1)]
+    out = _gff(facts=facts, current_slots=[_slot(SAT, 18)], total=2, duration=45)
+    done = [r for r in out if r.status == DONE]
+    fut = [r for r in out if r.status == PENDING]
+    assert done[0].lesson_number == Decimal('0.5')
+    assert fut[0].lesson_number == Decimal('1.0')
+    assert fut[0].scheduled_date == D(2026, 7, 11)   # СБ после последнего факта
+    assert out[-1].lesson_number == Decimal('2.0')
+    assert len(fut) == 3
+
+
+def test_gff_facts_sorted_by_date():
+    facts = [
+        Fact(lesson_date=D(2026, 7, 4), teacher_id=7, fact_lesson_id=2),   # позже
+        Fact(lesson_date=D(2026, 6, 27), teacher_id=7, fact_lesson_id=1),  # раньше
+    ]
+    out = _gff(facts=facts, current_slots=[_slot(SAT, 18)], total=3)
+    by_seq = {r.seq: r for r in out}
+    assert by_seq[1].fact_lesson_id == 1   # ранний факт → seq 1
+    assert by_seq[2].fact_lesson_id == 2
+    assert by_seq[3].scheduled_date == D(2026, 7, 11)   # будущее от 04.07 (последний факт)

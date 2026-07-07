@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SelectHTMLAttributes } from 'react';
+import { Floating } from './Floating';
 
 interface Option { value: string | number; label: string; }
 
@@ -15,6 +16,7 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
   const [highlight, setHighlight] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const currentValue = value !== undefined ? String(value) : '';
   const selected = useMemo(() => options.find((o) => String(o.value) === currentValue), [options, currentValue]);
@@ -22,7 +24,9 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      // Список рендерится в портале (вне ref) — исключаем и его.
+      if (!ref.current?.contains(t) && !popoverRef.current?.contains(t)) setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -56,7 +60,7 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
       if (!open) setOpen(true);
       else if (options[highlight]) choose(options[highlight]);
     } else if (e.key === 'Escape') {
-      setOpen(false);
+      if (open) { e.stopPropagation(); setOpen(false); } // закрываем список, не саму модалку
     }
   };
 
@@ -79,7 +83,7 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
           <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
-      {open && (
+      <Floating anchorRef={triggerRef} floatingRef={popoverRef} open={open} className="floating-popover">
         <ul className="select-input__list" role="listbox">
           {options.length === 0 ? (
             <li className="select-input__empty">Нет вариантов</li>
@@ -96,7 +100,7 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
             </li>
           ))}
         </ul>
-      )}
+      </Floating>
     </div>
   );
 }

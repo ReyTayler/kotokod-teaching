@@ -15,6 +15,36 @@ export function fmtDate(s: string | Date | null | undefined): string {
   return str;
 }
 
+/** Дата-время по МСК с секундами (журналы ИБ/изменений). */
+export function fmtDateTime(s: string | null | undefined): string {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleString('ru-RU', {
+    timeZone:  'Europe/Moscow',
+    day:       '2-digit',
+    month:     '2-digit',
+    year:      'numeric',
+    hour:      '2-digit',
+    minute:    '2-digit',
+    second:    '2-digit',
+  });
+}
+
+/** Компактное дата-время по МСК для лент: '06.07 11:11'. */
+export function fmtDateTimeShort(s: string | null | undefined): string {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  const dm = d.toLocaleDateString('ru-RU', {
+    timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit',
+  });
+  const hm = d.toLocaleTimeString('ru-RU', {
+    timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit',
+  });
+  return `${dm} ${hm}`;
+}
+
 export function escapeHtml(s: unknown): string {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }

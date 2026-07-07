@@ -12,9 +12,15 @@ numeric-поля (lesson_number) — DecimalField, рендерер выдаёт
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class Lesson(models.Model):
     """
     Урок. Соответствует таблице `lessons`.
@@ -68,6 +74,11 @@ class Lesson(models.Model):
         ]
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class LessonAttendance(models.Model):
     """
     Посещение урока. Соответствует таблице `lesson_attendance`.

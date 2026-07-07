@@ -14,6 +14,7 @@ managed=True поверх настоящей Django-миграции (apps/sched
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 from apps.scheduling.occurrences import (
@@ -25,6 +26,11 @@ from apps.scheduling.occurrences import (
 STATUS_CHOICES = [PENDING, OVERDUE, DONE, CANCELLED, MOVED]
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class PlannedLesson(models.Model):
     """
     Плановое занятие — материализованная строка расписания группы.

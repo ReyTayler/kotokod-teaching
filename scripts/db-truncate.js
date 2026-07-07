@@ -11,7 +11,6 @@ const TABLES = [
   'group_schedule_slots',
   'groups',
   'students',
-  'tokens',
   'teachers',
   'sync_failures',
   'discounts',

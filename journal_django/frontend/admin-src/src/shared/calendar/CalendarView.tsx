@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { resolveDirectionColor, NO_DIRECTION_COLOR } from './lib';
-import type { Occurrence, UnscheduledGroup } from './types';
+import type { Occurrence, UnscheduledGroup, UnscheduledReason } from './types';
 import {
   currentMondayMsk, todayMsk, addWeeks, isoDate, sameDay, weekRangeLabel,
   firstOfMonthMsk, monthOf, addMonths, mondayOfWeek, monthLabel, addDays,
@@ -22,6 +22,14 @@ function useIsNarrow(bp = 768): boolean {
 
 /** Спец-значение directionFilter для «уроков без направления» (null / группа не найдена в карте). */
 const NO_DIRECTION_KEY = '__no-direction__';
+
+/** Человекочитаемые причины отсутствия плана (тултип бейджа unscheduled). */
+const UNSCHEDULED_REASON_LABEL: Record<UnscheduledReason, string> = {
+  no_start_date: 'нет даты старта',
+  no_total_lessons: 'не задана длина курса',
+  no_slots: 'нет слотов расписания',
+  not_generated: 'план ещё не сгенерирован',
+};
 
 /** Русское склонение «группа/группы/групп» для бейджа unscheduled. */
 function pluralizeGroups(n: number): string {
@@ -274,7 +282,7 @@ export function CalendarView({
           <span
             className="cal-unscheduled"
             title={unscheduled
-              .map((u) => `${u.group} — ${u.reason === 'no_start_date' ? 'нет даты старта' : 'нет слотов расписания'}`)
+              .map((u) => `${u.group} — ${UNSCHEDULED_REASON_LABEL[u.reason] ?? 'нет расписания'}`)
               .join('\n')}
           >
             <span className="cal-unscheduled-dot" />

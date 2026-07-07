@@ -40,7 +40,7 @@ export default function GroupScheduleBlock({ groupId }: Props) {
         </div>
       )}
       {historySlots.length > 0 && (
-        <details className="schedule-history">
+        <details className="schedule-history details-toggle">
           <summary>История слотов ({historySlots.length})</summary>
           <div className="schedule-slots">
             {historySlots.map((s) => (

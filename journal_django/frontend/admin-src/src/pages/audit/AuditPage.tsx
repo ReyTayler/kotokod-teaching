@@ -2,7 +2,7 @@ import { useAudit } from '../../hooks/useAudit';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { fmtDate } from '../../lib/format';
+import { fmtDateTime } from '../../lib/format';
 import type { AuditEntry } from '../../lib/types';
 
 // ─── Подписи событий ──────────────────────────────────────────────────────────
@@ -22,23 +22,6 @@ const EVENT_LABELS: Record<string, string> = {
 };
 
 const EVENT_OPTIONS = Object.entries(EVENT_LABELS).map(([value, label]) => ({ value, label }));
-
-// ─── Форматирование даты-времени ──────────────────────────────────────────────
-
-function fmtDateTime(s: string | null | undefined): string {
-  if (!s) return '—';
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return s;
-  return d.toLocaleString('ru-RU', {
-    timeZone:  'Europe/Moscow',
-    day:       '2-digit',
-    month:     '2-digit',
-    year:      'numeric',
-    hour:      '2-digit',
-    minute:    '2-digit',
-    second:    '2-digit',
-  });
-}
 
 // ─── Вспомагалка buildQuery (повторяет паттерн AccountsPage) ─────────────────
 

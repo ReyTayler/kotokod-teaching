@@ -2,6 +2,7 @@ import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
 import { useGroupPlan, type PlanRow } from '../../hooks/useGroupPlanCalendar';
 import {
   useGeneratePlan, useReschedule, usePermanentChange, useCancelLesson, useAddExtra,
+  useChangeTeacher, useChangeTeacherPermanent,
 } from '../../hooks/useGroupPlan';
 import { useTeachers } from '../../hooks/useTeachers';
 import { useApiError } from '../../hooks/useApiError';
@@ -36,6 +37,14 @@ function lessonLabel(r: PlanRow): string {
   return `${pos} — ${fmtDate(r.scheduled_date)}${time ? ` ${time}` : ''}`;
 }
 
+/** День недели ISO-даты в конвенции проекта (Вс=0..Сб=6), UTC-safe. */
+function dowSun0(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+type TeacherScope = 'once' | 'permanent';
+
 export interface GroupPlanActionsHandle {
   /** Вызывается из CalendarView.onAction (клик по быстрому действию в LessonPopup). */
   quickAction: (kind: LessonActionKind, occ: Occurrence) => void;
@@ -45,7 +54,7 @@ interface Props {
   group: Group;
 }
 
-type DialogKind = 'reschedule' | 'permanent' | 'cancel' | 'extra' | null;
+type DialogKind = 'reschedule' | 'permanent' | 'change-teacher' | 'cancel' | 'extra' | null;
 
 /**
  * Toolbar кнопок + модалки операций плана (planned_lessons) для вкладки
@@ -68,6 +77,8 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
   const generatePlan = useGeneratePlan(groupId);
   const reschedule = useReschedule(groupId);
   const permanentChange = usePermanentChange(groupId);
+  const changeTeacher = useChangeTeacher(groupId);
+  const changeTeacherPermanent = useChangeTeacherPermanent(groupId);
   const cancelLesson = useCancelLesson(groupId);
   const addExtra = useAddExtra(groupId);
 
@@ -83,9 +94,13 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
     [teacherOptions],
   );
 
-  // Разовый перенос: бэкенд (services.reschedule) блокирует только 'done' —
-  // зеркалим тот же guard в списке выбора (repository.reschedule_lesson).
-  const reschedulableRows = useMemo(() => plan.filter((r) => r.status !== 'done'), [plan]);
+  // Разовый перенос / смена препода разово: доступны для активных строк (курсовых
+  // и доп. занятий), но НЕ для проведённых ('done') и НЕ для маркеров отмены
+  // ('cancelled') — двигать/переназначать пин отмены бессмысленно.
+  const reschedulableRows = useMemo(
+    () => plan.filter((r) => r.status !== 'done' && r.status !== 'cancelled'),
+    [plan],
+  );
   // Отмена / перенос-навсегда: бэкенд требует курсовую строку (seq != null)
   // в статусе pending/overdue (services.cancel/permanent_change) — done,
   // cancelled, moved и доп. занятия (seq=NULL) отклоняются 400/409.
@@ -143,13 +158,15 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
   const [pFromSeq, setPFromSeq] = useState('');
   const [pDow, setPDow] = useState('1');
   const [pTime, setPTime] = useState('');
-  const [pTeacherId, setPTeacherId] = useState('');
 
   const openPermanent = (prefill?: PlanRow) => {
     setPFromSeq(prefill?.seq != null ? String(prefill.seq) : '');
-    setPDow('1');
+    // День недели по умолчанию — текущий день выбранного (или первого курсового)
+    // занятия, а не жёстко понедельник: смена только времени не должна уводить
+    // занятия на другой день.
+    const anchorDate = prefill?.scheduled_date ?? permanentRows[0]?.scheduled_date;
+    setPDow(anchorDate ? String(dowSun0(anchorDate)) : '1');
     setPTime(prefill?.scheduled_time?.slice(0, 5) ?? '');
-    setPTeacherId(prefill?.teacher_id ? String(prefill.teacher_id) : '');
     setDialog('permanent');
   };
 
@@ -160,9 +177,42 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
         from_seq: Number(pFromSeq),
         new_day_of_week: Number(pDow),
         new_time: pTime || null,
-        new_teacher_id: pTeacherId ? Number(pTeacherId) : null,
       });
       toast('Расписание изменено', 'ok');
+      closeDialog();
+    } catch (err) { showError(err); }
+  };
+
+  // ── Сменить преподавателя (разово / навсегда) ──
+  const [tScope, setTScope] = useState<TeacherScope>('once');
+  const [tLessonId, setTLessonId] = useState('');
+  const [tFromSeq, setTFromSeq] = useState('');
+  const [tTeacherId, setTTeacherId] = useState('');
+
+  const openChangeTeacher = (prefill?: PlanRow, scope: TeacherScope = 'once') => {
+    setTScope(scope);
+    setTLessonId(prefill ? String(prefill.id) : '');
+    setTFromSeq(prefill?.seq != null ? String(prefill.seq) : '');
+    setTTeacherId(prefill?.teacher_id ? String(prefill.teacher_id) : '');
+    setDialog('change-teacher');
+  };
+
+  const submitChangeTeacher = async () => {
+    if (!tTeacherId) { toast('Выберите преподавателя', 'error'); return; }
+    try {
+      if (tScope === 'permanent') {
+        if (!tFromSeq) { toast('Выберите занятие, с которого меняем преподавателя', 'error'); return; }
+        await changeTeacherPermanent.mutateAsync({
+          from_seq: Number(tFromSeq), new_teacher_id: Number(tTeacherId),
+        });
+        toast('Преподаватель изменён для будущих занятий', 'ok');
+      } else {
+        if (!tLessonId) { toast('Выберите занятие', 'error'); return; }
+        await changeTeacher.mutateAsync({
+          lessonId: Number(tLessonId), newTeacherId: Number(tTeacherId),
+        });
+        toast('Преподаватель занятия изменён', 'ok');
+      }
       closeDialog();
     } catch (err) { showError(err); }
   };
@@ -224,9 +274,9 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
       const row = occ.id != null ? plan.find((r) => r.id === occ.id) : undefined;
       if (kind === 'cancel') {
         openCancel(row);
+      } else if (kind === 'change-teacher') {
+        openChangeTeacher(row, 'once');
       } else {
-        // 'reschedule' и 'change-teacher' — одна и та же операция/модалка
-        // (reschedule принимает и дату, и преподавателя за один вызов).
         openReschedule(row);
       }
     },
@@ -236,6 +286,10 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
   const rescheduleOptions = reschedulableRows.map((r) => ({ value: String(r.id), label: lessonLabel(r) }));
   const cancelOptions = courseRows.map((r) => ({ value: String(r.id), label: lessonLabel(r) }));
   const permanentOptions = permanentRows.map((r) => ({ value: String(r.seq), label: lessonLabel(r) }));
+  const teacherScopeOptions = [
+    { value: 'once', label: 'Только это занятие' },
+    { value: 'permanent', label: 'Это и все последующие' },
+  ];
 
   return (
     <div className="plan-actions">
@@ -248,6 +302,9 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
           <>
             <Button onClick={() => openReschedule()} disabled={reschedulableRows.length === 0}>
               Перенести занятие
+            </Button>
+            <Button onClick={() => openChangeTeacher()} disabled={reschedulableRows.length === 0}>
+              Сменить преподавателя
             </Button>
             <Button onClick={() => openPermanent()} disabled={permanentRows.length === 0}>
               Изменить расписание
@@ -302,7 +359,8 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
         }
       >
         <div className="schedule-form__hint">
-          Меняет день/время/преподавателя для всех будущих занятий, начиная с выбранного.
+          Меняет день недели и время для всех будущих занятий, начиная с выбранного.
+          Преподавателя меняйте через «Сменить преподавателя».
           Доступно только для групп с одним занятием в неделю.
         </div>
         <Field label="С какого занятия" required>
@@ -319,8 +377,51 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
         <Field label="Новое время">
           <TimeInput value={pTime} onChange={(e) => setPTime(e.target.value)} />
         </Field>
-        <Field label="Преподаватель">
-          <Combobox value={pTeacherId} onChange={setPTeacherId} options={teacherOptionsOptional} placeholder="Не менять" />
+      </Dialog>
+
+      {/* Сменить преподавателя (разово / навсегда) */}
+      <Dialog
+        open={dialog === 'change-teacher'}
+        onOpenChange={(o) => !o && closeDialog()}
+        title="Сменить преподавателя"
+        footer={
+          <Button
+            variant="primary"
+            onClick={() => { void submitChangeTeacher(); }}
+            disabled={changeTeacher.isPending || changeTeacherPermanent.isPending}
+          >
+            Применить
+          </Button>
+        }
+      >
+        <Field label="Область" required>
+          <SelectInput
+            value={tScope}
+            onChange={(e) => setTScope(e.target.value as TeacherScope)}
+            options={teacherScopeOptions}
+          />
+        </Field>
+        {tScope === 'permanent' ? (
+          <Field label="С какого занятия" required>
+            <SelectInput
+              value={tFromSeq}
+              onChange={(e) => setTFromSeq(e.target.value)}
+              options={permanentOptions}
+              placeholder="Выберите занятие"
+            />
+          </Field>
+        ) : (
+          <Field label="Занятие" required>
+            <SelectInput
+              value={tLessonId}
+              onChange={(e) => setTLessonId(e.target.value)}
+              options={rescheduleOptions}
+              placeholder="Выберите занятие"
+            />
+          </Field>
+        )}
+        <Field label="Преподаватель" required>
+          <Combobox value={tTeacherId} onChange={setTTeacherId} options={teacherOptions} placeholder="Выберите преподавателя" />
         </Field>
       </Dialog>
 

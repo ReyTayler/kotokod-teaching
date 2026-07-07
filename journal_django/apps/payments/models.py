@@ -10,9 +10,15 @@ FK student_id/direction_id → ON DELETE RESTRICT (защита истории �
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class Payment(models.Model):
     """
     Оплата. Соответствует таблице `payments`.

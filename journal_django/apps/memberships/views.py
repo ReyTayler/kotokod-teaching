@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import IsManagerOrAdmin
 from apps.memberships import services
+from apps.memberships.exceptions import IndividualGroupFull
 from apps.memberships.serializers import MembershipUpdateSerializer, MembershipWriteSerializer
 
 
@@ -59,7 +60,10 @@ class MembershipListCreateView(APIView):
         serializer = MembershipWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        membership = services.add_membership(serializer.validated_data)
+        try:
+            membership = services.add_membership(serializer.validated_data)
+        except IndividualGroupFull as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(membership, status=status.HTTP_201_CREATED)
 
 
@@ -75,7 +79,10 @@ class MembershipDetailView(APIView):
         serializer = MembershipUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        updated = services.update_membership(pk, serializer.validated_data)
+        try:
+            updated = services.update_membership(pk, serializer.validated_data)
+        except IndividualGroupFull as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if updated is None:
             raise NotFound({'error': 'Not found'})
 

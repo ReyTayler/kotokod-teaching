@@ -16,7 +16,9 @@ from django.db import transaction
 from django.db.models import F
 
 from apps.core.utils.orm import dictrow, dictrows
+from apps.groups.models import Group
 
+from .exceptions import IndividualGroupFull
 from .models import GroupMembership
 
 
@@ -49,6 +51,45 @@ def _membership_row(membership_id: int) -> Optional[dict]:
     return _normalize_dates(
         dictrow(GroupMembership.objects.filter(id=membership_id).values(*_MEMBERSHIP_FIELDS))
     )
+
+
+def _assert_individual_capacity(
+    group_id: int,
+    *,
+    exclude_student_id: Optional[int] = None,
+    exclude_membership_id: Optional[int] = None,
+) -> None:
+    """
+    Инвариант: в индивидуальной группе ≤1 активного membership.
+
+    Вызывать ТОЛЬКО внутри transaction.atomic() — берёт row-lock на строку
+    группы (select_for_update), чтобы два параллельных запроса не создали
+    двух активных учеников (проверка+запись атомарны).
+
+    - Группы нет или is_individual ложно → проверку пропускаем (return).
+    - Иначе считаем «чужие» активные memberships этой группы, исключая текущую
+      операцию (по student_id при добавлении, по membership_id при апдейте).
+      Найден хоть один → IndividualGroupFull(active_student_id=<его student_id>).
+    """
+    grp = (
+        Group.objects
+        .select_for_update()
+        .filter(id=group_id)
+        .values('is_individual')
+        .first()
+    )
+    if not grp or not grp['is_individual']:
+        return
+
+    qs = GroupMembership.objects.filter(group_id=group_id, active=True)
+    if exclude_student_id is not None:
+        qs = qs.exclude(student_id=exclude_student_id)
+    if exclude_membership_id is not None:
+        qs = qs.exclude(id=exclude_membership_id)
+
+    other = qs.values('student_id').first()
+    if other is not None:
+        raise IndividualGroupFull(active_student_id=other['student_id'])
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +149,9 @@ def add_membership(data: dict) -> dict:
         active=True,
     )
     with transaction.atomic():
+        # Инвариант индивидуальной группы: проверяем ДО bulk_create, чтобы
+        # pghistory InsertEvent не родился при отклонении (откат снимет lock).
+        _assert_individual_capacity(group_id, exclude_student_id=student_id)
         GroupMembership.objects.bulk_create(
             [obj],
             update_conflicts=True,
@@ -132,22 +176,29 @@ def update_membership(membership_id: int, data: dict) -> Optional[dict]:
     - start_date/sheet_row:   COALESCE(%s, col) → set если значение непусто.
     - active:                 COALESCE(%s, col) → set если ключ есть и значение не None.
     """
-    obj = GroupMembership.objects.filter(id=membership_id).first()
-    if obj is None:
-        return None
+    with transaction.atomic():
+        obj = GroupMembership.objects.filter(id=membership_id).first()
+        if obj is None:
+            return None
 
-    if data.get('lessons_done') is not None:
-        obj.lessons_done = data['lessons_done']
-    if data.get('remaining') is not None:
-        obj.remaining = data['remaining']
-    if data.get('start_date'):
-        obj.start_date = data['start_date']
-    if data.get('sheet_row'):
-        obj.sheet_row = data['sheet_row']
-    if data.get('active') is not None and 'active' in data:
-        obj.active = data['active']
+        # Реактивация (active=True) в индивидуальной группе — проверяем инвариант
+        # ДО save(), исключая саму эту строку. PATCH без active / active=False
+        # проверку не запускает.
+        if data.get('active') is True:
+            _assert_individual_capacity(obj.group_id, exclude_membership_id=membership_id)
 
-    obj.save()
+        if data.get('lessons_done') is not None:
+            obj.lessons_done = data['lessons_done']
+        if data.get('remaining') is not None:
+            obj.remaining = data['remaining']
+        if data.get('start_date'):
+            obj.start_date = data['start_date']
+        if data.get('sheet_row'):
+            obj.sheet_row = data['sheet_row']
+        if data.get('active') is not None and 'active' in data:
+            obj.active = data['active']
+
+        obj.save()
     return _membership_row(membership_id)
 
 

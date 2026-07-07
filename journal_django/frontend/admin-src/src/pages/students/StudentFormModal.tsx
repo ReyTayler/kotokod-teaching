@@ -125,9 +125,9 @@ export default function StudentFormModal({ initial, onClose }: Props) {
         >Сохранить</button>
       }
     >
-      <form id="student-form" onSubmit={onSubmit}>
+      <form id="student-form" className="modal-form" onSubmit={onSubmit}>
         <div className="modal-section-label">Личные данные</div>
-        <Field label="ФИО" required>
+        <Field label="ФИО" required full>
           <TextInput required value={form.full_name} onChange={(e) => set('full_name', e.target.value)} placeholder="Иванов Иван Иванович" />
         </Field>
         <Field label="Дата рождения">
@@ -172,7 +172,7 @@ export default function StudentFormModal({ initial, onClose }: Props) {
         </Field>
 
         <div className="modal-section-label">Система</div>
-        <Field label="Platform ID">
+        <Field label="Platform ID" full>
           <TextInput value={form.platform_id} onChange={(e) => set('platform_id', e.target.value)} placeholder="внешний идентификатор" />
         </Field>
       </form>

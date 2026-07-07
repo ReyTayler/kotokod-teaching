@@ -21,8 +21,8 @@ from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import planner
 from apps.scheduling.models import PlannedLesson
-from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING, Slot
-from apps.scheduling.planner import PlannedRow
+from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING, Slot, _step_for
+from apps.scheduling.planner import Fact, PlannedRow
 
 
 def active_groups(teacher_id: int | None = None) -> list[dict]:
@@ -114,7 +114,7 @@ def planned_lessons_in_window(
         .values(
             'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
             'teacher_id', 'status', 'fact_lesson_id',
-            'moved_from_date', 'moved_to_date',
+            'moved_from_date',
             group_pk=F('group_id'),
             group_name=F('group__name'),
             is_individual=F('group__is_individual'),
@@ -186,13 +186,18 @@ def reset_plan(group_id: int) -> int:
     return deleted
 
 
-def persist_plan(group_id: int, rows: list[PlannedRow]) -> int:
+def persist_plan(group_id: int, rows: list[PlannedRow], *, create_only: bool = False) -> int:
     """
     Идемпотентно записать/обновить курсовые строки плана группы в planned_lessons.
 
     Ключ идемпотентности — UniqueConstraint(group, seq): одна строка на позицию
     курса. Строки со status='done' (проведённые) НЕ перезаписываются. Строки, чьи
     значения не изменились, пропускаются (повторный прогон → 0 изменений).
+
+    create_only=True: существующие строки НЕ обновляются — только досоздаются
+    недостающие seq (расширение курса). Используется эндпоинтом generate, чтобы
+    повторная генерация не затирала ручные операции (переносы/отмены/смену препода)
+    над уже материализованным планом. Полный пересбор — backfill --reset (reset_plan).
 
     Работает только с курсовыми строками (seq задан) — ровно то, что отдаёт
     planner.generate(); extra/маркеры (seq=NULL) сюда не попадают.
@@ -223,6 +228,10 @@ def persist_plan(group_id: int, rows: list[PlannedRow]) -> int:
                 # generate() курсовые строки всегда с seq; extra — вне бэкфилла.
                 continue
             ex = existing.get(r.seq)
+            if ex is not None and create_only:
+                # Существующая строка при create_only не трогается (сохраняем
+                # ручные операции); досоздаём только отсутствующие seq.
+                continue
             if ex is None:
                 to_create.append(PlannedLesson(
                     group_id=group_id,
@@ -394,7 +403,6 @@ def _plan_row_dict(r: dict, tnames: dict[int, str]) -> dict:
         'fact_date': _iso(r.get('fact_date')),
         'record_url': r.get('record_url'),
         'moved_from_date': _iso(r['moved_from_date']),
-        'moved_to_date': _iso(r['moved_to_date']),
         'is_extra': r['seq'] is None,
     }
 
@@ -411,7 +419,6 @@ def _plan_row_dict_obj(p: PlannedLesson, tnames: dict[int, str]) -> dict:
         'status': p.status,
         'fact_lesson_id': p.fact_lesson_id,
         'moved_from_date': p.moved_from_date,
-        'moved_to_date': p.moved_to_date,
     }, tnames)
 
 
@@ -429,6 +436,17 @@ def _row_from_model(p: PlannedLesson) -> PlannedRow:
     )
 
 
+def plan_exists(group_id: int, *, active_only: bool = False) -> bool:
+    """Есть ли у группы плановые строки (быстрый EXISTS).
+
+    active_only=True: неактивную/отсутствующую группу считаем «план есть» (True),
+    чтобы автоген её ПРОПУСКАЛ, не меняя поведение ручного /plan/generate (там
+    active-фильтра нет). См. services.autogenerate_plan_on_setup."""
+    if active_only and not Group.objects.filter(id=group_id, active=True).exists():
+        return True
+    return PlannedLesson.objects.filter(group_id=group_id).exists()
+
+
 def get_plan(group_id: int) -> list[dict] | None:
     """
     Плановые строки группы (сериализуемые), упорядоченные по (дата, время).
@@ -444,7 +462,7 @@ def get_plan(group_id: int) -> list[dict] | None:
         .order_by('scheduled_date', 'scheduled_time')
         .values(
             'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
-            'teacher_id', 'status', 'fact_lesson_id', 'moved_from_date', 'moved_to_date',
+            'teacher_id', 'status', 'fact_lesson_id', 'moved_from_date',
             fact_date=F('fact_lesson__lesson_date'),
             record_url=F('fact_lesson__record_url'),
         )
@@ -508,6 +526,78 @@ def reschedule_lesson(
         ])
 
     return _plan_row_dict_obj(p, teacher_names())
+
+
+def change_teacher(
+    group_id: int, lesson_id: int, new_teacher_id: int,
+) -> dict | None:
+    """
+    Разовая смена преподавателя одной строки (planner.change_teacher): меняет ТОЛЬКО
+    teacher_id, дату/время не трогает и НЕ помечает строку перенесённой.
+
+    None → строки нет (404). ValueError → строка проведена (status='done').
+    """
+    now = msk_now()
+    with transaction.atomic():
+        p = (
+            PlannedLesson.objects
+            .select_for_update()
+            .filter(group_id=group_id, id=lesson_id)
+            .first()
+        )
+        if p is None:
+            return None
+        updated = planner.change_teacher(_row_from_model(p), new_teacher_id=new_teacher_id)
+        p.teacher_id = updated.teacher_id
+        p.updated_at = now
+        p.save(update_fields=['teacher', 'updated_at'])
+
+    return _plan_row_dict_obj(p, teacher_names())
+
+
+def change_teacher_permanent(
+    group_id: int, *, from_seq: int, new_teacher_id: int,
+) -> list[dict] | None:
+    """
+    Смена преподавателя навсегда (planner.change_teacher_tail): проставить teacher_id
+    всем курсовым строкам seq>=from_seq в статусе pending/overdue. Даты/дни/слот НЕ
+    трогаются (в отличие от permanent_change).
+
+    None → группы нет (404). ValueError → нет курсовых строк с указанной позиции.
+    Возвращает новый план (get_plan).
+    """
+    if not Group.objects.filter(id=group_id).exists():
+        return None
+
+    now = msk_now()
+    with transaction.atomic():
+        tail = list(
+            PlannedLesson.objects
+            .select_for_update()
+            .filter(
+                group_id=group_id, seq__isnull=False, seq__gte=from_seq,
+                status__in=_MUTABLE_STATUSES,
+            )
+            .order_by('seq')
+        )
+        if not tail:
+            raise ValueError('Нет курсовых строк для смены преподавателя с указанной позиции (seq).')
+
+        by_seq = {p.seq: p for p in tail}
+        changed = planner.change_teacher_tail(
+            [_row_from_model(p) for p in tail],
+            from_seq=from_seq,
+            new_teacher_id=new_teacher_id,
+        )
+        to_update = []
+        for cr in changed:
+            p = by_seq[cr.seq]
+            p.teacher_id = cr.teacher_id
+            p.updated_at = now
+            to_update.append(p)
+        PlannedLesson.objects.bulk_update(to_update, ['teacher', 'updated_at'])
+
+    return get_plan(group_id)
 
 
 def permanent_change(
@@ -638,11 +728,15 @@ def cancel_lesson(
     """
     now = msk_now()
     with transaction.atomic():
+        # Сдвигаем +7 ТОЛЬКО курсовые pending/overdue строки. Доп. занятия и
+        # маркеры отмены (seq=NULL) и проведённые (done) — неподвижные пины.
         tail = list(
             PlannedLesson.objects
             .select_for_update()
-            .filter(group_id=group_id, scheduled_date__gte=from_date)
-            .exclude(status=DONE)
+            .filter(
+                group_id=group_id, scheduled_date__gte=from_date,
+                seq__isnull=False, status__in=_MUTABLE_STATUSES,
+            )
         )
         if tail:
             for p in tail:
@@ -731,6 +825,121 @@ def generate_for_group(group_id: int) -> dict | None:
             duration_minutes=g['lesson_duration_minutes'],
             default_teacher_id=g['teacher_id'],
         )
-        written = persist_plan(group_id, rows)  # persist_plan — атомарен сам по себе
+        # create_only: повторный generate не затирает ручные операции над планом —
+        # только досоздаёт недостающие seq (напр. при увеличении длины курса).
+        written = persist_plan(group_id, rows, create_only=True)  # атомарен сам по себе
 
     return {'written': written, 'reason': reason, 'plan': get_plan(group_id)}
+
+
+# ---------------------------------------------------------------------------
+# Rebuild-from-facts (новый дефолт бэкфилла): прошлое = факты (коллапс даты в
+# фактическую) + overdue-прошлое (позиции без факта на исторических датах) +
+# будущее от текущего момента по актуальному открытому слоту. РАЗРУШИТЕЛЬНО
+# (reset_plan): перезаписывает ручные операции будущего — для перелива ожидаемо.
+# See docs/lesson-scheduling.md. Композиция чистых функций planner — в них же тесты.
+# ---------------------------------------------------------------------------
+
+def facts_by_group(group_ids: list[int]) -> dict[int, list[Fact]]:
+    """Проведённые уроки (факты) по группам — планировщику как list[Fact].
+    Батч (один запрос), упорядочено по (lesson_date, id) для позиционной линковки."""
+    result: dict[int, list[Fact]] = {}
+    if not group_ids:
+        return result
+    rows = (
+        Lesson.objects
+        .filter(group_id__in=group_ids)
+        .order_by('lesson_date', 'id')
+        .values('group_id', 'id', 'lesson_date', 'teacher_id')
+    )
+    for r in rows:
+        result.setdefault(r['group_id'], []).append(Fact(
+            lesson_date=r['lesson_date'],
+            teacher_id=r['teacher_id'],
+            fact_lesson_id=r['id'],
+        ))
+    return result
+
+
+def _build_rebuild_rows(
+    g: dict, slots: list[Slot], facts: list[Fact],
+) -> tuple[list[PlannedRow] | None, str | None]:
+    """Строки rebuild через planner.generate_from_facts: прошлое=факты, будущее от
+    последнего факта по текущему слоту.
+
+    (rows, reason). rows=None при блокирующей причине (нельзя построить план):
+    no_start_date / no_total_lessons / no_slots. reason='no_open_slots' — прошлое
+    (факты) построено, но будущее не развернуть (нет открытого слота)."""
+    if g['group_start_date'] is None:
+        return None, 'no_start_date'
+    if g['total_lessons'] is None:
+        return None, 'no_total_lessons'
+    if not slots:
+        return None, 'no_slots'
+    open_slots = [s for s in slots if s.effective_to is None]
+    rows = planner.generate_from_facts(
+        facts=facts,
+        current_slots=open_slots,
+        total_lessons=g['total_lessons'],
+        duration_minutes=g['lesson_duration_minutes'],
+        default_teacher_id=g['teacher_id'],
+        group_start_date=g['group_start_date'],
+    )
+    return rows, (None if open_slots else 'no_open_slots')
+
+
+def rebuild_group_plan(
+    group_id: int, g: dict, slots: list[Slot], facts: list[Fact],
+    *, dry_run: bool = False,
+) -> dict:
+    """Пересобрать план одной группы (reset + generate_from_facts + bulk_create),
+    батч-данные передаёт вызывающий (команда) — без N+1. РАЗРУШИТЕЛЬНО.
+    {'written', 'reason'}. Результат today-независим (будущее от последнего факта).
+
+    dry_run=True: ничего не пишет, 'written' = сколько строк было бы записано."""
+    rows, reason = _build_rebuild_rows(g, slots, facts)
+    if rows is None:
+        return {'written': 0, 'reason': reason}
+    if dry_run:
+        return {'written': len(rows), 'reason': reason}
+    now = msk_now()
+    with transaction.atomic():
+        reset_plan(group_id)
+        PlannedLesson.objects.bulk_create([
+            PlannedLesson(
+                group_id=group_id,
+                seq=r.seq,
+                lesson_number=r.lesson_number,
+                scheduled_date=r.scheduled_date,
+                scheduled_time=r.scheduled_time,
+                teacher_id=r.teacher_id,
+                status=r.status,
+                fact_lesson_id=r.fact_lesson_id,
+                created_at=now,
+                updated_at=now,
+            )
+            for r in rows
+        ])
+    return {'written': len(rows), 'reason': reason}
+
+
+def rebuild_from_facts(group_id: int) -> dict | None:
+    """Single-group обёртка rebuild_group_plan (сама читает группу/слоты/факты).
+
+    None → группы нет. Результат today-независим (будущее считается от даты
+    последнего факта, не от «сегодня»). Команда бэкфилла использует батч-путь
+    (active_groups + slots_by_group + facts_by_group + rebuild_group_plan)."""
+    g = (
+        Group.objects
+        .filter(id=group_id)
+        .values(
+            'id', 'lesson_duration_minutes', 'group_start_date', 'teacher_id',
+            total_lessons=F('direction__total_lessons'),
+        )
+        .first()
+    )
+    if g is None:
+        return None
+    slots = slots_by_group([group_id]).get(group_id, [])
+    facts = facts_by_group([group_id]).get(group_id, [])
+    return rebuild_group_plan(group_id, g, slots, facts)

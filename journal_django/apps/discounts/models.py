@@ -8,9 +8,15 @@ Models for discounts — managed=False, поверх существующей Б
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class Discount(models.Model):
     """
     Скидка.

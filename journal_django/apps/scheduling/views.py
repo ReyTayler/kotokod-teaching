@@ -21,6 +21,7 @@ from rest_framework.views import APIView
 from apps.core.permissions import IsManagerOrAdmin, IsTeacher
 from apps.scheduling import services
 from apps.scheduling.serializers import (
+    PlanChangeTeacherPermanentSerializer, PlanChangeTeacherSerializer,
     PlanExtraSerializer, PlanPermanentChangeSerializer, PlanRescheduleSerializer,
 )
 
@@ -163,6 +164,41 @@ class GroupPlanCancelView(APIView):
             plan = services.cancel(pk, lid, request)
         except ValueError as exc:
             # Якорь не курсовой/активный (extra/cancelled/moved/done) — бизнес-ошибка.
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if plan is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(plan)
+
+
+class GroupPlanChangeTeacherView(APIView):
+    """POST /api/admin/groups/<pk>/plan/<lid>/change-teacher — разовая смена препода."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int, lid: int) -> Response:
+        serializer = PlanChangeTeacherSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            row = services.change_teacher(pk, lid, serializer.validated_data, request)
+        except ValueError as exc:
+            # Смена препода проведённого (status='done') — бизнес-конфликт, не 500.
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+        if row is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(row)
+
+
+class GroupPlanChangeTeacherPermanentView(APIView):
+    """POST /api/admin/groups/<pk>/plan/change-teacher-permanent — смена препода хвоста."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        serializer = PlanChangeTeacherPermanentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            plan = services.change_teacher_permanent(pk, serializer.validated_data, request)
+        except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if plan is None:
             raise NotFound({'error': 'Not found'})

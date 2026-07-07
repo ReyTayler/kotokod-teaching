@@ -11,7 +11,7 @@ import datetime
 from apps.audit.services import log_event
 from apps.core.utils.dates import MSK, msk_now
 from apps.scheduling import repository
-from apps.scheduling.occurrences import CANCELLED, DONE, MOVED, OVERDUE, PENDING
+from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING
 
 _LABELS = {
     DONE: 'Заполнено',
@@ -29,10 +29,6 @@ def _hhmm(t: datetime.time | None) -> str | None:
     return t.strftime('%H:%M') if t else None
 
 
-def _ddmm(d: datetime.date) -> str:
-    return f'{d.day:02d}.{d.month:02d}'
-
-
 def _report_day(d: datetime.date) -> int:
     """Кодировка дня недели Вс=0 (как report.day / JS getDay) из реальной даты."""
     return (d.weekday() + 1) % 7
@@ -43,25 +39,24 @@ def _planned_status(r: dict, now_msk: datetime.datetime) -> str:
     Статус планового занятия НА ЧТЕНИИ из строки planned_lessons.
 
       done      — status=='done' или есть fact_lesson (связь план→факт);
-      cancelled / moved — как хранится (операции проставили);
+      cancelled — как хранится (маркер отмены);
       иначе     — overdue, если datetime(дата, время, МСК) уже наступил, иначе pending.
 
     (Бэкфилл оставил прошлые незаполненные строки как pending → overdue считаем здесь,
-    на чтении, по времени занятия в МСК.)
+    на чтении, по времени занятия в МСК. Перенос показывается через moved_from_date —
+    отдельного статуса 'moved' нет.)
     """
     if r['status'] == DONE or r['fact_lesson_id'] is not None:
         return DONE
-    if r['status'] in (CANCELLED, MOVED):
-        return r['status']
+    if r['status'] == CANCELLED:
+        return CANCELLED
     occ_dt = datetime.datetime.combine(
         r['scheduled_date'], r['scheduled_time'] or datetime.time(0, 0), tzinfo=MSK,
     )
     return OVERDUE if now_msk >= occ_dt else PENDING
 
 
-def _planned_label(status: str, moved_to: datetime.date | None) -> str:
-    if status == MOVED and moved_to:
-        return f'Перенесён на {_ddmm(moved_to)}'
+def _planned_label(status: str) -> str:
     return _LABELS.get(status, '')
 
 
@@ -72,6 +67,7 @@ def _planned_occurrence_dict(
 
     teacher = имя препода занятия (planned_lesson.teacher), иначе имя учителя группы;
     teacherOverride = имя, если препод занятия ≠ учитель группы (как прежде).
+    Перенос показывается через movedFrom (moved_from_date); movedTo не используется.
     """
     is_half = r['lesson_duration_minutes'] == 45
     status = _planned_status(r, now_msk)
@@ -79,7 +75,6 @@ def _planned_occurrence_dict(
     group_teacher_id = r['group_teacher_id']
     is_override = pl_teacher_id is not None and pl_teacher_id != group_teacher_id
     teacher = tnames.get(pl_teacher_id) if pl_teacher_id else tnames.get(group_teacher_id)
-    moved_to = r['moved_to_date']
     ln = r['lesson_number']
     return {
         'group': r['group_name'],
@@ -97,9 +92,9 @@ def _planned_occurrence_dict(
         'isHalf': is_half,
         'isExtra': r['seq'] is None,
         'status': status,
-        'label': _planned_label(status, moved_to),
+        'label': _planned_label(status),
         'movedFrom': _iso(r['moved_from_date']),
-        'movedTo': _iso(moved_to),
+        'movedTo': None,
         'students': students,
     }
 
@@ -185,6 +180,45 @@ def get_plan(group_id: int) -> list[dict] | None:
     return repository.get_plan(group_id)
 
 
+def autogenerate_plan_on_setup(
+    group_id: int, *, source: str, actor_email: str | None = None,
+) -> None:
+    """Автогенерация плана при первичной настройке группы (Механизм 1).
+
+    Срабатывает ТОЛЬКО первый раз: guard plan_exists(active_only=True) — непустой
+    план ИЛИ неактивная/отсутствующая группа → тихий выход. Пока нет старта/слота/
+    total — generate_for_group вернёт reason (written=0), план останется пустым,
+    следующая правка попробует снова. Идемпотентно (generate_for_group create_only).
+
+    Гонку двух почти одновременных триггеров (старт и слот) глушим на IntegrityError
+    (UniqueConstraint(group, seq)): план уже создан конкурентом → выходим. Аудит
+    plan_auto_generate пишем только при реальной записи (written>0); source — точка
+    вызова (group_create/group_update/schedule_change), actor_email опционален
+    (автоматическое действие). Вызывается синхронно из groups.services после того,
+    как repository закоммитил группу/слоты (ATOMIC_REQUESTS=False)."""
+    from django.db import IntegrityError
+
+    if repository.plan_exists(group_id, active_only=True):
+        return
+    try:
+        result = repository.generate_for_group(group_id)
+    except IntegrityError:
+        return
+    if result is None:
+        return
+    if result['written'] > 0:
+        log_event(
+            'plan_auto_generate',
+            actor_email=actor_email,
+            target_id=group_id,
+            meta={
+                'written': result['written'],
+                'reason': result['reason'],
+                'source': source,
+            },
+        )
+
+
 def generate_plan(group_id: int, request) -> list[dict] | None:
     """Идемпотентная генерация плана + аудит. None → группы нет."""
     result = repository.generate_for_group(group_id)
@@ -227,6 +261,43 @@ def reschedule(group_id: int, lesson_id: int, data: dict, request) -> dict | Non
     return row
 
 
+def change_teacher(group_id: int, lesson_id: int, data: dict, request) -> dict | None:
+    """Разовая смена преподавателя одной строки + аудит. None → строки нет (404);
+    ValueError → строка проведена (view → 409). Дату/время не трогает."""
+    new_teacher_id = data['new_teacher_id']
+    row = repository.change_teacher(group_id, lesson_id, new_teacher_id)
+    if row is None:
+        return None
+    log_event(
+        'plan_change_teacher',
+        actor_email=_actor(request),
+        target_id=group_id,
+        meta={'lesson_id': lesson_id, 'new_teacher_id': new_teacher_id},
+        request=request,
+    )
+    return row
+
+
+def change_teacher_permanent(group_id: int, data: dict, request) -> list[dict] | None:
+    """Смена преподавателя навсегда (хвост seq>=from_seq) + аудит. None → группы нет
+    (404); ValueError → нет курсовых строк с позиции (view → 400)."""
+    plan = repository.change_teacher_permanent(
+        group_id,
+        from_seq=data['from_seq'],
+        new_teacher_id=data['new_teacher_id'],
+    )
+    if plan is None:
+        return None
+    log_event(
+        'plan_change_teacher_permanent',
+        actor_email=_actor(request),
+        target_id=group_id,
+        meta={'from_seq': data['from_seq'], 'new_teacher_id': data['new_teacher_id']},
+        request=request,
+    )
+    return plan
+
+
 def permanent_change(group_id: int, data: dict, request) -> list[dict] | None:
     """Перенос навсегда + аудит. None → группы нет; ValueError → мульти-слот /
     нет времени слота / нет курсовых строк с позиции (view → 400).
@@ -267,10 +338,10 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
         return None
     if anchor['seq'] is None:
         raise ValueError('Отмена доступна только для курсового занятия (не доп. занятия).')
-    if anchor['status'] in (CANCELLED, MOVED, DONE):
+    if anchor['status'] in (CANCELLED, DONE):
         raise ValueError(
             'Отмена доступна только для активного занятия '
-            '(не отменённого/перенесённого/проведённого).'
+            '(не отменённого/проведённого).'
         )
     from_date = anchor['scheduled_date']
     plan = repository.cancel_lesson(

@@ -7,9 +7,15 @@ timezone drift — та же стратегия, что services/db.js setTypePa
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class GroupMembership(models.Model):
     """
     Членство ученика в группе.

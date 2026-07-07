@@ -25,6 +25,9 @@ from apps.scheduling.occurrences import DONE
 
 pytestmark = pytest.mark.django_db
 
+# Результат пересборки today-независим (будущее считается от даты последнего факта),
+# поэтому даты в тестах детерминированы без инъекции «сегодня».
+
 
 @pytest.fixture
 def backfill_setup(sched_setup):
@@ -50,7 +53,8 @@ def _insert_fact(group_id: int, teacher_id: int, date: str, number) -> int:
 
 
 class TestBackfillCommand:
-    def test_generates_plan_for_scheduled_group(self, backfill_setup):
+    def test_no_facts_future_from_start(self, backfill_setup):
+        """Фактов нет → 8 будущих позиций от старта по слоту (Пн 10:00)."""
         call_command('backfill_planned_lessons')
 
         rows = list(
@@ -62,42 +66,50 @@ class TestBackfillCommand:
         assert rows[0].scheduled_date == datetime.date(2026, 6, 1)
         assert rows[1].scheduled_date == datetime.date(2026, 6, 8)
         assert all(r.scheduled_time == datetime.time(10, 0) for r in rows)
-        assert all(r.teacher_id == backfill_setup['teacher_a'] for r in rows)
+        assert all(r.status != DONE for r in rows)
 
-    def test_links_past_fact_and_marks_done(self, backfill_setup):
-        _insert_fact(backfill_setup['group_a'], backfill_setup['teacher_a'],
-                     '2026-06-01', Decimal('1'))
-
+    def test_fact_done_and_future_after_last_fact(self, backfill_setup):
+        """Факт → done на факт-дате; будущее начинается со СЛЕДУЮЩЕГО слот-дня после
+        последнего факта (провели 06-03 Ср → следующий по слоту Пн = 06-08)."""
+        f = _insert_fact(backfill_setup['group_a'], backfill_setup['teacher_a'],
+                         '2026-06-03', Decimal('1'))
         call_command('backfill_planned_lessons')
 
-        seq1 = PlannedLesson.objects.get(group_id=backfill_setup['group_a'], seq=1)
+        gid = backfill_setup['group_a']
+        seq1 = PlannedLesson.objects.get(group_id=gid, seq=1)
         assert seq1.status == DONE
-        assert seq1.fact_lesson_id is not None
-        # Непроведённые строки остаются не-done.
-        seq2 = PlannedLesson.objects.get(group_id=backfill_setup['group_a'], seq=2)
+        assert seq1.fact_lesson_id == f
+        assert seq1.scheduled_date == datetime.date(2026, 6, 3)   # факт-дата
+        seq2 = PlannedLesson.objects.get(group_id=gid, seq=2)
         assert seq2.status != DONE
         assert seq2.fact_lesson_id is None
+        assert seq2.scheduled_date == datetime.date(2026, 6, 8)   # Пн после 06-03
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 8
 
-    def test_reset_rebuilds_clean_removing_stray_rows(self, backfill_setup):
+    def test_rebuild_is_destructive_removes_stray_rows(self, backfill_setup):
+        """Пересборка начисто (reset встроен): стрей-строки удаляются без --reset."""
         gid = backfill_setup['group_a']
         call_command('backfill_planned_lessons')
         assert PlannedLesson.objects.filter(group_id=gid).count() == 8
 
-        # Лишняя (extra) строка, которой не даёт генерация.
         from apps.core.utils.dates import msk_now
         now = msk_now()
         PlannedLesson.objects.create(
             group_id=gid, seq=None, lesson_number=None,
             scheduled_date=datetime.date(2026, 6, 2), scheduled_time=datetime.time(11, 0),
-            teacher_id=backfill_setup['teacher_a'], status='pending',
+            teacher_id=backfill_setup['teacher_a'], status='cancelled',
             created_at=now, updated_at=now,
         )
         assert PlannedLesson.objects.filter(group_id=gid).count() == 9
 
-        call_command('backfill_planned_lessons', '--reset')
-        # Стрей удалён, план пересобран начисто (ровно 8 курсовых строк).
+        call_command('backfill_planned_lessons')
         assert PlannedLesson.objects.filter(group_id=gid).count() == 8
         assert not PlannedLesson.objects.filter(group_id=gid, seq__isnull=True).exists()
+
+    def test_reset_flag_deprecated_still_rebuilds(self, backfill_setup):
+        """--reset устарел (варн), но команда отрабатывает как обычная пересборка."""
+        call_command('backfill_planned_lessons', '--reset')
+        assert PlannedLesson.objects.filter(group_id=backfill_setup['group_a']).count() == 8
 
     def test_dry_run_writes_nothing(self, backfill_setup):
         call_command('backfill_planned_lessons', '--dry-run')
@@ -105,26 +117,33 @@ class TestBackfillCommand:
             group_id=backfill_setup['group_a'],
         ).exists()
 
-    def test_idempotent_second_run_no_duplicates(self, backfill_setup):
+    def test_rerun_is_stable_and_today_independent(self, backfill_setup):
+        """Повтор → тот же результат (без дублей), одна done-привязка. Даты от фактов."""
         _insert_fact(backfill_setup['group_a'], backfill_setup['teacher_a'],
                      '2026-06-01', Decimal('1'))
+        gid = backfill_setup['group_a']
 
         call_command('backfill_planned_lessons')
-        count_after_first = PlannedLesson.objects.filter(
-            group_id=backfill_setup['group_a'],
-        ).count()
-        assert count_after_first == 8
+        first = [(r.seq, r.scheduled_date) for r in
+                 PlannedLesson.objects.filter(group_id=gid).order_by('seq')]
+        call_command('backfill_planned_lessons')
+        second = [(r.seq, r.scheduled_date) for r in
+                  PlannedLesson.objects.filter(group_id=gid).order_by('seq')]
+        assert first == second                                   # идентичный план
+        assert len(first) == 8
+        assert PlannedLesson.objects.filter(group_id=gid, status=DONE).count() == 1
+
+    def test_rerun_overwrites_manual_future(self, backfill_setup):
+        """Свободный повтор ПЕРЕЗАПИСЫВАЕТ ручную правку будущего (по решению польз.)."""
+        gid = backfill_setup['group_a']
+        call_command('backfill_planned_lessons')
+        fut = PlannedLesson.objects.filter(group_id=gid).order_by('seq').first()
+        original = fut.scheduled_date
+        PlannedLesson.objects.filter(id=fut.id).update(scheduled_date=datetime.date(2026, 12, 25))
 
         call_command('backfill_planned_lessons')
-        count_after_second = PlannedLesson.objects.filter(
-            group_id=backfill_setup['group_a'],
-        ).count()
-        assert count_after_second == 8
-
-        # done-строка сохранена, ровно одна привязка к факту.
-        assert PlannedLesson.objects.filter(
-            group_id=backfill_setup['group_a'], status=DONE,
-        ).count() == 1
+        again = PlannedLesson.objects.get(group_id=gid, seq=fut.seq)
+        assert again.scheduled_date == original     # ручная правка снесена пересборкой
 
 
 class TestRepositoryWrite:
@@ -205,3 +224,70 @@ class TestRepositoryWrite:
         seq3 = PlannedLesson.objects.get(group_id=gid, seq=3)
         assert seq3.status == DONE
         assert seq3.fact_lesson_id is not None
+
+
+class TestRebuildFromFacts:
+    """repository.rebuild_from_facts — прошлое=факты (коллапс даты) + будущее от даты
+    последнего факта по открытому слоту. today-независимо."""
+
+    def test_collapses_done_and_future_after_last_fact(self, backfill_setup):
+        gid = backfill_setup['group_a']
+        ta = backfill_setup['teacher_a']
+        tb = backfill_setup['teacher_b']
+        # 2 факта: seq1 на 06-01 (Пн); seq2 на СДВИНУТОЙ 06-09 (Вт), последний факт.
+        f1 = _insert_fact(gid, ta, '2026-06-01', Decimal('1'))
+        f2 = _insert_fact(gid, tb, '2026-06-09', Decimal('2'))
+
+        res = repository.rebuild_from_facts(gid)
+        assert res['written'] == 8
+        assert res['reason'] is None
+
+        by_seq = {r.seq: r for r in PlannedLesson.objects.filter(group_id=gid).order_by('seq')}
+        # прошлое = факты, дата = фактическая
+        assert by_seq[1].status == DONE and by_seq[1].scheduled_date == datetime.date(2026, 6, 1)
+        assert by_seq[1].fact_lesson_id == f1
+        assert by_seq[2].status == DONE and by_seq[2].scheduled_date == datetime.date(2026, 6, 9)
+        assert by_seq[2].fact_lesson_id == f2
+        assert by_seq[2].teacher_id == tb              # препод из факта
+        # будущее: seq3 — Пн ПОСЛЕ последнего факта (06-09) = 06-15, дальше по неделе
+        assert by_seq[3].status != DONE and by_seq[3].scheduled_date == datetime.date(2026, 6, 15)
+        assert by_seq[3].fact_lesson_id is None
+        assert by_seq[4].scheduled_date == datetime.date(2026, 6, 22)
+        assert by_seq[8].scheduled_date == datetime.date(2026, 7, 20)
+
+    def test_is_destructive_reset_each_run(self, backfill_setup):
+        """reset+rebuild: повторный прогон не плодит дублей; стрей-строки удаляются."""
+        gid = backfill_setup['group_a']
+        from apps.core.utils.dates import msk_now
+        now = msk_now()
+        PlannedLesson.objects.create(
+            group_id=gid, seq=None, lesson_number=None,
+            scheduled_date=datetime.date(2026, 6, 2), scheduled_time=datetime.time(11, 0),
+            teacher_id=backfill_setup['teacher_a'], status='cancelled',
+            created_at=now, updated_at=now,
+        )
+        repository.rebuild_from_facts(gid)
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 8   # стрей снесён
+        repository.rebuild_from_facts(gid)
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 8   # без дублей
+
+    def test_no_open_slots_only_past(self, backfill_setup):
+        """Нет ОТКРЫТЫХ слотов (effective_to задан) → только прошлое (факты), будущее
+        не развернуть (reason=no_open_slots)."""
+        gid = backfill_setup['group_a']
+        f = _insert_fact(gid, backfill_setup['teacher_a'], '2026-06-01', Decimal('1'))
+        # Закрыть слот датой в будущем (валидный диапазон, но effective_to IS NOT NULL
+        # → «открытых» слотов нет).
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE group_schedule_slots SET effective_to='2026-12-31' WHERE group_id=%s",
+                [gid],
+            )
+        res = repository.rebuild_from_facts(gid)
+        assert res['reason'] == 'no_open_slots'
+        assert res['written'] == 1   # только done-строка факта
+        row = PlannedLesson.objects.get(group_id=gid, seq=1)
+        assert row.status == DONE and row.fact_lesson_id == f
+
+    def test_missing_group_returns_none(self):
+        assert repository.rebuild_from_facts(99999999) is None

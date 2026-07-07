@@ -69,6 +69,19 @@ class PlanPermanentChangeSerializer(StrictSerializer):
         return _validate_time(value)
 
 
+class PlanChangeTeacherSerializer(StrictSerializer):
+    """POST /plan/<lid>/change-teacher — разовая смена преподавателя одной строки."""
+
+    new_teacher_id = serializers.IntegerField(min_value=1)
+
+
+class PlanChangeTeacherPermanentSerializer(StrictSerializer):
+    """POST /plan/change-teacher-permanent — смена преподавателя хвоста (seq>=from_seq)."""
+
+    from_seq = serializers.IntegerField(min_value=1)
+    new_teacher_id = serializers.IntegerField(min_value=1)
+
+
 class PlanExtraSerializer(StrictSerializer):
     """POST /plan/extra — доп. занятие вне курса (seq=NULL)."""
 

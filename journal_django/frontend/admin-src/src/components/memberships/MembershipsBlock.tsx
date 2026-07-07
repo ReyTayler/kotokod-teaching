@@ -3,11 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useMemberships, useMembershipMutations } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../ui/Toast';
+import { SelectInput } from '../form/SelectInput';
 import type { GroupMembership } from '../../lib/types';
 
+type PickerOption = { value: number; label: string; disabled?: boolean };
 type Mode =
-  | { mode: 'byStudent'; studentId: number; pickerOptions: { value: number; label: string; disabled?: boolean }[]; pickerLabel: string }
-  | { mode: 'byGroup';   groupId: number;   pickerOptions: { value: number; label: string; disabled?: boolean }[]; pickerLabel: string };
+  // capacity — максимум активных membership; при достижении лимита блок добавления скрывается.
+  | { mode: 'byStudent'; studentId: number; pickerOptions: PickerOption[]; pickerLabel: string; capacity?: number; capacityNote?: string }
+  | { mode: 'byGroup';   groupId: number;   pickerOptions: PickerOption[]; pickerLabel: string; capacity?: number; capacityNote?: string };
 
 interface Props {
   config: Mode;
@@ -35,6 +38,10 @@ export function MembershipsBlock({ config, renderCard, emptyText }: Props) {
     config.pickerOptions.filter((o) => !usedIds.has(o.value) && !o.disabled),
     [config.pickerOptions, usedIds],
   );
+
+  // Лимит вместимости (например, индивидуальная группа = 1 ученик):
+  // при достижении прячем и выпадающий список, и кнопку добавления.
+  const atCapacity = config.capacity != null && memberships.length >= config.capacity;
 
   const handleAdd = async () => {
     if (!selectedId) return;
@@ -112,23 +119,24 @@ export function MembershipsBlock({ config, renderCard, emptyText }: Props) {
         })
       )}
 
-      <div className="memberships__add">
-        <select
-          value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value === '' ? '' : Number(e.target.value))}
-        >
-          <option value="">{config.pickerLabel}</option>
-          {availableOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => { void handleAdd(); }}
-          disabled={!selectedId || muts.create.isPending}
-        >+ Добавить</button>
-      </div>
+      {atCapacity ? (
+        config.capacityNote && <div className="memberships__note">{config.capacityNote}</div>
+      ) : (
+        <div className="memberships__add">
+          <SelectInput
+            value={selectedId === '' ? '' : String(selectedId)}
+            onChange={(e) => setSelectedId(e.target.value === '' ? '' : Number(e.target.value))}
+            placeholder={config.pickerLabel}
+            options={availableOptions.map((o) => ({ value: o.value, label: o.label }))}
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => { void handleAdd(); }}
+            disabled={!selectedId || muts.create.isPending}
+          >+ Добавить</button>
+        </div>
+      )}
     </div>
   );
 }

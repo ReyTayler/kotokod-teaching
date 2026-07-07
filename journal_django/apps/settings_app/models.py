@@ -9,11 +9,17 @@ Models for settings_app — managed=False, поверх существующей
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 from apps.core.db_fields import TolerantJSONField
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class AdminUserSettings(models.Model):
     """
     Per-admin клиентские настройки.

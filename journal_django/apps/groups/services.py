@@ -6,11 +6,14 @@ GroupsService — тонкий слой бизнес-логики между vie
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from rest_framework.exceptions import ValidationError
 
 from apps.groups import repository
+
+logger = logging.getLogger(__name__)
 
 
 def list_groups(
@@ -44,17 +47,22 @@ def create_group(data: dict) -> dict:
     """
     from django.db import IntegrityError
     try:
-        return repository.create_group(data)
+        group = repository.create_group(data)
     except IntegrityError as exc:
         # pg error code 23505 = unique_violation
         if _is_unique_violation(exc):
             raise ValidationError({'error': 'Already exists'}, code='conflict')
         raise
+    _autogenerate_plan(group['id'], 'group_create')
+    return group
 
 
 def update_group(group_id: int, data: dict) -> Optional[dict]:
     """Обновляет группу. Возвращает None если не найдена."""
-    return repository.update_group(group_id, data)
+    group = repository.update_group(group_id, data)
+    if group is not None:
+        _autogenerate_plan(group_id, 'group_update')
+    return group
 
 
 def soft_delete_group(group_id: int) -> bool:
@@ -73,14 +81,31 @@ def get_schedule(group_id: int) -> Optional[dict]:
 
 def apply_schedule_change(group_id: int, data: dict) -> Optional[dict]:
     """Постоянная смена расписания. None если группы нет."""
-    return repository.apply_schedule_change(
+    result = repository.apply_schedule_change(
         group_id, data['effective_from'], data['slots'],
     )
+    if result is not None:
+        _autogenerate_plan(group_id, 'schedule_change')
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _autogenerate_plan(group_id: int, source: str) -> None:
+    """Механизм 1: авто-генерация плана при первичной настройке группы (появились
+    старт+слот). Прямой синхронный вызов ПОСЛЕ коммита repository (repository держит
+    свой atomic; ATOMIC_REQUESTS=False → выход из него = commit, данные видны).
+    Сигналы не используем: слоты создаются bulk_create → post_save не летит.
+
+    Best-effort: ошибки не пробрасываем — авто-генерация не должна ронять
+    создание/правку группы (guard/идемпотентность/аудит — в оркестраторе)."""
+    from apps.scheduling import services as scheduling_services  # локальный импорт (цикл groups↔scheduling)
+    try:
+        scheduling_services.autogenerate_plan_on_setup(group_id, source=source)
+    except Exception:  # noqa: BLE001 — side-effect не должен ронять запрос
+        logger.exception('autogenerate plan failed for group %s (%s)', group_id, source)
 
 def _is_unique_violation(exc: Exception) -> bool:
     """Проверить, является ли IntegrityError нарушением уникальности (pgcode 23505)."""

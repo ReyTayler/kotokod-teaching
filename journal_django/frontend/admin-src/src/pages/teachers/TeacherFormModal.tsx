@@ -44,14 +44,15 @@ export default function TeacherFormModal({ initial, onClose }: Props) {
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
+      wide
       title={isNew ? 'Новый преподаватель' : `Редактировать: ${initial!.name}`}
       footer={
         <button type="submit" form="teacher-form" className="btn-primary"
           disabled={muts.create.isPending || muts.update.isPending}>Сохранить</button>
       }
     >
-      <form id="teacher-form" onSubmit={onSubmit}>
-        <Field label="Имя" required>
+      <form id="teacher-form" className="modal-form" onSubmit={onSubmit}>
+        <Field label="Имя" required full>
           <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Иванов Алексей" />
         </Field>
         <Field label="Email">

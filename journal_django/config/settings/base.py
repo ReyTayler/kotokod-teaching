@@ -91,6 +91,8 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'rest_framework',
     'corsheaders',
+    'pgtrigger',
+    'pghistory',
     'apps.core',
     'apps.auth_app',
     'apps.groups',
@@ -108,6 +110,7 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.teacher_spa',
     'apps.scheduling',
+    'apps.changelog',
 ]
 
 # SessionMiddleware и AuthenticationMiddleware убраны:
@@ -117,7 +120,15 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'apps.changelog.middleware.ChangelogMiddleware',
 ]
+
+# ---------------------------------------------------------------------------
+# django-pghistory — журнал изменений (apps.changelog)
+# Контекст открывается только на мутирующих методах: GET-запросы не создают
+# записей в pghistory_context.
+# ---------------------------------------------------------------------------
+PGHISTORY_MIDDLEWARE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
 
 ROOT_URLCONF = 'config.urls'
 

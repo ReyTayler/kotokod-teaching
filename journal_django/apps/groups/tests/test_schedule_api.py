@@ -32,6 +32,9 @@ def sched_group(db):
         group_id = cur.fetchone()[0]
     yield group_id
     with connection.cursor() as cur:
+        # planned_lessons: schedule-change теперь авто-генерирует план (Механизм 1),
+        # FK на groups — Python-CASCADE (не ON DELETE в БД), чистим детей первыми.
+        cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_id])
         cur.execute('DELETE FROM group_schedule_slots WHERE group_id = %s', [group_id])
         cur.execute('DELETE FROM groups WHERE id = %s', [group_id])
         cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Floating } from './Floating';
 
 interface Option {
   value: string;
@@ -21,7 +22,9 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const selected = useMemo(() => options.find((o) => o.value === value), [options, value]);
 
@@ -35,7 +38,9 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const t = e.target as Node;
+      // Список рендерится в портале (вне containerRef) — исключаем и его.
+      if (!containerRef.current?.contains(t) && !popoverRef.current?.contains(t)) {
         setOpen(false);
         setQuery('');
       }
@@ -68,6 +73,7 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
     } else if (e.key === 'Enter') {
       if (open && filtered[highlight]) { e.preventDefault(); choose(filtered[highlight]); }
     } else if (e.key === 'Escape') {
+      if (open) e.stopPropagation(); // закрываем список, не саму модалку
       setOpen(false);
       setQuery('');
     }
@@ -80,6 +86,7 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
   return (
     <div className="combobox" ref={containerRef}>
       <input
+        ref={inputRef}
         type="text"
         className="combobox__input"
         value={displayValue}
@@ -92,13 +99,14 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
         aria-expanded={open}
         aria-autocomplete="list"
       />
-      {open && (
-        <ul
-          ref={listRef}
-          className="combobox__list"
-          style={{ maxHeight: `${maxVisible * ITEM_HEIGHT}px` }}
-          role="listbox"
-        >
+      <Floating
+        anchorRef={inputRef}
+        floatingRef={popoverRef}
+        open={open}
+        className="floating-popover"
+        maxHeight={maxVisible * ITEM_HEIGHT + 8}
+      >
+        <ul ref={listRef} className="combobox__list" role="listbox">
           {filtered.length === 0 ? (
             <li className="combobox__empty">Ничего не найдено</li>
           ) : (
@@ -119,7 +127,7 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
             ))
           )}
         </ul>
-      )}
+      </Floating>
     </div>
   );
 }

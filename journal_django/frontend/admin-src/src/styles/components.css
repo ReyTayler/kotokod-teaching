@@ -24,6 +24,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── DETAILS/SUMMARY — общий паттерн сворачиваемых технических блоков
+   (история расписания, техническое описание в журнале изменений) ── */
+.details-toggle > summary {
+  cursor: pointer;
+  color: var(--text3);
+  font-size: 12px;
+  padding: 4px 0;
+  list-style-position: inside;
+  user-select: none;
+}
+.details-toggle > summary:hover { color: var(--text2); }
+
 /* ── PROGRESS ── */
 .progress-wrap { display: flex; flex-direction: column; gap: 5px; }
 .progress-blocks { display: flex; gap: 3px; }
@@ -91,7 +103,8 @@
 .btn-save { margin-left: auto; }
 
 .btn-cancel,
-.btn-secondary {
+.btn-secondary,
+.btn-danger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -121,6 +134,17 @@
 }
 .btn-cancel:disabled,
 .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Danger — та же форма, что btn-cancel, но красный текст (деструктивные
+   действия: откат операции и т.п.). До этого класс не имел стилей вовсе. */
+.btn-danger { color: var(--danger); }
+.btn-danger:hover:not(:disabled) {
+  background: var(--bg3);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn-danger:active:not(:disabled) { background: var(--bg4); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-delete {
   display: inline-flex;

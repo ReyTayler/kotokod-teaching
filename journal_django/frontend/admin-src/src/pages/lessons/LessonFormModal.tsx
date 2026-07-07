@@ -100,7 +100,7 @@ export default function LessonFormModal({ onClose }: Props) {
         </button>
       }
     >
-      <form id="lesson-form" onSubmit={onSubmit}>
+      <form id="lesson-form" className="modal-form" onSubmit={onSubmit}>
         <Field label="Дата" required>
           <DateInput required value={lessonDate} onChange={(e) => setLessonDate(e.target.value)} />
         </Field>
@@ -129,7 +129,7 @@ export default function LessonFormModal({ onClose }: Props) {
             <SelectInput value={originalTeacherId} onChange={(e) => setOriginalTeacherId(e.target.value)} options={teacherOpts} />
           </Field>
         )}
-        <Field label="Ссылка на запись">
+        <Field label="Ссылка на запись" full>
           <TextInput value={recordUrl} onChange={(e) => setRecordUrl(e.target.value)} placeholder="https://..." />
         </Field>
 

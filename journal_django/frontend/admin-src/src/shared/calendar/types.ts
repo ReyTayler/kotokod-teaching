@@ -46,9 +46,16 @@ export interface Occurrence {
   students: OccStudent[];
 }
 
+/** Причины отсутствия плана (зеркало apps/scheduling/repository.py::groups_without_plan). */
+export type UnscheduledReason =
+  | 'no_start_date'
+  | 'no_total_lessons'
+  | 'no_slots'
+  | 'not_generated';
+
 export interface UnscheduledGroup {
   group: string;
-  reason: 'no_start_date' | 'no_slots';
+  reason: UnscheduledReason;
 }
 
 export interface CalendarResponse {

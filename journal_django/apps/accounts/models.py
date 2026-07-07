@@ -7,6 +7,7 @@ Models for accounts — стандартный Django AbstractUser + 2FA + ин�
 """
 from __future__ import annotations
 
+import pghistory
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.utils import timezone
@@ -41,6 +42,16 @@ class AccountManager(BaseUserManager):
         return self.get(email=email)
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+    exclude=[
+        'password', 'twofa_secret',           # секреты — НИКОГДА в журнал
+        'token_version', 'last_login',        # технический шум (меняются при каждом входе)
+        'failed_login_count', 'locked_until',
+    ],
+)
 class Account(AbstractUser):
     """Учётка пользователя (teacher | manager | admin)."""
     

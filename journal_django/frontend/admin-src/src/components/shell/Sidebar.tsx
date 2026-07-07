@@ -88,6 +88,13 @@ export const NAV_ICONS: Record<string, ReactElement> = {
       <polyline points="10 9 9 9 8 9"/>
     </svg>
   ),
+  changelog: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 3-6.7"/>
+      <polyline points="3 4 3 9 8 9"/>
+      <polyline points="12 7 12 12 16 14"/>
+    </svg>
+  ),
   accounts: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="8" r="4"/>
@@ -207,6 +214,12 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
               className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
             >
               {NAV_ICONS['audit']} Журнал ИБ
+            </NavLink>
+            <NavLink
+              to="/admin/changelog"
+              className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
+            >
+              {NAV_ICONS['changelog']} Журнал изменений
             </NavLink>
           </>
         )}

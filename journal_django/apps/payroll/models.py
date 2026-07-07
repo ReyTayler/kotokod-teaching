@@ -8,9 +8,15 @@ numeric-поля рендерятся строкой с масштабом ('500
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class Payroll(models.Model):
     """Запись расчётного листа по уроку (1:1 с lessons)."""
 

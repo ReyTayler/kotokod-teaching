@@ -244,16 +244,14 @@ thead th { position: sticky; top: 0; }
   color: var(--text3);
   margin-left: auto;
 }
-.paginator__size select {
+.select-input.paginator__size-select { width: auto; }
+.paginator__size-select .select-input__trigger {
   padding: 4px 8px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  font: inherit;
   font-size: 12px;
   color: var(--text2);
-  cursor: pointer;
+  min-height: 26px;
 }
+.paginator__size-select .select-input__chevron { width: 10px; height: 10px; }
 
 /* ── DATA TABLE SERVER MODE ── */
 .data-table-wrapper { position: relative; }

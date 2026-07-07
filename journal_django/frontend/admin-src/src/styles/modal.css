@@ -24,7 +24,26 @@
   animation: modalIn .18s cubic-bezier(.34,1.4,.64,1);
 }
 @keyframes modalIn { from { opacity: 0; transform: scale(.96) translateY(8px); } to { opacity: 1; transform: none; } }
-.modal--wide { max-width: 720px; }
+.modal--wide { max-width: 860px; }
+
+/* ── 2-колоночная сетка форм создания/редактирования сущностей ──
+   На десктопе поля идут в две колонки, экономя вертикаль и раскрывая
+   ширину «широкой» модалки. Заголовки секций, полноширинные поля и
+   вспомогательные блоки (слоты, membership) занимают всю строку. */
+.modal-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+  align-items: start;
+}
+.modal-form > .modal-section-label,
+.modal-form > .field--full,
+.modal-form > :not(.field) {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .modal-form { grid-template-columns: 1fr; }
+}
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--space-4) var(--space-5);
@@ -95,6 +114,74 @@
 .toggle-switch input:checked+.toggle-slider { background: rgba(12,155,199,.25); }
 .toggle-switch input:checked+.toggle-slider::before { transform: translateX(16px); background: var(--accent); }
 /* modal-footer defined in ── MODAL ── block above */
+
+/* ── FORMAT TOGGLE (segmented: индивидуальный / групповой) ── */
+.format-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.format-toggle__btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg2);
+  color: var(--text3);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+.format-toggle__btn:hover:not(.is-active):not(:disabled) { border-color: var(--border-strong); color: var(--text2); }
+.format-toggle__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Заблокировано (редактирование): активную кнопку показываем в цвете, неактивную — приглушаем. */
+.format-toggle__btn:disabled { cursor: default; }
+.format-toggle__btn:disabled:not(.is-active) { opacity: .45; }
+.format-toggle__title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.format-toggle__dot {
+  width: 16px; height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: var(--bg2);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+/* Активная кнопка получает залитую точку с цветом формата (box-shadow — внутреннее кольцо). */
+.format-toggle__btn.is-active .format-toggle__dot {
+  box-shadow: inset 0 0 0 3px var(--bg2);
+}
+
+/* Индивидуальный — синий */
+.format-toggle__btn[data-format="individual"].is-active {
+  border-color: var(--info);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info);
+}
+.format-toggle__btn[data-format="individual"].is-active .format-toggle__dot {
+  border-color: var(--info);
+  background: var(--info);
+}
+
+/* Групповой — жёлтый */
+.format-toggle__btn[data-format="group"].is-active {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 15%, transparent);
+  color: var(--amber);
+}
+.format-toggle__btn[data-format="group"].is-active .format-toggle__dot {
+  border-color: var(--amber);
+  background: var(--amber);
+}
+
+@media (max-width: 480px) {
+  .format-toggle { grid-template-columns: 1fr; }
+}
+
 /* ── BLOCK SELECTOR ── */
 .block-selector { display: flex; flex-direction: column; gap: 8px; }
 .block-selector__row { display: flex; flex-wrap: wrap; gap: 6px; }

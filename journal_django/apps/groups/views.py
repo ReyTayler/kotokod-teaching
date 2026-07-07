@@ -22,6 +22,7 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import IsManagerOrAdmin
 from apps.groups import services
+from apps.groups.exceptions import ImmutableGroupFormat
 from apps.groups.serializers import (
     GroupReadSerializer, GroupUpdateSerializer, GroupWriteSerializer,
     ScheduleChangeSerializer,
@@ -128,7 +129,10 @@ class GroupDetailView(APIView):
         serializer = GroupUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        updated = services.update_group(pk, serializer.validated_data)
+        try:
+            updated = services.update_group(pk, serializer.validated_data)
+        except ImmutableGroupFormat as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if updated is None:
             raise NotFound({'error': 'Not found'})
 

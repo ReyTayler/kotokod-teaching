@@ -43,6 +43,8 @@
 
 **FIFO-финансы**: `computeFifo` (services/fifo.js). Цена урока = `total_amount/(subscriptions_count×4)` конкретной оплаты. Guard: оплаты с `subscriptions_count=NULL/0` пропускаются (→ Infinity ломает суммы). Подробнее: `docs/finances.md`.
 
+**Журнал изменений (pghistory)**: новые доменные модели ОБЯЗАНЫ получать `@pghistory.track(InsertEvent(), UpdateEvent(), DeleteEvent())` + запись в `apps/changelog/registry.py` (тест `test_registry_covers_all_tracked_models` упадёт, если забыть) + миграцию. Метки операций — `apps/changelog/labels.py` (новый мутирующий URL → новое правило). Секретные поля — в `exclude` декоратора.
+
 **Paginator**: пагинация используется встроенная от фреймворка, никаких постоянных пагинаций от SELECT.
 
 **Sort-dir bug pattern**: `(val==='asc'||val==='desc') ? val : default` — чинить в обоих местах: `parsePaginationRequest` и `paginate()`.

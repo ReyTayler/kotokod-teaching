@@ -1,9 +1,7 @@
 require('dotenv').config();
 
 const steps = [
-  ['directions', require('./backfill-directions')],
   ['teachers',   require('./backfill-teachers')],
-  ['tokens',     require('./backfill-tokens')],
   ['groups',     require('./backfill-groups')],
   ['students',   require('./backfill-students')],
   ['lessons',    require('./backfill-lessons')],

@@ -7,9 +7,15 @@ DATE-поля (birth_date, first_purchase_date) хранятся как CharFiel
 """
 from __future__ import annotations
 
+import pghistory
 from django.db import models
 
 
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
 class Student(models.Model):
     """
     Ученик.

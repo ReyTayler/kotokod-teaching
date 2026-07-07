@@ -61,17 +61,18 @@ export default function DirectionFormModal({ initial, onClose }: Props) {
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
+      wide
       title={isNew ? 'Новое направление' : `Редактировать: ${initial!.name}`}
       footer={
         <button type="submit" form="direction-form" className="btn-save"
           disabled={muts.create.isPending || muts.update.isPending}>Сохранить</button>
       }
     >
-      <form id="direction-form" onSubmit={onSubmit}>
-        <Field label="Название" required>
+      <form id="direction-form" className="modal-form" onSubmit={onSubmit}>
+        <Field label="Название" required full>
           <TextInput required value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Имя листа в Sheets" required>
+        <Field label="Имя листа в Sheets" required full>
           <TextInput required value={sheetName} onChange={(e) => setSheetName(e.target.value)} />
         </Field>
         <Field label="Уроков на направление">

@@ -1,3 +1,5 @@
+import { SelectInput } from '../form/SelectInput';
+
 interface PaginatorProps {
   page: number;
   pageSize: number;
@@ -61,12 +63,12 @@ export function Paginator({ page, pageSize, total, onPageChange, onPageSizeChang
       </div>
       <div className="paginator__size">
         На странице:
-        <select
-          value={pageSize}
+        <SelectInput
+          className="paginator__size-select"
+          value={String(pageSize)}
           onChange={(e) => { onPageSizeChange(Number(e.target.value)); }}
-        >
-          {PAGE_SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+          options={PAGE_SIZE_OPTIONS.map((s) => ({ value: s, label: String(s) }))}
+        />
       </div>
     </div>
   );

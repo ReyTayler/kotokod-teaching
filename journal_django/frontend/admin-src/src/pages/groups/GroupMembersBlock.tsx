@@ -16,6 +16,9 @@ export default function GroupMembersBlock({ group }: { group: Group }) {
         groupId: group.id,
         pickerOptions: studentOptions,
         pickerLabel: 'Выберите ученика',
+        // Индивидуальная группа — строго один ученик.
+        capacity: group.is_individual ? 1 : undefined,
+        capacityNote: group.is_individual ? 'Индивидуальная группа — только один ученик' : undefined,
       }}
       emptyText="В группе нет учеников"
       renderCard={(m) => {

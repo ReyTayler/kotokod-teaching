@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InputHTMLAttributes } from 'react';
 import { MONTHS_RU } from '../../lib/slots';
+import { Floating } from './Floating';
 
 interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
   value?: string; // 'YYYY-MM-DD' or ''
@@ -70,6 +71,7 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const valuePart = useMemo(() => parseISO(value), [value]);
   const today = useMemo(() => todayMSK(), []);
@@ -92,7 +94,9 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      // Календарь рендерится в портале (вне containerRef) — исключаем и его.
+      if (!containerRef.current?.contains(t) && !popoverRef.current?.contains(t)) setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -107,7 +111,7 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
   const onKey = (e: React.KeyboardEvent) => {
     if (disabled) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); }
-    else if (e.key === 'Escape') setOpen(false);
+    else if (e.key === 'Escape') { if (open) e.stopPropagation(); setOpen(false); } // закрываем календарь, не модалку
   };
 
   const grid = useMemo(() => buildMonthGrid(viewYM.y, viewYM.m), [viewYM]);
@@ -141,8 +145,15 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
           <path d="M2 5.5h10M5 1.5v2M9 1.5v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
         </svg>
       </button>
-      {open && (
-        <div className="date-input__popover" role="dialog" aria-label="Выбор даты">
+      <Floating
+        anchorRef={triggerRef}
+        floatingRef={popoverRef}
+        open={open}
+        matchWidth={false}
+        maxHeight={360}
+        className="date-input__popover"
+      >
+        <div role="dialog" aria-label="Выбор даты">
           <div className="date-input__head">
             <button type="button" className="date-input__nav" onClick={() => stepMonth(-1)} aria-label="Прошлый месяц">‹</button>
             <span className="date-input__title">{MONTHS_RU[viewYM.m]} {viewYM.y}</span>
@@ -186,7 +197,7 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
             )}
           </div>
         </div>
-      )}
+      </Floating>
     </div>
   );
 }

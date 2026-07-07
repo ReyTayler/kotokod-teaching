@@ -21,6 +21,7 @@ urlpatterns = [
     path('api/admin/discounts', include('apps.discounts.urls')),
     path('api/admin/settings', include('apps.settings_app.urls')),
     path('api/admin/audit-log', include('apps.audit.urls')),
+    path('api/admin/changelog', include('apps.changelog.urls')),
     # Phase 3 — students
     path('api/admin/students', include('apps.students.urls')),
     # Phase 4 — memberships

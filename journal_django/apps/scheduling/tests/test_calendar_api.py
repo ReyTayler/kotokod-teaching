@@ -195,19 +195,6 @@ class TestCalendar:
         assert o['status'] == 'cancelled'
         assert o['label'] == 'Отменён'
 
-    def test_status_moved_passthrough_with_label(self, planned_setup):
-        """status='moved' + moved_to_date → лейбл 'Перенесён на DD.MM', movedTo задан."""
-        _seed_planned(
-            planned_setup['group_a'], planned_setup['teacher_a'],
-            seq=1, lesson_number=1, date='2026-06-01', status='moved',
-            moved_to='2026-06-03',
-        )
-        body = planned_setup['client_a'].get('/api/calendar' + WIN).json()
-        o = next(x for x in body['occurrences'] if x['date'] == '2026-06-01')
-        assert o['status'] == 'moved'
-        assert o['label'] == 'Перенесён на 03.06'
-        assert o['movedTo'] == '2026-06-03'
-
     def test_reschedule_shows_moved_from(self, planned_setup):
         """Разово перенесённая строка (moved_from_date) отображает movedFrom."""
         _seed_planned(

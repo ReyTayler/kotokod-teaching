@@ -301,3 +301,98 @@ export interface MonthlyFinanceData {
   available_years: number[];                    // годы с данными (для дропдауна)
   byYear: Record<string, MonthlyFinancePoint[]>; // ключ = год-строка → 12 точек (Янв..Дек)
 }
+
+// ===== Changelog (журнал изменений данных) =====
+// Контракт: apps/changelog (repository.list_operations / get_operation / revert).
+
+export interface ChangelogActor {
+  account_id: number;
+  email: string | null;
+  name: string | null;   // имя преподавателя / ФИО / fallback email
+  role: Role | null;
+}
+
+/** Сводка по одной сущности внутри операции (лента). */
+export interface ChangelogEntitySummary {
+  entity: string;   // ключ из apps/changelog/registry.py → CHANGELOG_ENTITY_LABELS
+  inserts: number;
+  updates: number;
+  deletes: number;
+}
+
+/** Строка ленты: 1 строка = 1 операция (pghistory-контекст). */
+export interface ChangelogOperation {
+  id: string;                 // uuid контекста
+  occurred_at: string;
+  actor: ChangelogActor | null; // null = вне HTTP (management-команда)
+  operation: string;          // ключ → CHANGELOG_OPERATION_LABELS
+  summary: string;            // человекочитаемое описание (бэкенд)
+  url: string | null;
+  method: string | null;
+  entities: ChangelogEntitySummary[];
+  events_total: number;
+  revertable: boolean;
+  reverted: boolean;          // операция уже откатывалась
+}
+
+export type ChangelogEventLabel = 'insert' | 'update' | 'delete';
+
+/** Одно очеловеченное изменение поля внутри события. */
+export interface ChangelogFieldChange {
+  label: string;          // русская подпись поля
+  old: string | null;     // null у создания
+  new: string | null;     // null у удаления
+}
+
+/** Полностью очеловеченное представление события (бэкенд). */
+export interface ChangelogEventHuman {
+  title: string;                       // «Ученик Иван Петров»
+  text: string;                        // готовая фраза (= description)
+  changes: ChangelogFieldChange[];
+}
+
+/** Одно row-событие внутри операции (детальная карточка). */
+export interface ChangelogEvent {
+  model: string;              // 'groups.Group'
+  entity: string;
+  obj_id: number | string | null;
+  label: ChangelogEventLabel;
+  data: Record<string, unknown>;
+  /** поле → [было, стало]; null у insert/первого события строки. */
+  diff: Record<string, [unknown, unknown]> | null;
+  /** Готовая человекочитаемая фраза (бэкенд). Опционально — на случай старого кэша. */
+  description?: string;
+  /** Полностью очеловеченное представление (бэкенд). Опционально — на случай старого кэша. */
+  human?: ChangelogEventHuman;
+}
+
+export interface ChangelogDetail {
+  id: string;
+  occurred_at: string;
+  actor: ChangelogActor | null;
+  operation: string;
+  summary: string;
+  url: string | null;
+  method: string | null;
+  revertable: boolean;
+  reverted: boolean;
+  events: ChangelogEvent[];
+  /** Готовая русская причина недоступности отката; null = откат доступен. Опционально — старый кэш. */
+  not_revertable_reason?: string | null;
+}
+
+export interface RevertResult {
+  reverted_events: number;
+  inserts_undone: number;
+  deletes_undone: number;
+  updates_undone: number;
+}
+
+/** Элемент details.conflicts в 409-ответе POST .../revert. */
+export interface RevertConflictItem {
+  model: string;   // 'groups.Group'
+  entity: string;  // ключ → CHANGELOG_ENTITY_LABELS
+  obj_id: number | string | null;
+  reason: 'row_exists' | 'row_missing' | 'changed_later' | 'no_previous_state';
+  fields?: string[];
+}

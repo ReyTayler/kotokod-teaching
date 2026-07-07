@@ -96,6 +96,8 @@ class TestRBAC:
             ('post', f'/api/admin/groups/{gid}/plan/generate'),
             ('post', f'/api/admin/groups/{gid}/plan/1/reschedule'),
             ('post', f'/api/admin/groups/{gid}/plan/permanent-change'),
+            ('post', f'/api/admin/groups/{gid}/plan/change-teacher-permanent'),
+            ('post', f'/api/admin/groups/{gid}/plan/1/change-teacher'),
             ('post', f'/api/admin/groups/{gid}/plan/1/cancel'),
             ('post', f'/api/admin/groups/{gid}/plan/extra'),
         ]
@@ -187,6 +189,20 @@ class TestGetPlan:
         plan2 = _generate(manager_client, gid).json()
         assert len(plan2) == 8  # повторный прогон не плодит дубли
 
+    def test_generate_preserves_manual_reschedule(self, manager_client, plan_group):
+        """Повторная генерация НЕ затирает ручные операции: уже существующие строки
+        не пересчитываются (generate только досоздаёт недостающие seq)."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        target = _by_seq(plan)[2]  # 2026-06-08
+        manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/reschedule',
+            {'new_date': '2026-06-10'}, format='json',
+        )
+        after = _by_seq(_generate(manager_client, gid).json())
+        assert after[2]['scheduled_date'] == '2026-06-10'      # ручной перенос сохранён
+        assert after[2]['moved_from_date'] == '2026-06-08'
+
 
 # ---------------------------------------------------------------------------
 # 4. Операции
@@ -245,6 +261,83 @@ class TestReschedule:
             {'new_date': '2026-06-10', 'bogus': 1}, format='json',
         )
         assert resp.status_code == 400
+
+    def test_same_date_reschedule_does_not_set_moved_from(self, manager_client, plan_group):
+        """Перенос на ту же дату (правка только времени) не помечает строку
+        перенесённой — moved_from_date остаётся null."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        target = _by_seq(plan)[2]  # 2026-06-08
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/reschedule',
+            {'new_date': target['scheduled_date'], 'new_time': '15:00'}, format='json',
+        )
+        assert resp.status_code == 200
+        assert resp.json()['moved_from_date'] is None
+        assert resp.json()['scheduled_time'] == '15:00'
+
+
+class TestChangeTeacher:
+    def test_changes_only_teacher(self, manager_client, plan_group):
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        target = _by_seq(plan)[2]  # 2026-06-08
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/change-teacher',
+            {'new_teacher_id': plan_group['teacher_b']}, format='json',
+        )
+        assert resp.status_code == 200
+        row = resp.json()
+        assert row['teacher_id'] == plan_group['teacher_b']
+        assert row['scheduled_date'] == '2026-06-08'   # дата не тронута
+        assert row['moved_from_date'] is None           # НЕ помечен перенесённым
+        assert row['seq'] == 2
+
+    def test_change_teacher_done_conflict(self, manager_client, plan_group):
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        target = _by_seq(plan)[3]
+        with connection.cursor() as cur:
+            cur.execute("UPDATE planned_lessons SET status='done' WHERE id=%s", [target['id']])
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/change-teacher',
+            {'new_teacher_id': plan_group['teacher_b']}, format='json',
+        )
+        assert resp.status_code in (400, 409)
+
+    def test_missing_lesson_404(self, manager_client, plan_group):
+        gid = plan_group['group_id']
+        _generate(manager_client, gid)
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/99999999/change-teacher',
+            {'new_teacher_id': plan_group['teacher_b']}, format='json',
+        )
+        assert resp.status_code == 404
+
+
+class TestChangeTeacherPermanent:
+    def test_sets_teacher_on_tail_only(self, manager_client, plan_group):
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/change-teacher-permanent',
+            {'from_seq': 5, 'new_teacher_id': plan_group['teacher_b']}, format='json',
+        )
+        assert resp.status_code == 200
+        by_seq = _by_seq(resp.json())
+        assert by_seq[4]['teacher_id'] == plan_group['teacher_a']   # голова не тронута
+        assert by_seq[5]['teacher_id'] == plan_group['teacher_b']
+        assert by_seq[8]['teacher_id'] == plan_group['teacher_b']
+        # даты/дни не изменились
+        assert by_seq[5]['scheduled_date'] == '2026-06-29'
+        assert by_seq[5]['scheduled_time'] == '10:00'
+
+    def test_missing_group_404(self, manager_client):
+        resp = manager_client.post(
+            '/api/admin/groups/99999999/plan/change-teacher-permanent',
+            {'from_seq': 1, 'new_teacher_id': 1}, format='json',
+        )
+        assert resp.status_code == 404
 
 
 class TestPermanentChange:
@@ -368,6 +461,28 @@ class TestCancel:
             f'/api/admin/groups/{gid}/plan/99999999/cancel', {}, format='json',
         )
         assert resp.status_code == 404
+
+    def test_second_cancel_does_not_move_prior_marker_or_extra(self, manager_client, plan_group):
+        """Повторная отмена не двигает прежний маркер 'cancelled' и доп. занятие —
+        сдвиг +7 касается только курсовых pending/overdue строк."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        by_seq = _by_seq(plan)
+        # extra на 06-30 (>= будущей from_date) — не должен двигаться
+        manager_client.post(
+            f'/api/admin/groups/{gid}/plan/extra',
+            {'date': '2026-06-30', 'time': '12:00'}, format='json',
+        )
+        # первая отмена: seq=5 (2026-06-29) → маркер cancelled на 06-29
+        manager_client.post(f'/api/admin/groups/{gid}/plan/{by_seq[5]["id"]}/cancel', {}, format='json')
+        # вторая отмена более раннего seq=3 (2026-06-15)
+        after = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{by_seq[3]["id"]}/cancel', {}, format='json',
+        ).json()
+        markers = [r for r in after if r['status'] == 'cancelled']
+        assert any(m['scheduled_date'] == '2026-06-29' for m in markers)  # прежний маркер на месте
+        extras = [r for r in after if r['is_extra'] and r['status'] != 'cancelled']
+        assert extras[0]['scheduled_date'] == '2026-06-30'                # extra не сдвинут
 
     def test_cancel_extra_row_rejected(self, manager_client, plan_group):
         """Отмена по не-курсовой (extra) строке → 400, хвост не сдвинут."""

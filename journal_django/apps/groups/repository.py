@@ -22,6 +22,7 @@ from django.db.models.functions import Now
 
 from apps.core.utils.orm import dictrow, dictrows
 
+from .exceptions import ImmutableGroupFormat
 from .models import Group, GroupScheduleSlot
 
 
@@ -226,6 +227,16 @@ def update_group(group_id: int, data: dict) -> Optional[dict]:
         obj = Group.objects.filter(id=group_id).first()
         if obj is None:
             return None
+
+        # Формат группы неизменен: смена is_individual на существующей группе
+        # запрещена (влияет на инвариант «≤1 активный membership»). Совпадающее
+        # значение или отсутствие ключа — no-op (идемпотентный round-trip).
+        if (
+            'is_individual' in data
+            and data['is_individual'] is not None
+            and data['is_individual'] != obj.is_individual
+        ):
+            raise ImmutableGroupFormat()
 
         if data.get('name'):
             obj.name = data['name']

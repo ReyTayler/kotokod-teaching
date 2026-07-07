@@ -6,6 +6,8 @@ psycopg2-binary==2.9.10
 django-cors-headers==4.6.0
 django-environ==0.11.2
 django-ratelimit==4.1.0                # rate-limit на auth-вьюхах (было в коде, не в requirements)
+django-pghistory==3.9.2                # журнал изменений: PG-триггеры + контекст (спека 2026-07-06)
+django-pgtrigger==4.17.0               # зависимость pghistory (триггеры декларативно из миграций)
 pyotp==2.9.0
 bcrypt==4.2.1
 qrcode==8.0

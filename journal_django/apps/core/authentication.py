@@ -10,6 +10,7 @@ apps/core/authentication.py — JWT-аутентификация через Http
 """
 from __future__ import annotations
 
+import pghistory
 from django.conf import settings
 from rest_framework.authentication import CSRFCheck
 from rest_framework import exceptions
@@ -51,7 +52,22 @@ class CookieJWTAuthentication(JWTAuthentication):
         if request.method in _UNSAFE_METHODS:
             self._enforce_csrf(request)
 
-        return self.get_user(validated_token), validated_token
+        user = self.get_user(validated_token)
+
+        # Журнал изменений: дописать актора в pghistory-контекст запроса.
+        # Функция-вызов (не контекст-менеджер) добавляет metadata ТОЛЬКО если
+        # middleware уже открыл сессию (мутирующие методы) — на GET это no-op.
+        # name — как в /api/auth/me: имя преподавателя или email.
+        actor_name = user.get_full_name() or None
+        if user.teacher_id and not actor_name:
+            teacher = getattr(user, 'teacher', None)
+            actor_name = teacher.name if teacher else None
+        pghistory.context(
+            account_id=user.id, email=user.email, role=user.role,
+            name=actor_name or user.email,
+        )
+
+        return user, validated_token
 
     def _enforce_csrf(self, request) -> None:
         """
