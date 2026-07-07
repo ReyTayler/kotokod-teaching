@@ -236,7 +236,7 @@ export interface Paginated<T> {
 
 // ===== Accounts & RBAC =====
 
-export type Role = 'teacher' | 'manager' | 'admin';
+export type Role = 'teacher' | 'manager' | 'admin' | 'superadmin';
 
 export type AccountStatus = 'invited' | 'active' | 'expired' | 'disabled';
 
@@ -246,6 +246,9 @@ export interface Account {
   role: Role;
   teacher_id: number | null;
   teacher_name?: string | null;
+  full_name?: string | null;
+  // Вычисляемое сервером имя: full_name || teacher_name || email.
+  name?: string;
   active: boolean;
   twofa_enabled: boolean;
   twofa_method: 'totp' | 'email' | null;

@@ -23,6 +23,7 @@ export interface CreatedAccount extends InviteResult {
   email: string;
   role: Role;
   teacher_id: number | null;
+  full_name?: string | null;
 }
 
 export function useAccountMutations() {
@@ -30,13 +31,19 @@ export function useAccountMutations() {
   const invalidate = () => qc.invalidateQueries({ queryKey: KEY });
   return {
     create: useMutation({
-      mutationFn: (body: { email: string; role: Role; teacher_id: number | null }) =>
+      mutationFn: (body: { email: string; role: Role; teacher_id: number | null; full_name?: string | null }) =>
         api<CreatedAccount>('POST', '/api/admin/accounts', body),
       onSuccess: invalidate,
     }),
     update: useMutation({
-      mutationFn: ({ id, body }: { id: number; body: Partial<Pick<Account, 'email' | 'role' | 'active'>> }) =>
+      mutationFn: ({ id, body }: { id: number; body: Partial<Pick<Account, 'email' | 'role' | 'active' | 'full_name'>> }) =>
         api<Account>('PATCH', `/api/admin/accounts/${id}`, body),
+      onSuccess: invalidate,
+    }),
+    // Отключить/включить учётку (обратимо).
+    setActive: useMutation({
+      mutationFn: ({ id, active }: { id: number; active: boolean }) =>
+        api<{ ok: true; active: boolean }>('POST', `/api/admin/accounts/${id}/set-active`, { active }),
       onSuccess: invalidate,
     }),
     // reset-password теперь выписывает invite-ссылку (не temp-пароль).

@@ -16,15 +16,17 @@ import type { Account, AccountStatus, Role } from '../../lib/types';
 // ─── Подписи ролей ────────────────────────────────────────────────────────────
 
 const ROLE_LABELS: Record<Role, string> = {
-  teacher: 'Преподаватель',
-  manager: 'Менеджер',
-  admin:   'Администратор',
+  teacher:    'Преподаватель',
+  manager:    'Менеджер',
+  admin:      'Администратор',
+  superadmin: 'Суперадминистратор',
 };
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
-  { value: 'teacher', label: 'Преподаватель' },
-  { value: 'manager', label: 'Менеджер' },
-  { value: 'admin',   label: 'Администратор' },
+  { value: 'teacher',    label: 'Преподаватель' },
+  { value: 'manager',    label: 'Менеджер' },
+  { value: 'admin',      label: 'Администратор' },
+  { value: 'superadmin', label: 'Суперадминистратор' },
 ];
 
 // ─── Вспомогалки ──────────────────────────────────────────────────────────────
@@ -62,6 +64,7 @@ function CreateAccountModal({ teacherOptions, onClose, onCreated }: CreateModalP
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('teacher');
   const [teacherId, setTeacherId] = useState('');
+  const [fullName, setFullName] = useState('');
   const [errors, setErrors] = useState<{ email?: string; teacher?: string }>({});
 
   const validate = (): boolean => {
@@ -81,6 +84,7 @@ function CreateAccountModal({ teacherOptions, onClose, onCreated }: CreateModalP
         email: email.trim(),
         role,
         teacher_id: role === 'teacher' ? Number(teacherId) : null,
+        full_name: role !== 'teacher' && fullName.trim() ? fullName.trim() : undefined,
       });
       onCreated(result);
     } catch (err) {
@@ -120,13 +124,14 @@ function CreateAccountModal({ teacherOptions, onClose, onCreated }: CreateModalP
             onChange={(e) => {
               setRole(e.target.value as Role);
               if (e.target.value !== 'teacher') setTeacherId('');
+              else setFullName('');
               setErrors((p) => ({ ...p, teacher: undefined }));
             }}
             options={ROLE_OPTIONS}
           />
         </Field>
 
-        {role === 'teacher' && (
+        {role === 'teacher' ? (
           <Field label="Преподаватель" required error={errors.teacher}>
             <Combobox
               value={teacherId}
@@ -135,7 +140,66 @@ function CreateAccountModal({ teacherOptions, onClose, onCreated }: CreateModalP
               placeholder="Начните вводить имя…"
             />
           </Field>
+        ) : (
+          <Field label="Имя">
+            <TextInput
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Иван Иванов"
+            />
+          </Field>
         )}
+      </form>
+    </Dialog>
+  );
+}
+
+// ─── Модалка «Изменить имя» ────────────────────────────────────────────────────
+
+interface EditNameModalProps {
+  account: Account;
+  onClose: () => void;
+}
+
+function EditNameModal({ account, onClose }: EditNameModalProps) {
+  const muts = useAccountMutations();
+  const showError = useApiError();
+  const [fullName, setFullName] = useState(account.full_name ?? '');
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      await muts.update.mutateAsync({ id: account.id, body: { full_name: fullName.trim() || null } });
+      onClose();
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Изменить имя"
+      footer={
+        <button
+          type="submit"
+          form="account-edit-name-form"
+          className="btn-add"
+          disabled={muts.update.isPending}
+        >
+          {muts.update.isPending ? 'Сохраняем…' : 'Сохранить'}
+        </button>
+      }
+    >
+      <form id="account-edit-name-form" onSubmit={onSubmit}>
+        <Field label="Имя">
+          <TextInput
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="Иван Иванов"
+          />
+        </Field>
       </form>
     </Dialog>
   );
@@ -253,7 +317,9 @@ type PendingAction =
   | { type: 'regenerate';    accountId: number; email: string }
   | { type: 'revokeInvite';  accountId: number; email: string }
   | { type: 'reset2fa';      accountId: number; email: string }
-  | { type: 'deactivate';    accountId: number; email: string };
+  | { type: 'disable';       accountId: number; email: string }
+  | { type: 'enable';        accountId: number; email: string }
+  | { type: 'delete';        accountId: number; email: string };
 
 // ─── Статус учётки ─────────────────────────────────────────────────────────────
 
@@ -282,6 +348,7 @@ export default function AccountsPage() {
 
   // Модалки
   const [createOpen, setCreateOpen]     = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [revealData, setRevealData]     = useState<{ title: string; email: string; inviteUrl: string; expiresAt: string } | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
@@ -315,9 +382,17 @@ export default function AccountsPage() {
         await muts.reset2fa.mutateAsync(pendingAction.accountId);
         toast('2FA сброшена', 'ok');
         setPendingAction(null);
-      } else if (pendingAction.type === 'deactivate') {
+      } else if (pendingAction.type === 'disable') {
+        await muts.setActive.mutateAsync({ id: pendingAction.accountId, active: false });
+        toast('Учётка отключена', 'ok');
+        setPendingAction(null);
+      } else if (pendingAction.type === 'enable') {
+        await muts.setActive.mutateAsync({ id: pendingAction.accountId, active: true });
+        toast('Учётка включена', 'ok');
+        setPendingAction(null);
+      } else if (pendingAction.type === 'delete') {
         await muts.remove.mutateAsync(pendingAction.accountId);
-        toast('Учётка деактивирована', 'ok');
+        toast('Учётка удалена', 'ok');
         setPendingAction(null);
       }
     } catch (err) {
@@ -328,11 +403,68 @@ export default function AccountsPage() {
 
   const isConfirmPending =
     muts.resetPassword.isPending || muts.invite.isPending || muts.revokeInvite.isPending ||
-    muts.reset2fa.isPending || muts.remove.isPending;
+    muts.reset2fa.isPending || muts.setActive.isPending || muts.remove.isPending;
+
+  const getConfirmConfig = (action: PendingAction): { title: string; message: string; confirmLabel: string; danger?: boolean } => {
+    switch (action.type) {
+      case 'resetPassword':
+        return {
+          title: 'Сбросить пароль?',
+          message: `Для ${action.email} будет выписана новая invite-ссылка для установки пароля. Текущий пароль и активные сессии перестанут работать.`,
+          confirmLabel: 'Сбросить пароль',
+        };
+      case 'regenerate':
+        return {
+          title: 'Перевыписать ссылку?',
+          message: `Прежняя ссылка для ${action.email} будет отозвана, и создана новая (действует 48 часов).`,
+          confirmLabel: 'Перевыписать',
+        };
+      case 'revokeInvite':
+        return {
+          title: 'Отозвать ссылку?',
+          message: `Активная invite-ссылка для ${action.email} перестанет работать. Чтобы дать доступ снова, выпишите новую.`,
+          confirmLabel: 'Отозвать',
+          danger: true,
+        };
+      case 'reset2fa':
+        return {
+          title: 'Сбросить 2FA?',
+          message: `2FA для ${action.email} будет сброшена. Пользователю придётся настроить заново.`,
+          confirmLabel: 'Сбросить 2FA',
+        };
+      case 'disable':
+        return {
+          title: 'Отключить учётку?',
+          message: `Учётка ${action.email} будет отключена и разлогинена. Доступ можно вернуть в любой момент кнопкой «Включить».`,
+          confirmLabel: 'Отключить',
+          danger: true,
+        };
+      case 'enable':
+        return {
+          title: 'Включить учётку?',
+          message: `Учётка ${action.email} снова получит доступ к системе.`,
+          confirmLabel: 'Включить',
+        };
+      case 'delete':
+        return {
+          title: 'Удалить учётку безвозвратно?',
+          message: `Учётка ${action.email} будет удалена физически — это действие НЕЛЬЗЯ отменить. История аудита сохранится, но саму учётку восстановить будет невозможно.`,
+          confirmLabel: 'Удалить навсегда',
+          danger: true,
+        };
+    }
+  };
 
   // ── Колонки ──────────────────────────────────────────────────────────────────
 
   const columns: Column<Account>[] = [
+    {
+      key: 'name',
+      label: 'Имя',
+      sortable: false,
+      searchable: false,
+      cell: (r) => r.name || r.full_name || r.teacher_name || <span style={{ color: 'var(--text3)' }}>—</span>,
+    },
     {
       key: 'email',
       label: 'Email',
@@ -441,20 +573,51 @@ export default function AccountsPage() {
               </>
             )}
 
-            {r.active && (
+            {r.role !== 'teacher' && (
               <>
                 {sep}
                 <button
                   type="button"
                   className="btn-link"
-                  style={{ color: 'var(--danger)' }}
-                  title="Деактивировать учётку"
-                  onClick={() => setPendingAction({ type: 'deactivate', accountId: r.id, email: r.email })}
+                  title="Изменить имя"
+                  onClick={() => setEditingAccount(r)}
                 >
-                  Выключить
+                  Изменить имя
                 </button>
               </>
             )}
+
+            {sep}
+            {r.active ? (
+              <button
+                type="button"
+                className="btn-link"
+                title="Отключить учётку (обратимо)"
+                onClick={() => setPendingAction({ type: 'disable', accountId: r.id, email: r.email })}
+              >
+                Отключить
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-link"
+                title="Включить учётку"
+                onClick={() => setPendingAction({ type: 'enable', accountId: r.id, email: r.email })}
+              >
+                Включить
+              </button>
+            )}
+
+            {sep}
+            <button
+              type="button"
+              className="btn-link"
+              style={{ color: 'var(--danger)' }}
+              title="Удалить учётку безвозвратно"
+              onClick={() => setPendingAction({ type: 'delete', accountId: r.id, email: r.email })}
+            >
+              Удалить
+            </button>
           </div>
         );
       },
@@ -466,7 +629,7 @@ export default function AccountsPage() {
   const rows     = data?.rows ?? [];
   const total    = data?.total ?? 0;
 
-  if (isLoading) return <TableSkeleton rows={8} cols={6} />;
+  if (isLoading) return <TableSkeleton rows={8} cols={7} />;
 
   return (
     <>
@@ -514,35 +677,18 @@ export default function AccountsPage() {
         />
       )}
 
+      {/* Изменить имя */}
+      {editingAccount && (
+        <EditNameModal
+          account={editingAccount}
+          onClose={() => setEditingAccount(null)}
+        />
+      )}
+
       {/* Подтверждение опасного действия */}
       {pendingAction && (
         <ConfirmModal
-          title={
-            pendingAction.type === 'resetPassword' ? 'Сбросить пароль?' :
-            pendingAction.type === 'regenerate'    ? 'Перевыписать ссылку?' :
-            pendingAction.type === 'revokeInvite'  ? 'Отозвать ссылку?' :
-            pendingAction.type === 'reset2fa'      ? 'Сбросить 2FA?' :
-                                                     'Деактивировать учётку?'
-          }
-          message={
-            pendingAction.type === 'resetPassword'
-              ? `Для ${pendingAction.email} будет выписана новая invite-ссылка для установки пароля. Текущий пароль и активные сессии перестанут работать.`
-              : pendingAction.type === 'regenerate'
-              ? `Прежняя ссылка для ${pendingAction.email} будет отозвана, и создана новая (действует 48 часов).`
-              : pendingAction.type === 'revokeInvite'
-              ? `Активная invite-ссылка для ${pendingAction.email} перестанет работать. Чтобы дать доступ снова, выпишите новую.`
-              : pendingAction.type === 'reset2fa'
-              ? `2FA для ${pendingAction.email} будет сброшена. Пользователю придётся настроить заново.`
-              : `Учётка ${pendingAction.email} будет деактивирована. Пользователь потеряет доступ.`
-          }
-          confirmLabel={
-            pendingAction.type === 'resetPassword' ? 'Сбросить пароль' :
-            pendingAction.type === 'regenerate'    ? 'Перевыписать' :
-            pendingAction.type === 'revokeInvite'  ? 'Отозвать' :
-            pendingAction.type === 'reset2fa'      ? 'Сбросить 2FA' :
-                                                     'Деактивировать'
-          }
-          danger={pendingAction.type === 'deactivate' || pendingAction.type === 'revokeInvite'}
+          {...getConfirmConfig(pendingAction)}
           isPending={isConfirmPending}
           onConfirm={() => void handleConfirmAction()}
           onClose={() => setPendingAction(null)}

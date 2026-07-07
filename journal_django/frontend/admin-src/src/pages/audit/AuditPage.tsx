@@ -18,6 +18,9 @@ const EVENT_LABELS: Record<string, string> = {
   account_created:     'Учётка создана',
   password_reset:      'Сброс пароля',
   account_deactivated: 'Учётка выключена',
+  account_disabled:    'Учётка отключена',
+  account_enabled:     'Учётка включена',
+  account_deleted:     'Учётка удалена',
   locked:              'Блокировка',
 };
 
@@ -76,7 +79,9 @@ export default function AuditPage() {
           r.event === 'login_fail' ||
           r.event === '2fa_fail'   ||
           r.event === 'locked'     ||
-          r.event === 'account_deactivated';
+          r.event === 'account_deactivated' ||
+          r.event === 'account_disabled'    ||
+          r.event === 'account_deleted';
         const isSecurity =
           r.event.startsWith('2fa') ||
           r.event === 'password_reset' ||
