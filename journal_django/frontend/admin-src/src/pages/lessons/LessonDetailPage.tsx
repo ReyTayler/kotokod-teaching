@@ -3,6 +3,8 @@ import { useLessonFull, useLessonMutations } from '../../hooks/useLessons';
 import { usePayrollMutations } from '../../hooks/usePayroll';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteLessons, canSeeLessonPayroll, type Role } from '../../lib/permissions';
 import { DetailShell, type DetailField } from '../../components/detail/DetailShell';
 import { EntityLink } from '../../components/EntityLink';
 import { PageLoading } from '../../components/ui/Skeleton';
@@ -19,6 +21,10 @@ export default function LessonDetailPage() {
   const payrollMuts = usePayrollMutations();
   const { toast } = useToast();
   const showError = useApiError();
+  const { me } = useAuth();
+  const role = me?.role as Role;
+  const canWrite = canWriteLessons(role);
+  const canSeePayroll = canSeeLessonPayroll(role);
 
   if (isLoading) return <PageLoading />;
   if (!lesson) return <Navigate to="/admin/lessons" replace />;
@@ -70,7 +76,7 @@ export default function LessonDetailPage() {
       row={lesson}
       fields={fields}
       cardTitle="Данные урока"
-      onDelete={handleDelete}
+      onDelete={canWrite ? handleDelete : undefined}
       deleteLabel="Удалить урок"
       backTo="/admin/lessons"
     >
@@ -93,6 +99,7 @@ export default function LessonDetailPage() {
                     <input
                       type="checkbox"
                       defaultChecked={a.present}
+                      disabled={!canWrite}
                       onChange={(e) => { void toggleAttendance(a.student_id, e.target.checked); }}
                     />
                     <span className="modal__check-box" />
@@ -105,31 +112,33 @@ export default function LessonDetailPage() {
         )}
       </div>
 
-      <div className="detail__section">
-        <h3 className="detail__section-title">Зарплата</h3>
-        {!lesson.payroll ? (
-          <div className="memberships__empty">Зарплата для этого урока не создана</div>
-        ) : (
-          <>
-            <div className="memberships__row">
-              <div>Всего</div>
-              <input type="number" defaultValue={lesson.payroll.total_students}
-                onBlur={(e) => { void updatePayrollField('total_students', Number(e.target.value)); }} />
-              <div>Было</div>
-              <input type="number" defaultValue={lesson.payroll.present_count}
-                onBlur={(e) => { void updatePayrollField('present_count', Number(e.target.value)); }} />
-            </div>
-            <div className="memberships__row">
-              <div>Оплата ₽</div>
-              <input type="number" step={0.01} defaultValue={String(lesson.payroll.payment)}
-                onBlur={(e) => { void updatePayrollField('payment', Number(e.target.value)); }} />
-              <div>Штраф ₽</div>
-              <input type="number" step={0.01} defaultValue={String(lesson.payroll.penalty)}
-                onBlur={(e) => { void updatePayrollField('penalty', Number(e.target.value)); }} />
-            </div>
-          </>
-        )}
-      </div>
+      {canSeePayroll && (
+        <div className="detail__section">
+          <h3 className="detail__section-title">Зарплата</h3>
+          {!lesson.payroll ? (
+            <div className="memberships__empty">Зарплата для этого урока не создана</div>
+          ) : (
+            <>
+              <div className="memberships__row">
+                <div>Всего</div>
+                <input type="number" defaultValue={lesson.payroll.total_students}
+                  onBlur={(e) => { void updatePayrollField('total_students', Number(e.target.value)); }} />
+                <div>Было</div>
+                <input type="number" defaultValue={lesson.payroll.present_count}
+                  onBlur={(e) => { void updatePayrollField('present_count', Number(e.target.value)); }} />
+              </div>
+              <div className="memberships__row">
+                <div>Оплата ₽</div>
+                <input type="number" step={0.01} defaultValue={String(lesson.payroll.payment)}
+                  onBlur={(e) => { void updatePayrollField('payment', Number(e.target.value)); }} />
+                <div>Штраф ₽</div>
+                <input type="number" step={0.01} defaultValue={String(lesson.payroll.penalty)}
+                  onBlur={(e) => { void updatePayrollField('penalty', Number(e.target.value)); }} />
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </DetailShell>
   );
 }

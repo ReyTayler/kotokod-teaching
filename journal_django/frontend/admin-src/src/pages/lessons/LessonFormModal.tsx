@@ -7,6 +7,8 @@ import { useGroupsAll } from '../../hooks/useGroups';
 import { useMemberships } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
+import { useAuth } from '../../hooks/useAuth';
+import { canSeeLessonPayroll, type Role } from '../../lib/permissions';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
 import { TextInput } from '../../components/form/TextInput';
@@ -26,6 +28,8 @@ export default function LessonFormModal({ onClose }: Props) {
   const { data: groups = [] } = useGroupsAll();
   const { toast } = useToast();
   const showError = useApiError();
+  const { me } = useAuth();
+  const canSeePayroll = canSeeLessonPayroll(me?.role as Role);
 
   const [lessonDate, setLessonDate] = useState(new Date().toISOString().slice(0, 10));
   const [groupId, setGroupId] = useState<string>('');
@@ -70,12 +74,16 @@ export default function LessonFormModal({ onClose }: Props) {
           ? Number(originalTeacherId) : null,
         submitted_by_token: 'admin-imported',
         attendance,
-        payroll: {
-          total_students: members.length,
-          present_count: presentCount,
-          payment: Number(payment) || 0,
-          penalty: Number(penalty) || 0,
-        },
+        ...(canSeePayroll
+          ? {
+              payroll: {
+                total_students: members.length,
+                present_count: presentCount,
+                payment: Number(payment) || 0,
+                penalty: Number(penalty) || 0,
+              },
+            }
+          : {}),
       });
       toast('Урок создан', 'ok');
       onClose();
@@ -151,13 +159,17 @@ export default function LessonFormModal({ onClose }: Props) {
               </div>
             ))}
 
-            <h4 className="memberships__title">Зарплата</h4>
-            <div className="memberships__row">
-              <div>Оплата ₽</div>
-              <NumberInput step={0.01} value={payment} onChange={(e) => setPayment(e.target.value)} />
-              <div>Штраф ₽</div>
-              <NumberInput step={0.01} value={penalty} onChange={(e) => setPenalty(e.target.value)} />
-            </div>
+            {canSeePayroll && (
+              <>
+                <h4 className="memberships__title">Зарплата</h4>
+                <div className="memberships__row">
+                  <div>Оплата ₽</div>
+                  <NumberInput step={0.01} value={payment} onChange={(e) => setPayment(e.target.value)} />
+                  <div>Штраф ₽</div>
+                  <NumberInput step={0.01} value={penalty} onChange={(e) => setPenalty(e.target.value)} />
+                </div>
+              </>
+            )}
           </>
         )}
       </form>

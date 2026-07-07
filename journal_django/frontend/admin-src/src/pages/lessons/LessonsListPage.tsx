@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useLessons } from '../../hooks/useLessons';
 import { useTableColumns } from '../../hooks/useAdminSettings';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteLessons, type Role } from '../../lib/permissions';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { EntityLink } from '../../components/EntityLink';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -16,6 +18,8 @@ import LessonFormModal from './LessonFormModal';
 export default function LessonsListPage() {
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
+  const { me } = useAuth();
+  const canWrite = canWriteLessons(me?.role as Role);
 
   // URL-синхронизированный стейт пагинации и сортировки.
   const search = useListSearchParams({ sortBy: 'lesson_date', sortDir: 'desc' });
@@ -95,7 +99,7 @@ export default function LessonsListPage() {
         columns={visibleColumns}
         title="Уроки"
         onRowClick={(row) => navigate(`/admin/lessons/${row.id}`)}
-        headerActions={<button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
+        headerActions={canWrite && <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
         isLoading={isFetching}
         serverPagination={{
           page,
