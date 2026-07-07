@@ -5,6 +5,8 @@ import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
 import { fmtRub } from '../../lib/format';
 import { TableSkeleton } from '../../components/ui/Skeleton';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteSubscriptions, type Role } from '../../lib/permissions';
 
 export function SubscriptionsView() {
   const directions = useDirections();
@@ -12,6 +14,8 @@ export function SubscriptionsView() {
   const muts = useDirectionMutations();
   const { toast } = useToast();
   const showError = useApiError();
+  const { me } = useAuth();
+  const canWrite = canWriteSubscriptions(me?.role as Role);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<string>('');
@@ -70,7 +74,9 @@ export function SubscriptionsView() {
                 <span className="dir-tag" style={{ background: d.color || '#999' }} /> {d.name}
               </td>
               <td>
-                {isEditing ? (
+                {!canWrite ? (
+                  <span>{price != null ? fmtRub(price) : <em>не настроено</em>}</span>
+                ) : isEditing ? (
                   <span className="inline-edit">
                     <input
                       type="number"

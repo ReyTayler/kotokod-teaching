@@ -9,12 +9,16 @@ import { Pill } from '../../components/ui/Pill';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { Teacher } from '../../lib/types';
 import TeacherFormModal from './TeacherFormModal';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteTeachers, type Role } from '../../lib/permissions';
 
 export default function TeachersListPage() {
   const { data, isLoading } = useTeachers();
   const { data: groups = [] } = useGroupsAll(true);
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
+  const { me } = useAuth();
+  const canWrite = canWriteTeachers(me?.role as Role);
 
   const rows: Teacher[] = data || [];
 
@@ -50,7 +54,7 @@ export default function TeachersListPage() {
         columns={visibleColumns}
         title="Преподаватели"
         onRowClick={(row) => navigate(`/admin/teachers/${row.id}`)}
-        headerActions={<button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
+        headerActions={canWrite ? <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button> : undefined}
       />
       {modalOpen && (
         <TeacherFormModal initial={null} onClose={() => setModalOpen(false)} />

@@ -4,6 +4,8 @@ import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { Checkbox } from '../../components/form/Checkbox';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteSubscriptions, type Role } from '../../lib/permissions';
 
 const FILL = 'Заполните поле';
 
@@ -30,6 +32,8 @@ export function DiscountsView() {
   const [editName, setEditName] = useState('');
   const [editPct, setEditPct] = useState('');
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const { me } = useAuth();
+  const canWrite = canWriteSubscriptions(me?.role as Role);
 
   if (discounts.isLoading) return <TableSkeleton rows={5} cols={4} />;
 
@@ -94,7 +98,7 @@ export function DiscountsView() {
   return (
     <>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-        {!showAdd && (
+        {canWrite && !showAdd && (
           <button type="button" className="btn-add" onClick={() => setShowAdd(true)}>
             + Новая скидка
           </button>
@@ -175,16 +179,18 @@ export function DiscountsView() {
                       <button type="button" className="btn-link" onClick={() => setEditingId(null)}>Отмена</button>
                     </>
                   ) : (
-                    <>
-                      <button type="button" className="btn-link" onClick={() => startEdit(d)}>Изменить</button>
-                      {' · '}
-                      <button
-                        type="button"
-                        className={`btn-link${confirmingId === d.id ? ' is-confirming' : ''}`}
-                        style={{ color: 'var(--red, #c44)' }}
-                        onClick={() => void handleDelete(d.id)}
-                      >{confirmingId === d.id ? 'Точно удалить?' : 'Удалить'}</button>
-                    </>
+                    canWrite && (
+                      <>
+                        <button type="button" className="btn-link" onClick={() => startEdit(d)}>Изменить</button>
+                        {' · '}
+                        <button
+                          type="button"
+                          className={`btn-link${confirmingId === d.id ? ' is-confirming' : ''}`}
+                          style={{ color: 'var(--red, #c44)' }}
+                          onClick={() => void handleDelete(d.id)}
+                        >{confirmingId === d.id ? 'Точно удалить?' : 'Удалить'}</button>
+                      </>
+                    )
                   )}
                 </td>
               </tr>

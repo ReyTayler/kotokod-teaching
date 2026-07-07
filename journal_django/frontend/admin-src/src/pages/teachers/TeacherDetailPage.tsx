@@ -11,6 +11,8 @@ import { PageLoading } from '../../components/ui/Skeleton';
 import { fmtDate } from '../../lib/format';
 import type { Teacher } from '../../lib/types';
 import TeacherFormModal from './TeacherFormModal';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteTeachers, type Role } from '../../lib/permissions';
 
 export default function TeacherDetailPage() {
   const params = useParams();
@@ -23,6 +25,8 @@ export default function TeacherDetailPage() {
   const { toast } = useToast();
   const showError = useApiError();
   const [editing, setEditing] = useState(false);
+  const { me } = useAuth();
+  const canWrite = canWriteTeachers(me?.role as Role);
 
   if (isLoading) return <PageLoading />;
   if (!teacher) return <Navigate to="/admin/teachers" replace />;
@@ -53,8 +57,8 @@ export default function TeacherDetailPage() {
         row={teacher}
         fields={fields}
         cardTitle="Данные преподавателя"
-        onEdit={() => setEditing(true)}
-        onDelete={handleDelete}
+        onEdit={canWrite ? () => setEditing(true) : undefined}
+        onDelete={canWrite ? handleDelete : undefined}
         backTo="/admin/teachers"
       >
         <div className="sub-header">Группы <span className="count-badge">{myGroups.length}</span></div>

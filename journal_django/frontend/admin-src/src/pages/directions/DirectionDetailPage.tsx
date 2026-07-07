@@ -9,6 +9,8 @@ import { PageLoading } from '../../components/ui/Skeleton';
 import { directionColor } from '../../lib/direction-color';
 import type { Direction } from '../../lib/types';
 import DirectionFormModal from './DirectionFormModal';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteDirections, type Role } from '../../lib/permissions';
 
 export default function DirectionDetailPage() {
   const params = useParams();
@@ -20,6 +22,8 @@ export default function DirectionDetailPage() {
   const { toast } = useToast();
   const showError = useApiError();
   const [editing, setEditing] = useState(false);
+  const { me } = useAuth();
+  const canWrite = canWriteDirections(me?.role as Role);
 
   if (isLoading) return <PageLoading />;
   if (!direction) return <Navigate to="/admin/directions" replace />;
@@ -60,8 +64,8 @@ export default function DirectionDetailPage() {
         row={direction}
         fields={fields}
         cardTitle="Данные направления"
-        onEdit={() => setEditing(true)}
-        onDelete={handleDelete}
+        onEdit={canWrite ? () => setEditing(true) : undefined}
+        onDelete={canWrite ? handleDelete : undefined}
         backTo="/admin/directions"
       >
         <div className="sub-header">Группы <span className="count-badge">{myGroups.length}</span></div>

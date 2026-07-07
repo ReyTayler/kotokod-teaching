@@ -6,12 +6,16 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { directionColor } from '../../lib/direction-color';
 import DirectionFormModal from './DirectionFormModal';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteDirections, type Role } from '../../lib/permissions';
 
 export default function DirectionsListPage() {
   const { data, isLoading } = useDirections();
   const { data: groups = [] } = useGroupsAll(true);
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
+  const { me } = useAuth();
+  const canWrite = canWriteDirections(me?.role as Role);
 
   if (isLoading) return <TableSkeleton rows={4} cols={4} />;
   const rows = (data || []).filter((r) => r.active);
@@ -22,7 +26,9 @@ export default function DirectionsListPage() {
         <span className="section-title">Направления</span>
         <span className="count-badge">{rows.length}</span>
         <div className="section-actions">
-          <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новое</button>
+          {canWrite && (
+            <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новое</button>
+          )}
         </div>
       </div>
       {rows.length === 0 ? (
