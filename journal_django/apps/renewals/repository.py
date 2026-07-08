@@ -221,7 +221,8 @@ def create_stage(data: dict) -> dict:
     pipe = RenewalPipeline.objects.get(is_default=True)
     next_order = (RenewalStage.objects.filter(pipeline=pipe)
                   .aggregate(m=Max('sort_order'))['m'] or 0) + 1
-    key = data.get('key') or _slugify_key(data['label'])
+    base_key = data.get('key') or _slugify_key(data['label'])
+    key = _unique_stage_key(pipe, base_key)
     st = RenewalStage.objects.create(
         pipeline=pipe, key=key, label=data['label'], color=data.get('color'),
         kind=data['kind'], sort_order=next_order, is_auto=False)
@@ -276,6 +277,22 @@ def _slugify_key(label: str) -> str:
     import re
     base = re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_') or 'stage'
     return base
+
+
+def _unique_stage_key(pipeline, base_key: str) -> str:
+    """
+    Гарантирует уникальность key в рамках воронки (UNIQUE(pipeline, key)).
+    _slugify_key схлопывает кириллицу (и вообще не-ASCII) в один и тот же
+    fallback ('stage'), поэтому без этой проверки вторая такая стадия падает
+    IntegrityError вместо понятной ошибки.
+    """
+    from apps.renewals.models import RenewalStage
+    key = base_key
+    suffix = 2
+    while RenewalStage.objects.filter(pipeline=pipeline, key=key).exists():
+        key = f'{base_key}_{suffix}'
+        suffix += 1
+    return key
 
 
 def _stage_dict(st) -> dict:

@@ -78,3 +78,13 @@ def test_super_reorders_stages(superadmin_client):
 def test_manager_cannot_reorder(manager_client):
     resp = manager_client.post(f'{BASE}/reorder', {'order': [1, 2]}, format='json')
     assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_cyrillic_labels_get_distinct_keys(superadmin_client):
+    """Два кириллических названия не должны схлопываться в один key (UNIQUE constraint)."""
+    r1 = superadmin_client.post(BASE, {'label': 'Перезвонить позже', 'kind': 'decision'}, format='json')
+    r2 = superadmin_client.post(BASE, {'label': 'Думает ещё', 'kind': 'decision'}, format='json')
+    assert r1.status_code == 201
+    assert r2.status_code == 201
+    assert r1.json()['key'] != r2.json()['key']
