@@ -21,12 +21,11 @@ export function DebtsCard({ debts, total }: Props) {
       ) : (
         <ul className="dash-debts__list">
           {debts.map((d) => (
-            <li key={`${d.student_id}:${d.direction_id}`} className="dash-debts__row">
+            <li key={d.student_id} className="dash-debts__row">
               <span className="dash-debts__name">
                 <EntityLink section="students" id={d.student_id} text={d.student_name} />
               </span>
               <span className="dash-debts__balance mono">{fmtLessons(d.balance)}</span>
-              <span className="dash-debts__dir">{d.direction_name}</span>
             </li>
           ))}
           {total > debts.length && (
