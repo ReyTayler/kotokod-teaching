@@ -158,50 +158,55 @@ def balance_for_student(student_id: int) -> int | float:
     return _js_number(purchased - attended)
 
 
-def student_balance_rows(student_id: int) -> list[dict]:
+def paid_by_direction_rows(student_id: int) -> list[dict]:
     """
-    Per-direction строки баланса (paid/attended), только направления с оплатами
-    или посещениями. ORDER BY d.name. Возвращает сырые числа — _js_number делает balance.py.
+    Оплачено по направлениям (по тегу оплаты payments.direction_id) — ТОЛЬКО
+    информационная разбивка, не баланс (баланс общий — см. balance_for_student).
     """
-    paid = {
-        r['direction_id']: r
-        for r in (
-            Payment.objects
-            .filter(student_id=student_id)
-            .exclude(direction_id__isnull=True)        # легаси (direction_id NULL) не джойнятся
-            .values('direction_id')
-            .annotate(
-                purchased=Sum(F('subscriptions_count') * 4, output_field=_DEC),
-                total_paid=Sum('total_amount'),
-            )
-        )
-    }
+    paid = (
+        Payment.objects
+        .filter(student_id=student_id)
+        .exclude(direction_id__isnull=True)  # легаси (direction_id NULL) не джойнятся
+        .values('direction_id')
+        .annotate(total_paid=Sum('total_amount'))
+    )
+    totals = {r['direction_id']: r['total_paid'] for r in paid}
+    if not totals:
+        return []
 
-    attended = {
-        r['did']: r['attended']
-        for r in (
-            LessonAttendance.objects
-            .filter(student_id=student_id, present=True)
-            .values(did=F('lesson__group__direction_id'))
-            .annotate(attended=Sum(_attended_units_case()))
-        )
-    }
-
-    dir_ids = set(paid) | set(attended)
     rows: list[dict] = []
-    for d in Direction.objects.filter(id__in=dir_ids).order_by('name').values('id', 'name', 'color'):
-        did = d['id']
-        purchased = paid.get(did, {}).get('purchased') or Decimal('0')
-        total_paid = paid.get(did, {}).get('total_paid') or Decimal('0')
-        att = attended.get(did) or Decimal('0')
+    for d in Direction.objects.filter(id__in=totals).order_by('name').values('id', 'name', 'color'):
         rows.append({
-            'direction_id': did,
+            'direction_id': d['id'],
             'direction_name': d['name'],
             'direction_color': d['color'],
-            'purchased_lessons': purchased,
-            'attended_lessons': att,
-            'balance': purchased - att,
-            'total_paid_amount': total_paid,
+            'total_paid_amount': totals[d['id']],
+        })
+    return rows
+
+
+def attended_by_direction_rows(student_id: int) -> list[dict]:
+    """
+    Отработано по направлениям (по направлению УРОКА, не оплаты) — ТОЛЬКО
+    информационная разбивка, не баланс.
+    """
+    attended = (
+        LessonAttendance.objects
+        .filter(student_id=student_id, present=True)
+        .values(did=F('lesson__group__direction_id'))
+        .annotate(attended=Sum(_attended_units_case()))
+    )
+    totals = {r['did']: r['attended'] for r in attended if r['did'] is not None}
+    if not totals:
+        return []
+
+    rows: list[dict] = []
+    for d in Direction.objects.filter(id__in=totals).order_by('name').values('id', 'name', 'color'):
+        rows.append({
+            'direction_id': d['id'],
+            'direction_name': d['name'],
+            'direction_color': d['color'],
+            'attended_lessons': totals[d['id']],
         })
     return rows
 

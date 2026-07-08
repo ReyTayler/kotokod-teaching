@@ -64,18 +64,26 @@ def test_total_paid_amount():
 
 
 @pytest.mark.django_db
-def test_student_balance_rows():
+def test_paid_by_direction_rows():
     d, t, g, s = _seed()
-    rows = repository.student_balance_rows(s.id)
+    rows = repository.paid_by_direction_rows(s.id)
     assert len(rows) == 1
     r = rows[0]
     assert r['direction_id'] == d.id
     assert r['direction_name'] == 'FIN-DIR'
     assert r['direction_color'] == '#abcdef'
-    assert repository._js_number(r['purchased_lessons']) == 4
-    assert repository._js_number(r['attended_lessons']) == 1
-    assert repository._js_number(r['balance']) == 3
     assert repository._js_number(r['total_paid_amount']) == 4000
+
+
+@pytest.mark.django_db
+def test_attended_by_direction_rows():
+    d, t, g, s = _seed()
+    rows = repository.attended_by_direction_rows(s.id)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r['direction_id'] == d.id
+    assert r['direction_name'] == 'FIN-DIR'
+    assert repository._js_number(r['attended_lessons']) == 1
 
 
 @pytest.mark.django_db
