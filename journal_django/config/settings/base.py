@@ -105,6 +105,7 @@ INSTALLED_APPS = [
     'apps.memberships',
     'apps.payments',
     'apps.lessons',
+    'apps.renewals',
     'apps.payroll',
     'apps.dashboard',
     'apps.accounts',
