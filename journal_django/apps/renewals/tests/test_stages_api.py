@@ -35,6 +35,31 @@ def test_cannot_delete_protected_auto_stage(superadmin_client):
 
 
 @pytest.mark.django_db
+def test_cannot_delete_stage_with_closed_deal(superadmin_client, make_student, make_direction):
+    """Стадию с ЗАКРЫТОЙ сделкой удалить нельзя (FK RESTRICT) → 409, не 500."""
+    from django.utils import timezone
+    from apps.renewals.models import RenewalDeal, RenewalPipeline, RenewalStage
+
+    # вторая won-стадия: count(won)==2 → не срабатывает protected-правило единственной
+    created = superadmin_client.post(
+        BASE, {'label': 'Продлён-2', 'kind': 'won', 'color': '#22C55E'}, format='json')
+    assert created.status_code == 201
+    stage_id = created.json()['id']
+
+    pipe = RenewalPipeline.objects.get(is_default=True)
+    sid, did = make_student(), make_direction()
+    RenewalDeal.objects.create(
+        student_id=sid, direction_id=did, cycle_no=1, pipeline=pipe,
+        stage_id=stage_id, outcome_at=timezone.now())
+
+    resp = superadmin_client.delete(f'{BASE}/{stage_id}')
+    assert resp.status_code == 409
+    assert resp.json()['error'] == 'has_open_deals'
+    # стадия и сделка на месте
+    assert RenewalStage.objects.filter(id=stage_id).exists()
+
+
+@pytest.mark.django_db
 def test_super_reorders_stages(superadmin_client):
     """Reorder меняет sort_order: GET отражает новый порядок."""
     stages = superadmin_client.get(BASE).json()

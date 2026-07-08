@@ -37,3 +37,16 @@ def test_manager_list_shape(manager_client, make_student, make_direction):
 @pytest.mark.django_db
 def test_invalid_sort_400(manager_client):
     assert manager_client.get(f'{BASE}?view=list&sort_by=hax').status_code == 400
+
+
+@pytest.mark.django_db
+def test_non_numeric_page_400(manager_client):
+    """Нечисловой page не должен ронять 500 — валидируем на входе → 400."""
+    assert manager_client.get(f'{BASE}?view=list&page=abc').status_code == 400
+
+
+@pytest.mark.django_db
+def test_non_numeric_filter_400(manager_client):
+    """Нечисловой числовой фильтр (уходит в SQL как int) → 400, не 500."""
+    assert manager_client.get(
+        f'{BASE}?view=board&filter[direction_id]=abc').status_code == 400

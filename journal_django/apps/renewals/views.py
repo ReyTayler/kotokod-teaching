@@ -17,6 +17,15 @@ from apps.renewals.serializers import (
 from apps.renewals.transitions import InvalidTransition
 
 SORT_FIELDS = ['next_touch_at', 'stage_entered_at', 'cycle_no', 'student_name']
+# числовые фильтры, попадающие в SQL как int — нечисловой ввод даёт 400, не 500.
+INT_FILTERS = ('assignee_id', 'direction_id', 'stage_id')
+
+
+def _int_or_400(value, field: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValidationError(f"{field} must be an integer")
 
 
 class RenewalCollectionView(APIView):
@@ -27,9 +36,13 @@ class RenewalCollectionView(APIView):
         view = qp.get('view', 'board')
         filters = {k[7:-1]: v for k, v in qp.items()
                    if k.startswith('filter[') and k.endswith(']')}
+        # валидируем числовые фильтры на границе (board/list_deals кладут их в SQL как int)
+        for key in INT_FILTERS:
+            if filters.get(key):
+                filters[key] = _int_or_400(filters[key], f'filter[{key}]')
         if view == 'list':
-            page = max(1, int(qp.get('page', 1) or 1))
-            page_size = min(200, max(1, int(qp.get('page_size', 50) or 50)))
+            page = max(1, _int_or_400(qp.get('page', 1) or 1, 'page'))
+            page_size = min(200, max(1, _int_or_400(qp.get('page_size', 50) or 50, 'page_size')))
             sort_by = qp.get('sort_by', 'stage_entered_at')
             sort_dir = qp.get('sort_dir', 'asc')
             if sort_by not in SORT_FIELDS:

@@ -108,6 +108,7 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
 
 
 def patch_deal(deal_id: int, data: dict) -> dict | None:
+    from django.utils import timezone
     from apps.renewals.models import RenewalDeal
     fields = {}
     for k in ('assignee_id', 'next_touch_at', 'reason_code', 'expected_amount'):
@@ -115,6 +116,8 @@ def patch_deal(deal_id: int, data: dict) -> dict | None:
             fields[k] = data[k]
     if not fields:
         return deal_computed(deal_id)
+    # .update() не триггерит auto_now — обновляем updated_at вручную (как в move_deal).
+    fields['updated_at'] = timezone.now()
     updated = RenewalDeal.objects.filter(id=deal_id).update(**fields)
     return deal_computed(deal_id) if updated else None
 
@@ -238,17 +241,25 @@ def update_stage(stage_id: int, data: dict) -> dict | None:
 
 
 def delete_stage(stage_id: int) -> str:
-    """Нельзя удалить стадию с открытыми сделками или единственную won/lost/progress."""
+    """Нельзя удалить стадию с ЛЮБЫМИ сделками (открытыми ИЛИ закрытыми — FK
+    RESTRICT физически не даст) или единственную won/lost/progress."""
+    from django.db.models.deletion import RestrictedError
     from apps.renewals.models import RenewalDeal, RenewalStage
     st = RenewalStage.objects.filter(id=stage_id).first()
     if st is None:
         return 'not_found'
-    if RenewalDeal.objects.filter(stage_id=stage_id, outcome_at__isnull=True).exists():
+    # закрытые сделки навсегда привязаны к won/lost-стадии (RESTRICT) — их наличие
+    # тоже блокирует удаление, иначе st.delete() падает RestrictedError → 500.
+    if RenewalDeal.objects.filter(stage_id=stage_id).exists():
         return 'has_open_deals'
     if st.is_auto or (RenewalStage.objects.filter(
             pipeline=st.pipeline, kind=st.kind).count() == 1 and st.kind in ('won', 'lost', 'progress')):
         return 'protected'
-    st.delete()
+    try:
+        st.delete()
+    except RestrictedError:
+        # гонка: сделка привязалась к стадии между проверкой и удалением.
+        return 'has_open_deals'
     return 'ok'
 
 

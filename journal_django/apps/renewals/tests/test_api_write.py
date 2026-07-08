@@ -32,6 +32,16 @@ def test_move_from_terminal_409(admin_client, make_student, make_direction):
 
 
 @pytest.mark.django_db
+def test_move_to_stage_outside_pipeline_409(admin_client, make_student, make_direction):
+    """to_stage_id, которого нет в воронке сделки → InvalidTransition → 409, не 500."""
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, did, cycle_no=1)
+    resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                             {'to_stage_id': 999999999}, format='json')
+    assert resp.status_code == 409
+
+
+@pytest.mark.django_db
 def test_patch_next_touch(admin_client, make_student, make_direction):
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, did, cycle_no=1)

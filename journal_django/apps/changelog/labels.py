@@ -65,7 +65,6 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/renewals/stages$'), 'renewal.stage_create'),
     ('PATCH', re.compile(r'^/api/admin/renewals/stages/\d+$'), 'renewal.stage_update'),
     ('DELETE', re.compile(r'^/api/admin/renewals/stages/\d+$'), 'renewal.stage_delete'),
-    ('POST', re.compile(r'^/api/admin/renewals/rebuild$'), 'renewal.rebuild'),
     ('POST', re.compile(r'^/api/admin/renewals/\d+/move$'), 'renewal.move'),
     ('POST', re.compile(r'^/api/admin/renewals/\d+/comment$'), 'renewal.comment'),
     ('PATCH', re.compile(r'^/api/admin/renewals/\d+$'), 'renewal.update'),
