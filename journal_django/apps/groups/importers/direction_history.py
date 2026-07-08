@@ -194,6 +194,7 @@ class ImportReport:
     unmatched_students: list = field(default_factory=list)
     unmatched_directions_in_db: list = field(default_factory=list)
     idempotency_anomalies: list = field(default_factory=list)
+    failed_pairs: list = field(default_factory=list)
 
 
 def import_to_db(aggregated: dict, *, dry_run: bool) -> ImportReport:
@@ -226,71 +227,75 @@ def import_to_db(aggregated: dict, *, dry_run: bool) -> ImportReport:
     group_cache: dict[int, Group] = {}
 
     for (full_name, direction_name), lessons_count in aggregated.items():
-        student = Student.objects.filter(full_name=full_name).first()
-        if student is None:
-            report.unmatched_students.append(full_name)
-            continue
+        try:
+            student = Student.objects.filter(full_name=full_name).first()
+            if student is None:
+                report.unmatched_students.append(full_name)
+                continue
 
-        direction = Direction.objects.filter(name=direction_name).first()
-        if direction is None:
-            report.unmatched_directions_in_db.append(
-                f'{full_name}: направление «{direction_name}» не найдено в БД'
-            )
-            continue
+            direction = Direction.objects.filter(name=direction_name).first()
+            if direction is None:
+                report.unmatched_directions_in_db.append(
+                    f'{full_name}: направление «{direction_name}» не найдено в БД'
+                )
+                continue
 
-        token = f'legacy-import:{student.id}:{direction.id}'
-        existing = Lesson.objects.filter(submitted_by_token=token).count()
+            token = f'legacy-import:{student.id}:{direction.id}'
+            existing = Lesson.objects.filter(submitted_by_token=token).count()
 
-        if existing == lessons_count:
-            report.already_imported += 1
-            continue
-        if existing:
-            report.idempotency_anomalies.append(
-                f'{full_name} / {direction_name}: в БД {existing} уроков, ожидалось {lessons_count}'
-            )
-            continue
+            if existing == lessons_count:
+                report.already_imported += 1
+                continue
+            if existing:
+                report.idempotency_anomalies.append(
+                    f'{full_name} / {direction_name}: в БД {existing} уроков, ожидалось {lessons_count}'
+                )
+                continue
 
-        if dry_run:
-            report.imported_pairs += 1
-            report.lessons_written += lessons_count
-            continue
+            if dry_run:
+                report.imported_pairs += 1
+                report.lessons_written += lessons_count
+                continue
 
-        with transaction.atomic():
-            group = group_cache.get(direction.id)
-            if group is None:
-                group, _ = Group.objects.get_or_create(
-                    name=f'{direction.name} — архив',
+            with transaction.atomic():
+                group = group_cache.get(direction.id)
+                if group is None:
+                    group, _ = Group.objects.get_or_create(
+                        name=f'{direction.name} — архив',
+                        defaults={
+                            'direction': direction, 'teacher': teacher, 'active': False,
+                            'is_individual': False, 'lesson_duration_minutes': 60,
+                            'lessons_per_week': 1, 'created_at': timezone.now(),
+                        },
+                    )
+                    group_cache[direction.id] = group
+
+                lesson_ids = []
+                for n in range(1, lessons_count + 1):
+                    lesson = Lesson.objects.create(
+                        group=group, teacher=teacher, lesson_date=LEGACY_LESSON_DATE,
+                        lesson_number=n, lesson_duration_minutes=60, lesson_type='regular',
+                        submitted_at=timezone.now(), submitted_by_token=token,
+                    )
+                    lesson_ids.append(lesson.id)
+
+                LessonAttendance.objects.bulk_create([
+                    LessonAttendance(lesson_id=lid, student=student, present=True)
+                    for lid in lesson_ids
+                ])
+
+                GroupMembership.objects.update_or_create(
+                    group=group, student=student,
                     defaults={
-                        'direction': direction, 'teacher': teacher, 'active': False,
-                        'is_individual': False, 'lesson_duration_minutes': 60,
-                        'lessons_per_week': 1, 'created_at': timezone.now(),
+                        'lessons_done': lessons_count, 'remaining': 0,
+                        'active': False, 'start_date': LEGACY_LESSON_DATE,
                     },
                 )
-                group_cache[direction.id] = group
 
-            lesson_ids = []
-            for n in range(1, lessons_count + 1):
-                lesson = Lesson.objects.create(
-                    group=group, teacher=teacher, lesson_date=LEGACY_LESSON_DATE,
-                    lesson_number=n, lesson_duration_minutes=60, lesson_type='regular',
-                    submitted_at=timezone.now(), submitted_by_token=token,
-                )
-                lesson_ids.append(lesson.id)
-
-            LessonAttendance.objects.bulk_create([
-                LessonAttendance(lesson_id=lid, student=student, present=True)
-                for lid in lesson_ids
-            ])
-
-            GroupMembership.objects.update_or_create(
-                group=group, student=student,
-                defaults={
-                    'lessons_done': lessons_count, 'remaining': 0,
-                    'active': False, 'start_date': LEGACY_LESSON_DATE,
-                },
-            )
-
-        report.imported_pairs += 1
-        report.lessons_written += lessons_count
+            report.imported_pairs += 1
+            report.lessons_written += lessons_count
+        except Exception as exc:
+            report.failed_pairs.append(f'{full_name} / {direction_name}: {exc}')
+            continue
 
     return report

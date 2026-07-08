@@ -398,3 +398,63 @@ class TestImportToDb:
                 assert cur.fetchone()[0] == 4  # не тронуто
         finally:
             _cleanup_import(student_id=sid, direction_id=did)
+
+    def test_one_pair_failure_does_not_abort_run(self, import_teacher_cleanup):
+        """
+        Пара, упавшая с неожиданным исключением при записи (например обрыв
+        соединения/constraint-конфликт), не должна прерывать весь прогон и
+        обнулять счётчики уже обработанных пар. Исключение имитируется через
+        patch на GroupMembership.objects.update_or_create — единственный вызов
+        внутри per-pair atomic-блока, который срабатывает последним, поэтому
+        его отказ откатывает только записи «плохой» пары (Lesson/LessonAttendance),
+        не трогая уже закоммиченную «хорошую» пару.
+        """
+        from unittest.mock import patch
+
+        from apps.groups.importers.direction_history import import_to_db
+        from apps.memberships.models import GroupMembership
+
+        sid_good = _make_student('__import_test_student_7_good__')
+        sid_bad = _make_student('__import_test_student_7_bad__')
+        did = _make_direction('__import_test_direction_7__')
+        try:
+            aggregated = {
+                ('__import_test_student_7_good__', '__import_test_direction_7__'): 3,
+                ('__import_test_student_7_bad__', '__import_test_direction_7__'): 2,
+            }
+
+            original_update_or_create = GroupMembership.objects.update_or_create
+
+            def flaky_update_or_create(*args, **kwargs):
+                student = kwargs.get('student')
+                if student is not None and student.full_name == '__import_test_student_7_bad__':
+                    raise RuntimeError('simulated failure for bad pair')
+                return original_update_or_create(*args, **kwargs)
+
+            with patch.object(
+                GroupMembership.objects, 'update_or_create', side_effect=flaky_update_or_create,
+            ):
+                report = import_to_db(aggregated, dry_run=False)
+
+            # Хорошая пара обработана и учтена в отчёте несмотря на падение соседней.
+            assert report.imported_pairs == 1
+            assert report.lessons_written == 3
+            assert len(report.failed_pairs) == 1
+            assert '__import_test_student_7_bad__' in report.failed_pairs[0]
+
+            with connection.cursor() as cur:
+                # Только уроки «хорошей» пары — «плохая» откатилась целиком (atomic).
+                cur.execute(
+                    "SELECT COUNT(*) FROM lessons WHERE group_id IN "
+                    "(SELECT id FROM groups WHERE direction_id = %s)", [did],
+                )
+                assert cur.fetchone()[0] == 3
+
+                cur.execute(
+                    "SELECT COUNT(*) FROM group_memberships WHERE group_id IN "
+                    "(SELECT id FROM groups WHERE direction_id = %s)", [did],
+                )
+                assert cur.fetchone()[0] == 1
+        finally:
+            _cleanup_import(student_id=sid_good, direction_id=did)
+            _cleanup_import(student_id=sid_bad)
