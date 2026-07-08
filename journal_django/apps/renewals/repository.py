@@ -69,3 +69,106 @@ def deal_computed(deal_id: int) -> dict | None:
     data['lesson_in_cycle'] = int(attended % cycle.LESSONS_PER_CYCLE) + 1  # 1..4
     data['balance'] = balance_for_direction(data['student_id'], data['direction_id'])
     return data
+
+
+COLUMN_LIMIT = 50  # карточек на колонку по умолчанию (остальное — «Показать ещё»)
+
+
+def board(filters: dict | None = None) -> dict:
+    """
+    Доска: открытые сделки, сгруппированные по стадиям дефолтной воронки.
+    Возвращает колонки в порядке sort_order с count/sum_potential и первыми N карточками.
+    """
+    filters = filters or {}
+    from apps.renewals.models import RenewalPipeline, RenewalStage
+    pipeline = RenewalPipeline.objects.get(is_default=True)
+    stages = list(RenewalStage.objects.filter(pipeline=pipeline).order_by('sort_order'))
+
+    where = ['d.outcome_at IS NULL']
+    params: list = []
+    if filters.get('assignee_id'):
+        where.append('d.assignee_id = %s'); params.append(int(filters['assignee_id']))
+    if filters.get('direction_id'):
+        where.append('d.direction_id = %s'); params.append(int(filters['direction_id']))
+    if filters.get('overdue') == 'true':
+        where.append("d.next_touch_at IS NOT NULL AND d.next_touch_at < now()::date")
+    where_sql = ' AND '.join(where)
+
+    with connection.cursor() as cur:
+        cur.execute(f"""
+            SELECT d.stage_id, COUNT(*) AS cnt, COALESCE(SUM(d.expected_amount),0) AS sum_amt
+            FROM renewal_deal d WHERE {where_sql} GROUP BY d.stage_id
+        """, params)
+        agg = {r[0]: {'count': r[1], 'sum_potential': float(r[2])} for r in cur.fetchall()}
+
+    columns = []
+    for st in stages:
+        stat = agg.get(st.id, {'count': 0, 'sum_potential': 0.0})
+        cards = _deals_in_stage(st.id, where_sql, params, COLUMN_LIMIT)
+        columns.append({
+            'stage_id': st.id, 'key': st.key, 'label': st.label, 'kind': st.kind,
+            'color': st.color, 'count': stat['count'],
+            'sum_potential': stat['sum_potential'], 'cards': cards,
+        })
+    return {'columns': columns}
+
+
+def _deals_in_stage(stage_id: int, where_sql: str, base_params: list, limit: int) -> list[dict]:
+    with connection.cursor() as cur:
+        cur.execute(f"""
+            SELECT d.id, s.full_name AS student_name, dir.name AS direction_name,
+                   dir.color AS direction_color, d.cycle_no, d.expected_amount,
+                   d.next_touch_at, a.full_name AS assignee_name,
+                   EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage
+            FROM renewal_deal d
+            JOIN students s ON s.id = d.student_id
+            JOIN directions dir ON dir.id = d.direction_id
+            LEFT JOIN accounts a ON a.id = d.assignee_id
+            WHERE {where_sql} AND d.stage_id = %s
+            ORDER BY d.next_touch_at NULLS LAST, d.stage_entered_at
+            LIMIT %s
+        """, base_params + [stage_id, limit])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def list_deals(page: int, page_size: int, sort_by: str, sort_dir: str, filters: dict) -> dict:
+    """Списочный вид: server-pagination. sort_dir валидируется вызывающим (view)."""
+    where = ['1=1']
+    params: list = []
+    if not filters.get('include_closed'):
+        where.append('d.outcome_at IS NULL')
+    if filters.get('assignee_id'):
+        where.append('d.assignee_id = %s'); params.append(int(filters['assignee_id']))
+    if filters.get('direction_id'):
+        where.append('d.direction_id = %s'); params.append(int(filters['direction_id']))
+    if filters.get('stage_id'):
+        where.append('d.stage_id = %s'); params.append(int(filters['stage_id']))
+    where_sql = ' AND '.join(where)
+
+    sort_col = {
+        'next_touch_at': 'd.next_touch_at', 'stage_entered_at': 'd.stage_entered_at',
+        'cycle_no': 'd.cycle_no', 'student_name': 's.full_name',
+    }.get(sort_by, 'd.stage_entered_at')
+    direction = 'DESC' if sort_dir == 'desc' else 'ASC'
+
+    with connection.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) FROM renewal_deal d WHERE {where_sql}", params)
+        total = cur.fetchone()[0]
+        cur.execute(f"""
+            SELECT d.id, s.full_name AS student_name, dir.name AS direction_name,
+                   dir.color AS direction_color, d.cycle_no, st.label AS stage_label,
+                   st.kind AS stage_kind, d.next_touch_at, a.full_name AS assignee_name,
+                   EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage
+            FROM renewal_deal d
+            JOIN students s ON s.id = d.student_id
+            JOIN directions dir ON dir.id = d.direction_id
+            JOIN renewal_stage st ON st.id = d.stage_id
+            LEFT JOIN accounts a ON a.id = d.assignee_id
+            WHERE {where_sql}
+            ORDER BY {sort_col} {direction} NULLS LAST, d.id
+            LIMIT %s OFFSET %s
+        """, params + [page_size, (page - 1) * page_size])
+        cols = [c[0] for c in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return {'rows': rows, 'total': total, 'page': page, 'page_size': page_size}
