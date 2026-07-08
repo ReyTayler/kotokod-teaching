@@ -8,12 +8,13 @@ ORM-порт (раздел 09):
   • attended_by_direction_rows() ← информ. разбивка «отработано по направлениям» (2026-07-08)
   • total_paid_amount()          ← getStudentBalance итоговая сумма (payments.js)
 
-CTE getStudentBalance переразбит на отдельные агрегирующие запросы + сборка по
-direction_id в Python (паттерн 4.8) — баланс выводится, не хранится.
+Баланс выводится, не хранится: balance_for_student — единый пул (все купленные
+минус все отработанные уроки, без разбивки по направлению). Разбивки
+paid_by_direction_rows / attended_by_direction_rows — только информационные.
 
-Числа баланса (purchased/attended/balance) отдаются через _js_number (int/float,
-как Number(x) в JS). Сырые поля оплат (unit_price/total_amount) — Decimal, в строку
-их приводит DateSafeJSONRenderer. fifo.py (чистый Python) не трогаем.
+Число баланса отдаётся через _js_number (int/float, как Number(x) в JS). Сырые
+поля оплат (unit_price/total_amount) — Decimal, в строку их приводит
+DateSafeJSONRenderer. fifo.py (чистый Python) не трогаем.
 """
 from __future__ import annotations
 
