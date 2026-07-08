@@ -78,7 +78,7 @@ export function useRenewalMutations() {
     comment: useMutation({
       mutationFn: ({ id, body }: { id: number; body: string }) =>
         api('POST', `/api/admin/renewals/${id}/comment`, { body }),
-      onSuccess: (_r: unknown, v: { id: number }) => qc.invalidateQueries({ queryKey: ['renewals', 'activity', v.id] }),
+      onSuccess: (_r: unknown, v: { id: number; body: string }) => qc.invalidateQueries({ queryKey: ['renewals', 'activity', v.id] }),
     }),
   };
 }
