@@ -40,3 +40,80 @@ def test_normalize_course_name_unrecognized_returns_none():
     assert normalize_course_name('Плавание') is None
     assert normalize_course_name('') is None
     assert normalize_course_name(None) is None
+
+
+def _build_test_workbook(path):
+    """Синтетический .xlsx, повторяющий структуру реального листа «Переходимость по курсам»:
+    строка 1 — групповые заголовки «Переход N», строка 2 — заголовки колонок,
+    строка 3+ — данные. Хвостовая пустая строка должна отфильтровываться."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Переходимость по курсам'
+
+    ws.append([None, None, None, 'Переход 1', None, None, None, 'Переход 2', None, None, None])
+    ws.append([
+        'ФИ РЕБ', 'Сколько отзанимался', None,
+        'Курс', 'прошёл ур', 'месяцев', 'Статус перехода',
+        'Курс', 'прошёл ур', 'месяцев', 'Статус перехода',
+    ])
+    ws.append([
+        'Иванов Пётр', 45, None,
+        'Питон', 32, 8, 'Закончил и перешёл',
+        'Роблокс', 13, 3.25, 'Продолжает учиться',
+    ])
+    ws.append([
+        'Сидорова Анна', 20, None,
+        'Скретч', 20, 5, 'Заморозка Сентябрь',
+        None, None, 0, None,
+    ])
+    # Хвостовая «пустая» строка — как в реальном файле (шаблон без ученика).
+    ws.append([None, 0, 0.0, None, None, 0, None, None, None, 0, None])
+
+    wb.save(path)
+
+
+def test_parse_sheet_reads_students_and_filters_empty_rows(tmp_path):
+    from apps.groups.importers.direction_history import parse_sheet
+
+    path = tmp_path / 'test.xlsx'
+    _build_test_workbook(path)
+
+    rows = parse_sheet(str(path))
+
+    assert len(rows) == 2
+
+    ivanov = rows[0]
+    assert ivanov.full_name == 'Иванов Пётр'
+    assert len(ivanov.transitions) == 2
+    assert ivanov.transitions[0].course_raw == 'Питон'
+    assert ivanov.transitions[0].lessons == 32
+    assert ivanov.transitions[0].status == 'Закончил и перешёл'
+    assert ivanov.transitions[1].course_raw == 'Роблокс'
+    assert ivanov.transitions[1].lessons == 13
+    assert ivanov.transitions[1].status == 'Продолжает учиться'
+
+    sidorova = rows[1]
+    assert sidorova.full_name == 'Сидорова Анна'
+    # Второй слот пуст (course=None) -> не попадает в transitions.
+    assert len(sidorova.transitions) == 1
+    assert sidorova.transitions[0].course_raw == 'Скретч'
+    assert sidorova.transitions[0].lessons == 20
+    assert sidorova.transitions[0].status == 'Заморозка Сентябрь'
+
+
+def test_parse_sheet_strips_whitespace_from_full_name(tmp_path):
+    import openpyxl
+    from apps.groups.importers.direction_history import parse_sheet
+
+    path = tmp_path / 'test2.xlsx'
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Переходимость по курсам'
+    ws.append([None, None, None, 'Переход 1', None, None, None])
+    ws.append(['ФИ РЕБ', 'Сколько отзанимался', None, 'Курс', 'прошёл ур', 'месяцев', 'Статус перехода'])
+    ws.append(['  Петров Иван  ', 10, None, 'Питон', 10, 2.5, 'Отказ'])
+    wb.save(path)
+
+    rows = parse_sheet(str(path))
+    assert rows[0].full_name == 'Петров Иван'
