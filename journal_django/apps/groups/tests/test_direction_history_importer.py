@@ -458,3 +458,17 @@ class TestImportToDb:
         finally:
             _cleanup_import(student_id=sid_good, direction_id=did)
             _cleanup_import(student_id=sid_bad)
+
+
+def test_command_dry_run_smoke(tmp_path, capsys):
+    """Команда читает файл, ничего не пишет в БД в --dry-run, печатает отчёт."""
+    from django.core.management import call_command
+
+    path = tmp_path / 'smoke.xlsx'
+    _build_test_workbook(path)
+
+    call_command('import_direction_history', str(path), '--dry-run')
+
+    captured = capsys.readouterr()
+    assert 'DRY-RUN' in captured.out
+    assert 'Учеников в листе' in captured.out
