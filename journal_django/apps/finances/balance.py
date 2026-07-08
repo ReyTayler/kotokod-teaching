@@ -6,14 +6,14 @@
 (через _js_number), сырые поля оплат (unit_price/total_amount) — Decimal→строка
 делает renderer.
 
-balance_for_direction переэкспортируется из repository для удобства потребителей.
+balance_for_student переэкспортируется из repository для удобства потребителей.
 """
 from __future__ import annotations
 
 from apps.finances import repository
-from apps.finances.repository import balance_for_direction  # re-export
+from apps.finances.repository import balance_for_student  # re-export
 
-__all__ = ['balance_for_direction', 'get_student_balance']
+__all__ = ['balance_for_student', 'get_student_balance']
 
 
 def get_student_balance(student_id: int) -> dict:

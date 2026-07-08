@@ -51,10 +51,10 @@ def _seed():
 
 
 @pytest.mark.django_db
-def test_balance_for_direction():
+def test_balance_for_student():
     d, t, g, s = _seed()
     # purchased 4 − attended 1 = 3
-    assert repository.balance_for_direction(s.id, d.id) == 3
+    assert repository.balance_for_student(s.id) == 3
 
 
 @pytest.mark.django_db

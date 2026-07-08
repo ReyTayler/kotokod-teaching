@@ -9,7 +9,7 @@ Integration-тесты для PaymentsRepository.
   - list_payments: фильтры student/direction/from/to, сортировка DESC
   - get_payment: существующий / несуществующий
   - delete_payment: корректный new_balance
-  - get_student_balance / _balance_for_direction: числовые типы (int vs float,
+  - get_student_balance / _balance_for_student: числовые типы (int vs float,
     '8' не '8.0'), half-lesson 0.5, сырые строки в payments внутри ответа
 """
 from __future__ import annotations
@@ -294,7 +294,7 @@ class TestDeletePayment:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _balance_for_direction и get_student_balance (числовые типы)
+# Tests: _balance_for_student и get_student_balance (числовые типы)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -355,11 +355,10 @@ class TestBalanceNumericTypes:
                     [lesson_45_fixture, student_fixture],
                 )
 
-    def test_balance_for_direction_full_lessons_is_int(
+    def test_balance_for_student_full_lessons_is_int(
         self,
         payment_fixture,
         student_fixture,
-        direction_fixture,
         membership_fixture,
         lesson_60_fixture,
     ):
@@ -371,7 +370,7 @@ class TestBalanceNumericTypes:
             )
 
         try:
-            bal = repository._balance_for_direction(student_fixture, direction_fixture)
+            bal = repository._balance_for_student(student_fixture)
             assert bal == 3
             assert isinstance(bal, int)
         finally:
@@ -381,11 +380,10 @@ class TestBalanceNumericTypes:
                     [lesson_60_fixture, student_fixture],
                 )
 
-    def test_balance_for_direction_half_lesson_is_float(
+    def test_balance_for_student_half_lesson_is_float(
         self,
         payment_fixture,
         student_fixture,
-        direction_fixture,
         membership_fixture,
         lesson_45_fixture,
     ):
@@ -397,7 +395,7 @@ class TestBalanceNumericTypes:
             )
 
         try:
-            bal = repository._balance_for_direction(student_fixture, direction_fixture)
+            bal = repository._balance_for_student(student_fixture)
             assert bal == 3.5
             assert isinstance(bal, float)
         finally:

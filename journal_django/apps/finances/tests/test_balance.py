@@ -70,14 +70,14 @@ def test_balance_is_float_with_half_lesson(
     assert isinstance(d['balance'], float)
 
 
-def test_balance_for_direction_matches(
+def test_balance_for_student_matches(
     group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
 ):
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000)
     _add_lesson_attendance(
         graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-10', duration=60
     )
-    bal = repository.balance_for_direction(student_fixture, direction_fixture)
+    bal = repository.balance_for_student(student_fixture)
     assert bal == 3
     assert isinstance(bal, int)
 

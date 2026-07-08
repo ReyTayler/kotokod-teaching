@@ -141,7 +141,7 @@ def get_payment(payment_id: int) -> Optional[dict]:
 
 def delete_payment(payment_id: int) -> dict:
     """
-    Хард-удаляет оплату и пересчитывает баланс по направлению.
+    Хард-удаляет оплату и пересчитывает общий баланс ученика (единый пул).
 
     Возвращает {'deleted': False} или {'deleted': True, student_id, direction_id, new_balance}.
     """
@@ -157,7 +157,7 @@ def delete_payment(payment_id: int) -> dict:
 
     student_id = row['student_id']
     direction_id = row['direction_id']
-    balance = _balance_for_direction(student_id, direction_id)
+    balance = _balance_for_student(student_id)
     return {
         'deleted': True,
         'student_id': student_id,
@@ -166,10 +166,10 @@ def delete_payment(payment_id: int) -> dict:
     }
 
 
-def _balance_for_direction(student_id: int, direction_id: int) -> int | float:
-    """Баланс по одному направлению. Делегирует в единый дом apps/finances."""
-    from apps.finances.repository import balance_for_direction
-    return balance_for_direction(student_id, direction_id)
+def _balance_for_student(student_id: int) -> int | float:
+    """Общий баланс ученика (единый пул). Делегирует в единый дом apps/finances."""
+    from apps.finances.repository import balance_for_student
+    return balance_for_student(student_id)
 
 
 def get_student_balance(student_id: int) -> dict:
