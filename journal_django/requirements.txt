@@ -13,3 +13,4 @@ bcrypt==4.2.1
 qrcode==8.0
 Pillow==12.2.0          # qrcode.make() рендерит PNG через PIL (2FA-enrollment)
 gunicorn==23.0.0        # WSGI app-server за nginx (cutover, раздел 08)
+openpyxl==3.1.5         # чтение .xlsx для одноразового импорта истории направлений (import_direction_history)
