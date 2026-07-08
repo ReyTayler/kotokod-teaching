@@ -65,7 +65,14 @@ def _attended_units_case():
 
 def fifo_inputs() -> dict:
     """
-    Загружает FIFO-входы по ключу 'student_id:direction_id'.
+    Загружает FIFO-входы по ключу student_id (общий пул на ученика).
+
+    С 2026-07-08 payments.direction_id и направление урока — раздельные измерения:
+    оплата с тегом направления A может быть погашена уроком в направлении B (см.
+    docs/superpowers/specs/2026-07-08-student-balance-pooling-design.md). Партии
+    (lots) сортируются по paid_at глобально по ученику; посещения (consumptions) —
+    по lesson_date глобально. direction_id урока сохраняется в каждой
+    consumption-записи только для атрибуции worked_off_by_direction в отчётах.
 
     Возвращает lots_by_key / purchased_by_key / cons_by_key / consumed_by_key / keys.
     Guard: оплаты с subscriptions_count NULL/0 (lessons ≤ 0) пропускаются —
@@ -74,15 +81,15 @@ def fifo_inputs() -> dict:
     lots_rows = (
         Payment.objects
         .filter(direction_id__isnull=False)
-        .order_by('student_id', 'direction_id', 'paid_at', 'id')
-        .values('student_id', 'direction_id', 'total_amount', 'subscriptions_count')
+        .order_by('student_id', 'paid_at', 'id')
+        .values('student_id', 'total_amount', 'subscriptions_count')
     )
 
     cons_rows = (
         LessonAttendance.objects
         .filter(present=True)
         .annotate(units=_attended_units_case())
-        .order_by('student_id', 'lesson__group__direction_id', 'lesson__lesson_date', 'lesson_id')
+        .order_by('student_id', 'lesson__lesson_date', 'lesson_id')
         .values(
             'student_id', 'units',
             direction_id=F('lesson__group__direction_id'),
@@ -93,7 +100,7 @@ def fifo_inputs() -> dict:
     lots_by_key: dict[str, list] = {}
     purchased_by_key: dict[str, int] = {}
     for r in lots_rows:
-        key = f"{r['student_id']}:{r['direction_id']}"
+        key = str(r['student_id'])
         subs = r['subscriptions_count']
         lessons = int(subs) * 4 if subs is not None else 0
         if not (lessons > 0):  # guard: NULL/0 subscriptions_count
@@ -107,11 +114,12 @@ def fifo_inputs() -> dict:
     cons_by_key: dict[str, list] = {}
     consumed_by_key: dict[str, Decimal] = {}
     for r in cons_rows:
-        key = f"{r['student_id']}:{r['direction_id']}"
+        key = str(r['student_id'])
         units = to_decimal(r['units'])
         cons_by_key.setdefault(key, []).append({
             'units': units,
             'date': _date_str(r['lesson_date']),
+            'direction_id': r['direction_id'],
         })
         consumed_by_key[key] = consumed_by_key.get(key, Decimal('0')) + units
 

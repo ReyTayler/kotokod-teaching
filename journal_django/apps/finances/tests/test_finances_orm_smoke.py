@@ -82,7 +82,7 @@ def test_student_balance_rows():
 def test_fifo_inputs():
     d, t, g, s = _seed()
     res = repository.fifo_inputs()
-    key = f'{s.id}:{d.id}'
+    key = str(s.id)
     assert key in res['keys']
     assert res['purchased_by_key'][key] == 4
     # цена за урок = 4000 / 4 = 1000
@@ -90,3 +90,4 @@ def test_fifo_inputs():
     assert res['consumed_by_key'][key] == Decimal('1')
     assert res['cons_by_key'][key][0]['date'] == '2026-01-05'
     assert res['cons_by_key'][key][0]['units'] == Decimal('1')
+    assert res['cons_by_key'][key][0]['direction_id'] == d.id

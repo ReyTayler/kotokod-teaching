@@ -90,7 +90,7 @@ def test_fifo_inputs_builds_lots_and_consumptions(
         )
 
     inputs = repository.fifo_inputs()
-    key = f'{student_fixture}:{direction_fixture}'
+    key = str(student_fixture)
 
     assert key in inputs['keys']
     lots = inputs['lots_by_key'][key]
@@ -103,9 +103,10 @@ def test_fifo_inputs_builds_lots_and_consumptions(
 
     cons = inputs['cons_by_key'][key]
     assert len(cons) == 7
-    # lesson_date — строка, units — Decimal
+    # lesson_date — строка, units — Decimal, direction_id — направление урока.
     assert isinstance(cons[0]['date'], str)
     assert cons[0]['date'] == '2026-05-10'
+    assert cons[0]['direction_id'] == direction_fixture
     assert inputs['consumed_by_key'][key] == Decimal('7')
 
     # End-to-end: совпадает с golden из fifo.test.js (3 по 500 в мае + 1×500+3×450 в июне).
@@ -124,6 +125,50 @@ def test_fifo_inputs_half_lesson_units(
         graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-10', duration=45
     )
     inputs = repository.fifo_inputs()
-    key = f'{student_fixture}:{direction_fixture}'
+    key = str(student_fixture)
     assert inputs['cons_by_key'][key][0]['units'] == Decimal('0.5')
     assert inputs['consumed_by_key'][key] == Decimal('0.5')
+
+
+def test_fifo_inputs_pools_across_directions(
+    teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
+):
+    """
+    Ключевой сценарий редизайна: оплата на direction_fixture (A), урок отработан в
+    ДРУГОМ направлении (B) — обе записи должны попасть в ОДИН ключ (student_id),
+    т.к. списание теперь общим пулом, без разбивки по направлению.
+    """
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO directions (name, sheet_name, is_individual, active) "
+            "VALUES ('__fifo_dir_b__', '__fifo_sheet_b__', false, true) RETURNING id"
+        )
+        direction_b = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active) "
+            "VALUES ('__fifo_group_b__', %s, %s, false, 60, true) RETURNING id",
+            [direction_b, teacher_id_fixture],
+        )
+        group_b = cur.fetchone()[0]
+    try:
+        _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, 2000, '2026-05-01')
+        lesson_id = _add_lesson_with_attendance(
+            graph_cleanup, group_b, teacher_id_fixture, student_fixture, '2026-05-10'
+        )
+        inputs = repository.fifo_inputs()
+        key = str(student_fixture)
+        assert len(inputs['lots_by_key'][key]) == 1
+        assert len(inputs['cons_by_key'][key]) == 1
+        assert inputs['cons_by_key'][key][0]['direction_id'] == direction_b
+    finally:
+        # Уроки/посещения из group_b должны уйти раньше group_b/direction_b —
+        # иначе lessons_group_id_fkey валит DELETE FROM groups. graph_cleanup
+        # тоже попробует удалить этот же lesson_id в своём teardown — это
+        # no-op на уже удалённой строке.
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+            cur.execute('DELETE FROM groups WHERE id = %s', [group_b])
+            cur.execute('DELETE FROM directions WHERE id = %s', [direction_b])
