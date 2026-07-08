@@ -83,39 +83,42 @@ _SLOT_START_COLUMNS = [3, 7, 11, 15, 19, 23]
 
 def parse_sheet(path: str) -> list[StudentRow]:
     """
-    Читает лист SHEET_NAME файла path. Строки 1-2 — заголовки (групповые + колоночные),
-    данные — с 3-й строки (1-indexed openpyxl). Строка без ФИ (col A) — пропускается
-    (хвостовые пустые шаблонные строки в реальном файле).
+    Читает лист SHEET_NAME файла path. Строки 1-2 (1-indexed) — заголовки
+    (групповые + колоночные), данные — с 3-й строки. Строка без ФИ (col A) —
+    пропускается (хвостовые пустые шаблонные строки в реальном файле).
     """
     import openpyxl
 
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    ws = wb[SHEET_NAME]
+    try:
+        ws = wb[SHEET_NAME]
 
-    rows: list[StudentRow] = []
-    for row in ws.iter_rows(min_row=3, values_only=True):
-        full_name_raw = row[0] if len(row) > 0 else None
-        if full_name_raw is None or str(full_name_raw).strip() == '':
-            continue
-
-        transitions: list[TransitionSlot] = []
-        for start in _SLOT_START_COLUMNS:
-            course = row[start] if start < len(row) else None
-            lessons_raw = row[start + 1] if start + 1 < len(row) else None
-            status_raw = row[start + 3] if start + 3 < len(row) else None
-            if course is None or lessons_raw is None:
+        rows: list[StudentRow] = []
+        for row in ws.iter_rows(min_row=3, values_only=True):
+            full_name_raw = row[0] if len(row) > 0 else None
+            if full_name_raw is None or str(full_name_raw).strip() == '':
                 continue
-            try:
-                lessons = int(round(float(lessons_raw)))
-            except (TypeError, ValueError):
-                continue
-            if lessons <= 0:
-                continue
-            transitions.append(TransitionSlot(
-                course_raw=str(course), lessons=lessons, status=str(status_raw or ''),
-            ))
 
-        if transitions:
-            rows.append(StudentRow(full_name=str(full_name_raw).strip(), transitions=transitions))
+            transitions: list[TransitionSlot] = []
+            for start in _SLOT_START_COLUMNS:
+                course = row[start] if start < len(row) else None
+                lessons_raw = row[start + 1] if start + 1 < len(row) else None
+                status_raw = row[start + 3] if start + 3 < len(row) else None
+                if course is None or lessons_raw is None:
+                    continue
+                try:
+                    lessons = int(round(float(lessons_raw)))
+                except (TypeError, ValueError):
+                    continue
+                if lessons <= 0:
+                    continue
+                transitions.append(TransitionSlot(
+                    course_raw=str(course), lessons=lessons, status=str(status_raw or ''),
+                ))
 
-    return rows
+            if transitions:
+                rows.append(StudentRow(full_name=str(full_name_raw).strip(), transitions=transitions))
+
+        return rows
+    finally:
+        wb.close()
