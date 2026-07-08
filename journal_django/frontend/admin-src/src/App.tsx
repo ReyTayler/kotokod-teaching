@@ -20,6 +20,7 @@ import DashboardPage from './pages/dashboard/DashboardPage';
 import AuditPage from './pages/audit/AuditPage';
 import AccountsPage from './pages/accounts/AccountsPage';
 import ChangelogListPage from './pages/changelog/ChangelogListPage';
+import RenewalsPage from './pages/renewals/RenewalsPage';
 
 export function App() {
   return (
@@ -48,6 +49,7 @@ export function App() {
 
             <Route path="/admin/payroll" element={<RequireRole roles={['superadmin']}><PayrollPage /></RequireRole>} />
             <Route path="/admin/subscriptions" element={<SubscriptionsPage />} />
+            <Route path="/admin/renewals" element={<RequireRole roles={['manager','admin','superadmin']}><RenewalsPage /></RequireRole>} />
             <Route path="/admin/archive" element={<ArchivePage />} />
             <Route path="/admin/settings" element={<SettingsPage />} />
             <Route path="/admin/audit" element={<RequireRole roles={['superadmin']}><AuditPage /></RequireRole>} />

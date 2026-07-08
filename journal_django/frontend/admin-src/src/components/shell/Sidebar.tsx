@@ -61,6 +61,14 @@ export const NAV_ICONS: Record<string, ReactElement> = {
       <line x1="7" y1="15" x2="11" y2="15"/>
     </svg>
   ),
+  renewals: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 4v6h-6"/>
+      <path d="M1 20v-6h6"/>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
+      <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>
+    </svg>
+  ),
   pay: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10"/>
@@ -114,6 +122,7 @@ export const SECTIONS = [
   { key: 'directions', label: 'Направления', path: '/admin/directions' },
   { key: 'lessons', label: 'Уроки', path: '/admin/lessons' },
   { key: 'subscriptions', label: 'Абонементы', path: '/admin/subscriptions' },
+  { key: 'renewals', label: 'Продления', path: '/admin/renewals' },
   { key: 'payroll', label: 'Зарплата', path: '/admin/payroll' },
   { key: 'archive', label: 'Архив', path: '/admin/archive' },
   { key: 'settings', label: 'Настройки', path: '/admin/settings' },

@@ -9,6 +9,7 @@ export const canSeeAccounts = isSuper;
 export const canSeeAudit = isSuper;
 export const canSeePayroll = isSuper;
 export const canSeeChangelog = isStaff;
+export const canSeeRenewals = isStaff;
 
 // Операции над сущностями (write-кнопки)
 export const canWriteTeachers = isSuper;
@@ -17,3 +18,4 @@ export const canWriteSubscriptions = isSuper; // абонементы + скид
 export const canWriteLessons = isAdminUp;     // CRUD урока + посещаемость
 export const canSeeLessonPayroll = isSuper;   // зарплата за урок
 export const canRevertChangelog = isAdminUp;
+export const canWriteRenewalStages = isSuper; // конфиг стадий воронки продлений (Фаза 6)

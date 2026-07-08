@@ -105,3 +105,11 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
 
 export const CHANGELOG_ENTITY_OPTIONS: { value: string; label: string }[] =
   Object.entries(CHANGELOG_ENTITY_LABELS).map(([value, label]) => ({ value, label }));
+
+// ===== Продления: стадии воронки (fallback, если под рукой только key —
+// основной источник истины — stage_label/label с бэка) =====
+
+export const RENEWAL_STAGE_LABELS: Record<string, string> = {
+  lesson_progress: 'Урок 1–4', awaiting_payment: 'Ждём оплату', thinking: 'Думает',
+  frozen: 'Заморожен', ignoring: 'Игнорит', renewed: 'Продлён', churned: 'Ушёл',
+};
