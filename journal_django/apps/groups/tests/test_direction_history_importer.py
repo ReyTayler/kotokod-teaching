@@ -195,3 +195,206 @@ def test_classify_and_aggregate_reports_unmatched_course_name():
     assert len(unmatched) == 1
     assert unmatched[0].full_name == 'Петров Иван'
     assert unmatched[0].course_raw == 'Плавание'
+
+
+# ---------------------------------------------------------------------------
+# import_to_db — интеграционные тесты (реальная БД, managed=False)
+# ---------------------------------------------------------------------------
+
+from django.db import connection
+
+
+def _make_student(full_name):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO students (full_name, enrollment_status) VALUES (%s, 'enrolled') RETURNING id",
+            [full_name],
+        )
+        return cur.fetchone()[0]
+
+
+def _make_direction(name):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO directions (name, sheet_name, is_individual, active) "
+            "VALUES (%s, %s, false, true) RETURNING id",
+            [name, f'__sheet_{name}__'],
+        )
+        return cur.fetchone()[0]
+
+
+def _cleanup_import(student_id=None, direction_id=None):
+    with connection.cursor() as cur:
+        if direction_id is not None:
+            cur.execute(
+                "SELECT id FROM groups WHERE direction_id = %s", [direction_id],
+            )
+            group_ids = [r[0] for r in cur.fetchall()]
+            for gid in group_ids:
+                cur.execute("DELETE FROM lesson_attendance WHERE lesson_id IN "
+                            "(SELECT id FROM lessons WHERE group_id = %s)", [gid])
+                cur.execute("DELETE FROM group_memberships WHERE group_id = %s", [gid])
+                cur.execute("DELETE FROM lessons WHERE group_id = %s", [gid])
+            cur.execute("DELETE FROM groups WHERE direction_id = %s", [direction_id])
+            cur.execute("DELETE FROM directions WHERE id = %s", [direction_id])
+        if student_id is not None:
+            cur.execute("DELETE FROM students WHERE id = %s", [student_id])
+
+
+@pytest.fixture
+def import_teacher_cleanup():
+    """Удаляет служебного 'Архив (импорт истории)' учителя после теста, если он появился."""
+    yield
+    with connection.cursor() as cur:
+        cur.execute(
+            "DELETE FROM teachers WHERE name = 'Архив (импорт истории)' "
+            "AND id NOT IN (SELECT DISTINCT teacher_id FROM groups)"
+        )
+
+
+@pytest.mark.django_db
+class TestImportToDb:
+
+    def test_creates_teacher_group_lessons_attendance_membership(self, import_teacher_cleanup):
+        from apps.groups.importers.direction_history import import_to_db
+
+        sid = _make_student('__import_test_student_1__')
+        did = _make_direction('__import_test_direction_1__')
+        try:
+            aggregated = {('__import_test_student_1__', '__import_test_direction_1__'): 5}
+            report = import_to_db(aggregated, dry_run=False)
+
+            assert report.imported_pairs == 1
+            assert report.lessons_written == 5
+            assert report.already_imported == 0
+            assert report.unmatched_students == []
+
+            with connection.cursor() as cur:
+                cur.execute("SELECT id FROM teachers WHERE name = 'Архив (импорт истории)'")
+                teacher_row = cur.fetchone()
+                assert teacher_row is not None
+
+                cur.execute(
+                    "SELECT id, active, teacher_id FROM groups WHERE direction_id = %s", [did],
+                )
+                group_row = cur.fetchone()
+                assert group_row is not None
+                gid, active, teacher_id = group_row
+                assert active is False
+                assert teacher_id == teacher_row[0]
+
+                cur.execute("SELECT COUNT(*) FROM lessons WHERE group_id = %s", [gid])
+                assert cur.fetchone()[0] == 5
+
+                cur.execute(
+                    "SELECT COUNT(*) FROM lesson_attendance la JOIN lessons l ON l.id = la.lesson_id "
+                    "WHERE l.group_id = %s AND la.student_id = %s AND la.present = true",
+                    [gid, sid],
+                )
+                assert cur.fetchone()[0] == 5
+
+                cur.execute(
+                    "SELECT lessons_done, active FROM group_memberships WHERE group_id = %s AND student_id = %s",
+                    [gid, sid],
+                )
+                membership = cur.fetchone()
+                assert membership == (5, False)
+        finally:
+            _cleanup_import(student_id=sid, direction_id=did)
+
+    def test_dry_run_writes_nothing(self, import_teacher_cleanup):
+        from apps.groups.importers.direction_history import import_to_db
+
+        sid = _make_student('__import_test_student_2__')
+        did = _make_direction('__import_test_direction_2__')
+        try:
+            aggregated = {('__import_test_student_2__', '__import_test_direction_2__'): 3}
+            report = import_to_db(aggregated, dry_run=True)
+
+            assert report.imported_pairs == 1
+            assert report.lessons_written == 3
+
+            with connection.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM groups WHERE direction_id = %s", [did])
+                assert cur.fetchone()[0] == 0
+                cur.execute("SELECT COUNT(*) FROM teachers WHERE name = 'Архив (импорт истории)'")
+                assert cur.fetchone()[0] == 0
+        finally:
+            _cleanup_import(student_id=sid, direction_id=did)
+
+    def test_rerun_is_idempotent_noop(self, import_teacher_cleanup):
+        from apps.groups.importers.direction_history import import_to_db
+
+        sid = _make_student('__import_test_student_3__')
+        did = _make_direction('__import_test_direction_3__')
+        try:
+            aggregated = {('__import_test_student_3__', '__import_test_direction_3__'): 4}
+            import_to_db(aggregated, dry_run=False)
+
+            report2 = import_to_db(aggregated, dry_run=False)
+            assert report2.imported_pairs == 0
+            assert report2.already_imported == 1
+
+            with connection.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM lessons WHERE group_id IN "
+                    "(SELECT id FROM groups WHERE direction_id = %s)", [did],
+                )
+                assert cur.fetchone()[0] == 4  # не задвоилось
+        finally:
+            _cleanup_import(student_id=sid, direction_id=did)
+
+    def test_unmatched_student_is_reported_and_skipped(self, import_teacher_cleanup):
+        from apps.groups.importers.direction_history import import_to_db
+
+        did = _make_direction('__import_test_direction_4__')
+        try:
+            aggregated = {('__nonexistent_student_xyz__', '__import_test_direction_4__'): 2}
+            report = import_to_db(aggregated, dry_run=False)
+
+            assert report.imported_pairs == 0
+            assert '__nonexistent_student_xyz__' in report.unmatched_students
+
+            with connection.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM groups WHERE direction_id = %s", [did])
+                assert cur.fetchone()[0] == 0
+        finally:
+            _cleanup_import(direction_id=did)
+
+    def test_unmatched_direction_is_reported_and_skipped(self, import_teacher_cleanup):
+        from apps.groups.importers.direction_history import import_to_db
+
+        sid = _make_student('__import_test_student_5__')
+        try:
+            aggregated = {('__import_test_student_5__', '__nonexistent_direction_xyz__'): 2}
+            report = import_to_db(aggregated, dry_run=False)
+
+            assert report.imported_pairs == 0
+            assert any('__nonexistent_direction_xyz__' in s for s in report.unmatched_directions_in_db)
+        finally:
+            _cleanup_import(student_id=sid)
+
+    def test_idempotency_anomaly_when_count_mismatches(self, import_teacher_cleanup):
+        from apps.groups.importers.direction_history import import_to_db
+
+        sid = _make_student('__import_test_student_6__')
+        did = _make_direction('__import_test_direction_6__')
+        try:
+            import_to_db({('__import_test_student_6__', '__import_test_direction_6__'): 4}, dry_run=False)
+
+            # Другое ожидаемое количество для той же пары -> не совпадает с уже записанными 4.
+            report = import_to_db(
+                {('__import_test_student_6__', '__import_test_direction_6__'): 7}, dry_run=False,
+            )
+            assert report.imported_pairs == 0
+            assert report.already_imported == 0
+            assert len(report.idempotency_anomalies) == 1
+
+            with connection.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM lessons WHERE group_id IN "
+                    "(SELECT id FROM groups WHERE direction_id = %s)", [did],
+                )
+                assert cur.fetchone()[0] == 4  # не тронуто
+        finally:
+            _cleanup_import(student_id=sid, direction_id=did)
