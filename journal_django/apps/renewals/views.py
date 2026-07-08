@@ -153,3 +153,10 @@ class RenewalStageReorderView(APIView):
         ser = StageReorderSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         return Response(services.reorder_stages(ser.validated_data['order']))
+
+
+class RenewalAnalyticsView(APIView):
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        return Response(services.analytics_funnel(request.query_params.get('group_by')))

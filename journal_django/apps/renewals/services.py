@@ -50,3 +50,8 @@ def delete_stage(stage_id: int) -> str:
 
 def reorder_stages(order: list) -> list[dict]:
     return repository.reorder_stages(order)
+
+
+def analytics_funnel(group_by: str | None = None) -> dict:
+    from apps.renewals import analytics
+    return analytics.funnel(group_by)
