@@ -128,3 +128,26 @@ def test_partial_lot_consumption():
     r = compute_fifo(lots, cons, MS, ME)
     assert r['worked_off_total'] == _D('1000.00')
     assert r['remaining_value'] == _D('1000.00')
+
+
+def test_worked_off_by_direction():
+    lots = [
+        {'lessons': 4, 'price_per_lesson': _D(500)},
+        {'lessons': 4, 'price_per_lesson': _D(450)},
+    ]
+    cons = [
+        {'units': 1, 'date': '2026-06-10', 'direction_id': 1},
+        {'units': 1, 'date': '2026-06-11', 'direction_id': 1},
+        {'units': 1, 'date': '2026-06-12', 'direction_id': 2},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_direction'][1] == _D('1000.00')
+    assert r['worked_off_by_direction'][2] == _D('500.00')
+
+
+def test_worked_off_by_direction_absent_key_is_ignored():
+    # Golden-кейсы выше не передают direction_id — не должно падать, просто {}.
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    cons = _lessons(2, '2026-06-10')
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_direction'] == {}
