@@ -21,7 +21,7 @@ Cookie:
   - GET /999999999 → 404 {error: 'Not found'}
   - GET /:id/stats → 200 с {student_id, directions, groups, overall}
   - GET /999999999/stats → 404
-  - GET /:id/balance → 200 с {per_direction, total_balance, total_paid_amount, payments}
+  - GET /:id/balance → 200 с {paid_by_direction, attended_by_direction, total_balance, total_paid_amount, payments}
   - POST → 201, ученик создан в БД
   - POST без full_name → 400
   - POST с frozen без frozen_until_month → 400
@@ -238,7 +238,8 @@ def test_balance_returns_200_for_new_student(admin_client):
         resp = admin_client.get(f"{BASE_URL}/{student['id']}/balance")
         assert resp.status_code == 200
         body = resp.json()
-        assert 'per_direction' in body
+        assert 'paid_by_direction' in body
+        assert 'attended_by_direction' in body
         assert 'total_balance' in body
         assert 'total_paid_amount' in body
         assert 'payments' in body
@@ -252,7 +253,8 @@ def test_balance_nonexistent_student_returns_200(admin_client):
     resp = admin_client.get(f'{BASE_URL}/999999999/balance')
     assert resp.status_code == 200
     body = resp.json()
-    assert body['per_direction'] == []
+    assert body['paid_by_direction'] == []
+    assert body['attended_by_direction'] == []
     assert body['total_balance'] == 0
     assert body['total_paid_amount'] == 0
     assert body['payments'] == []

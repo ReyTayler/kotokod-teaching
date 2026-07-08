@@ -306,35 +306,20 @@ class TestBalanceNumericTypes:
     Python _js_number: Decimal('8.0') → 8 (int), Decimal('7.5') → 7.5 (float).
     """
 
-    def test_purchased_is_int_when_whole(self, payment_fixture, student_fixture, direction_fixture):
-        """subscriptions_count=1 → purchased_lessons=4 → int, не float."""
+    def test_total_balance_is_int_when_whole(self, payment_fixture, student_fixture):
+        """Нет посещений → total_balance = 4 → int."""
         balance = repository.get_student_balance(student_fixture)
-        d = next(
-            (d for d in balance['per_direction'] if d['direction_id'] == direction_fixture),
-            None,
-        )
-        assert d is not None
-        assert d['purchased_lessons'] == 4
-        assert isinstance(d['purchased_lessons'], int), (
-            f"Expected int, got {type(d['purchased_lessons'])}: {d['purchased_lessons']!r}"
-        )
+        assert balance['total_balance'] == 4
+        assert isinstance(balance['total_balance'], int)
 
-    def test_balance_is_int_when_whole(self, payment_fixture, student_fixture, direction_fixture):
-        """Нет посещений → balance = 4 → int."""
-        balance = repository.get_student_balance(student_fixture)
-        d = next(d for d in balance['per_direction'] if d['direction_id'] == direction_fixture)
-        assert d['balance'] == 4
-        assert isinstance(d['balance'], int)
-
-    def test_attended_half_lesson_is_float(
+    def test_total_balance_is_float_with_half_lesson(
         self,
         payment_fixture,
         student_fixture,
-        direction_fixture,
         membership_fixture,
         lesson_45_fixture,
     ):
-        """lesson_duration_minutes=45 → attended_lessons=0.5 → float."""
+        """lesson_duration_minutes=45 → attended_lessons=0.5 → total_balance=3.5 → float."""
         with connection.cursor() as cur:
             cur.execute(
                 'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s, %s, true)',
@@ -343,11 +328,8 @@ class TestBalanceNumericTypes:
 
         try:
             balance = repository.get_student_balance(student_fixture)
-            d = next(d for d in balance['per_direction'] if d['direction_id'] == direction_fixture)
-            assert d['attended_lessons'] == 0.5
-            assert isinstance(d['attended_lessons'], float)
-            assert d['balance'] == 3.5
-            assert isinstance(d['balance'], float)
+            assert balance['total_balance'] == 3.5
+            assert isinstance(balance['total_balance'], float)
         finally:
             with connection.cursor() as cur:
                 cur.execute(
@@ -424,8 +406,8 @@ class TestBalanceNumericTypes:
         assert isinstance(p['unit_price'], Decimal)
         assert isinstance(p['total_amount'], Decimal)
 
-    def test_no_payments_returns_empty_per_direction(self):
-        """Ученик без оплат → per_direction пусто, total_balance=0."""
+    def test_no_payments_returns_empty_breakdowns(self):
+        """Ученик без оплат → paid_by_direction/attended_by_direction пусты, total_balance=0."""
         with connection.cursor() as cur:
             cur.execute(
                 "INSERT INTO students (full_name, enrollment_status) VALUES ('__bal_empty__', 'enrolled') RETURNING id",
@@ -433,7 +415,8 @@ class TestBalanceNumericTypes:
             sid = cur.fetchone()[0]
         try:
             balance = repository.get_student_balance(sid)
-            assert balance['per_direction'] == []
+            assert balance['paid_by_direction'] == []
+            assert balance['attended_by_direction'] == []
             assert balance['total_balance'] == 0
             assert balance['payments'] == []
         finally:

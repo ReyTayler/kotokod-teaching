@@ -12,7 +12,7 @@ Unit/integration тесты для StudentsRepository.
   - update_student: COALESCE обновление, frozen_until_month может стать NULL
   - soft_delete_student: статус 'not_enrolled', frozen_until_month=NULL, повторный → False
   - student_stats: форма ответа (keys: student_id, directions, groups, overall)
-  - get_student_balance: форма ответа (keys: per_direction, total_balance, total_paid_amount, payments)
+  - get_student_balance: форма ответа (keys: paid_by_direction, attended_by_direction, total_balance, total_paid_amount, payments)
 """
 from __future__ import annotations
 
@@ -406,7 +406,7 @@ class TestStudentStats:
 
 @pytest.mark.django_db
 class TestGetStudentBalance:
-    """Тесты get_student_balance() — форма ответа. Постоянный дом — apps/payments/."""
+    """Тесты get_student_balance() — форма ответа. Постоянный дом — apps/finances/."""
 
     def test_shape_for_new_student(self):
         """Ученик без оплат — структура ответа корректная."""
@@ -416,11 +416,13 @@ class TestGetStudentBalance:
         sid = student['id']
         try:
             result = payments_repo.get_student_balance(sid)
-            assert 'per_direction' in result
+            assert 'paid_by_direction' in result
+            assert 'attended_by_direction' in result
             assert 'total_balance' in result
             assert 'total_paid_amount' in result
             assert 'payments' in result
-            assert isinstance(result['per_direction'], list)
+            assert isinstance(result['paid_by_direction'], list)
+            assert isinstance(result['attended_by_direction'], list)
             assert isinstance(result['payments'], list)
         finally:
             _cleanup_student(sid)
@@ -435,25 +437,38 @@ class TestGetStudentBalance:
             result = payments_repo.get_student_balance(sid)
             assert result['total_balance'] == 0
             assert result['total_paid_amount'] == 0
-            assert result['per_direction'] == []
+            assert result['paid_by_direction'] == []
+            assert result['attended_by_direction'] == []
             assert result['payments'] == []
         finally:
             _cleanup_student(sid)
 
-    def test_per_direction_shape(self):
-        """Если есть оплаты — per_direction содержит нужные ключи."""
+    def test_paid_by_direction_shape(self):
+        """Если есть оплаты — paid_by_direction содержит нужные ключи."""
         from apps.payments import repository as payments_repo
         with connection.cursor() as cur:
-            cur.execute('SELECT student_id FROM payments LIMIT 1')
+            cur.execute('SELECT student_id FROM payments WHERE direction_id IS NOT NULL LIMIT 1')
             row = cur.fetchone()
         if not row:
-            pytest.skip('No payments in DB — skipping per_direction shape test')
+            pytest.skip('No payments in DB — skipping paid_by_direction shape test')
 
         result = payments_repo.get_student_balance(row[0])
-        if result['per_direction']:
-            d = result['per_direction'][0]
-            for key in [
-                'direction_id', 'direction_name', 'direction_color',
-                'purchased_lessons', 'attended_lessons', 'balance', 'total_paid_amount',
-            ]:
-                assert key in d, f"Missing key '{key}' in per_direction item"
+        if result['paid_by_direction']:
+            d = result['paid_by_direction'][0]
+            for key in ['direction_id', 'direction_name', 'direction_color', 'total_paid_amount']:
+                assert key in d, f"Missing key '{key}' in paid_by_direction item"
+
+    def test_attended_by_direction_shape(self):
+        """Если есть посещения — attended_by_direction содержит нужные ключи."""
+        from apps.payments import repository as payments_repo
+        with connection.cursor() as cur:
+            cur.execute('SELECT student_id FROM lesson_attendance WHERE present = true LIMIT 1')
+            row = cur.fetchone()
+        if not row:
+            pytest.skip('No attendance in DB — skipping attended_by_direction shape test')
+
+        result = payments_repo.get_student_balance(row[0])
+        if result['attended_by_direction']:
+            d = result['attended_by_direction'][0]
+            for key in ['direction_id', 'direction_name', 'direction_color', 'attended_lessons']:
+                assert key in d, f"Missing key '{key}' in attended_by_direction item"
