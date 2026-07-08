@@ -150,8 +150,16 @@ def list_activity(deal_id: int) -> list[dict]:
 COLUMN_LIMIT = 50  # карточек на колонку по умолчанию (остальное — «Показать ещё»)
 
 
-def _board_where(filters: dict) -> tuple[str, list]:
-    """Общий WHERE для board()/column_cards() — открытые сделки + опциональные фильтры."""
+def board(filters: dict | None = None) -> dict:
+    """
+    Доска: открытые сделки, сгруппированные по стадиям дефолтной воронки.
+    Возвращает колонки в порядке sort_order с count/sum_potential и первыми N карточками.
+    """
+    filters = filters or {}
+    from apps.renewals.models import RenewalPipeline, RenewalStage
+    pipeline = RenewalPipeline.objects.get(is_default=True)
+    stages = list(RenewalStage.objects.filter(pipeline=pipeline).order_by('sort_order'))
+
     where = ['d.outcome_at IS NULL']
     params: list = []
     if filters.get('assignee_id'):
@@ -160,21 +168,7 @@ def _board_where(filters: dict) -> tuple[str, list]:
         where.append('d.direction_id = %s'); params.append(int(filters['direction_id']))
     if filters.get('overdue') == 'true':
         where.append("d.next_touch_at IS NOT NULL AND d.next_touch_at < now()::date")
-    return ' AND '.join(where), params
-
-
-def board(filters: dict | None = None) -> dict:
-    """
-    Доска: открытые сделки, сгруппированные по стадиям дефолтной воронки.
-    Возвращает колонки в порядке sort_order с count/sum_potential и первыми N карточками.
-    Остальные — через column_cards() («Показать ещё»).
-    """
-    filters = filters or {}
-    from apps.renewals.models import RenewalPipeline, RenewalStage
-    pipeline = RenewalPipeline.objects.get(is_default=True)
-    stages = list(RenewalStage.objects.filter(pipeline=pipeline).order_by('sort_order'))
-
-    where_sql, params = _board_where(filters)
+    where_sql = ' AND '.join(where)
 
     with connection.cursor() as cur:
         cur.execute(f"""
@@ -186,7 +180,7 @@ def board(filters: dict | None = None) -> dict:
     columns = []
     for st in stages:
         stat = agg.get(st.id, {'count': 0, 'sum_potential': 0.0})
-        cards = _deals_in_stage(st.id, where_sql, params, COLUMN_LIMIT, offset=0)
+        cards = _deals_in_stage(st.id, where_sql, params, COLUMN_LIMIT)
         columns.append({
             'stage_id': st.id, 'key': st.key, 'label': st.label, 'kind': st.kind,
             'color': st.color, 'count': stat['count'],
@@ -195,8 +189,7 @@ def board(filters: dict | None = None) -> dict:
     return {'columns': columns}
 
 
-def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
-                     limit: int, offset: int) -> list[dict]:
+def _deals_in_stage(stage_id: int, where_sql: str, base_params: list, limit: int) -> list[dict]:
     with connection.cursor() as cur:
         cur.execute(f"""
             SELECT d.id, s.full_name AS student_name, dir.name AS direction_name,
@@ -209,19 +202,10 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
             LEFT JOIN accounts a ON a.id = d.assignee_id
             WHERE {where_sql} AND d.stage_id = %s
             ORDER BY d.next_touch_at NULLS LAST, d.stage_entered_at
-            LIMIT %s OFFSET %s
-        """, base_params + [stage_id, limit, offset])
+            LIMIT %s
+        """, base_params + [stage_id, limit])
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
-
-
-def column_cards(stage_id: int, offset: int, filters: dict | None = None) -> list[dict]:
-    """
-    Догрузка карточек одной колонки канбана («Показать ещё») — та же выборка
-    и сортировка, что и в board(), но с произвольным offset поверх COLUMN_LIMIT.
-    """
-    where_sql, params = _board_where(filters or {})
-    return _deals_in_stage(stage_id, where_sql, params, COLUMN_LIMIT, offset)
 
 
 def list_stages() -> list[dict]:
