@@ -7,9 +7,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.permissions import IsManagerOrAdmin, ReadStaffWriteSuperAdmin
 from apps.renewals import services
-from apps.renewals.serializers import MoveSerializer
+from apps.renewals.serializers import (
+    MoveSerializer,
+    StageReorderSerializer,
+    StageWriteSerializer,
+)
 from apps.renewals.transitions import InvalidTransition
 
 SORT_FIELDS = ['next_touch_at', 'stage_entered_at', 'cycle_no', 'student_name']
@@ -94,3 +98,45 @@ class RenewalActivityView(APIView):
 
     def get(self, request: Request, pk: int) -> Response:
         return Response(services.list_activity(pk))
+
+
+class RenewalStageListView(APIView):
+    permission_classes = [ReadStaffWriteSuperAdmin]
+
+    def get(self, request: Request) -> Response:
+        return Response(services.list_stages())
+
+    def post(self, request: Request) -> Response:
+        ser = StageWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        return Response(services.create_stage(ser.validated_data),
+                        status=status.HTTP_201_CREATED)
+
+
+class RenewalStageDetailView(APIView):
+    permission_classes = [ReadStaffWriteSuperAdmin]
+
+    def patch(self, request: Request, pk: int) -> Response:
+        ser = StageWriteSerializer(data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        result = services.update_stage(pk, ser.validated_data)
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(result)
+
+    def delete(self, request: Request, pk: int) -> Response:
+        outcome = services.delete_stage(pk)
+        if outcome == 'not_found':
+            raise NotFound({'error': 'Not found'})
+        if outcome in ('has_open_deals', 'protected'):
+            return Response({'error': outcome}, status=status.HTTP_409_CONFLICT)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RenewalStageReorderView(APIView):
+    permission_classes = [ReadStaffWriteSuperAdmin]
+
+    def post(self, request: Request) -> Response:
+        ser = StageReorderSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        return Response(services.reorder_stages(ser.validated_data['order']))

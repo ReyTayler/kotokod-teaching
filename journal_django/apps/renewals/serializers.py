@@ -19,3 +19,14 @@ class DealPatchSerializer(serializers.Serializer):
 
 class CommentSerializer(serializers.Serializer):
     body = serializers.CharField()
+
+
+class StageWriteSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    color = serializers.RegexField(r'^#[0-9a-fA-F]{6}$', required=False, allow_null=True)
+    kind = serializers.ChoiceField(choices=['progress', 'decision', 'won', 'lost'])
+    key = serializers.RegexField(r'^[a-z0-9_]+$', required=False)
+
+
+class StageReorderSerializer(serializers.Serializer):
+    order = serializers.ListField(child=serializers.IntegerField())  # stage_id в новом порядке

@@ -30,3 +30,23 @@ def add_comment(deal_id, body, author_id):
 
 def list_activity(deal_id):
     return repository.list_activity(deal_id)
+
+
+def list_stages() -> list[dict]:
+    return repository.list_stages()
+
+
+def create_stage(data: dict) -> dict:
+    return repository.create_stage(data)
+
+
+def update_stage(stage_id: int, data: dict) -> dict | None:
+    return repository.update_stage(stage_id, data)
+
+
+def delete_stage(stage_id: int) -> str:
+    return repository.delete_stage(stage_id)
+
+
+def reorder_stages(order: list) -> list[dict]:
+    return repository.reorder_stages(order)

@@ -205,6 +205,73 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list, limit: int
         return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def list_stages() -> list[dict]:
+    from apps.renewals.models import RenewalPipeline, RenewalStage
+    pipe = RenewalPipeline.objects.get(is_default=True)
+    return list(RenewalStage.objects.filter(pipeline=pipe).order_by('sort_order')
+                .values('id', 'key', 'label', 'color', 'kind', 'is_auto', 'sort_order'))
+
+
+def create_stage(data: dict) -> dict:
+    from apps.renewals.models import RenewalPipeline, RenewalStage
+    from django.db.models import Max
+    pipe = RenewalPipeline.objects.get(is_default=True)
+    next_order = (RenewalStage.objects.filter(pipeline=pipe)
+                  .aggregate(m=Max('sort_order'))['m'] or 0) + 1
+    key = data.get('key') or _slugify_key(data['label'])
+    st = RenewalStage.objects.create(
+        pipeline=pipe, key=key, label=data['label'], color=data.get('color'),
+        kind=data['kind'], sort_order=next_order, is_auto=False)
+    return _stage_dict(st)
+
+
+def update_stage(stage_id: int, data: dict) -> dict | None:
+    from apps.renewals.models import RenewalStage
+    st = RenewalStage.objects.filter(id=stage_id).first()
+    if st is None:
+        return None
+    for k in ('label', 'color', 'kind'):
+        if k in data:
+            setattr(st, k, data[k])
+    st.save()
+    return _stage_dict(st)
+
+
+def delete_stage(stage_id: int) -> str:
+    """Нельзя удалить стадию с открытыми сделками или единственную won/lost/progress."""
+    from apps.renewals.models import RenewalDeal, RenewalStage
+    st = RenewalStage.objects.filter(id=stage_id).first()
+    if st is None:
+        return 'not_found'
+    if RenewalDeal.objects.filter(stage_id=stage_id, outcome_at__isnull=True).exists():
+        return 'has_open_deals'
+    if st.is_auto or (RenewalStage.objects.filter(
+            pipeline=st.pipeline, kind=st.kind).count() == 1 and st.kind in ('won', 'lost', 'progress')):
+        return 'protected'
+    st.delete()
+    return 'ok'
+
+
+def reorder_stages(order: list[int]) -> list[dict]:
+    from apps.renewals.models import RenewalStage
+    from django.db import transaction
+    with transaction.atomic():
+        for i, sid in enumerate(order):
+            RenewalStage.objects.filter(id=sid).update(sort_order=i)
+    return list_stages()
+
+
+def _slugify_key(label: str) -> str:
+    import re
+    base = re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_') or 'stage'
+    return base
+
+
+def _stage_dict(st) -> dict:
+    return {'id': st.id, 'key': st.key, 'label': st.label, 'color': st.color,
+            'kind': st.kind, 'is_auto': st.is_auto, 'sort_order': st.sort_order}
+
+
 def list_deals(page: int, page_size: int, sort_by: str, sort_dir: str, filters: dict) -> dict:
     """Списочный вид: server-pagination. sort_dir валидируется вызывающим (view)."""
     where = ['1=1']
