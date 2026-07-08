@@ -2,10 +2,11 @@
 FinancesRepository — единственное место доступа к данным вычислительного слоя финансов.
 
 ORM-порт (раздел 09):
-  • fifo_inputs()            ← _fifoInputs() (dashboard.js)
-  • balance_for_student()    ← общий пул (2026-07-08 редизайн)
-  • student_balance_rows()   ← getStudentBalance WITH-запрос (payments.js)
-  • total_paid_amount()      ← getStudentBalance итоговая сумма (payments.js)
+  • fifo_inputs()                ← _fifoInputs() (dashboard.js)
+  • balance_for_student()        ← общий пул (2026-07-08 редизайн)
+  • paid_by_direction_rows()     ← информ. разбивка «оплачено по направлениям» (2026-07-08)
+  • attended_by_direction_rows() ← информ. разбивка «отработано по направлениям» (2026-07-08)
+  • total_paid_amount()          ← getStudentBalance итоговая сумма (payments.js)
 
 CTE getStudentBalance переразбит на отдельные агрегирующие запросы + сборка по
 direction_id в Python (паттерн 4.8) — баланс выводится, не хранится.
