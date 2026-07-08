@@ -199,20 +199,25 @@ export interface Payment {
 
 // ===== Balance =====
 
-export interface DirectionBalance {
+export interface PaidByDirection {
   direction_id: ID;
   direction_name: string;
   direction_color: string | null;
-  purchased_lessons: number;  // SUM(subscriptions_count * 4)
-  attended_lessons: number;   // half=0.5
-  balance: number;            // purchased − attended (может быть < 0)
   total_paid_amount: number | string;
 }
 
+export interface AttendedByDirection {
+  direction_id: ID;
+  direction_name: string;
+  direction_color: string | null;
+  attended_lessons: number;
+}
+
 export interface StudentBalance {
-  per_direction: DirectionBalance[];
-  total_balance: number;
+  total_balance: number;              // общий пул ученика, не по направлению
   total_paid_amount: number | string;
+  paid_by_direction: PaidByDirection[];
+  attended_by_direction: AttendedByDirection[];
   payments: Payment[];
 }
 
@@ -275,10 +280,7 @@ export interface AuditEntry {
 export interface DashboardDebt {
   student_id: number;
   student_name: string;
-  direction_id: number;
-  direction_name: string;
-  direction_color: string | null;
-  balance: number; // в уроках, < 0
+  balance: number; // в уроках, < 0 (общий пул ученика, без направления)
 }
 
 export interface DashboardData {
