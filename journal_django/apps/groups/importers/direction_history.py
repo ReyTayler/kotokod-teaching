@@ -122,3 +122,63 @@ def parse_sheet(path: str) -> list[StudentRow]:
         return rows
     finally:
         wb.close()
+
+
+@dataclass
+class SkipRecord:
+    full_name: str
+    course_raw: str
+    status: str
+
+
+@dataclass
+class UnrecognizedStatusRecord:
+    full_name: str
+    course_raw: str
+    status: str
+
+
+@dataclass
+class UnmatchedCourseRecord:
+    full_name: str
+    course_raw: str
+
+
+def classify_and_aggregate(
+    rows: list[StudentRow],
+) -> tuple[
+    dict[tuple[str, str], int],
+    list[SkipRecord],
+    list[UnrecognizedStatusRecord],
+    list[UnmatchedCourseRecord],
+]:
+    """
+    Классифицирует и суммирует слоты «Переход N» по всем ученикам.
+
+    Возвращает:
+      aggregated: {(full_name, direction_name): сумма_уроков} — только архивируемые
+      skipped: слоты со статусом «текущее направление» (осознанный пропуск)
+      unrecognized: слоты с нераспознанным статусом (пропуск + нужен отчёт)
+      unmatched: слоты с нераспознанным названием курса (пропуск + нужен отчёт)
+    """
+    aggregated: dict[tuple[str, str], int] = {}
+    skipped: list[SkipRecord] = []
+    unrecognized: list[UnrecognizedStatusRecord] = []
+    unmatched: list[UnmatchedCourseRecord] = []
+
+    for row in rows:
+        for slot in row.transitions:
+            if is_skip_current(slot.status):
+                skipped.append(SkipRecord(row.full_name, slot.course_raw, slot.status))
+                continue
+            if slot.status not in STATUS_ARCHIVE:
+                unrecognized.append(UnrecognizedStatusRecord(row.full_name, slot.course_raw, slot.status))
+                continue
+            direction_name = normalize_course_name(slot.course_raw)
+            if direction_name is None:
+                unmatched.append(UnmatchedCourseRecord(row.full_name, slot.course_raw))
+                continue
+            key = (row.full_name, direction_name)
+            aggregated[key] = aggregated.get(key, 0) + slot.lessons
+
+    return aggregated, skipped, unrecognized, unmatched

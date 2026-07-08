@@ -117,3 +117,81 @@ def test_parse_sheet_strips_whitespace_from_full_name(tmp_path):
 
     rows = parse_sheet(str(path))
     assert rows[0].full_name == 'Петров Иван'
+
+
+def _row(full_name, *slots):
+    """slots: list of (course_raw, lessons, status) tuples."""
+    from apps.groups.importers.direction_history import StudentRow, TransitionSlot
+    return StudentRow(
+        full_name=full_name,
+        transitions=[TransitionSlot(course_raw=c, lessons=n, status=s) for c, n, s in slots],
+    )
+
+
+def test_classify_and_aggregate_sums_repeated_direction():
+    from apps.groups.importers.direction_history import classify_and_aggregate
+
+    rows = [
+        _row(
+            'Столярова Анастасия',
+            ('Питон', 20, 'Закончил и перешёл'),
+            ('Веб-разработка', 15, 'Продолжает учиться'),
+            ('Питон', 10, 'Ожидание перехода'),  # повторный заход на то же направление
+        ),
+    ]
+
+    aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
+
+    assert aggregated[('Столярова Анастасия', 'Python')] == 30
+    assert ('Столярова Анастасия', 'Web-разработка') not in aggregated
+    assert len(skipped) == 1
+    assert skipped[0].course_raw == 'Веб-разработка'
+    assert unrecognized == []
+    assert unmatched == []
+
+
+def test_classify_and_aggregate_skips_current_status():
+    from apps.groups.importers.direction_history import classify_and_aggregate
+
+    rows = [_row('Иванов Пётр', ('Питон', 32, 'Продолжает учиться'))]
+    aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
+
+    assert aggregated == {}
+    assert len(skipped) == 1
+    assert skipped[0].full_name == 'Иванов Пётр'
+    assert skipped[0].status == 'Продолжает учиться'
+
+
+def test_classify_and_aggregate_skips_frozen_status_variants():
+    from apps.groups.importers.direction_history import classify_and_aggregate
+
+    rows = [_row('Иванов Пётр', ('Питон', 32, 'Заморозка Сентябрь'))]
+    aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
+
+    assert aggregated == {}
+    assert len(skipped) == 1
+
+
+def test_classify_and_aggregate_reports_unrecognized_status():
+    from apps.groups.importers.direction_history import classify_and_aggregate
+
+    rows = [_row('Кокорин Владимир', ('Веб-дизайн', 12, 'Что с ним'))]
+    aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
+
+    assert aggregated == {}
+    assert skipped == []
+    assert len(unrecognized) == 1
+    assert unrecognized[0].full_name == 'Кокорин Владимир'
+    assert unrecognized[0].status == 'Что с ним'
+
+
+def test_classify_and_aggregate_reports_unmatched_course_name():
+    from apps.groups.importers.direction_history import classify_and_aggregate
+
+    rows = [_row('Петров Иван', ('Плавание', 8, 'Закончил и перешёл'))]
+    aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
+
+    assert aggregated == {}
+    assert len(unmatched) == 1
+    assert unmatched[0].full_name == 'Петров Иван'
+    assert unmatched[0].course_raw == 'Плавание'
