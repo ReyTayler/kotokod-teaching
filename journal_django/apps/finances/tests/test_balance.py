@@ -84,20 +84,23 @@ def test_balance_pools_across_directions(
     Ключевой сценарий редизайна: оплата за направление A, но урок отработан в
     ДРУГОМ направлении B — списывается из общего пула, а не остаётся зависшей.
     """
-    with connection.cursor() as cur:
-        cur.execute(
-            "INSERT INTO directions (name, sheet_name, is_individual, active) "
-            "VALUES ('__fin_dir_b__', '__fin_sheet_b__', false, true) RETURNING id"
-        )
-        direction_b = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, active) "
-            "VALUES ('__fin_group_b__', %s, %s, false, 60, true) RETURNING id",
-            [direction_b, teacher_id_fixture],
-        )
-        group_b = cur.fetchone()[0]
+    # lid/group_b/direction_b инициализируем заранее: если setup упадёт, finally
+    # не должен маскировать ошибку NameError'ом и не должен утечь строки в dev-БД.
+    direction_b = group_b = lid = None
     try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO directions (name, sheet_name, is_individual, active) "
+                "VALUES ('__fin_dir_b__', '__fin_sheet_b__', false, true) RETURNING id"
+            )
+            direction_b = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+                "lesson_duration_minutes, active) "
+                "VALUES ('__fin_group_b__', %s, %s, false, 60, true) RETURNING id",
+                [direction_b, teacher_id_fixture],
+            )
+            group_b = cur.fetchone()[0]
         # Оплата на направление A (direction_fixture) — 4 урока.
         _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000)
         # Урок отработан на направлении B (group_b).
@@ -115,12 +118,15 @@ def test_balance_pools_across_directions(
         # ВАЖНО: удалить lesson_attendance/lessons для group_b ДО удаления group/direction
         # (graph_cleanup teardown идёт позже; FK lessons→groups иначе падает).
         with connection.cursor() as cur:
-            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lid])
-            cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
-            if lid in graph_cleanup['lessons']:
-                graph_cleanup['lessons'].remove(lid)
-            cur.execute('DELETE FROM groups WHERE id = %s', [group_b])
-            cur.execute('DELETE FROM directions WHERE id = %s', [direction_b])
+            if lid is not None:
+                cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lid])
+                cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
+                if lid in graph_cleanup['lessons']:
+                    graph_cleanup['lessons'].remove(lid)
+            if group_b is not None:
+                cur.execute('DELETE FROM groups WHERE id = %s', [group_b])
+            if direction_b is not None:
+                cur.execute('DELETE FROM directions WHERE id = %s', [direction_b])
 
 
 def test_balance_empty_student(student_fixture, graph_cleanup):
