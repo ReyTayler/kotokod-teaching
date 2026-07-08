@@ -43,6 +43,11 @@ TRACKED: dict[str, TrackedModel] = {
                                                    identity=('lesson_id', 'student_id')),
     'payments.Payment':               TrackedModel('payment', True, 50),
     'payroll.Payroll':                TrackedModel('payroll', True, 50),
+    # renewals: справочники воронки → сделки → активность (лог, не откатываем)
+    'renewals.RenewalPipeline':       TrackedModel('renewal_pipeline', True, 20),
+    'renewals.RenewalStage':          TrackedModel('renewal_stage', True, 25),
+    'renewals.RenewalDeal':           TrackedModel('renewal_deal', True, 35),
+    'renewals.RenewalActivity':       TrackedModel('renewal_activity', False, 55),
 }
 
 

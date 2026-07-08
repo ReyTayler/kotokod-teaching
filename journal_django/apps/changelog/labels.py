@@ -60,6 +60,15 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/accounts$'), 'account.create'),
     ('PATCH', re.compile(r'^/api/admin/accounts/\d+$'), 'account.update'),
     ('DELETE', re.compile(r'^/api/admin/accounts/\d+$'), 'account.delete'),
+    # renewals (стадии-справочник — до generic deal-правил)
+    ('POST', re.compile(r'^/api/admin/renewals/stages/reorder$'), 'renewal.stage_reorder'),
+    ('POST', re.compile(r'^/api/admin/renewals/stages$'), 'renewal.stage_create'),
+    ('PATCH', re.compile(r'^/api/admin/renewals/stages/\d+$'), 'renewal.stage_update'),
+    ('DELETE', re.compile(r'^/api/admin/renewals/stages/\d+$'), 'renewal.stage_delete'),
+    ('POST', re.compile(r'^/api/admin/renewals/rebuild$'), 'renewal.rebuild'),
+    ('POST', re.compile(r'^/api/admin/renewals/\d+/move$'), 'renewal.move'),
+    ('POST', re.compile(r'^/api/admin/renewals/\d+/comment$'), 'renewal.comment'),
+    ('PATCH', re.compile(r'^/api/admin/renewals/\d+$'), 'renewal.update'),
     # teacher SPA
     ('POST', re.compile(r'^/api/submitLesson$'), 'lesson.submit'),
     # auth-мутации данных (2FA-поля Account меняет сам пользователь)
