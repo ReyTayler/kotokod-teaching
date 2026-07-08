@@ -1,0 +1,163 @@
+"""
+Модели раздела «Продления» — управляемые Django (managed=True), новые таблицы.
+
+renewal_pipeline — воронка (обычно одна, is_default).
+renewal_stage    — КОНФИГУРИРУЕМЫЕ стадии воронки (kind: progress/decision/won/lost).
+renewal_deal     — сделка продления: ученик × направление × номер цикла.
+renewal_activity — таймлайн: смена стадии, комментарий, привязка оплаты, системное.
+
+Прогресс/баланс НЕ хранятся — вычисляются на чтении (см. repository/serializers).
+"""
+from __future__ import annotations
+
+import pghistory
+from django.db import models
+
+
+@pghistory.track(pghistory.InsertEvent(), pghistory.UpdateEvent(), pghistory.DeleteEvent())
+class RenewalPipeline(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.TextField()
+    is_default = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'renewal_pipeline'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['is_default'],
+                condition=models.Q(is_default=True),
+                name='renewal_pipeline_one_default',
+            ),
+        ]
+
+
+@pghistory.track(pghistory.InsertEvent(), pghistory.UpdateEvent(), pghistory.DeleteEvent())
+class RenewalStage(models.Model):
+    class Kind(models.TextChoices):
+        PROGRESS = 'progress', 'Прогресс'   # авто-стадии «урок 1–4»
+        DECISION = 'decision', 'Решение'    # ручные промежуточные
+        WON = 'won', 'Продлён'              # терминальная-успех
+        LOST = 'lost', 'Ушёл'               # терминальная-провал
+
+    id = models.BigAutoField(primary_key=True)
+    pipeline = models.ForeignKey(
+        RenewalPipeline, on_delete=models.CASCADE,
+        db_column='pipeline_id', related_name='stages',
+    )
+    key = models.TextField()                # стабильный машинный ключ для авто-правил
+    label = models.TextField()
+    color = models.TextField(null=True, blank=True)
+    sort_order = models.IntegerField()
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    is_auto = models.BooleanField(default=False)  # двигается движком vs руками
+
+    class Meta:
+        managed = True
+        db_table = 'renewal_stage'
+        constraints = [
+            models.UniqueConstraint(fields=['pipeline', 'key'], name='renewal_stage_pipeline_key_uq'),
+            models.CheckConstraint(
+                name='renewal_stage_kind_check',
+                condition=models.Q(kind__in=['progress', 'decision', 'won', 'lost']),
+            ),
+            models.CheckConstraint(
+                name='renewal_stage_color_check',
+                condition=models.Q(color__isnull=True) | models.Q(color__regex=r'^#[0-9a-fA-F]{6}$'),
+            ),
+        ]
+        indexes = [models.Index(fields=['pipeline', 'sort_order'], name='renewal_stage_order_idx')]
+
+
+@pghistory.track(pghistory.InsertEvent(), pghistory.UpdateEvent(), pghistory.DeleteEvent())
+class RenewalDeal(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    # RESTRICT — защищаем историю продлений от хард-удаления ученика/направления.
+    student = models.ForeignKey(
+        'students.Student', on_delete=models.RESTRICT,
+        db_column='student_id', related_name='renewal_deals',
+    )
+    direction = models.ForeignKey(
+        'directions.Direction', on_delete=models.RESTRICT,
+        db_column='direction_id', related_name='renewal_deals',
+    )
+    cycle_no = models.IntegerField()
+    pipeline = models.ForeignKey(
+        RenewalPipeline, on_delete=models.RESTRICT,
+        db_column='pipeline_id', related_name='deals',
+    )
+    stage = models.ForeignKey(
+        RenewalStage, on_delete=models.RESTRICT,
+        db_column='stage_id', related_name='deals',
+    )
+    # Ответственный менеджер. SET NULL — учётку могут удалить, сделку теряем нельзя.
+    assignee = models.ForeignKey(
+        'accounts.Account', on_delete=models.SET_NULL,
+        db_column='assignee_id', related_name='renewal_deals',
+        null=True, blank=True,
+    )
+    expected_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    next_touch_at = models.DateField(null=True, blank=True)
+    reason_code = models.TextField(null=True, blank=True)
+    stage_entered_at = models.DateTimeField(auto_now_add=True)
+    outcome_at = models.DateTimeField(null=True, blank=True)  # NOT NULL ⇒ сделка закрыта
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        managed = True
+        db_table = 'renewal_deal'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['student', 'direction', 'cycle_no'],
+                name='renewal_deal_cycle_uq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['stage'], condition=models.Q(outcome_at__isnull=True),
+                         name='renewal_deal_open_stage_idx'),
+            models.Index(fields=['assignee'], name='renewal_deal_assignee_idx'),
+            models.Index(fields=['student'], name='renewal_deal_student_idx'),
+        ]
+
+
+@pghistory.track(pghistory.InsertEvent(), pghistory.DeleteEvent())  # activity — лог, update не трекаем
+class RenewalActivity(models.Model):
+    class Kind(models.TextChoices):
+        STAGE_CHANGE = 'stage_change', 'Смена стадии'
+        COMMENT = 'comment', 'Комментарий'
+        PAYMENT_LINKED = 'payment_linked', 'Оплата'
+        SYSTEM = 'system', 'Система'
+
+    id = models.BigAutoField(primary_key=True)
+    deal = models.ForeignKey(
+        RenewalDeal, on_delete=models.CASCADE,
+        db_column='deal_id', related_name='activities',
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    from_stage = models.ForeignKey(
+        RenewalStage, on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='from_stage_id', related_name='+',
+    )
+    to_stage = models.ForeignKey(
+        RenewalStage, on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='to_stage_id', related_name='+',
+    )
+    payment = models.ForeignKey(
+        'payments.Payment', on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='payment_id', related_name='+',
+    )
+    body = models.TextField(null=True, blank=True)
+    author = models.ForeignKey(
+        'accounts.Account', on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='author_id', related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'renewal_activity'
+        indexes = [
+            models.Index(fields=['deal', '-created_at'], name='renewal_activity_deal_idx'),
+        ]
