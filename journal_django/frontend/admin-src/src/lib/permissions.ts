@@ -9,7 +9,6 @@ export const canSeeAccounts = isSuper;
 export const canSeeAudit = isSuper;
 export const canSeePayroll = isSuper;
 export const canSeeChangelog = isStaff;
-export const canSeeRenewals = isStaff;
 
 // Операции над сущностями (write-кнопки)
 export const canWriteTeachers = isSuper;

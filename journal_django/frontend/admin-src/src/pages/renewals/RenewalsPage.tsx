@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { canWriteRenewalStages, type Role } from '../../lib/permissions';
@@ -29,6 +29,8 @@ export default function RenewalsPage() {
     next.set('view', v);
     setSp(next, { replace: true });
   };
+
+  const closeDrawer = useCallback(() => setSelectedId(null), []);
 
   return (
     <div className="renewals-page">
@@ -67,7 +69,7 @@ export default function RenewalsPage() {
         : <RenewalList filters={filters} onOpen={setSelectedId} />}
 
       {selectedId != null && (
-        <RenewalDrawer id={selectedId} onClose={() => setSelectedId(null)} />
+        <RenewalDrawer id={selectedId} onClose={closeDrawer} />
       )}
     </div>
   );

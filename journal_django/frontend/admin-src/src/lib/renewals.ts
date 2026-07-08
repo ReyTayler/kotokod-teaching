@@ -20,7 +20,7 @@ export interface RenewalCard {
   direction_name: string;
   direction_color: string | null;
   cycle_no: number;
-  expected_amount: string | null;
+  expected_amount: number | string | null;
   next_touch_at: string | null;
   assignee_name: string | null;
   days_in_stage: number;
@@ -66,7 +66,7 @@ export interface RenewalDealDetail {
   stage_color: string | null;
   assignee_id: number | null;
   assignee_name: string | null;
-  expected_amount: string | null;
+  expected_amount: number | string | null;
   next_touch_at: string | null;
   reason_code: string | null;
   stage_entered_at: string;

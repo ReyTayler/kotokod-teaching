@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useRenewalStages, useRenewalStageMutations } from '../../hooks/useRenewalStages';
+import { useApiError } from '../../hooks/useApiError';
 import { SelectInput } from '../../components/form/SelectInput';
+import { TextInput } from '../../components/form/TextInput';
+import { ColorInput } from '../../components/form/ColorInput';
+import { ApiError } from '../../lib/api';
 import type { RenewalStage, StageKind } from '../../lib/renewals';
 
 const KIND_OPTIONS: { value: StageKind; label: string }[] = [
@@ -10,6 +14,12 @@ const KIND_OPTIONS: { value: StageKind; label: string }[] = [
   { value: 'won', label: 'Продлён (успех)' },
   { value: 'lost', label: 'Ушёл (провал)' },
 ];
+
+// error-коды delete_stage (repository.py) → понятное сообщение.
+const DELETE_STAGE_ERRORS: Record<string, string> = {
+  has_open_deals: 'Нельзя удалить: на этой стадии есть сделки',
+  protected: 'Нельзя удалить: это единственная авто-/терминальная стадия своего вида',
+};
 
 function reorderIds(stages: RenewalStage[], from: number, to: number): number[] {
   const ids = stages.map((s) => s.id);
@@ -21,28 +31,33 @@ function reorderIds(stages: RenewalStage[], from: number, to: number): number[] 
 export default function RenewalStagesSettings() {
   const { data: stages, isLoading } = useRenewalStages();
   const m = useRenewalStageMutations();
+  const showError = useApiError();
 
   const [label, setLabel] = useState('');
   const [kind, setKind] = useState<StageKind>('decision');
   const [color, setColor] = useState('#6366F1');
-  const [formError, setFormError] = useState<string | null>(null);
 
   const handleCreate = () => {
     const trimmed = label.trim();
     if (!trimmed) return;
-    setFormError(null);
     m.create.mutate(
       { label: trimmed, kind, color },
       {
         onSuccess: () => setLabel(''),
-        onError: () => setFormError('Не удалось создать стадию — проверьте цвет (формат #RRGGBB) и попробуйте снова'),
+        onError: (err) => showError(err, 'Не удалось создать стадию'),
       },
     );
   };
 
   const handleDelete = (stage: RenewalStage) => {
     m.remove.mutate(stage.id, {
-      onError: () => setFormError('Стадию нельзя удалить: на ней есть сделки, либо это единственная авто-/терминальная стадия своего вида'),
+      onError: (err) => {
+        const code = err instanceof ApiError ? err.message : undefined;
+        showError(
+          code && DELETE_STAGE_ERRORS[code] ? new Error(DELETE_STAGE_ERRORS[code]) : err,
+          'Не удалось удалить стадию',
+        );
+      },
     });
   };
 
@@ -52,8 +67,6 @@ export default function RenewalStagesSettings() {
         <h1 className="renewals-page__title">Стадии воронки продлений</h1>
         <Link to="/admin/renewals" className="btn-secondary">← К воронке</Link>
       </header>
-
-      {formError && <div className="page-error">{formError}</div>}
 
       {isLoading || !stages ? (
         <div className="renewal-board--loading">Загружаем стадии…</div>
@@ -108,8 +121,7 @@ export default function RenewalStagesSettings() {
       <section className="renewal-stages-form">
         <div className="renewal-stages-form__title">Новая стадия</div>
         <div className="renewal-stages-form__row">
-          <input
-            type="text"
+          <TextInput
             className="renewal-stages-form__input"
             placeholder="Название стадии"
             value={label}
@@ -120,12 +132,10 @@ export default function RenewalStagesSettings() {
             onChange={(e) => setKind(e.target.value as StageKind)}
             options={KIND_OPTIONS}
           />
-          <input
-            type="text"
+          <ColorInput
             className="renewal-stages-form__color"
             value={color}
             onChange={(e) => setColor(e.target.value)}
-            placeholder="#RRGGBB"
           />
           <button
             type="button"

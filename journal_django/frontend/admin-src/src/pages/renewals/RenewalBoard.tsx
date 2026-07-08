@@ -1,6 +1,7 @@
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRenewalBoard, useRenewalMutations } from '../../hooks/useRenewals';
+import { useApiError } from '../../hooks/useApiError';
 import { RenewalColumn } from './RenewalColumn';
 import type { RenewalBoard as RenewalBoardData, RenewalFilters } from '../../lib/renewals';
 
@@ -13,6 +14,7 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   const qc = useQueryClient();
   const { data, isLoading } = useRenewalBoard(filters);
   const { move } = useRenewalMutations();
+  const showError = useApiError();
 
   // Небольшой порог перед стартом драга — иначе клик по карточке (открытие
   // drawer'а) будет постоянно перехватываться сенсором как начало drag'а.
@@ -57,10 +59,16 @@ export function RenewalBoard({ filters, onOpen }: Props) {
     };
     qc.setQueryData(queryKey, next);
 
-    // move сам инвалидирует ['renewals'] onSuccess — здесь только откат при ошибке.
+    // move сам инвалидирует ['renewals'] onSuccess — здесь откат + сообщение об ошибке
+    // (409 «переход запрещён» и т.п. — бэк уже возвращает человекочитаемый текст в error).
     move.mutate(
       { id: dealId, to_stage_id: toStageId },
-      { onError: () => qc.setQueryData(queryKey, prev) },
+      {
+        onError: (err) => {
+          qc.setQueryData(queryKey, prev);
+          showError(err, 'Не удалось переместить сделку');
+        },
+      },
     );
   };
 

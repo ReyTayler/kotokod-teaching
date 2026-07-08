@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { EntityLink } from '../../components/EntityLink';
+import { Textarea } from '../../components/form/Textarea';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import { useRenewalActivity, useRenewalDeal, useRenewalMutations } from '../../hooks/useRenewals';
 import { fmtDateTime, fmtLessons, fmtRub } from '../../lib/format';
@@ -45,13 +46,16 @@ export function RenewalDrawer({ id, onClose }: Props) {
   const { open: openPayment } = usePaymentModal();
   const [text, setText] = useState('');
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+  // onClose обычно приходит как новая инлайн-функция от родителя на каждый рендер —
+  // без useCallback здесь listener пересоздавался бы при каждом ре-рендере RenewalDrawer.
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
   }, [onClose]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [handleEscape]);
 
   const handleAddComment = () => {
     const body = text.trim();
@@ -114,7 +118,7 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
             <div className="renewal-drawer__section">
               <div className="renewal-drawer__section-title">Комментарий</div>
-              <textarea
+              <Textarea
                 className="renewal-drawer__comment-input"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
