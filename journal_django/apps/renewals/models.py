@@ -18,7 +18,7 @@ from django.db import models
 class RenewalPipeline(models.Model):
     id = models.BigAutoField(primary_key=True)
     name = models.TextField()
-    is_default = models.BooleanField(default=True)
+    is_default = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -158,6 +158,12 @@ class RenewalActivity(models.Model):
     class Meta:
         managed = True
         db_table = 'renewal_activity'
+        constraints = [
+            models.CheckConstraint(
+                name='renewal_activity_kind_check',
+                condition=models.Q(kind__in=['stage_change', 'comment', 'payment_linked', 'system']),
+            ),
+        ]
         indexes = [
             models.Index(fields=['deal', '-created_at'], name='renewal_activity_deal_idx'),
         ]
