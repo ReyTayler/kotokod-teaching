@@ -1,6 +1,7 @@
 """APIView для /api/admin/renewals. Права: IsManagerOrAdmin (manager/admin/superadmin)."""
 from __future__ import annotations
 
+from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -8,6 +9,8 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import IsManagerOrAdmin
 from apps.renewals import services
+from apps.renewals.serializers import MoveSerializer
+from apps.renewals.transitions import InvalidTransition
 
 SORT_FIELDS = ['next_touch_at', 'stage_entered_at', 'cycle_no', 'student_name']
 
@@ -43,3 +46,21 @@ class RenewalDetailView(APIView):
         if deal is None:
             raise NotFound({'error': 'Not found'})
         return Response(deal)
+
+
+class RenewalMoveView(APIView):
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        ser = MoveSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            result = services.move_deal(
+                pk, ser.validated_data['to_stage_id'],
+                ser.validated_data.get('reason_code'),
+                author_id=getattr(request.user, 'id', None))
+        except InvalidTransition as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(result)

@@ -14,3 +14,7 @@ def list_deals(**kwargs) -> dict:
 
 def get_deal(deal_id: int) -> dict | None:
     return repository.deal_computed(deal_id)
+
+
+def move_deal(deal_id, to_stage_id, reason_code, author_id):
+    return repository.move_deal(deal_id, to_stage_id, reason_code, author_id)

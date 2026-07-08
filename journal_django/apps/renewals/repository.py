@@ -71,6 +71,42 @@ def deal_computed(deal_id: int) -> dict | None:
     return data
 
 
+def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
+              author_id: int | None) -> dict | None:
+    """Переместить сделку в стадию, записать активность, синхронизировать outcome/enrollment."""
+    from django.db import transaction
+    from django.utils import timezone
+    from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalStage
+    from apps.renewals.transitions import assert_allowed, InvalidTransition
+
+    with transaction.atomic():
+        deal = RenewalDeal.objects.select_for_update().filter(id=deal_id).first()
+        if deal is None:
+            return None
+        to_stage = RenewalStage.objects.filter(id=to_stage_id, pipeline=deal.pipeline).first()
+        if to_stage is None:
+            raise InvalidTransition('Стадия не принадлежит воронке сделки')
+        from_stage = deal.stage
+        assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind)
+
+        deal.stage = to_stage
+        deal.stage_entered_at = timezone.now()
+        if reason_code is not None:
+            deal.reason_code = reason_code
+        deal.outcome_at = timezone.now() if to_stage.kind in ('won', 'lost') else None
+        deal.save(update_fields=['stage', 'stage_entered_at', 'reason_code',
+                                 'outcome_at', 'updated_at'])
+        RenewalActivity.objects.create(
+            deal=deal, kind='stage_change', from_stage=from_stage, to_stage=to_stage,
+            author_id=author_id, body=reason_code or '')
+        # win-стадия по кнопке (без оплаты) тоже респавнит цикл
+        if to_stage.kind == 'won':
+            from apps.renewals import engine
+            engine.ensure_deal(deal.student_id, deal.direction_id, deal.cycle_no + 1,
+                               assignee_id=deal.assignee_id)
+    return deal_computed(deal_id)
+
+
 COLUMN_LIMIT = 50  # карточек на колонку по умолчанию (остальное — «Показать ещё»)
 
 
