@@ -37,6 +37,8 @@ def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict
 
     Порт dashboard.js getDashboard. Период [period_start, period_end):
     с from/to — заданный диапазон (to эксклюзивно через _add_day), иначе текущий МСК-месяц.
+    Долги считаются по student_id (общий пул, без разбивки по направлению —
+    см. docs/superpowers/specs/2026-07-08-student-balance-pooling-design.md).
     """
     month, month_start, month_end = msk_month_range_triple()
     has_range = bool(from_ or to)
@@ -62,10 +64,8 @@ def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict
         deferred_total += fifo['remaining_value']
         balance = to_decimal(purchased_by_key.get(key, 0)) - to_decimal(consumed_by_key.get(key, 0))
         if balance < 0:
-            sid, did = (int(x) for x in key.split(':'))
             debt_keys.append({
-                'student_id': sid,
-                'direction_id': did,
+                'student_id': int(key),
                 'balance': js_round2(balance),
             })
 
@@ -79,16 +79,11 @@ def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict
     top_debts = debt_keys[:8]
 
     student_ids = list(dict.fromkeys(d['student_id'] for d in top_debts))
-    direction_ids = list(dict.fromkeys(d['direction_id'] for d in top_debts))
     s_map = repository.students_names(student_ids)
-    d_map = repository.directions_info(direction_ids)
 
     debts = [{
         'student_id': d['student_id'],
         'student_name': s_map.get(d['student_id'], '—'),
-        'direction_id': d['direction_id'],
-        'direction_name': d_map[d['direction_id']]['name'] if d['direction_id'] in d_map else '—',
-        'direction_color': d_map[d['direction_id']]['color'] if d['direction_id'] in d_map else None,
         'balance': js_number(d['balance']),
     } for d in top_debts]
 

@@ -14,7 +14,6 @@ from typing import Any
 from django.db.models import DecimalField, Sum, Value
 from django.db.models.functions import Coalesce, ExtractMonth, ExtractYear
 
-from apps.directions.models import Direction
 from apps.lessons.models import Lesson
 from apps.payments.models import Payment
 from apps.students.models import Student
@@ -59,13 +58,3 @@ def students_names(student_ids: list[int]) -> dict[int, str]:
     return dict(
         Student.objects.filter(id__in=student_ids).values_list('id', 'full_name')
     )
-
-
-def directions_info(direction_ids: list[int]) -> dict[int, dict]:
-    """id → {name, color}."""
-    if not direction_ids:
-        return {}
-    return {
-        row[0]: {'name': row[1], 'color': row[2]}
-        for row in Direction.objects.filter(id__in=direction_ids).values_list('id', 'name', 'color')
-    }

@@ -98,6 +98,9 @@ def test_dashboard_shape_and_types(role):
     for b in balances:
         assert isinstance(b, (int, float))
     assert balances == sorted(balances)
+    # Долг — общий пул по ученику (2026-07-08), без разбивки по направлению.
+    for d in body['debts']:
+        assert set(d.keys()) == {'student_id', 'student_name', 'balance'}
 
 
 def test_dashboard_invalid_date():
