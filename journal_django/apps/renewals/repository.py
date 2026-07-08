@@ -107,6 +107,43 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
     return deal_computed(deal_id)
 
 
+def patch_deal(deal_id: int, data: dict) -> dict | None:
+    from apps.renewals.models import RenewalDeal
+    fields = {}
+    for k in ('assignee_id', 'next_touch_at', 'reason_code', 'expected_amount'):
+        if k in data:
+            fields[k] = data[k]
+    if not fields:
+        return deal_computed(deal_id)
+    updated = RenewalDeal.objects.filter(id=deal_id).update(**fields)
+    return deal_computed(deal_id) if updated else None
+
+
+def add_comment(deal_id: int, body: str, author_id: int | None) -> dict | None:
+    from apps.renewals.models import RenewalActivity, RenewalDeal
+    if not RenewalDeal.objects.filter(id=deal_id).exists():
+        return None
+    act = RenewalActivity.objects.create(
+        deal_id=deal_id, kind='comment', body=body, author_id=author_id)
+    return {'id': act.id, 'created_at': act.created_at}
+
+
+def list_activity(deal_id: int) -> list[dict]:
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT ra.id, ra.kind, ra.body, ra.created_at,
+                   fs.label AS from_label, ts.label AS to_label,
+                   a.full_name AS author_name, ra.payment_id
+            FROM renewal_activity ra
+            LEFT JOIN renewal_stage fs ON fs.id = ra.from_stage_id
+            LEFT JOIN renewal_stage ts ON ts.id = ra.to_stage_id
+            LEFT JOIN accounts a ON a.id = ra.author_id
+            WHERE ra.deal_id = %s ORDER BY ra.created_at DESC
+        """, [deal_id])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
 COLUMN_LIMIT = 50  # карточек на колонку по умолчанию (остальное — «Показать ещё»)
 
 

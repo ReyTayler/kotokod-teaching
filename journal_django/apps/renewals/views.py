@@ -47,6 +47,15 @@ class RenewalDetailView(APIView):
             raise NotFound({'error': 'Not found'})
         return Response(deal)
 
+    def patch(self, request: Request, pk: int) -> Response:
+        from apps.renewals.serializers import DealPatchSerializer
+        ser = DealPatchSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result = services.patch_deal(pk, ser.validated_data)
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(result)
+
 
 class RenewalMoveView(APIView):
     permission_classes = [IsManagerOrAdmin]
@@ -64,3 +73,24 @@ class RenewalMoveView(APIView):
         if result is None:
             raise NotFound({'error': 'Not found'})
         return Response(result)
+
+
+class RenewalCommentView(APIView):
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        from apps.renewals.serializers import CommentSerializer
+        ser = CommentSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result = services.add_comment(pk, ser.validated_data['body'],
+                                       getattr(request.user, 'id', None))
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class RenewalActivityView(APIView):
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        return Response(services.list_activity(pk))

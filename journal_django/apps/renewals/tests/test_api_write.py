@@ -29,3 +29,22 @@ def test_move_from_terminal_409(admin_client, make_student, make_direction):
     resp = admin_client.post(f'{BASE}/{deal.id}/move',
                              {'to_stage_id': _stage_id('thinking')}, format='json')
     assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+def test_patch_next_touch(admin_client, make_student, make_direction):
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, did, cycle_no=1)
+    resp = admin_client.patch(f'{BASE}/{deal.id}',
+                              {'next_touch_at': '2026-07-15'}, format='json')
+    assert resp.status_code == 200
+    assert resp.json()['next_touch_at'] == '2026-07-15'
+
+
+@pytest.mark.django_db
+def test_comment_then_activity(admin_client, make_student, make_direction):
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, did, cycle_no=1)
+    admin_client.post(f'{BASE}/{deal.id}/comment', {'body': 'позвонил, думает'}, format='json')
+    acts = admin_client.get(f'{BASE}/{deal.id}/activity').json()
+    assert any(a['kind'] == 'comment' and a['body'] == 'позвонил, думает' for a in acts)

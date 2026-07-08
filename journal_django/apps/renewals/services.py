@@ -18,3 +18,15 @@ def get_deal(deal_id: int) -> dict | None:
 
 def move_deal(deal_id, to_stage_id, reason_code, author_id):
     return repository.move_deal(deal_id, to_stage_id, reason_code, author_id)
+
+
+def patch_deal(deal_id, data):
+    return repository.patch_deal(deal_id, data)
+
+
+def add_comment(deal_id, body, author_id):
+    return repository.add_comment(deal_id, body, author_id)
+
+
+def list_activity(deal_id):
+    return repository.list_activity(deal_id)
