@@ -19,11 +19,17 @@ export function StudentBalanceBlock({ studentId }: Props) {
 
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [paidOpen, setPaidOpen] = useState(false);
+  const [attendedOpen, setAttendedOpen] = useState(false);
 
   if (balance.isLoading) return null;
   const data = balance.data;
   if (!data) return null;
-  if (data.per_direction.length === 0 && data.payments.length === 0) return null;
+  if (
+    data.paid_by_direction.length === 0 &&
+    data.attended_by_direction.length === 0 &&
+    data.payments.length === 0
+  ) return null;
 
   const handleDelete = async (id: number) => {
     if (confirmingId !== id) { setConfirmingId(id); return; }
@@ -59,19 +65,54 @@ export function StudentBalanceBlock({ studentId }: Props) {
         </div>
       </div>
 
-      {data.per_direction.length > 0 && (
-        <div className="balance-block__directions">
-          {data.per_direction.map((d) => (
-            <div key={d.direction_id} className="balance-block__direction-row">
-              <span className="dir-tag" style={{ background: d.direction_color || '#999' }} />
-              <span className="balance-block__direction-name">{d.direction_name}</span>
-              <span className={d.balance < 0 ? 'balance-neg' : ''}>
-                {fmtLessons(d.balance)} уроков
-              </span>
-              <span className="muted">{fmtRub(d.total_paid_amount)}</span>
+      {data.paid_by_direction.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="balance-block__history-toggle"
+            onClick={() => setPaidOpen((o) => !o)}
+            aria-expanded={paidOpen}
+          >
+            <span className={`balance-block__chevron${paidOpen ? ' is-open' : ''}`}>▸</span>
+            Оплачено по направлениям
+          </button>
+          {paidOpen && (
+            <div className="balance-block__directions">
+              {data.paid_by_direction.map((d) => (
+                <div key={d.direction_id} className="balance-block__direction-row">
+                  <span className="dir-tag" style={{ background: d.direction_color || '#999' }} />
+                  <span className="balance-block__direction-name">{d.direction_name}</span>
+                  <span>{fmtRub(d.total_paid_amount)}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
+      )}
+
+      {data.attended_by_direction.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="balance-block__history-toggle"
+            onClick={() => setAttendedOpen((o) => !o)}
+            aria-expanded={attendedOpen}
+          >
+            <span className={`balance-block__chevron${attendedOpen ? ' is-open' : ''}`}>▸</span>
+            Отработано по направлениям
+          </button>
+          {attendedOpen && (
+            <div className="balance-block__directions">
+              {data.attended_by_direction.map((d) => (
+                <div key={d.direction_id} className="balance-block__direction-row">
+                  <span className="dir-tag" style={{ background: d.direction_color || '#999' }} />
+                  <span className="balance-block__direction-name">{d.direction_name}</span>
+                  <span>{fmtLessons(d.attended_lessons)} уроков</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {data.payments.length > 0 && (

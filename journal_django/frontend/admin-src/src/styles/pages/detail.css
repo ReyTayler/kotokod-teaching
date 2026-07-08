@@ -543,7 +543,7 @@
 .balance-block__directions { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .balance-block__direction-row {
   display: grid;
-  grid-template-columns: 12px 1fr auto auto;
+  grid-template-columns: 12px 1fr auto;
   gap: 12px;
   align-items: center;
   padding: 4px 0;
