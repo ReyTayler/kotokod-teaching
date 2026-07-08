@@ -19,6 +19,12 @@
   flex-wrap: wrap;
 }
 
+.renewals-page__head-links {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
 .renewals-page__title {
   font-family: var(--font-display);
   font-size: 22px;
@@ -60,6 +66,144 @@
   background: var(--bg2);
   color: var(--text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.renewals-page__kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .renewals-page__kpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+ *  НАСТРОЙКА СТАДИЙ (superadmin)
+ * ============================================================ */
+
+.renewal-stages-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.renewal-stages-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.renewal-stages-list__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.renewal-stages-list__label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.renewal-stages-list__kind {
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.renewal-stages-list__auto-badge {
+  font-size: 11px;
+  color: var(--text3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+
+.renewal-stages-list__actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.renewal-stages-list__action-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text3);
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+
+.renewal-stages-list__action-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.renewal-stages-list__action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.renewal-stages-list__action-btn--danger:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.renewal-stages-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--space-4);
+}
+
+.renewal-stages-form__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.renewal-stages-form__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.renewal-stages-form__input {
+  flex: 1 1 220px;
+  font: inherit;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  padding: var(--space-2);
+}
+
+.renewal-stages-form__color {
+  width: 100px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  padding: var(--space-2);
 }
 
 /* ============================================================

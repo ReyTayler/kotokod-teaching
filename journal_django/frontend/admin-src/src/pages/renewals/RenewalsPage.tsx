@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteRenewalStages, type Role } from '../../lib/permissions';
 import { RenewalBoard } from './RenewalBoard';
 import { RenewalList } from './RenewalList';
 import { RenewalDrawer } from './RenewalDrawer';
@@ -8,6 +10,7 @@ import type { RenewalFilters } from '../../lib/renewals';
 type ViewMode = 'board' | 'list';
 
 export default function RenewalsPage() {
+  const { me } = useAuth();
   const [sp, setSp] = useSearchParams();
   const view: ViewMode = sp.get('view') === 'list' ? 'list' : 'board';
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -50,6 +53,12 @@ export default function RenewalsPage() {
           >
             Список
           </button>
+        </div>
+        <div className="renewals-page__head-links">
+          <Link to="/admin/renewals/analytics" className="btn-secondary">Аналитика</Link>
+          {canWriteRenewalStages(me?.role as Role) && (
+            <Link to="/admin/renewals/stages" className="btn-secondary">Настройка стадий</Link>
+          )}
         </div>
       </header>
 

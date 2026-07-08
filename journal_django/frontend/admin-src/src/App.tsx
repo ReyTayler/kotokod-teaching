@@ -1,4 +1,6 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { PageLoading } from './components/ui/Skeleton';
 import { AuthGate } from './components/shell/AuthGate';
 import { AppShell } from './components/shell/AppShell';
 import { RequireRole } from './components/shell/RequireRole';
@@ -21,6 +23,10 @@ import AuditPage from './pages/audit/AuditPage';
 import AccountsPage from './pages/accounts/AccountsPage';
 import ChangelogListPage from './pages/changelog/ChangelogListPage';
 import RenewalsPage from './pages/renewals/RenewalsPage';
+import RenewalStagesSettings from './pages/renewals/RenewalStagesSettings';
+
+// Recharts — тяжёлая зависимость, держим её вне основного бандла (как FinanceCharts в дашборде).
+const RenewalAnalyticsPage = lazy(() => import('./pages/renewals/RenewalAnalyticsPage'));
 
 export function App() {
   return (
@@ -50,6 +56,8 @@ export function App() {
             <Route path="/admin/payroll" element={<RequireRole roles={['superadmin']}><PayrollPage /></RequireRole>} />
             <Route path="/admin/subscriptions" element={<SubscriptionsPage />} />
             <Route path="/admin/renewals" element={<RequireRole roles={['manager','admin','superadmin']}><RenewalsPage /></RequireRole>} />
+            <Route path="/admin/renewals/analytics" element={<RequireRole roles={['manager','admin','superadmin']}><Suspense fallback={<PageLoading />}><RenewalAnalyticsPage /></Suspense></RequireRole>} />
+            <Route path="/admin/renewals/stages" element={<RequireRole roles={['superadmin']}><RenewalStagesSettings /></RequireRole>} />
             <Route path="/admin/archive" element={<ArchivePage />} />
             <Route path="/admin/settings" element={<SettingsPage />} />
             <Route path="/admin/audit" element={<RequireRole roles={['superadmin']}><AuditPage /></RequireRole>} />
