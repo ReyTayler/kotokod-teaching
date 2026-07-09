@@ -172,7 +172,8 @@ def add_membership(data: dict) -> dict:
             .values(*_MEMBERSHIP_FIELDS)
         )
     )
-    row['remaining'] = balance_for_student(student_id)
+    if row is not None:
+        row['remaining'] = balance_for_student(student_id)
     return row
 
 

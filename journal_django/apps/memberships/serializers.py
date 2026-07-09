@@ -27,7 +27,7 @@ class MembershipReadSerializer(serializers.Serializer):
     group_id = serializers.IntegerField()
     student_id = serializers.IntegerField()
     lessons_done = serializers.IntegerField()
-    remaining = serializers.IntegerField()
+    remaining = serializers.FloatField()
     start_date = DateStringField(allow_null=True)
     sheet_row = serializers.IntegerField(allow_null=True)
     active = serializers.BooleanField()

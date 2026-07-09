@@ -274,6 +274,28 @@ def test_post_upsert_reactivation(superadmin_client):
 
 
 @pytest.mark.django_db
+def test_post_remaining_is_ignored(superadmin_client):
+    """
+    remaining больше нельзя выставить руками — сериализатор его не принимает,
+    POST с этим полем в теле не должен ничего сломать и не должен повлиять
+    на вычисляемое значение в ответе (симметрично test_patch_remaining_is_ignored).
+    """
+    group_id = _get_valid_group_id()
+    student_id = _get_valid_student_id()
+    _cleanup_pair(group_id, student_id)
+    try:
+        resp = superadmin_client.post(
+            BASE_URL,
+            {'group_id': group_id, 'student_id': student_id, 'remaining': 999},
+            format='json',
+        )
+        assert resp.status_code == 201
+        assert resp.json()['remaining'] != 999
+    finally:
+        _cleanup_pair(group_id, student_id)
+
+
+@pytest.mark.django_db
 def test_post_missing_group_id_returns_400(superadmin_client):
     student_id = _get_valid_student_id()
     resp = superadmin_client.post(BASE_URL, {'student_id': student_id}, format='json')
