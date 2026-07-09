@@ -62,3 +62,31 @@ class Student(models.Model):
                 ),
             ),
         ]
+
+
+class StudentComment(models.Model):
+    """
+    Комментарий менеджера/админа к ученику. Append-only: без UpdateEvent, без
+    API редактирования. Не трекается pghistory — сам факт (author+created_at)
+    уже виден в UI, отдельный changelog-след избыточен (осознанное отступление
+    от общего правила CLAUDE.md, см. docs/superpowers/specs/2026-07-10-student-comments-design.md).
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE,
+        db_column='student_id', related_name='comments',
+    )
+    body = models.TextField()
+    author = models.ForeignKey(
+        'accounts.Account', on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='author_id', related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'student_comment'
+        indexes = [
+            models.Index(fields=['student', '-created_at'], name='student_comment_student_idx'),
+        ]
