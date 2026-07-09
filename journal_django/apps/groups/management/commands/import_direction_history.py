@@ -13,7 +13,7 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.groups.importers.direction_history import (
-    classify_and_aggregate, import_to_db, parse_sheet,
+    classify_and_aggregate, import_to_db, parse_sheet, verify_active_enrollments,
 )
 
 
@@ -39,11 +39,12 @@ class Command(BaseCommand):
             raise CommandError(f'Лист не найден в файле: {e}')
 
         aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
+        enrollment_mismatches = verify_active_enrollments(skipped)
         report = import_to_db(aggregated, dry_run=dry)
 
-        self._print_report(rows, skipped, unrecognized, unmatched, report)
+        self._print_report(rows, skipped, unrecognized, unmatched, enrollment_mismatches, report)
 
-    def _print_report(self, rows, skipped, unrecognized, unmatched, report):
+    def _print_report(self, rows, skipped, unrecognized, unmatched, enrollment_mismatches, report):
         mode = 'DRY-RUN (запись отключена)' if report.dry_run else 'запись в БД'
         self.stdout.write(self.style.MIGRATE_HEADING(f'Импорт истории направлений — {mode}'))
         self.stdout.write(f'  Учеников в листе:                  {len(rows)}')
@@ -84,5 +85,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR('  Ошибки при записи (нужна ручная проверка):'))
             for f in report.failed_pairs:
                 self.stdout.write(f'    - {f}')
+
+        if enrollment_mismatches:
+            self.stdout.write(self.style.WARNING(
+                '  Расхождения «текущее» ↔ платформа (нет активного членства):'
+            ))
+            for m in enrollment_mismatches:
+                dir_label = m.direction_name or f'не распознано ({m.course_raw})'
+                self.stdout.write(f'    - {m.full_name} / {m.course_raw}: направление «{dir_label}» не найдено активным')
 
         self.stdout.write(self.style.SUCCESS('Готово.'))

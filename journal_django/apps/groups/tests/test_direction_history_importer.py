@@ -460,6 +460,7 @@ class TestImportToDb:
             _cleanup_import(student_id=sid_bad)
 
 
+@pytest.mark.django_db
 def test_command_dry_run_smoke(tmp_path, capsys):
     """Команда читает файл, ничего не пишет в БД в --dry-run, печатает отчёт."""
     from django.core.management import call_command
@@ -612,3 +613,18 @@ class TestVerifyActiveEnrollments:
             assert mismatches[0].direction_name is None
         finally:
             _cleanup_verify(student_id=sid)
+
+
+@pytest.mark.django_db
+def test_command_reports_active_enrollment_mismatches(tmp_path, capsys):
+    """Команда печатает секцию расхождений «текущее» ↔ платформа для непроверенных детей."""
+    from django.core.management import call_command
+
+    path = tmp_path / 'mismatch.xlsx'
+    _build_test_workbook(path)  # Иванов Пётр: Роблокс/«Продолжает учиться», нет такого ученика в БД
+
+    call_command('import_direction_history', str(path), '--dry-run')
+
+    captured = capsys.readouterr()
+    assert 'текущее' in captured.out.lower() or 'расхожден' in captured.out.lower()
+    assert 'Иванов Пётр' in captured.out
