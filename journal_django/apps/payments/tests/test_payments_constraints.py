@@ -67,3 +67,98 @@ class TestPaymentsDirectionCountConstraint:
         finally:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM students WHERE id = %s', [sid])
+
+
+import importlib
+
+# Имя файла миграции начинается с цифры — не валидный идентификатор Python для
+# обычного `import`, поэтому грузим модуль через importlib (сам Django точно так же
+# динамически грузит файлы миграций). Ничего в apps/payments/migrations/__init__.py
+# менять не нужно — импорт полностью локален для этого теста.
+backfill_module = importlib.import_module(
+    'apps.payments.migrations.0004_backfill_legacy_subscriptions_count'
+)
+
+
+@pytest.mark.django_db
+class TestBackfillLegacySubscriptionsCount:
+
+    def test_backfill_sets_one_for_null_direction_null_subs(self):
+        """Легаси-строка (direction=NULL, subscriptions_count=NULL, unit_price=total_amount)
+        после бэкафилла получает subscriptions_count=1."""
+        sid = _make_student()
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, NULL, NULL, 9990.00, 9990.00, '2024-03-15', 'backfill-script') "
+                    "RETURNING id",
+                    [sid],
+                )
+                pid = cur.fetchone()[0]
+
+            from django.apps import apps as global_apps
+            backfill_module.backfill_subscriptions_count(global_apps, None)
+
+            p = Payment.objects.get(id=pid)
+            assert p.subscriptions_count == 1
+            assert p.direction_id is None  # направление сознательно НЕ восстанавливаем
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
+                cur.execute('DELETE FROM students WHERE id = %s', [sid])
+
+    def test_backfill_does_not_touch_properly_tagged_payments(self):
+        """Оплата с direction_id уже заданным (и subscriptions_count заданным) — не трогается."""
+        sid = _make_student()
+        with connection.cursor() as cur:
+            cur.execute('SELECT id FROM directions LIMIT 1')
+            row = cur.fetchone()
+        if not row:
+            pytest.skip('No directions in DB — skipping')
+        did = row[0]
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, %s, 3, 1000.00, 3000.00, '2026-01-01', 'test') RETURNING id",
+                    [sid, did],
+                )
+                pid = cur.fetchone()[0]
+
+            from django.apps import apps as global_apps
+            backfill_module.backfill_subscriptions_count(global_apps, None)
+
+            p = Payment.objects.get(id=pid)
+            assert p.subscriptions_count == 3  # не тронуто бэкафиллом
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
+                cur.execute('DELETE FROM students WHERE id = %s', [sid])
+
+    def test_backfilled_payment_counts_in_global_balance(self):
+        """Ключевая проверка бага: после бэкафилла легаси-оплата считается в balance_for_student."""
+        from apps.finances.repository import balance_for_student
+
+        sid = _make_student()
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, NULL, NULL, 9990.00, 9990.00, '2024-03-15', 'backfill-script')",
+                    [sid],
+                )
+
+            assert balance_for_student(sid) == 0  # куплено 0 (subscriptions_count NULL), отработано 0
+
+            from django.apps import apps as global_apps
+            backfill_module.backfill_subscriptions_count(global_apps, None)
+
+            assert balance_for_student(sid) == 4  # теперь 1 абонемент × 4 урока, куплено = 4
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
+                cur.execute('DELETE FROM students WHERE id = %s', [sid])
