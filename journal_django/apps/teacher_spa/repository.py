@@ -19,6 +19,7 @@ from typing import Optional
 from django.db.models import F, Min
 from django.db.models.functions import Now
 
+from apps.finances.repository import balances_for_students
 from apps.groups.models import Group
 from apps.lessons.models import Lesson, LessonAttendance
 from apps.memberships.models import GroupMembership
@@ -75,13 +76,15 @@ def read_all_students() -> dict:
     Возвращает {'data': {teacher: {group: groupData}}, 'index': {...}}.
 
     Только активные membership/группы/преподаватели. ORDER te.name, g.name, s.full_name.
+    remaining — вычисляемый общий баланс ученика (apps.finances), не хранимая колонка;
+    считается одним батч-запросом на всех учеников выборки (без N+1).
     """
-    rows = (
+    rows = list(
         GroupMembership.objects
         .filter(active=True, group__active=True, group__teacher__active=True)
         .order_by('group__teacher__name', 'group__name', 'student__full_name')
         .values(
-            'group_id', 'student_id', 'lessons_done', 'remaining', 'sheet_row',
+            'group_id', 'student_id', 'lessons_done', 'sheet_row',
             group_name=F('group__name'),
             is_individual=F('group__is_individual'),
             vk_chat=F('group__vk_chat'),
@@ -94,6 +97,8 @@ def read_all_students() -> dict:
             direction_sheet_name=F('group__direction__sheet_name'),
         )
     )
+
+    balances = balances_for_students({r['student_id'] for r in rows})
 
     data: dict = {}
     index: dict = {}
@@ -117,21 +122,15 @@ def read_all_students() -> dict:
 
         grp = data[teacher][group]
 
-        # lessons_done/remaining — Number(x)||0 (None → 0); Decimal → int/float
+        # lessons_done — Number(x)||0 (None → 0); Decimal → int/float
         raw_done = r['lessons_done']
-        raw_rem = r['remaining']
-
         if raw_done is None:
             done = 0
         else:
             f = float(raw_done)
             done = int(f) if f == int(f) else f
 
-        if raw_rem is None:
-            remaining = 0
-        else:
-            f = float(raw_rem)
-            remaining = int(f) if f == int(f) else f
+        remaining = balances[r['student_id']]
 
         if done > grp['lessonsDone']:
             grp['lessonsDone'] = done

@@ -77,7 +77,8 @@ class TestReadAllStudents:
         assert 'sheetRow' in stu
         # lessonsDone=0 в фикстуре → 0 (JS Number()||0)
         assert stu['lessonsDone'] == 0
-        assert stu['remaining'] == 10
+        # remaining — вычисляемый общий баланс ученика (нет оплат/посещений) → 0
+        assert stu['remaining'] == 0
         # age пустая строка (NULL в БД)
         assert stu['age'] == ''
 
@@ -94,8 +95,8 @@ class TestReadAllStudents:
             stu2_id = cur.fetchone()[0]
             cur.execute(
                 """
-                INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active)
-                VALUES (%s, %s, 5, 10, true) RETURNING id
+                INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+                VALUES (%s, %s, 5, true) RETURNING id
                 """,
                 [group_fixture, stu2_id],
             )
@@ -103,8 +104,8 @@ class TestReadAllStudents:
             # Первый ученик без membership — создаём с lessons_done=2
             cur.execute(
                 """
-                INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active)
-                VALUES (%s, %s, 2, 10, true) RETURNING id
+                INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+                VALUES (%s, %s, 2, true) RETURNING id
                 """,
                 [group_fixture, student_fixture],
             )

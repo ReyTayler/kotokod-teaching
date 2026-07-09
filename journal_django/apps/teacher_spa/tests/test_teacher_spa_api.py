@@ -297,8 +297,8 @@ class TestSubmitLesson:
             )
             gid = cur.fetchone()[0]
             cur.execute(
-                "INSERT INTO group_memberships (group_id,student_id,lessons_done,remaining,active) "
-                "VALUES (%s,%s,0,10,true) RETURNING id",
+                "INSERT INTO group_memberships (group_id,student_id,lessons_done,active) "
+                "VALUES (%s,%s,0,true) RETURNING id",
                 [gid, student_fixture],
             )
             mid = cur.fetchone()[0]

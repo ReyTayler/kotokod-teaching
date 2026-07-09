@@ -157,8 +157,8 @@ def membership_fixture(group_fixture, student_fixture):
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active)
-            VALUES (%s, %s, 0, 10, true)
+            INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+            VALUES (%s, %s, 0, true)
             RETURNING id
             """,
             [group_fixture, student_fixture],
@@ -175,8 +175,8 @@ def half_membership_fixture(half_group_fixture, student_fixture):
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active)
-            VALUES (%s, %s, 0, 10, true)
+            INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+            VALUES (%s, %s, 0, true)
             RETURNING id
             """,
             [half_group_fixture, student_fixture],
