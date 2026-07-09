@@ -472,3 +472,143 @@ def test_command_dry_run_smoke(tmp_path, capsys):
     captured = capsys.readouterr()
     assert 'DRY-RUN' in captured.out
     assert 'Учеников в листе' in captured.out
+
+
+# ---------------------------------------------------------------------------
+# verify_active_enrollments — read-only сверка «текущее» ↔ платформа
+# ---------------------------------------------------------------------------
+
+def _make_group(direction_id, teacher_id, name):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active) VALUES (%s, %s, %s, false, 60, true) RETURNING id",
+            [name, direction_id, teacher_id],
+        )
+        return cur.fetchone()[0]
+
+
+def _make_membership(group_id, student_id, active=True):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active) "
+            "VALUES (%s, %s, 0, 0, %s) RETURNING id",
+            [group_id, student_id, active],
+        )
+        return cur.fetchone()[0]
+
+
+def _get_teacher_id():
+    with connection.cursor() as cur:
+        cur.execute('SELECT id FROM teachers LIMIT 1')
+        row = cur.fetchone()
+    if not row:
+        pytest.skip('No teachers in DB — skipping verify_active_enrollments tests')
+    return row[0]
+
+
+def _cleanup_verify(student_id=None, direction_id=None, group_id=None, membership_id=None):
+    with connection.cursor() as cur:
+        if membership_id is not None:
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+        if group_id is not None:
+            cur.execute('DELETE FROM groups WHERE id = %s', [group_id])
+        if direction_id is not None:
+            cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])
+        if student_id is not None:
+            cur.execute('DELETE FROM students WHERE id = %s', [student_id])
+
+
+@pytest.mark.django_db
+class TestVerifyActiveEnrollments:
+
+    def test_active_membership_is_not_a_mismatch(self):
+        from apps.groups.importers.direction_history import (
+            SkipRecord, verify_active_enrollments,
+        )
+
+        teacher_id = _get_teacher_id()
+        sid = _make_student('__verify_active_student_1__')
+        did = _make_direction('Python')  # совпадает с normalize_course_name('Питон')
+        gid = _make_group(did, teacher_id, '__verify_active_group_1__')
+        mid = _make_membership(gid, sid, active=True)
+        try:
+            skipped = [SkipRecord('__verify_active_student_1__', 'Питон', 'Продолжает учиться')]
+            mismatches = verify_active_enrollments(skipped)
+            assert mismatches == []
+        finally:
+            _cleanup_verify(student_id=sid, direction_id=did, group_id=gid, membership_id=mid)
+
+    def test_no_active_membership_is_a_mismatch(self):
+        from apps.groups.importers.direction_history import (
+            SkipRecord, verify_active_enrollments,
+        )
+
+        sid = _make_student('__verify_active_student_2__')
+        did = _make_direction('Python')
+        try:
+            skipped = [SkipRecord('__verify_active_student_2__', 'Питон', 'Продолжает учиться')]
+            mismatches = verify_active_enrollments(skipped)
+            assert len(mismatches) == 1
+            assert mismatches[0].full_name == '__verify_active_student_2__'
+            assert mismatches[0].direction_name == 'Python'
+        finally:
+            _cleanup_verify(student_id=sid, direction_id=did)
+
+    def test_inactive_membership_is_a_mismatch(self):
+        """active=False membership не считается — ребёнок формально не на направлении сейчас."""
+        from apps.groups.importers.direction_history import (
+            SkipRecord, verify_active_enrollments,
+        )
+
+        teacher_id = _get_teacher_id()
+        sid = _make_student('__verify_active_student_3__')
+        did = _make_direction('Python')
+        gid = _make_group(did, teacher_id, '__verify_active_group_3__')
+        mid = _make_membership(gid, sid, active=False)
+        try:
+            skipped = [SkipRecord('__verify_active_student_3__', 'Питон', 'Продолжает учиться')]
+            mismatches = verify_active_enrollments(skipped)
+            assert len(mismatches) == 1
+        finally:
+            _cleanup_verify(student_id=sid, direction_id=did, group_id=gid, membership_id=mid)
+
+    def test_frozen_status_is_not_checked(self):
+        """«Заморозка*» не проверяется вообще — это статус ученика, не направления."""
+        from apps.groups.importers.direction_history import (
+            SkipRecord, verify_active_enrollments,
+        )
+
+        sid = _make_student('__verify_active_student_5__')
+        try:
+            # Нет ни группы, ни членства — но статус «Заморозка» должен быть
+            # полностью проигнорирован, а не считаться расхождением.
+            skipped = [SkipRecord('__verify_active_student_5__', 'Питон', 'Заморозка Сентябрь')]
+            mismatches = verify_active_enrollments(skipped)
+            assert mismatches == []
+        finally:
+            _cleanup_verify(student_id=sid)
+
+    def test_unmatched_student_is_a_mismatch(self):
+        from apps.groups.importers.direction_history import (
+            SkipRecord, verify_active_enrollments,
+        )
+
+        skipped = [SkipRecord('__nonexistent_verify_student__', 'Питон', 'Продолжает учиться')]
+        mismatches = verify_active_enrollments(skipped)
+        assert len(mismatches) == 1
+        assert mismatches[0].full_name == '__nonexistent_verify_student__'
+
+    def test_unrecognized_course_is_a_mismatch_with_none_direction(self):
+        from apps.groups.importers.direction_history import (
+            SkipRecord, verify_active_enrollments,
+        )
+
+        sid = _make_student('__verify_active_student_4__')
+        try:
+            skipped = [SkipRecord('__verify_active_student_4__', 'Плавание', 'Продолжает учиться')]
+            mismatches = verify_active_enrollments(skipped)
+            assert len(mismatches) == 1
+            assert mismatches[0].direction_name is None
+        finally:
+            _cleanup_verify(student_id=sid)

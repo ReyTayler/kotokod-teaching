@@ -299,3 +299,47 @@ def import_to_db(aggregated: dict, *, dry_run: bool) -> ImportReport:
             continue
 
     return report
+
+
+@dataclass
+class ActiveEnrollmentMismatch:
+    full_name: str
+    course_raw: str
+    direction_name: str | None  # None, если курс не нормализовался
+
+
+# Статус, для которого делаем read-only сверку с реальным членством. «Заморозка*»
+# сознательно НЕ проверяется — это глобальный статус ученика (students.enrollment_status),
+# а не признак принадлежности к конкретному направлению.
+_STATUS_TO_VERIFY = 'Продолжает учиться'
+
+
+def verify_active_enrollments(skipped: list[SkipRecord]) -> list[ActiveEnrollmentMismatch]:
+    """
+    Read-only сверка: для слотов со статусом ровно «Продолжает учиться» проверяет,
+    есть ли у ученика активное членство (group_memberships.active=True) в группе
+    соответствующего направления. Ничего не пишет в БД — только отчёт о расхождениях.
+    """
+    from apps.memberships.models import GroupMembership
+    from apps.students.models import Student
+
+    mismatches: list[ActiveEnrollmentMismatch] = []
+
+    for rec in skipped:
+        if rec.status != _STATUS_TO_VERIFY:
+            continue
+
+        direction_name = normalize_course_name(rec.course_raw)
+        student = Student.objects.filter(full_name=rec.full_name).first()
+
+        if student is None or direction_name is None:
+            mismatches.append(ActiveEnrollmentMismatch(rec.full_name, rec.course_raw, direction_name))
+            continue
+
+        has_active = GroupMembership.objects.filter(
+            student=student, group__direction__name=direction_name, active=True,
+        ).exists()
+        if not has_active:
+            mismatches.append(ActiveEnrollmentMismatch(rec.full_name, rec.course_raw, direction_name))
+
+    return mismatches
