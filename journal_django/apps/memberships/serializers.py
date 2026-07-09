@@ -41,13 +41,13 @@ class MembershipWriteSerializer(serializers.Serializer):
     Вход для POST /api/admin/memberships (createMembershipSchema).
 
     Обязательные поля: group_id, student_id.
-    Необязательные: lessons_done, remaining, start_date.
+    Необязательные: lessons_done, start_date. remaining больше не принимается —
+    вычисляется при чтении (apps.finances.balance_for_student).
     """
 
     group_id = serializers.IntegerField(min_value=1)
     student_id = serializers.IntegerField(min_value=1)
     lessons_done = serializers.FloatField(min_value=0, required=False)
-    remaining = serializers.FloatField(min_value=0, required=False)
     start_date = DateStringField(allow_null=True, required=False)
 
 
@@ -55,10 +55,9 @@ class MembershipUpdateSerializer(serializers.Serializer):
     """
     Вход для PATCH /api/admin/memberships/:id (updateMembershipSchema).
 
-    Все поля необязательны.
+    Все поля необязательны. remaining не принимается — см. MembershipWriteSerializer.
     """
 
     lessons_done = serializers.FloatField(min_value=0, required=False)
-    remaining = serializers.FloatField(min_value=0, required=False)
     start_date = DateStringField(allow_null=True, required=False)
     active = serializers.BooleanField(required=False)

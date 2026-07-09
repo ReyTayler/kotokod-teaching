@@ -311,8 +311,8 @@ def existing_membership():
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active)
-            VALUES (%s, %s, 0, 0, true)
+            INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+            VALUES (%s, %s, 0, true)
             ON CONFLICT (group_id, student_id) DO UPDATE SET active = true
             RETURNING *
             """,
@@ -357,6 +357,22 @@ def test_patch_updates_start_date(superadmin_client, existing_membership):
 
 
 @pytest.mark.django_db
+def test_patch_remaining_is_ignored(superadmin_client, existing_membership):
+    """
+    remaining больше нельзя выставить руками — сериализатор его не принимает,
+    PATCH с этим полем в теле не должен ничего сломать и не должен повлиять
+    на вычисляемое значение в ответе.
+    """
+    resp = superadmin_client.patch(
+        f"{BASE_URL}/{existing_membership['id']}",
+        {'remaining': 999},
+        format='json',
+    )
+    assert resp.status_code == 200
+    assert resp.json()['remaining'] != 999
+
+
+@pytest.mark.django_db
 def test_patch_nonexistent_returns_404(superadmin_client):
     resp = superadmin_client.patch(
         f'{BASE_URL}/999999999',
@@ -379,8 +395,8 @@ def test_delete_returns_204(superadmin_client):
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active)
-            VALUES (%s, %s, 0, 0, true)
+            INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+            VALUES (%s, %s, 0, true)
             ON CONFLICT (group_id, student_id) DO UPDATE SET active = true
             RETURNING id
             """,
@@ -402,8 +418,8 @@ def test_delete_sets_active_false(superadmin_client):
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active)
-            VALUES (%s, %s, 0, 0, true)
+            INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+            VALUES (%s, %s, 0, true)
             ON CONFLICT (group_id, student_id) DO UPDATE SET active = true
             RETURNING id
             """,

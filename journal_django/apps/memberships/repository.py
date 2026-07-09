@@ -16,6 +16,7 @@ from django.db import transaction
 from django.db.models import F
 
 from apps.core.utils.orm import dictrow, dictrows
+from apps.finances.repository import balance_for_student, balances_for_students
 from apps.groups.models import Group
 
 from .exceptions import IndividualGroupFull
@@ -24,7 +25,7 @@ from .models import GroupMembership
 
 # Поля строки membership (gm.* / RETURNING *), в порядке схемы.
 _MEMBERSHIP_FIELDS = (
-    'id', 'group_id', 'student_id', 'lessons_done', 'remaining',
+    'id', 'group_id', 'student_id', 'lessons_done',
     'start_date', 'sheet_row', 'active',
 )
 
@@ -47,10 +48,13 @@ def _normalize_dates(row: Optional[dict]) -> Optional[dict]:
 
 
 def _membership_row(membership_id: int) -> Optional[dict]:
-    """Строка membership (gm.* / RETURNING *) с нормализованной датой."""
-    return _normalize_dates(
+    """Строка membership (gm.* / RETURNING *) с нормализованной датой и вычисленным remaining."""
+    row = _normalize_dates(
         dictrow(GroupMembership.objects.filter(id=membership_id).values(*_MEMBERSHIP_FIELDS))
     )
+    if row is not None:
+        row['remaining'] = balance_for_student(row['student_id'])
+    return row
 
 
 def _assert_individual_capacity(
@@ -105,7 +109,8 @@ def list_memberships(
     Возвращает список membership без пагинации.
 
     Фильтры: group_id, student_id, include_inactive (по умолчанию только active=true).
-    Порядок: g.name, s.full_name.
+    Порядок: g.name, s.full_name. remaining — вычисляемый общий баланс ученика
+    (apps.finances), одним батч-запросом на всех учеников выборки.
     """
     qs = GroupMembership.objects.all()
     if not include_inactive:
@@ -122,8 +127,10 @@ def list_memberships(
             student_name=F('student__full_name'),
         )
     )
+    balances = balances_for_students({row['student_id'] for row in rows})
     for row in rows:
         _normalize_dates(row)
+        row['remaining'] = balances[row['student_id']]
     return rows
 
 
@@ -131,19 +138,18 @@ def add_membership(data: dict) -> dict:
     """
     UPSERT membership (ON CONFLICT (group_id, student_id) DO UPDATE SET active=true).
 
-    На вставке: lessons_done/remaining дефолтятся в 0 (COALESCE(%s,0)).
+    На вставке: lessons_done дефолтится в 0 (COALESCE(%s,0)). remaining не хранится —
+    вычисляется при чтении (общий баланс ученика, apps.finances.repository).
     На конфликте: только active=true, остальные поля сохраняются (паттерн 4.9).
     """
     group_id = data['group_id']
     student_id = data['student_id']
     lessons_done = data.get('lessons_done')
-    remaining = data.get('remaining')
 
     obj = GroupMembership(
         group_id=group_id,
         student_id=student_id,
         lessons_done=lessons_done if lessons_done is not None else 0,
-        remaining=remaining if remaining is not None else 0,
         start_date=data.get('start_date') or None,
         sheet_row=data.get('sheet_row') or None,
         active=True,
@@ -159,22 +165,25 @@ def add_membership(data: dict) -> dict:
             update_fields=['active'],   # ON CONFLICT DO UPDATE SET active=true
         )
     # RETURNING * — перечитываем строку по уникальной паре (id мог не вернуться при конфликте).
-    return _normalize_dates(
+    row = _normalize_dates(
         dictrow(
             GroupMembership.objects
             .filter(group_id=group_id, student_id=student_id)
             .values(*_MEMBERSHIP_FIELDS)
         )
     )
+    row['remaining'] = balance_for_student(student_id)
+    return row
 
 
 def update_membership(membership_id: int, data: dict) -> Optional[dict]:
     """
     Обновляет membership (PATCH через COALESCE, дословно из memberships.js).
 
-    - lessons_done/remaining: COALESCE(%s, col) → set если значение не None (вкл. 0/0.5).
-    - start_date/sheet_row:   COALESCE(%s, col) → set если значение непусто.
-    - active:                 COALESCE(%s, col) → set если ключ есть и значение не None.
+    - lessons_done: COALESCE(%s, col) → set если значение не None (вкл. 0/0.5).
+    - start_date/sheet_row: COALESCE(%s, col) → set если значение непусто.
+    - active: COALESCE(%s, col) → set если ключ есть и значение не None.
+    - remaining больше не пишется вручную — вычисляется при чтении (_membership_row).
     """
     with transaction.atomic():
         obj = GroupMembership.objects.filter(id=membership_id).first()
@@ -189,8 +198,6 @@ def update_membership(membership_id: int, data: dict) -> Optional[dict]:
 
         if data.get('lessons_done') is not None:
             obj.lessons_done = data['lessons_done']
-        if data.get('remaining') is not None:
-            obj.remaining = data['remaining']
         if data.get('start_date'):
             obj.start_date = data['start_date']
         if data.get('sheet_row'):

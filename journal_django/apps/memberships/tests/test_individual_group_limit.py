@@ -29,8 +29,8 @@ def seed():
     ids: dict[str, int] = {}
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, sheet_name, is_individual, active) "
-            "VALUES ('__il_dir__', '__il_dir__', false, true) RETURNING id"
+            "INSERT INTO directions (name, is_individual, active) "
+            "VALUES ('__il_dir__', false, true) RETURNING id"
         )
         ids['direction_id'] = cur.fetchone()[0]
         cur.execute(
@@ -105,8 +105,8 @@ def _set_active(membership_id: int, active: bool) -> None:
 def _insert_inactive(group_id: int, student_id: int) -> int:
     with connection.cursor() as cur:
         cur.execute(
-            'INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active) '
-            'VALUES (%s, %s, 0, 0, false) RETURNING id',
+            'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+            'VALUES (%s, %s, 0, false) RETURNING id',
             [group_id, student_id],
         )
         return cur.fetchone()[0]

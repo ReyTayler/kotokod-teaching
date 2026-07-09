@@ -52,7 +52,6 @@ def _create_test_membership(group_id: int, student_id: int, **overrides) -> dict
         'group_id': group_id,
         'student_id': student_id,
         'lessons_done': 0,
-        'remaining': 0,
         'start_date': None,
         'sheet_row': None,
         **overrides,
@@ -141,6 +140,13 @@ class TestListMemberships:
         result = repository.list_memberships(student_id=999_999_999)
         assert result == []
 
+    def test_rows_have_computed_remaining(self):
+        """remaining — вычисляемое (общий баланс ученика), не хранимая колонка."""
+        result = repository.list_memberships()
+        if result:
+            assert 'remaining' in result[0]
+            assert isinstance(result[0]['remaining'], (int, float))
+
 
 @pytest.mark.django_db
 class TestAddMembership:
@@ -223,6 +229,17 @@ class TestAddMembership:
                 )
                 count = cur.fetchone()[0]
             assert count == 1
+        finally:
+            _cleanup_membership_by_pair(group_id, student_id)
+
+    def test_add_includes_computed_remaining(self):
+        group_id = _get_valid_group_id()
+        student_id = _get_valid_student_id()
+        _cleanup_membership_by_pair(group_id, student_id)
+        try:
+            m = repository.add_membership({'group_id': group_id, 'student_id': student_id})
+            assert 'remaining' in m
+            assert isinstance(m['remaining'], (int, float))
         finally:
             _cleanup_membership_by_pair(group_id, student_id)
 
