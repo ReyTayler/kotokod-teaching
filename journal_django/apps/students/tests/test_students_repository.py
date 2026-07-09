@@ -401,6 +401,68 @@ class TestStudentStats:
 
 
 # ---------------------------------------------------------------------------
+# TestStudentStatsRemaining
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestStudentStatsRemaining:
+    """remaining в group_stats — вычисляемый общий баланс ученика (не колонка gm.remaining)."""
+
+    def test_group_remaining_matches_balance_for_student(self):
+        from apps.finances.repository import balance_for_student
+
+        data = _make_student_data(full_name='__test_stats_remaining__')
+        student = repository.create_student(data)
+        sid = student['id']
+        direction_id = group_id = teacher_id = None
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO teachers (name, active) VALUES ('__stats_rem_teacher__', true) "
+                    "RETURNING id"
+                )
+                teacher_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO directions (name, is_individual, active) "
+                    "VALUES ('__stats_rem_dir__', false, true) RETURNING id"
+                )
+                direction_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+                    "lesson_duration_minutes, active) "
+                    "VALUES ('__stats_rem_group__', %s, %s, false, 60, true) RETURNING id",
+                    [direction_id, teacher_id],
+                )
+                group_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)",
+                    [group_id, sid],
+                )
+                cur.execute(
+                    "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s,%s,1,2000,2000,'2026-06-01','test')",
+                    [sid, direction_id],
+                )
+
+            result = repository.student_stats(sid)
+            assert len(result['groups']) == 1
+            assert result['groups'][0]['remaining'] == balance_for_student(sid) == 4
+        finally:
+            with connection.cursor() as cur:
+                if group_id is not None:
+                    cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
+                    cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [group_id])
+                    cur.execute('DELETE FROM groups WHERE id = %s', [group_id])
+                if direction_id is not None:
+                    cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])
+                if teacher_id is not None:
+                    cur.execute('DELETE FROM teachers WHERE id = %s', [teacher_id])
+            _cleanup_student(sid)
+
+
+# ---------------------------------------------------------------------------
 # TestGetStudentBalance
 # ---------------------------------------------------------------------------
 

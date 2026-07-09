@@ -14,6 +14,7 @@ from django.db import connection
 from django.db.models.functions import Now
 
 from apps.core.utils.orm import dictrow, dictrows
+from apps.finances.repository import balance_for_student
 
 from .models import Student
 
@@ -231,7 +232,6 @@ def student_stats(student_id: int) -> dict:
              SELECT gm.id AS membership_id,
                     gm.group_id,
                     gm.lessons_done,
-                    gm.remaining,
                     gm.active AS membership_active,
                     g.name   AS group_name,
                     g.is_individual,
@@ -262,7 +262,7 @@ def student_stats(student_id: int) -> dict:
                LEFT JOIN lessons l ON l.group_id = gm.group_id
                LEFT JOIN lesson_attendance la ON la.lesson_id = l.id AND la.student_id = gm.student_id
               WHERE gm.student_id = %s
-              GROUP BY gm.id, gm.group_id, gm.lessons_done, gm.remaining, gm.active,
+              GROUP BY gm.id, gm.group_id, gm.lessons_done, gm.active,
                        g.name, g.is_individual, g.lesson_duration_minutes,
                        d.id, d.name, d.color, d.total_lessons, te.name, te.id
               ORDER BY d.name, g.name
@@ -281,6 +281,8 @@ def student_stats(student_id: int) -> dict:
         if x is None:
             return None
         return int(x * 1000 + 0.5) / 10
+
+    student_balance = balance_for_student(student_id)
 
     # Строим список статистики по группам (аналог JS groupStats.map())
     group_stats: list[dict] = []
@@ -307,7 +309,7 @@ def student_stats(student_id: int) -> dict:
             'lesson_duration_minutes': r['lesson_duration_minutes'],
             'membership_active':       r['membership_active'],
             'lessons_done':            r['lessons_done'],
-            'remaining':               r['remaining'],
+            'remaining':               student_balance,
             'lessons_recorded':        recorded,
             'attended_count':          attended,
             'missed_count':            max(recorded - attended, 0),
