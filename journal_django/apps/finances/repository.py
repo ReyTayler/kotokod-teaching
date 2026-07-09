@@ -78,11 +78,15 @@ def fifo_inputs() -> dict:
 
     Возвращает lots_by_key / purchased_by_key / cons_by_key / consumed_by_key / keys.
     Guard: оплаты с subscriptions_count NULL/0 (lessons ≤ 0) пропускаются —
-    иначе деление на 0 / Infinity ломает суммы.
+    иначе деление на 0 / Infinity ломает суммы. Партии не фильтруются по
+    direction_id — легаси-оплаты (direction_id NULL, subscriptions_count
+    проставлен миграцией 0004 apps/payments) пулятся наравне с обычными,
+    как и в balance_for_student (2026-07-09: убран лишний фильтр
+    direction_id__isnull=False, оставшийся от дизайна до редизайна общего
+    пула 2026-07-08 — иначе дашборд «Долги» считал устаревшие остатки).
     """
     lots_rows = (
         Payment.objects
-        .filter(direction_id__isnull=False)
         .order_by('student_id', 'paid_at', 'id')
         .values('student_id', 'total_amount', 'subscriptions_count')
     )

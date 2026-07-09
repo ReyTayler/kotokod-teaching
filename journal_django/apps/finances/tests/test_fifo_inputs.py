@@ -3,8 +3,13 @@ Integration-тесты finances.repository.fifo_inputs + end-to-end compute_fifo
 на реальном графе данных.
 
 Покрытие:
-  - lots/consumptions строятся по ключу student:direction;
+  - lots/consumptions строятся по ключу student_id (общий пул, без разбивки по direction);
   - guard subscriptions_count NULL/0 — партия пропускается;
+  - легаси-оплата ПОСЛЕ бэкафилла (миграция 0004: subscriptions_count=1,
+    direction_id остаётся NULL) — попадает в общий пул наравне с обычными
+    оплатами (2026-07-09: убран лишний фильтр direction_id__isnull=False,
+    оставшийся от дизайна ДО редизайна общего пула 2026-07-08 — иначе дашборд
+    «Долги» считал устаревшие остатки для легаси-учеников);
   - lesson_date приходит строкой 'YYYY-MM-DD';
   - end-to-end compute_fifo на построенных входах сходится до копейки.
 """
@@ -33,14 +38,30 @@ def _add_payment(created, student_id, direction_id, subs, unit_price, total, pai
     return pid
 
 
-def _add_legacy_payment(created, student_id, paid_at):
-    """Легаси-оплата: direction_id=NULL, subs=NULL (валидно по CHECK). Должна быть
-    исключена FIFO-запросом (WHERE direction_id IS NOT NULL)."""
+def _add_unbackfilled_legacy_payment(created, student_id, paid_at):
+    """Легаси-оплата ДО бэкафилла: direction_id=NULL, subscriptions_count=NULL
+    (валидно по CHECK). По-прежнему исключается — guard'ом NULL/0
+    subscriptions_count в fifo_inputs(), а не фильтром по direction_id."""
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO payments (student_id, direction_id, subscriptions_count, unit_price, "
             "total_amount, paid_at, created_by) VALUES (%s,NULL,NULL,0,0,%s,'test') RETURNING id",
             [student_id, paid_at],
+        )
+        pid = cur.fetchone()[0]
+    created['payments'].append(pid)
+    return pid
+
+
+def _add_backfilled_legacy_payment(created, student_id, paid_at, amount):
+    """Легаси-оплата ПОСЛЕ бэкафилла (миграция 0004): direction_id=NULL,
+    subscriptions_count=1, unit_price == total_amount. Должна попадать в общий
+    пул наравне с оплатами, помеченными направлением."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, unit_price, "
+            "total_amount, paid_at, created_by) VALUES (%s,NULL,1,%s,%s,%s,'test') RETURNING id",
+            [student_id, amount, amount, paid_at],
         )
         pid = cur.fetchone()[0]
     created['payments'].append(pid)
@@ -74,11 +95,13 @@ def _add_lesson_with_attendance(created, group_id, teacher_id, student_id, date,
 def test_fifo_inputs_builds_lots_and_consumptions(
     group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
 ):
-    # Две партии разной цены: 1 подписка ×4=4 урока по 500; 1×4=4 по 450.
+    # Три партии разной цены: 1 подписка ×4=4 урока по 500; 1×4=4 по 450; легаси ×4=4 по 100.
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, 2000, '2026-05-01')
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 1800, 1800, '2026-05-15')
-    # Легаси-оплата (direction=NULL) — должна быть исключена WHERE direction_id IS NOT NULL.
-    _add_legacy_payment(graph_cleanup, student_fixture, '2026-05-20')
+    # Легаси-оплата ДО бэкафилла (subs=NULL) — по-прежнему исключена guard'ом.
+    _add_unbackfilled_legacy_payment(graph_cleanup, student_fixture, '2026-05-18')
+    # Легаси-оплата ПОСЛЕ бэкафилла (subs=1, direction=NULL) — теперь пулится наравне с остальными.
+    _add_backfilled_legacy_payment(graph_cleanup, student_fixture, '2026-05-20', 400)
     # 3 посещения в мае, 4 в июне.
     for _ in range(3):
         _add_lesson_with_attendance(
@@ -94,12 +117,15 @@ def test_fifo_inputs_builds_lots_and_consumptions(
 
     assert key in inputs['keys']
     lots = inputs['lots_by_key'][key]
-    # Легаси direction=NULL исключена WHERE → ровно 2 партии.
-    assert len(lots) == 2
+    # Неотбэкафилленная легаси (subs=NULL) исключена guard'ом; отбэкафилленная
+    # (subs=1, direction=NULL) — включена наравне с обычными → ровно 3 партии.
+    assert len(lots) == 3
     assert lots[0]['lessons'] == 4
     assert lots[0]['price_per_lesson'] == Decimal('500')
     assert lots[1]['price_per_lesson'] == Decimal('450')
-    assert inputs['purchased_by_key'][key] == 8
+    assert lots[2]['lessons'] == 4
+    assert lots[2]['price_per_lesson'] == Decimal('100')
+    assert inputs['purchased_by_key'][key] == 12
 
     cons = inputs['cons_by_key'][key]
     assert len(cons) == 7
@@ -109,11 +135,12 @@ def test_fifo_inputs_builds_lots_and_consumptions(
     assert cons[0]['direction_id'] == direction_fixture
     assert inputs['consumed_by_key'][key] == Decimal('7')
 
-    # End-to-end: совпадает с golden из fifo.test.js (3 по 500 в мае + 1×500+3×450 в июне).
+    # End-to-end: совпадает с golden из fifo.test.js (3 по 500 в мае + 1×500+3×450 в июне),
+    # третья (легаси, 100/урок) остаётся полностью нетронутой — уходит в remaining_value.
     r = compute_fifo(lots, cons, '2026-06-01', '2026-07-01')
     assert r['worked_off_total'] == Decimal('3350.00')
     assert r['worked_off_month'] == Decimal('1850.00')
-    assert r['remaining_value'] == Decimal('450.00')
+    assert r['remaining_value'] == Decimal('850.00')
 
 
 def test_fifo_inputs_half_lesson_units(
