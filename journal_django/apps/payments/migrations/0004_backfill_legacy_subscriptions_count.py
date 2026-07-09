@@ -27,6 +27,14 @@ def revert_backfill(apps, schema_editor):
     миграция и создала — по direction_id IS NULL + created_by='backfill-script'
     (уникальный маркер легаси-бэкафилла, подтверждено: ВСЕ строки с этим created_by
     и NULL direction_id/subscriptions_count принадлежат только этому набору).
+
+    Важно: это НЕ точная логическая инверсия backfill_subscriptions_count (тот
+    фильтрует по direction_id/subscriptions_count IS NULL, без учёта created_by).
+    Симметрия опирается на эмпирический факт данных на 2026-07-09 (0 исключений
+    из 2176 строк), а не на структурный инвариант. Если в будущем легаси-строки
+    начнёт писать другой источник (другой created_by) — форвард их заберёт,
+    а этот откат не отменит. И наоборот: не трогайте created_by='backfill-script'
+    вручную у оплат, не относящихся к этому набору.
     """
     Payment = apps.get_model('payments', 'Payment')
     Payment.objects.filter(
