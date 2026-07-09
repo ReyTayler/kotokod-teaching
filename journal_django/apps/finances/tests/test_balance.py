@@ -90,8 +90,8 @@ def test_balance_pools_across_directions(
     try:
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO directions (name, sheet_name, is_individual, active) "
-                "VALUES ('__fin_dir_b__', '__fin_sheet_b__', false, true) RETURNING id"
+                "INSERT INTO directions (name, is_individual, active) "
+                "VALUES ('__fin_dir_b__', false, true) RETURNING id"
             )
             direction_b = cur.fetchone()[0]
             cur.execute(
@@ -135,3 +135,43 @@ def test_balance_empty_student(student_fixture, graph_cleanup):
     assert result['attended_by_direction'] == []
     assert result['total_balance'] == 0
     assert result['payments'] == []
+
+
+def test_balances_for_students_batches_multiple(
+    teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
+):
+    """Один вызов на несколько student_id — каждый получает свой баланс, без N+1."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000)  # 4 урока куплено
+    other_student_id = None
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO students (full_name, enrollment_status) "
+                "VALUES ('__fin_student_2__', 'enrolled') RETURNING id"
+            )
+            other_student_id = cur.fetchone()[0]
+        result = repository.balances_for_students([student_fixture, other_student_id])
+        assert result[student_fixture] == 4
+        assert result[other_student_id] == 0
+    finally:
+        if other_student_id is not None:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM students WHERE id = %s', [other_student_id])
+
+
+def test_balances_for_students_matches_single(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
+):
+    """Батч-результат совпадает с balance_for_student для того же ученика."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000)
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-10', duration=60
+    )
+    batch = repository.balances_for_students([student_fixture])
+    single = repository.balance_for_student(student_fixture)
+    assert batch[student_fixture] == single == 3
+
+
+def test_balances_for_students_empty_input():
+    """Пустой список id → пустой словарь, без похода в БД с IN ()."""
+    assert repository.balances_for_students([]) == {}

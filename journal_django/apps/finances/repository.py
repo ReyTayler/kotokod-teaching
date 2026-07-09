@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime
 from decimal import Decimal
+from typing import Iterable
 
 from django.db.models import Case, DecimalField, F, Sum, Value, When
 from django.db.models.functions import Coalesce
@@ -148,20 +149,45 @@ def fifo_inputs() -> dict:
 # Баланс (порт из payments.js — единый дом)
 # ---------------------------------------------------------------------------
 
+def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
+    """
+    Общий баланс (purchased − attended) сразу для набора учеников — без N+1.
+
+    Используется там, где строк много за один раз (teacher_spa.read_all_students
+    тянет всю школу разом на 2 CPU/2 ГБ VPS). Каждый переданный student_id
+    гарантированно есть в результате (0, если нет ни оплат, ни посещений).
+    """
+    ids = list(student_ids)
+    if not ids:
+        return {}
+
+    balances: dict[int, Decimal] = {sid: Decimal('0') for sid in ids}
+
+    purchased = (
+        Payment.objects.filter(student_id__in=ids)
+        .values('student_id')
+        .annotate(s=Coalesce(Sum(F('subscriptions_count') * 4, output_field=_DEC), _ZERO))
+    )
+    for r in purchased:
+        balances[r['student_id']] += r['s']
+
+    attended = (
+        LessonAttendance.objects.filter(student_id__in=ids, present=True)
+        .values('student_id')
+        .annotate(s=Coalesce(Sum(_attended_units_case()), _ZERO))
+    )
+    for r in attended:
+        balances[r['student_id']] -= r['s']
+
+    return {sid: _js_number(v) for sid, v in balances.items()}
+
+
 def balance_for_student(student_id: int) -> int | float:
     """
     Общий баланс ученика (единый пул по всем направлениям): purchased − attended.
-    half-lesson: 45→0.5. Возврат _js_number (int|float).
+    half-lesson: 45→0.5. Делегирует в balances_for_students — одна формула на двоих.
     """
-    purchased = Payment.objects.filter(
-        student_id=student_id,
-    ).aggregate(s=Coalesce(Sum(F('subscriptions_count') * 4, output_field=_DEC), _ZERO))['s']
-
-    attended = LessonAttendance.objects.filter(
-        student_id=student_id, present=True,
-    ).aggregate(s=Coalesce(Sum(_attended_units_case()), _ZERO))['s']
-
-    return _js_number(purchased - attended)
+    return balances_for_students([student_id])[student_id]
 
 
 def paid_by_direction_rows(student_id: int) -> list[dict]:
