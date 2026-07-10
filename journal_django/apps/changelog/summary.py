@@ -289,11 +289,19 @@ def describe_event(ev: dict, lk: Lookups) -> str:
     # --- Оплата ---
     if entity == 'payment':
         student = lk.student(data.get('student_id'))
-        amount = _fmt_num(data.get('total_amount'))
+        is_refund = data.get('kind') == 'refund'
+        amt_raw = data.get('total_amount')
+        amount = _fmt_num(abs(float(amt_raw)) if (is_refund and amt_raw is not None) else amt_raw)
         if label == 'delete':
-            return f'Удалена оплата {amount} ₽: {student}'
+            return (f'Отменён возврат {amount} ₽: {student}' if is_refund
+                    else f'Удалена оплата {amount} ₽: {student}')
         if label == 'insert':
-            return f'Оплата {amount} ₽: {student}'
+            if is_refund:
+                lc = _fmt_num(abs(float(data.get('lessons_count') or 0)))
+                return f'Возврат {amount} ₽ ({lc} уроков): {student}'
+            lc = data.get('lessons_count')
+            tag = '' if (lc is None or float(lc) % 4 == 0) else f' (предоплата, {_fmt_num(lc)} уроков)'
+            return f'Оплата {amount} ₽{tag}: {student}'
         return f'Оплата {student}: изменено — {_fields_ru(diff.keys())}'
 
     # --- Членство ---
@@ -384,8 +392,13 @@ def build_summary(operation: str, events: list[dict], lk: Lookups) -> str:
     if payments:
         data = payments[0].get('pgh_data') or {}
         student = lk.student(data.get('student_id'))
-        amount = data.get('total_amount')
-        verb = 'Удалена оплата' if payments[0]['pgh_label'] == 'delete' else 'Оплата'
+        is_refund = data.get('kind') == 'refund'
+        amt_raw = data.get('total_amount')
+        amount = abs(float(amt_raw)) if (is_refund and amt_raw is not None) else amt_raw
+        if payments[0]['pgh_label'] == 'delete':
+            verb = 'Отменён возврат' if is_refund else 'Удалена оплата'
+        else:
+            verb = 'Возврат' if is_refund else 'Оплата'
         return f'{verb} {amount} ₽: {student}'
 
     # --- Откат ---

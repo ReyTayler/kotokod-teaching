@@ -44,6 +44,7 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     # payments (immutable: только create/delete)
     ('POST', re.compile(r'^/api/admin/payments$'), 'payment.create'),
     ('DELETE', re.compile(r'^/api/admin/payments/\d+$'), 'payment.delete'),
+    ('POST', re.compile(r'^/api/admin/students/\d+/refund$'), 'payment.refund'),
     # lessons
     ('PATCH', re.compile(r'^/api/admin/lessons/\d+/attendance/\d+$'), 'lesson.attendance_update'),
     ('POST', re.compile(r'^/api/admin/lessons$'), 'lesson.create'),

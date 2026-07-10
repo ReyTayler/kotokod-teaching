@@ -122,3 +122,33 @@ def test_summary_soft_delete_reads_as_archive(admin_client):
         Direction.objects.filter(id=d.id).update(active=False)
     row = _feed_top(admin_client)
     assert row['summary'] == 'Направление «__sum_arch__»: в архив'
+
+
+def test_resolve_operation_refund():
+    from apps.changelog.labels import resolve_operation
+    assert resolve_operation('POST', '/api/admin/students/7/refund') == 'payment.refund'
+
+
+def test_describe_event_refund_insert():
+    from apps.changelog.summary import describe_event, Lookups
+    ev = {
+        'entity': 'payment', 'pgh_label': 'insert',
+        'pgh_data': {'student_id': 1, 'kind': 'refund',
+                     'total_amount': '-3000.00', 'lessons_count': '-3.0'},
+        'pgh_diff': {},
+    }
+    out = describe_event(ev, Lookups(students={1: 'Иванов'}))
+    assert out.startswith('Возврат 3000 ₽')
+    assert 'Иванов' in out
+
+
+def test_describe_event_prepayment_insert():
+    from apps.changelog.summary import describe_event, Lookups
+    ev = {
+        'entity': 'payment', 'pgh_label': 'insert',
+        'pgh_data': {'student_id': 1, 'kind': 'purchase',
+                     'total_amount': '2000.00', 'lessons_count': '2.0'},
+        'pgh_diff': {},
+    }
+    out = describe_event(ev, Lookups(students={1: 'Иванов'}))
+    assert 'предоплата' in out
