@@ -492,8 +492,8 @@ def _make_group(direction_id, teacher_id, name):
 def _make_membership(group_id, student_id, active=True):
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active) "
-            "VALUES (%s, %s, 0, 0, %s) RETURNING id",
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s, %s, 0, %s) RETURNING id",
             [group_id, student_id, active],
         )
         return cur.fetchone()[0]

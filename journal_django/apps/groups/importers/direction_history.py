@@ -287,7 +287,7 @@ def import_to_db(aggregated: dict, *, dry_run: bool) -> ImportReport:
                 GroupMembership.objects.update_or_create(
                     group=group, student=student,
                     defaults={
-                        'lessons_done': lessons_count, 'remaining': 0,
+                        'lessons_done': lessons_count,
                         'active': False, 'start_date': LEGACY_LESSON_DATE,
                     },
                 )
