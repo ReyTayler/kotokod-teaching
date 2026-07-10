@@ -26,8 +26,12 @@ class Payment(models.Model):
     """
     Оплата. Соответствует таблице `payments`.
 
-    Инварианты БД (CHECK): subscriptions_count > 0 (если задан);
-    total_amount = unit_price * subscriptions_count (если subscriptions_count NOT NULL).
+    Источник правды о количестве — lessons_count; subscriptions_count —
+    презентационный; total_amount авторитетен, unit_price информационный.
+
+    Инварианты БД (CHECK): kind ∈ {purchase, refund}; unit_price ≥ 0;
+    purchase → lessons_count > 0 и total_amount ≥ 0; refund → lessons_count < 0
+    и total_amount ≤ 0.
     """
 
     id = models.AutoField(primary_key=True)
@@ -48,6 +52,8 @@ class Payment(models.Model):
         blank=True,
     )
     subscriptions_count = models.IntegerField(null=True, blank=True)
+    lessons_count = models.IntegerField(null=True, blank=True)
+    kind = models.TextField(default='purchase', db_default='purchase')
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     paid_at = models.DateField()
@@ -66,18 +72,26 @@ class Payment(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                name='payments_subscriptions_count_check',
-                condition=models.Q(subscriptions_count__gt=0),
+                name='payments_kind_check',
+                condition=models.Q(kind__in=['purchase', 'refund']),
             ),
             models.CheckConstraint(
                 name='payments_unit_price_check',
                 condition=models.Q(unit_price__gte=0),
             ),
+            # purchase: положительные количества и сумма; refund: отрицательные.
             models.CheckConstraint(
-                name='payments_total_match',
+                name='payments_purchase_signs',
                 condition=(
-                    models.Q(subscriptions_count__isnull=True)
-                    | models.Q(total_amount=models.F('unit_price') * models.F('subscriptions_count'))
+                    ~models.Q(kind='purchase')
+                    | (models.Q(lessons_count__gt=0) & models.Q(total_amount__gte=0))
+                ),
+            ),
+            models.CheckConstraint(
+                name='payments_refund_signs',
+                condition=(
+                    ~models.Q(kind='refund')
+                    | (models.Q(lessons_count__lt=0) & models.Q(total_amount__lte=0))
                 ),
             ),
         ]
