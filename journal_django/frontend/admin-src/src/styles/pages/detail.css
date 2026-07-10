@@ -661,3 +661,194 @@
 .schedule-day-select { min-width: 148px; }
 
 .btn-delete.is-confirming { background: color-mix(in oklab, var(--danger) 16%, transparent); color: var(--danger); border-color: transparent; }
+
+/* ============================================================
+ *  Комментарии к ученику (вкладка «Комментарии» карточки)
+ *  Личность как у всего SPA: слейт + акцент, borders-only, 4px-сетка.
+ * ============================================================ */
+.comments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 680px;
+}
+
+/* Композер — крафтовый объект: карточка с фокус-кольцом, футер с кнопкой */
+.comments__composer {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.comments__composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.comments__input {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  resize: vertical;
+  min-height: 76px;
+  padding: var(--space-3) var(--space-4);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.comments__input:focus { outline: none; }
+.comments__input::placeholder { color: var(--text4); }
+.comments__composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border2);
+  background: var(--bg);
+}
+.comments__hint {
+  font-size: 12px;
+  color: var(--text4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Лента */
+.comments__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.comments__item {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border2);
+}
+.comments__item:first-child { padding-top: 0; }
+.comments__item:last-child { border-bottom: 0; padding-bottom: 0; }
+.comments__avatar {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.comments__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.comments__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+}
+.comments__author {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.comments__time {
+  font-size: 11px;
+  color: var(--text4);
+  font-variant-numeric: tabular-nums;
+}
+.comments__text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Удаление — деликатная иконка, проявляется на hover строки (только у админа) */
+.comments__delete {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-sm);
+  color: var(--text4);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.comments__item:hover .comments__delete,
+.comments__delete:focus-visible { opacity: 1; }
+.comments__delete:hover { color: var(--danger); background: var(--bg3); }
+.comments__delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.comments__delete svg { width: 15px; height: 15px; }
+
+/* Инлайн-подтверждение вместо нативного confirm */
+.comments__confirm {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.comments__confirm-yes,
+.comments__confirm-no {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.comments__confirm-yes {
+  color: #fff;
+  background: var(--danger);
+  border: 1px solid var(--danger);
+}
+.comments__confirm-yes:disabled { opacity: 0.6; cursor: not-allowed; }
+.comments__confirm-no {
+  color: var(--text3);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+}
+.comments__confirm-no:hover { background: var(--bg3); color: var(--text); }
+
+.comments__more { align-self: flex-start; }
+
+/* Пустое состояние */
+.comments__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--r);
+  color: var(--text3);
+}
+.comments__empty svg { width: 28px; height: 28px; color: var(--text4); }
+.comments__empty p { font-size: 14px; font-weight: 600; color: var(--text2); }
+.comments__empty span { font-size: 12px; color: var(--text4); }
+
+.comments__loading {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text3);
+  font-size: 13px;
+}
+
