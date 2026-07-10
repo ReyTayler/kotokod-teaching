@@ -85,11 +85,13 @@ def fifo_inputs() -> dict:
     как и в balance_for_student (2026-07-09: убран лишний фильтр
     direction_id__isnull=False, оставшийся от дизайна до редизайна общего
     пула 2026-07-08 — иначе дашборд «Долги» считал устаревшие остатки).
+    Строки kind='refund' не образуют партий — становятся синтетическими
+    consumption-записями (флаг refund), готовыми для compute_fifo.
     """
     lots_rows = (
         Payment.objects
         .order_by('student_id', 'paid_at', 'id')
-        .values('student_id', 'total_amount', 'subscriptions_count')
+        .values('student_id', 'total_amount', 'lessons_count', 'kind', 'paid_at')
     )
 
     cons_rows = (
@@ -106,11 +108,20 @@ def fifo_inputs() -> dict:
 
     lots_by_key: dict[str, list] = {}
     purchased_by_key: dict[str, int] = {}
+    refund_cons: dict[str, list] = {}   # синтетические списания-возвраты
     for r in lots_rows:
         key = str(r['student_id'])
-        subs = r['subscriptions_count']
-        lessons = int(subs) * 4 if subs is not None else 0
-        if not (lessons > 0):  # guard: NULL/0 subscriptions_count
+        lessons = int(r['lessons_count']) if r['lessons_count'] is not None else 0
+        if r['kind'] == 'refund':
+            # возврат: гасит остаток на дату возврата (units = |lessons|), без выручки
+            refund_cons.setdefault(key, []).append({
+                'units': to_decimal(-lessons),
+                'date': _date_str(r['paid_at']),
+                'direction_id': None,
+                'refund': True,
+            })
+            continue
+        if not (lessons > 0):  # guard: NULL/0 / отрицательные (возврат уже отсечён выше)
             continue
         lots_by_key.setdefault(key, []).append({
             'lessons': lessons,
@@ -130,8 +141,13 @@ def fifo_inputs() -> dict:
         })
         consumed_by_key[key] = consumed_by_key.get(key, Decimal('0')) + units
 
-    # keys в порядке вставки: сначала ключи партий (порядок строк lots), затем
-    # ключи посещений, которых ещё не было. Порядок важен для тай-брейка дашборда.
+    # Возвраты — синтетические списания всего остатка на дату возврата: мержим в
+    # consumption'ы и пересортируем по дате (возврат после посещений того же дня).
+    for key, refs in refund_cons.items():
+        cons_by_key.setdefault(key, []).extend(refs)
+    for key, lst in cons_by_key.items():
+        lst.sort(key=lambda c: (c['date'], 1 if c.get('refund') else 0))
+
     keys = list(lots_by_key.keys())
     for k in cons_by_key:
         if k not in lots_by_key:

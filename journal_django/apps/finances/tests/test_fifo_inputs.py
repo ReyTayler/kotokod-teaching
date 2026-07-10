@@ -199,3 +199,21 @@ def test_fifo_inputs_pools_across_directions(
             cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
             cur.execute('DELETE FROM groups WHERE id = %s', [group_b])
             cur.execute('DELETE FROM directions WHERE id = %s', [direction_b])
+
+
+def test_fifo_lots_use_lessons_count(student_fixture, direction_fixture, graph_cleanup):
+    from decimal import Decimal
+    from django.db import connection
+    from apps.finances.repository import fifo_inputs
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+            "lessons_count, kind, unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s, %s, 99, 4, 'purchase', 1000, 4000, '2026-01-01', 't') RETURNING id",
+            [student_fixture, direction_fixture])
+        pid = cur.fetchone()[0]
+    graph_cleanup['payments'].append(pid)
+    inp = fifo_inputs()
+    key = str(student_fixture)
+    assert inp['lots_by_key'][key][0]['lessons'] == 4
+    assert inp['lots_by_key'][key][0]['price_per_lesson'] == Decimal('1000')
