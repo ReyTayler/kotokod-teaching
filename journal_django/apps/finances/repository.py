@@ -214,18 +214,34 @@ def student_fifo_remaining(student_id: int) -> dict:
     Неотработанный остаток ученика: сколько уроков и денег ещё не списано.
     remaining_lessons = баланс (purchased − attended, half-lesson учтён).
     remaining_value   = FIFO remaining_value по партиям-покупкам ученика.
+
+    Строки kind='refund' (см. apps/payments/repository.py::refund_student) не
+    образуют партий — как в fifo_inputs(), они становятся синтетическими
+    consumption-записями (флаг refund), которые гасят остаток партий без
+    учёта в worked_off_*. Иначе повторный вызов после возврата продолжал бы
+    показывать остаток, который уже был возвращён (см. Task 4.2).
     """
     from apps.finances.fifo import compute_fifo
 
     remaining_lessons = balance_for_student(student_id)
 
-    lots_rows = (
-        Payment.objects.filter(student_id=student_id, kind='purchase')
+    payment_rows = (
+        Payment.objects.filter(student_id=student_id)
         .order_by('paid_at', 'id')
-        .values('total_amount', 'lessons_count')
+        .values('total_amount', 'lessons_count', 'kind', 'paid_at')
     )
     lots = []
-    for r in lots_rows:
+    refund_cons = []
+    for r in payment_rows:
+        if r['kind'] == 'refund':
+            raw = r['lessons_count']
+            refund_cons.append({
+                'units': -to_decimal(raw) if raw is not None else Decimal('0'),
+                'date': _date_str(r['paid_at']),
+                'direction_id': None,
+                'refund': True,
+            })
+            continue
         lessons = int(r['lessons_count']) if r['lessons_count'] is not None else 0
         if lessons > 0:
             lots.append({
@@ -241,6 +257,8 @@ def student_fifo_remaining(student_id: int) -> dict:
     )
     cons = [{'units': to_decimal(r['units']), 'date': _date_str(r['lesson_date']),
              'direction_id': None} for r in cons_rows]
+    cons.extend(refund_cons)
+    cons.sort(key=lambda c: (c['date'], 1 if c.get('refund') else 0))
 
     fifo = compute_fifo(lots, cons, '0001-01-01', '9999-12-31')
     return {

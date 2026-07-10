@@ -441,3 +441,56 @@ class TestBalanceNumericTypes:
         finally:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM students WHERE id = %s', [sid])
+
+
+# ---------------------------------------------------------------------------
+# Tests: refund_student
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestRefundStudent:
+
+    def _buy(self, sid, did, lessons=4, total='4000'):
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+                "lessons_count, kind, unit_price, total_amount, paid_at, created_by) "
+                "VALUES (%s,%s,1,%s,'purchase',1000,%s,'2026-01-01','t')",
+                [sid, did, lessons, total])
+
+    def _cleanup_payments(self, sid):
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
+
+    def test_refund_zeroes_balance(self, direction_fixture, student_fixture,
+                                   membership_fixture, lesson_60_fixture, attendance_60_fixture):
+        from decimal import Decimal
+        from apps.finances.repository import balance_for_student, student_fifo_remaining
+        self._buy(student_fixture, direction_fixture)  # 4 lessons / 4000
+        try:
+            res = repository.refund_student(student_fixture, created_by='Админ')
+            assert res['refunded_amount'] == Decimal('3000.00')  # 3 unworked * 1000
+            assert res['new_balance'] == 0
+            assert res['refund']['kind'] == 'refund'
+            assert res['refund']['lessons_count'] == -3
+            assert balance_for_student(student_fixture) == 0
+            assert student_fifo_remaining(student_fixture)['remaining_value'] == Decimal('0.00')
+        finally:
+            self._cleanup_payments(student_fixture)
+
+    def test_refund_fractional_half_lesson(self, direction_fixture, student_fixture,
+                                           membership_fixture, lesson_45_fixture, attendance_45_fixture):
+        from decimal import Decimal
+        from apps.finances.repository import balance_for_student
+        self._buy(student_fixture, direction_fixture)  # 4 lessons / 4000, attended 0.5
+        try:
+            res = repository.refund_student(student_fixture, created_by='Админ')
+            # remaining 3.5 lessons * 1000 = 3500
+            assert res['refunded_amount'] == Decimal('3500.00')
+            assert res['refund']['lessons_count'] == -3.5
+            assert balance_for_student(student_fixture) == 0
+        finally:
+            self._cleanup_payments(student_fixture)
+
+    def test_nothing_to_refund(self, student_fixture):
+        assert repository.refund_student(student_fixture, created_by='Админ') == {'error': 'nothing_to_refund'}

@@ -196,3 +196,44 @@ def get_student_balance(student_id: int) -> dict:
 def get_direction_payments_count(direction_id: int) -> int:
     """Количество оплат для направления."""
     return Payment.objects.filter(direction_id=direction_id).count()
+
+
+def refund_student(student_id: int, created_by: str | None = None) -> dict:
+    """
+    Оформляет возврат неотработанного остатка ученика (единый пул).
+
+    Возвращает {'error': 'student_not_found'|'nothing_to_refund'} или
+    {'refund': row, 'new_balance': <=0, 'refunded_amount': Decimal}.
+    Строка возврата: kind='refund', lessons_count/total_amount отрицательные,
+    direction_id=NULL (пул-возврат). Иммутабельна как все payments.
+    """
+    from apps.finances.repository import student_fifo_remaining, balance_for_student
+    from apps.students.models import Student
+
+    with transaction.atomic():
+        if not Student.objects.select_for_update().filter(id=student_id).exists():
+            return {'error': 'student_not_found'}
+
+        rem = student_fifo_remaining(student_id)
+        remaining_lessons = rem['remaining_lessons']
+        remaining_value = rem['remaining_value']
+        if remaining_lessons <= 0 or remaining_value <= 0:
+            return {'error': 'nothing_to_refund'}
+
+        obj = Payment.objects.create(
+            student_id=student_id,
+            direction_id=None,
+            subscriptions_count=None,
+            lessons_count=-Decimal(str(remaining_lessons)),
+            kind='refund',
+            unit_price=Decimal('0'),
+            total_amount=-remaining_value,
+            paid_at=Now(),
+            note=f'Возврат {remaining_lessons} уроков на сумму {remaining_value} ₽',
+            created_by=created_by or None,
+            created_at=Now(),
+        )
+        row = _normalize_lessons_count(dictrow(Payment.objects.filter(pk=obj.pk).values()))
+        new_balance = balance_for_student(student_id)
+
+    return {'refund': row, 'new_balance': new_balance, 'refunded_amount': remaining_value}
