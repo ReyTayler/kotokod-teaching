@@ -52,7 +52,7 @@ class Payment(models.Model):
         blank=True,
     )
     subscriptions_count = models.IntegerField(null=True, blank=True)
-    lessons_count = models.IntegerField(null=True, blank=True)
+    lessons_count = models.DecimalField(max_digits=12, decimal_places=1, null=True, blank=True)
     kind = models.TextField(default='purchase', db_default='purchase')
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)

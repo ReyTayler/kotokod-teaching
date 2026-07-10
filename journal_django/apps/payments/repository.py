@@ -37,6 +37,18 @@ _PAYMENT_FIELDS = (
 from apps.finances.repository import _js_number  # noqa: E402,F401
 
 
+def _normalize_lessons_count(row: dict) -> dict:
+    """
+    lessons_count теперь DecimalField (Task 4.0: дробные возвраты, -3.5 и т.п.),
+    но в JSON-ответе должен остаться JS Number (int для целых покупок), как раньше
+    при IntegerField — иначе DateSafeJSONRenderer превратит его в строку '2.0',
+    как unit_price/total_amount, что ломает контракт API.
+    """
+    if row.get('lessons_count') is not None:
+        row['lessons_count'] = _js_number(row['lessons_count'])
+    return row
+
+
 # ---------------------------------------------------------------------------
 # Repository functions (ORM-порт services/repo/payments.js)
 # ---------------------------------------------------------------------------
@@ -74,12 +86,12 @@ def create_payment(data: dict) -> dict:
         already = (
             Payment.objects
             .filter(student_id=student_id, direction_id=direction_id, kind='purchase')
-            .aggregate(s=Coalesce(Sum('lessons_count'), Value(0)))['s']
+            .aggregate(s=Coalesce(Sum('lessons_count'), Value(Decimal('0'))))['s']
         )
         if already + lessons_count > dir_row['total_lessons']:
             return {
                 'error': 'cap_exceeded',
-                'already': already,
+                'already': _js_number(already),
                 'cap_subscriptions': int(dir_row['total_lessons'] // 4),
             }
 
@@ -100,7 +112,7 @@ def create_payment(data: dict) -> dict:
             created_by=created_by or None,
             created_at=Now(),
         )
-        row = dictrow(Payment.objects.filter(pk=obj.pk).values())
+        row = _normalize_lessons_count(dictrow(Payment.objects.filter(pk=obj.pk).values()))
 
     return {'payment': row}
 
@@ -126,18 +138,20 @@ def list_payments(
     if to is not None:
         qs = qs.filter(paid_at__lte=to)
 
-    return dictrows(
+    rows = dictrows(
         qs.order_by('-paid_at', '-id').values(
             *_PAYMENT_FIELDS,
             student_name=F('student__full_name'),
             direction_name=F('direction__name'),
         )
     )
+    return [_normalize_lessons_count(r) for r in rows]
 
 
 def get_payment(payment_id: int) -> Optional[dict]:
     """Возвращает одну оплату или None."""
-    return dictrow(Payment.objects.filter(id=payment_id).values())
+    row = dictrow(Payment.objects.filter(id=payment_id).values())
+    return _normalize_lessons_count(row) if row is not None else None
 
 
 def delete_payment(payment_id: int) -> dict:

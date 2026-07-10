@@ -111,17 +111,18 @@ def fifo_inputs() -> dict:
     refund_cons: dict[str, list] = {}   # синтетические списания-возвраты
     for r in lots_rows:
         key = str(r['student_id'])
-        lessons = int(r['lessons_count']) if r['lessons_count'] is not None else 0
+        raw = r['lessons_count']
         if r['kind'] == 'refund':
-            # возврат: гасит остаток на дату возврата (units = |lessons|), без выручки
+            # возврат: гасит остаток (units = |lessons_count|, точный Decimal), без выручки
             refund_cons.setdefault(key, []).append({
-                'units': to_decimal(-lessons),
+                'units': -to_decimal(raw) if raw is not None else Decimal('0'),
                 'date': _date_str(r['paid_at']),
                 'direction_id': None,
                 'refund': True,
             })
             continue
-        if not (lessons > 0):  # guard: NULL/0 / отрицательные (возврат уже отсечён выше)
+        lessons = int(raw) if raw is not None else 0  # покупки всегда целые
+        if not (lessons > 0):  # guard: NULL/0
             continue
         lots_by_key.setdefault(key, []).append({
             'lessons': lessons,
