@@ -248,9 +248,9 @@
 .tabs { display: flex; flex-direction: column; }
 .tabs__list {
   display: flex;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--border);
   margin-bottom: var(--space-5);
-  overflow-x: auto;
 }
 .tabs__tab {
   position: relative;
