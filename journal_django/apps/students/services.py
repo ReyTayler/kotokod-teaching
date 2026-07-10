@@ -56,3 +56,13 @@ def student_stats(student_id: int) -> dict:
 def get_student_balance(student_id: int) -> dict:
     """Баланс ученика по направлениям (постоянный дом — apps/payments/)."""
     return payments_services.get_student_balance(student_id)
+
+
+def add_comment(student_id: int, body: str, author_id: Optional[int]):
+    """Создаёт комментарий к ученику."""
+    return repository.add_comment(student_id, body, author_id)
+
+
+def delete_comment(student_id: int, comment_id: int) -> bool:
+    """Удаляет комментарий. False если не найден."""
+    return repository.delete_comment(student_id, comment_id)

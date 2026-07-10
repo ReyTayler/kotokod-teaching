@@ -427,3 +427,20 @@ def student_stats(student_id: int) -> dict:
 
 
 # list_payments / get_student_balance переехали в apps/payments/repository.py
+
+
+# ---------------------------------------------------------------------------
+# Repository functions — student comments (ORM)
+# ---------------------------------------------------------------------------
+
+def add_comment(student_id: int, body: str, author_id: Optional[int]):
+    """Создаёт комментарий (INSERT). Существование student_id проверяет вызывающий (view)."""
+    from .models import StudentComment
+    return StudentComment.objects.create(student_id=student_id, body=body, author_id=author_id)
+
+
+def delete_comment(student_id: int, comment_id: int) -> bool:
+    """Удаляет комментарий. False если не найден (или принадлежит другому ученику)."""
+    from .models import StudentComment
+    deleted, _ = StudentComment.objects.filter(id=comment_id, student_id=student_id).delete()
+    return deleted > 0
