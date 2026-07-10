@@ -39,8 +39,8 @@ def direction_fixture():
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO directions (name, sheet_name, is_individual, total_lessons, active)
-            VALUES ('__pay_test_dir__', '__pay_sheet__', false, 8, true)
+            INSERT INTO directions (name, is_individual, total_lessons, active)
+            VALUES ('__pay_test_dir__', false, 8, true)
             RETURNING id
             """,
         )

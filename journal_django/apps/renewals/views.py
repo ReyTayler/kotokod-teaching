@@ -55,6 +55,21 @@ class RenewalCollectionView(APIView):
         return Response(services.board(filters))
 
 
+class RenewalColumnCardsView(APIView):
+    """Догрузка карточек одной колонки канбана («Показать ещё»)."""
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, stage_id: int) -> Response:
+        qp = request.query_params
+        offset = max(0, _int_or_400(qp.get('offset', 0) or 0, 'offset'))
+        filters = {k[7:-1]: v for k, v in qp.items()
+                   if k.startswith('filter[') and k.endswith(']')}
+        for key in INT_FILTERS:
+            if filters.get(key):
+                filters[key] = _int_or_400(filters[key], f'filter[{key}]')
+        return Response(services.column_cards(stage_id, offset, filters))
+
+
 class RenewalDetailView(APIView):
     permission_classes = [IsManagerOrAdmin]
 

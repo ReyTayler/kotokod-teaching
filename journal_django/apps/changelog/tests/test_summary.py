@@ -65,7 +65,7 @@ def test_describe_event_never_empty_for_unknown_entity():
 @pytest.fixture
 def group():
     t = Teacher.objects.create(name='__sum_t__', created_at=timezone.now())
-    d = Direction.objects.create(name='__sum_d__', sheet_name='s', is_individual=False)
+    d = Direction.objects.create(name='__sum_d__', is_individual=False)
     return Group.objects.create(name='ПИ1012', direction=d, teacher=t,
                                 is_individual=False, created_at=timezone.now())
 
@@ -108,7 +108,7 @@ def test_summary_membership(admin_client, group):
 
 
 def test_summary_generic_update(admin_client):
-    d = Direction.objects.create(name='__sum_gen__', sheet_name='s', is_individual=False)
+    d = Direction.objects.create(name='__sum_gen__', is_individual=False)
     with pghistory.context(url='/api/admin/directions/1', method='PATCH'):
         Direction.objects.filter(id=d.id).update(name='__sum_gen2__')
     row = _feed_top(admin_client)
@@ -117,7 +117,7 @@ def test_summary_generic_update(admin_client):
 
 
 def test_summary_soft_delete_reads_as_archive(admin_client):
-    d = Direction.objects.create(name='__sum_arch__', sheet_name='s', is_individual=False)
+    d = Direction.objects.create(name='__sum_arch__', is_individual=False)
     with pghistory.context(url='/api/admin/directions/1', method='DELETE'):
         Direction.objects.filter(id=d.id).update(active=False)
     row = _feed_top(admin_client)

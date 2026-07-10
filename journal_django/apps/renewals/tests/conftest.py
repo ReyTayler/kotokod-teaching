@@ -38,8 +38,8 @@ def make_direction(db):
     def _make(name='__renew_test_dir__', price='4000.00'):
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO directions (name, sheet_name, is_individual, active, subscription_price) "
-                "VALUES (%s, %s, false, true, %s) RETURNING id", [name, name, price])
+                "INSERT INTO directions (name, is_individual, active, subscription_price) "
+                "VALUES (%s, false, true, %s) RETURNING id", [name, price])
             did = cur.fetchone()[0]
         ids.append(did)
         return did

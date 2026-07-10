@@ -49,7 +49,6 @@ def create_direction(data: dict) -> dict:
     """
     obj = Direction.objects.create(
         name=data['name'],
-        sheet_name=data['sheet_name'],
         is_individual=bool(data.get('is_individual', False)),
         total_lessons=data.get('total_lessons'),
         color=data.get('color') or None,           # NULLIF($5,'')
@@ -63,7 +62,7 @@ def update_direction(direction_id: int, data: dict) -> Optional[dict]:
     Обновляет направление (PATCH-семантика, дословно из directions.js).
 
     Семантика по полям (повторяет COALESCE/NULLIF/CASE исходника):
-    - name, sheet_name: COALESCE(%s, col), %s = value or None → set только если непусто.
+    - name: COALESCE(%s, col), %s = value or None → set только если непусто.
     - is_individual, active: COALESCE(%s, col) с sentinel "ключ присутствует" →
       set если ключ есть и значение не None (включая False).
     - total_lessons: COALESCE(%s, col) → set если ключ есть и значение не None.
@@ -77,8 +76,6 @@ def update_direction(direction_id: int, data: dict) -> Optional[dict]:
 
     if data.get('name'):
         obj.name = data['name']
-    if data.get('sheet_name'):
-        obj.sheet_name = data['sheet_name']
     if data.get('is_individual') is not None and 'is_individual' in data:
         obj.is_individual = data['is_individual']
     if data.get('active') is not None and 'active' in data:

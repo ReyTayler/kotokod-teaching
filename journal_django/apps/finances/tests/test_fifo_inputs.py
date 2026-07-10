@@ -168,8 +168,8 @@ def test_fifo_inputs_pools_across_directions(
     from django.db import connection
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, sheet_name, is_individual, active) "
-            "VALUES ('__fifo_dir_b__', '__fifo_sheet_b__', false, true) RETURNING id"
+            "INSERT INTO directions (name, is_individual, active) "
+            "VALUES ('__fifo_dir_b__', false, true) RETURNING id"
         )
         direction_b = cur.fetchone()[0]
         cur.execute(

@@ -26,10 +26,14 @@ class Student(models.Model):
     id = models.AutoField(primary_key=True)
     full_name = models.TextField(unique=True)
     birth_date = models.DateField(null=True, blank=True)
-    phone = models.TextField(null=True, blank=True)
-    school_grade = models.IntegerField(null=True, blank=True)
     platform_id = models.TextField(null=True, blank=True)
-    parent_name = models.TextField(null=True, blank=True)
+    bitrix24_link = models.TextField(null=True, blank=True)
+    parent1_name = models.TextField(null=True, blank=True)
+    parent1_phone = models.TextField(null=True, blank=True)
+    parent1_email = models.TextField(null=True, blank=True)
+    parent2_name = models.TextField(null=True, blank=True)
+    parent2_phone = models.TextField(null=True, blank=True)
+    parent2_email = models.TextField(null=True, blank=True)
     first_purchase_date = models.DateField(null=True, blank=True)
     age = models.IntegerField(null=True, blank=True)
     pm = models.TextField(null=True, blank=True)
@@ -41,10 +45,6 @@ class Student(models.Model):
         managed = True
         db_table = 'students'
         constraints = [
-            models.CheckConstraint(
-                name='students_school_grade_check',
-                condition=models.Q(school_grade__gte=1) & models.Q(school_grade__lte=11),
-            ),
             models.CheckConstraint(
                 name='students_enrollment_status_check',
                 condition=models.Q(enrollment_status__in=[

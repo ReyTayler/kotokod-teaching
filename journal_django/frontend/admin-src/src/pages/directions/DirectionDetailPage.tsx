@@ -34,7 +34,6 @@ export default function DirectionDetailPage() {
   const fields: DetailField<Direction>[] = [
     { key: 'id', label: 'ID' },
     { key: 'name', label: 'Название' },
-    { key: 'sheet_name', label: 'Имя листа в Sheets' },
     { key: 'is_individual', label: 'Индивидуальное', cell: (r) => r.is_individual ? 'да' : 'нет' },
     { key: 'total_lessons', label: 'Уроков на направление',
       cell: (r) => r.total_lessons == null ? '—' : String(r.total_lessons) },
@@ -60,7 +59,7 @@ export default function DirectionDetailPage() {
     <>
       <DetailShell<Direction>
         title={direction.name}
-        subtitle={`Лист: ${direction.sheet_name}`}
+        subtitle={direction.is_individual ? 'Индивидуальное направление' : 'Групповое направление'}
         row={direction}
         fields={fields}
         cardTitle="Данные направления"

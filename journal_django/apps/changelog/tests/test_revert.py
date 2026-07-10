@@ -23,7 +23,7 @@ def _ctx_of(direction_id):
 
 
 def _make(name='__chg_rev__'):
-    return Direction.objects.create(name=name, sheet_name='chg', is_individual=False)
+    return Direction.objects.create(name=name, is_individual=False)
 
 
 def test_revert_update():
@@ -60,7 +60,7 @@ def test_revert_composite_operation():
     """Insert + update разных строк в одном контексте откатываются вместе."""
     d1 = _make('__chg_comp_1__')
     with pghistory.context(url='/t', method='POST'):
-        d2 = Direction.objects.create(name='__chg_comp_2__', sheet_name='chg',
+        d2 = Direction.objects.create(name='__chg_comp_2__',
                                       is_individual=False)
         Direction.objects.filter(id=d1.id).update(active=False)
     revert.revert_context(_ctx_of(d2.id))
@@ -157,7 +157,7 @@ def test_revert_attendance_composite_identity(admin_client):
     from django.utils import timezone
 
     t = Teacher.objects.create(name='__chg_att_t__', created_at=timezone.now())
-    dr = Direction.objects.create(name='__chg_att_d__', sheet_name='chg',
+    dr = Direction.objects.create(name='__chg_att_d__',
                                   is_individual=False)
     g = Group.objects.create(name='__chg_att_g__', direction=dr, teacher=t,
                              is_individual=False, created_at=timezone.now())

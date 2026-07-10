@@ -1,6 +1,9 @@
 // scripts/backfill-payments.js
 // Импорт исторических оплат из листа «Свод оплат» (журнал-таблица) в таблицу payments.
-// Не идемпотентен (нет натурального ключа). Используй --reset чтобы стереть прошлый backfill.
+// Режимы:
+//   --reset  - полная перезагрузка (удаляет все старые записи backfill)
+//   --append - добавляет только новые записи (пропускает уже существующие)
+//   --dry-run - просмотр без изменений
 
 require('dotenv').config();
 
@@ -28,7 +31,13 @@ function parseAmount(raw) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-async function runBackfill({ dryRun = false, reset = false } = {}) {
+// Генерация уникального ключа для записи (на основе данных)
+function generateRowKey(row) {
+  const [rawName, rawNote, rawAmount, rawDate, rawDir] = row;
+  return `${normName(rawName)}|${parseAmount(rawAmount)}|${parseDate(rawDate)}|${normName(rawDir)}`;
+}
+
+async function runBackfill({ dryRun = false, reset = false, append = false } = {}) {
   const t0 = Date.now();
 
   const sheets = require('../services/sheets');
@@ -55,24 +64,21 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
     dirIdx.set(normName(d.name), d);
   }
 
-  // 3. Защита от случайного повторного запуска. Если в БД уже есть строки от прошлого
-  // прогона backfill — требуем явный --reset, иначе отказываемся, чтобы не наплодить дубли.
-  if (!reset) {
+  // 3. Если режим --append, получаем существующие записи для проверки дублей
+  let existingKeys = new Set();
+  if (append && !reset) {
     const { rows: existing } = await pool.query(
-      `SELECT COUNT(*)::int AS c FROM payments WHERE created_by = 'backfill-script'`,
+      `SELECT student_id, direction_id, total_amount, paid_at 
+       FROM payments 
+       WHERE created_by = 'backfill-script'`
     );
-    if (existing[0].c > 0) {
-      process.stderr.write(
-        `Refuse: payments table already has ${existing[0].c} rows from previous backfill. ` +
-        `Use --reset to wipe them and re-import, or skip this run.\n`,
-      );
-      return {
-        name: 'payments',
-        aborted: true,
-        reason: 'duplicate_backfill',
-        existing_backfill_rows: existing[0].c,
-      };
+
+    // Создаем множество существующих ключей
+    for (const rec of existing) {
+      const key = `${rec.student_id}|${rec.direction_id || 'null'}|${rec.total_amount}|${rec.paid_at}`;
+      existingKeys.add(key);
     }
+    process.stderr.write(`Found ${existingKeys.size} existing backfill records\n`);
   }
 
   // 4. Optional reset
@@ -81,10 +87,6 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
       `DELETE FROM payments WHERE created_by = 'backfill-script'`,
     );
     process.stderr.write(`--reset: deleted ${rowCount} previous backfill rows\n`);
-  } else if (!dryRun && !reset) {
-    process.stderr.write(
-      `WARNING: running without --reset will create duplicates if backfill was run before.\n`,
-    );
   }
 
   // 5. Обработка строк
@@ -92,6 +94,7 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
   let inserted = 0;
   let archivedCount = 0;
   let nonStandardCount = 0;
+  let duplicateSkipped = 0;
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || [];
@@ -144,7 +147,6 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
     let unitPrice = amount;
 
     if (dirKey === 'архив' || dirKey === '') {
-      // Архив: оба NULL (см. CHECK payments_direction_count_match в миграции 009)
       archivedCount++;
     } else {
       const dir = dirIdx.get(dirKey);
@@ -158,7 +160,6 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
       directionId = dir.id;
       const price =
         dir.subscription_price != null ? Number(dir.subscription_price) : null;
-      // Сравнение через копейки чтобы избежать float-погрешностей
       if (
         price &&
         price > 0 &&
@@ -175,16 +176,25 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
       }
     }
 
-    if (dryRun) {
-      inserted++;
-      continue;
-    }
-
     const priceFinal = Math.round(Number(unitPrice) * 100) / 100;
     const totalFinal =
       subscriptionsCount != null
         ? (priceFinal * subscriptionsCount).toFixed(2)
         : priceFinal.toFixed(2);
+
+    // Проверка на дубликат в режиме --append
+    if (append && !reset) {
+      const key = `${studentId}|${directionId || 'null'}|${totalFinal}|${paidAt}`;
+      if (existingKeys.has(key)) {
+        duplicateSkipped++;
+        continue;
+      }
+    }
+
+    if (dryRun) {
+      inserted++;
+      continue;
+    }
 
     await pool.query(
       `INSERT INTO payments
@@ -207,8 +217,10 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
     name: 'payments',
     dry_run: dryRun,
     reset,
+    append,
     rows_read: rows.length,
     inserted,
+    duplicate_skipped: duplicateSkipped,
     skipped: skipped.length,
     archived: archivedCount,
     non_standard: nonStandardCount,
@@ -220,16 +232,30 @@ async function runBackfill({ dryRun = false, reset = false } = {}) {
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
   const reset = process.argv.includes('--reset');
+  const append = process.argv.includes('--append');
   const force = process.argv.includes('--yes');
 
   if (!dryRun && !force) {
     process.stderr.write(
-      `About to INSERT into payments. Pass --dry-run for preview, or --yes to proceed.\n`,
+      `About to INSERT into payments. Pass --dry-run for preview, or --yes to proceed.\n` +
+      `Modes:\n` +
+      `  --reset   - Full reload (deletes all existing backfill records)\n` +
+      `  --append  - Add only new records (skip duplicates)\n`
     );
     process.exit(1);
   }
 
-  const result = await runBackfill({ dryRun, reset });
+  if (reset && append) {
+    process.stderr.write(`Error: Cannot use both --reset and --append together\n`);
+    process.exit(1);
+  }
+
+  if (!reset && !append) {
+    // По умолчанию используем --append (безопасный режим)
+    process.stderr.write(`No mode specified, using --append (safe mode)\n`);
+  }
+
+  const result = await runBackfill({ dryRun, reset, append: append || !reset });
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 
   const { pool } = require('../services/db');

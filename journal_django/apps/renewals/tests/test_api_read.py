@@ -50,3 +50,29 @@ def test_non_numeric_filter_400(manager_client):
     """Нечисловой числовой фильтр (уходит в SQL как int) → 400, не 500."""
     assert manager_client.get(
         f'{BASE}?view=board&filter[direction_id]=abc').status_code == 400
+
+
+@pytest.mark.django_db
+def test_column_cards_show_more(manager_client, make_student, make_direction):
+    """«Показать ещё»: GET /columns/:stage_id?offset= догружает карточки колонки."""
+    did = make_direction()
+    from apps.renewals.models import RenewalDeal
+    deal = engine.ensure_deal(make_student('__renew_test_student_a__'), did, cycle_no=1)
+    engine.ensure_deal(make_student('__renew_test_student_b__'), did, cycle_no=1)
+    stage_id = RenewalDeal.objects.get(id=deal.id).stage_id
+
+    resp = manager_client.get(f'{BASE}/columns/{stage_id}?offset=1&filter[direction_id]={did}')
+    assert resp.status_code == 200
+    cards = resp.json()
+    assert isinstance(cards, list)
+    assert len(cards) == 1
+
+
+@pytest.mark.django_db
+def test_column_cards_teacher_403(teacher_client):
+    assert teacher_client.get(f'{BASE}/columns/1').status_code == 403
+
+
+@pytest.mark.django_db
+def test_column_cards_non_numeric_offset_400(manager_client):
+    assert manager_client.get(f'{BASE}/columns/1?offset=abc').status_code == 400

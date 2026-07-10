@@ -18,7 +18,7 @@ def _create_direction(client):
     # генератор события в этих тестах — superadmin_client; сам revert
     # проверяется отдельным клиентом (admin/manager/teacher/superadmin).
     resp = client.post('/api/admin/directions', {
-        'name': '__chg_api_rev__', 'sheet_name': 'chg', 'is_individual': False,
+        'name': '__chg_api_rev__', 'is_individual': False,
     }, format='json')
     assert resp.status_code in (200, 201)
 

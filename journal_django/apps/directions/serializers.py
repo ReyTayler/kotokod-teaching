@@ -34,7 +34,6 @@ class DirectionReadSerializer(serializers.Serializer):
 
     id = serializers.IntegerField()
     name = serializers.CharField()
-    sheet_name = serializers.CharField()
     is_individual = serializers.BooleanField()
     total_lessons = serializers.IntegerField(allow_null=True)
     color = serializers.CharField(allow_null=True)
@@ -50,7 +49,6 @@ class DirectionWriteSerializer(serializers.Serializer):
 
     createDirectionSchema:
       name: z.string().trim().min(1)
-      sheet_name: z.string().trim().min(1)
       is_individual: z.boolean()
       total_lessons: z.number().int().min(0).nullable().optional()
       color: hexColor.nullable().optional().or(z.literal(''))
@@ -58,7 +56,6 @@ class DirectionWriteSerializer(serializers.Serializer):
     """
 
     name = serializers.CharField(min_length=1)
-    sheet_name = serializers.CharField(min_length=1)
     is_individual = serializers.BooleanField()
     total_lessons = serializers.IntegerField(min_value=0, allow_null=True, required=False)
     color = serializers.CharField(allow_null=True, allow_blank=True, required=False)
@@ -68,9 +65,6 @@ class DirectionWriteSerializer(serializers.Serializer):
     )
 
     def validate_name(self, value: str) -> str:
-        return value.strip()
-
-    def validate_sheet_name(self, value: str) -> str:
         return value.strip()
 
     def validate_color(self, value):
@@ -85,7 +79,6 @@ class DirectionUpdateSerializer(serializers.Serializer):
     """
 
     name = serializers.CharField(min_length=1, required=False)
-    sheet_name = serializers.CharField(min_length=1, required=False)
     is_individual = serializers.BooleanField(required=False)
     total_lessons = serializers.IntegerField(min_value=0, allow_null=True, required=False)
     color = serializers.CharField(allow_null=True, allow_blank=True, required=False)
@@ -96,9 +89,6 @@ class DirectionUpdateSerializer(serializers.Serializer):
     active = serializers.BooleanField(required=False)
 
     def validate_name(self, value: str) -> str:
-        return value.strip()
-
-    def validate_sheet_name(self, value: str) -> str:
         return value.strip()
 
     def validate_color(self, value):

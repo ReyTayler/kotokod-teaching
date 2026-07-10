@@ -33,7 +33,7 @@ from apps.students.serializers import StudentUpdateSerializer, StudentWriteSeria
 
 # Допустимые значения sort_by (whitelist)
 ORDERING_FIELDS = [
-    'id', 'full_name', 'age', 'school_grade',
+    'id', 'full_name', 'age',
     'enrollment_status', 'first_purchase_date', 'created_at',
 ]
 

@@ -8,6 +8,10 @@ def board(filters: dict | None = None) -> dict:
     return repository.board(filters)
 
 
+def column_cards(stage_id: int, offset: int, filters: dict | None = None) -> list[dict]:
+    return repository.column_cards(stage_id, offset, filters)
+
+
 def list_deals(**kwargs) -> dict:
     return repository.list_deals(**kwargs)
 

@@ -54,13 +54,12 @@ export default function ArchivePage() {
       />
       <ArchiveSection
         label="Направления"
-        headers={['ID', 'Название', 'Лист']}
+        headers={['ID', 'Название']}
         rows={data.directions}
         renderRow={(r: Direction) => (
           <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/admin/directions/${r.id}`)}>
             <td className="id-cell">#{r.id}</td>
             <td>{r.name}</td>
-            <td style={{ color: 'var(--text3)' }}>{r.sheet_name || '—'}</td>
           </tr>
         )}
       />

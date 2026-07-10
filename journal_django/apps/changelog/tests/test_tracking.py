@@ -19,7 +19,7 @@ def _event_model(app_label: str, model_name: str):
 
 
 def _make_direction(name: str = '__chg_dir__') -> Direction:
-    return Direction.objects.create(name=name, sheet_name='chg', is_individual=False)
+    return Direction.objects.create(name=name, is_individual=False)
 
 
 def test_insert_captured():
@@ -52,8 +52,8 @@ def test_queryset_update_captured():
 
 def test_bulk_create_captured():
     Direction.objects.bulk_create([
-        Direction(name='__chg_bulk_1__', sheet_name='chg', is_individual=False),
-        Direction(name='__chg_bulk_2__', sheet_name='chg', is_individual=False),
+        Direction(name='__chg_bulk_1__', is_individual=False),
+        Direction(name='__chg_bulk_2__', is_individual=False),
     ])
     ev = _event_model('directions', 'DirectionEvent')
     assert ev.objects.filter(

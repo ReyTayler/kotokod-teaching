@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tansta
 import { api } from '../lib/api';
 import type { Paginated } from '../lib/types';
 import type {
-  RenewalBoard, RenewalDealDetail, RenewalActivityItem, RenewalFilters, RenewalListRow,
+  RenewalBoard, RenewalCard, RenewalDealDetail, RenewalActivityItem, RenewalFilters, RenewalListRow,
 } from '../lib/renewals';
 
 const KEY = ['renewals'] as const;
@@ -20,6 +20,15 @@ export function useRenewalBoard(filters: RenewalFilters) {
     placeholderData: keepPreviousData,
     staleTime: 15_000,
   });
+}
+
+/** «Показать ещё» в колонке канбана — обычный GET, без кэширования (imперативная догрузка). */
+export function fetchRenewalColumnCards(
+  stageId: number, offset: number, filters: RenewalFilters,
+): Promise<RenewalCard[]> {
+  const qs = new URLSearchParams({ offset: String(offset) });
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(`filter[${k}]`, v);
+  return api<RenewalCard[]>('GET', `/api/admin/renewals/columns/${stageId}?${qs}`);
 }
 
 export interface RenewalListParams {

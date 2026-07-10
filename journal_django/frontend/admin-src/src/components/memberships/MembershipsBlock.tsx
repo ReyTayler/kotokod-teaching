@@ -109,10 +109,6 @@ export function MembershipsBlock({ config, renderCard, emptyText }: Props) {
                   <span className="membership-card__stat-label">Пройдено</span>
                   <span className="membership-card__stat-value">{String(m.lessons_done)}</span>
                 </div>
-                <div className="membership-card__stat">
-                  <span className="membership-card__stat-label">Осталось</span>
-                  <span className="membership-card__stat-value">{String(m.remaining)}</span>
-                </div>
               </div>
             </div>
           );

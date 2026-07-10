@@ -1,9 +1,14 @@
-import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { useState } from 'react';
+import {
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
+  type DragStartEvent, type DragEndEvent,
+} from '@dnd-kit/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRenewalBoard, useRenewalMutations } from '../../hooks/useRenewals';
 import { useApiError } from '../../hooks/useApiError';
 import { RenewalColumn } from './RenewalColumn';
-import type { RenewalBoard as RenewalBoardData, RenewalFilters } from '../../lib/renewals';
+import { RenewalCardContent } from './RenewalCardView';
+import type { RenewalBoard as RenewalBoardData, RenewalCard, RenewalFilters } from '../../lib/renewals';
 
 interface Props {
   filters: RenewalFilters;
@@ -16,6 +21,10 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   const { move } = useRenewalMutations();
   const showError = useApiError();
 
+  // Карточка, которую сейчас тащат — рендерится отдельно в DragOverlay (портал
+  // в document.body), чтобы не обрезаться overflow колонки и не уезжать под неё.
+  const [activeCard, setActiveCard] = useState<RenewalCard | null>(null);
+
   // Небольшой порог перед стартом драга — иначе клик по карточке (открытие
   // drawer'а) будет постоянно перехватываться сенсором как начало drag'а.
   const sensors = useSensors(
@@ -25,7 +34,18 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   // Ключ должен совпадать с queryKey внутри useRenewalBoard (['renewals','board',filters]).
   const queryKey = ['renewals', 'board', filters] as const;
 
+  const handleDragStart = (event: DragStartEvent) => {
+    const dealId = Number(event.active.id);
+    const prev = qc.getQueryData<RenewalBoardData>(queryKey);
+    if (!prev) return;
+    for (const col of prev.columns) {
+      const found = col.cards.find((c) => c.id === dealId);
+      if (found) { setActiveCard(found); return; }
+    }
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveCard(null);
     const { active, over } = event;
     if (!over) return;
     const dealId = Number(active.id);
@@ -79,12 +99,24 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   const columns = data?.columns || [];
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveCard(null)}
+    >
       <div className="renewal-board">
         {columns.map((col) => (
-          <RenewalColumn key={col.stage_id} col={col} onOpen={onOpen} />
+          <RenewalColumn key={col.stage_id} col={col} filters={filters} onOpen={onOpen} />
         ))}
       </div>
+      <DragOverlay>
+        {activeCard && (
+          <div className="renewal-card renewal-card--overlay">
+            <RenewalCardContent card={activeCard} />
+          </div>
+        )}
+      </DragOverlay>
     </DndContext>
   );
 }

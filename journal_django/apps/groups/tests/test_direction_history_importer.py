@@ -216,9 +216,9 @@ def _make_student(full_name):
 def _make_direction(name):
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, sheet_name, is_individual, active) "
-            "VALUES (%s, %s, false, true) RETURNING id",
-            [name, f'__sheet_{name}__'],
+            "INSERT INTO directions (name, is_individual, active) "
+            "VALUES (%s, false, true) RETURNING id",
+            [name],
         )
         return cur.fetchone()[0]
 

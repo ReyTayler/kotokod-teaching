@@ -42,8 +42,8 @@ def teacher_id_fixture():
 def direction_fixture():
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, sheet_name, is_individual, total_lessons, active) "
-            "VALUES ('__pr_dir__', '__pr_sheet__', false, 16, true) RETURNING id"
+            "INSERT INTO directions (name, is_individual, total_lessons, active) "
+            "VALUES ('__pr_dir__', false, 16, true) RETURNING id"
         )
         did = cur.fetchone()[0]
     yield did

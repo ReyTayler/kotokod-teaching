@@ -40,8 +40,8 @@ def plan_group(db):
         cur.execute("INSERT INTO teachers (name, active) VALUES ('__plan_B__', true) RETURNING id")
         teacher_b = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name,sheet_name,is_individual,total_lessons,color,active) "
-            "VALUES ('__plan_dir__','__s__',false,8,'#4F59F9',true) RETURNING id"
+            "INSERT INTO directions (name,is_individual,total_lessons,color,active) "
+            "VALUES ('__plan_dir__',false,8,'#4F59F9',true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
         cur.execute(

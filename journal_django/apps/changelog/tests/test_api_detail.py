@@ -10,7 +10,7 @@ def _create_and_rename(client):
     # Запись направлений — только superadmin (ReadStaffWriteSuperAdmin),
     # поэтому генератор событий здесь — superadmin_client.
     resp = client.post('/api/admin/directions', {
-        'name': '__chg_det_1__', 'sheet_name': 'chg', 'is_individual': False,
+        'name': '__chg_det_1__', 'is_individual': False,
     }, format='json')
     direction_id = resp.json()['id']
     client.patch(f'/api/admin/directions/{direction_id}',
@@ -48,7 +48,7 @@ def test_detail_diff(superadmin_client):
 def test_detail_revert_not_revertable(superadmin_client):
     """Детали самой revert-операции: revertable=False (откат отката запрещён)."""
     resp = superadmin_client.post('/api/admin/directions', {
-        'name': '__chg_det_rev__', 'sheet_name': 'chg', 'is_individual': False,
+        'name': '__chg_det_rev__', 'is_individual': False,
     }, format='json')
     assert resp.status_code in (200, 201)
     op_id = superadmin_client.get('/api/admin/changelog?page_size=1').json()['rows'][0]['id']

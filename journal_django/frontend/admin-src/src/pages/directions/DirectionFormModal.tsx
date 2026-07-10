@@ -20,7 +20,6 @@ export default function DirectionFormModal({ initial, onClose }: Props) {
   const { toast } = useToast();
   const showError = useApiError();
   const [name, setName] = useState(initial?.name || '');
-  const [sheetName, setSheetName] = useState(initial?.sheet_name || '');
   const [totalLessons, setTotalLessons] = useState<string>(
     initial?.total_lessons != null ? String(initial.total_lessons) : '',
   );
@@ -35,7 +34,6 @@ export default function DirectionFormModal({ initial, onClose }: Props) {
     e.preventDefault();
     const body: Partial<Direction> = {
       name,
-      sheet_name: sheetName,
       total_lessons: totalLessons === '' ? null : Number(totalLessons),
       subscription_price: subscriptionPrice.trim() === '' ? null : Number(subscriptionPrice),
       color: color || null,
@@ -71,9 +69,6 @@ export default function DirectionFormModal({ initial, onClose }: Props) {
       <form id="direction-form" className="modal-form" onSubmit={onSubmit}>
         <Field label="Название" required full>
           <TextInput required value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Имя листа в Sheets" required full>
-          <TextInput required value={sheetName} onChange={(e) => setSheetName(e.target.value)} />
         </Field>
         <Field label="Уроков на направление">
           <NumberInput min={0} value={totalLessons} onChange={(e) => setTotalLessons(e.target.value)} placeholder="например, 36" />

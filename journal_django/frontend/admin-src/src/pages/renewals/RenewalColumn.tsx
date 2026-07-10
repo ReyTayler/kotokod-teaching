@@ -1,15 +1,42 @@
+import { useEffect, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { RenewalCardView } from './RenewalCardView';
-import type { RenewalColumn as RenewalColumnData } from '../../lib/renewals';
+import { fetchRenewalColumnCards } from '../../hooks/useRenewals';
+import { useApiError } from '../../hooks/useApiError';
+import type { RenewalCard, RenewalColumn as RenewalColumnData, RenewalFilters } from '../../lib/renewals';
 
 interface Props {
   col: RenewalColumnData;
+  filters: RenewalFilters;
   onOpen: (id: number) => void;
 }
 
-export function RenewalColumn({ col, onOpen }: Props) {
+export function RenewalColumn({ col, filters, onOpen }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: col.stage_id });
-  const hasMore = col.count > col.cards.length;
+  const showError = useApiError();
+  const [extraCards, setExtraCards] = useState<RenewalCard[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Фильтры сменились (или доска перезагрузилась после хода/оплаты) — старая
+  // догрузка больше не актуальна, начинаем с чистого листа.
+  useEffect(() => {
+    setExtraCards([]);
+  }, [col.stage_id, JSON.stringify(filters)]);
+
+  const cards = [...col.cards, ...extraCards];
+  const hasMore = col.count > cards.length;
+
+  const handleShowMore = async () => {
+    setLoadingMore(true);
+    try {
+      const more = await fetchRenewalColumnCards(col.stage_id, cards.length, filters);
+      setExtraCards((prev) => [...prev, ...more]);
+    } catch (err) {
+      showError(err, 'Не удалось догрузить карточки');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   return (
     <div
@@ -25,15 +52,18 @@ export function RenewalColumn({ col, onOpen }: Props) {
         </span>
       </div>
       <div className="renewal-col__body">
-        {col.cards.map((card) => (
+        {cards.map((card) => (
           <RenewalCardView key={card.id} card={card} onOpen={onOpen} />
         ))}
       </div>
       {hasMore && (
-        // TODO: бэк пока не отдаёт постраничную подгрузку внутри колонки —
-        // кнопка неактивна, до появления отдельного эндпоинта пагинации колонки.
-        <button type="button" className="renewal-col__more" disabled>
-          Показать ещё ({col.count - col.cards.length})
+        <button
+          type="button"
+          className="renewal-col__more"
+          disabled={loadingMore}
+          onClick={handleShowMore}
+        >
+          {loadingMore ? 'Загружаем…' : `Показать ещё (${col.count - cards.length})`}
         </button>
       )}
     </div>

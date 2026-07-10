@@ -21,3 +21,25 @@ def test_list_paginates(make_student, make_direction):
     res = repository.list_deals(page=1, page_size=10, sort_by='cycle_no', sort_dir='asc', filters={})
     assert res['total'] >= 1
     assert res['page'] == 1
+
+
+@pytest.mark.django_db
+def test_column_cards_offset(make_student, make_direction):
+    """«Показать ещё»: offset поверх COLUMN_LIMIT, та же сортировка, что и в board()."""
+    did = make_direction()
+    deal_ids = []
+    for i in range(3):
+        sid = make_student(f'__renew_test_student_{i}__')
+        deal = engine.ensure_deal(sid, did, cycle_no=1)
+        deal_ids.append(deal.id)
+
+    from apps.renewals.models import RenewalDeal
+    stage_id = RenewalDeal.objects.get(id=deal_ids[0]).stage_id
+
+    all_cards = repository.column_cards(stage_id, offset=0, filters={'direction_id': did})
+    ids_in_order = [c['id'] for c in all_cards if c['id'] in deal_ids]
+    assert len(ids_in_order) == 3
+
+    offset_cards = repository.column_cards(stage_id, offset=1, filters={'direction_id': did})
+    ids_from_offset = [c['id'] for c in offset_cards if c['id'] in deal_ids]
+    assert ids_from_offset == ids_in_order[1:]

@@ -28,7 +28,6 @@ export default function GroupMembersBlock({ group }: { group: Group }) {
           meta: s ? (
             <>
               {s.age && <span className="link-card-meta-pill">{s.age} лет</span>}
-              {s.school_grade && <span className="link-card-meta-pill">{s.school_grade}-й кл.</span>}
               <StatusBadge row={s} />
             </>
           ) : null,

@@ -86,8 +86,8 @@ class TestCreatePayment:
         with connection.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO directions (name, sheet_name, is_individual, active)
-                VALUES ('__no_cap_dir__', '__sheet__', false, true)
+                INSERT INTO directions (name, is_individual, active)
+                VALUES ('__no_cap_dir__', false, true)
                 RETURNING id
                 """,
             )

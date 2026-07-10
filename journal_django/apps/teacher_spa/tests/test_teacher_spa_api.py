@@ -286,8 +286,8 @@ class TestSubmitLesson:
         lid = None
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO directions (name,sheet_name,is_individual,total_lessons,active) "
-                "VALUES ('__f4_dir__','__f4__',false,8,true) RETURNING id"
+                "INSERT INTO directions (name,is_individual,total_lessons,active) "
+                "VALUES ('__f4_dir__',false,8,true) RETURNING id"
             )
             did = cur.fetchone()[0]
             cur.execute(

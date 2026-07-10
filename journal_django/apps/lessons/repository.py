@@ -22,11 +22,18 @@ from django.db.models import F, Value, DecimalField
 from django.db.models.functions import Greatest, Now
 
 from apps.core.utils.orm import dictrow, dictrows
+from apps.groups.models import Group
 from apps.students.models import Student
 
 from .models import Lesson, LessonAttendance
 from apps.payroll.models import Payroll
 from apps.memberships.models import GroupMembership
+
+
+def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
+    """Пост-коммит-хук: подвинуть авто-стадию «Урок N» раздела «Продления»."""
+    from apps.renewals import engine
+    engine.sync_lesson_stage_safe(student_id, direction_id)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +235,12 @@ def create_lesson_full(data: dict) -> int:
                 group_id=data['group_id'], student_id__in=present_sids,
             ).update(lessons_done=F('lessons_done') + step)
 
+            direction_id = Group.objects.filter(
+                id=data['group_id']).values_list('direction_id', flat=True).first()
+            for sid in present_sids:
+                transaction.on_commit(
+                    lambda sid=sid: _sync_renewal_stage(sid, direction_id))
+
         payroll = data.get('payroll')
         if payroll:
             Payroll.objects.create(
@@ -294,6 +307,12 @@ def delete_lesson_full(lesson_id: int) -> bool:
                     group_id=ctx['group_id'], student_id__in=sids,
                 ).update(lessons_done=Greatest(F('lessons_done') - step, _ZERO))
 
+                direction_id = Group.objects.filter(
+                    id=ctx['group_id']).values_list('direction_id', flat=True).first()
+                for sid in sids:
+                    transaction.on_commit(
+                        lambda sid=sid: _sync_renewal_stage(sid, direction_id))
+
         Payroll.objects.filter(lesson_id=lesson_id).delete()
         _count, details = Lesson.objects.filter(id=lesson_id).delete()
 
@@ -345,5 +364,10 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
             GroupMembership.objects.filter(
                 group_id=ctx['group_id'], student_id=student_id,
             ).update(lessons_done=Greatest(F('lessons_done') + delta, _ZERO))
+
+            direction_id = Group.objects.filter(
+                id=ctx['group_id']).values_list('direction_id', flat=True).first()
+            transaction.on_commit(
+                lambda: _sync_renewal_stage(student_id, direction_id))
 
         return True

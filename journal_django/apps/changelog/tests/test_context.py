@@ -14,7 +14,7 @@ def test_api_mutation_has_actor_and_url(superadmin_client):
     # Запись направлений — только superadmin (ReadStaffWriteSuperAdmin), поэтому
     # актор события здесь superadmin, а не admin.
     resp = superadmin_client.post('/api/admin/directions', {
-        'name': '__chg_ctx_dir__', 'sheet_name': 'chg', 'is_individual': False,
+        'name': '__chg_ctx_dir__', 'is_individual': False,
     }, format='json')
     assert resp.status_code in (200, 201), resp.content
 
@@ -32,7 +32,7 @@ def test_api_mutation_has_actor_and_url(superadmin_client):
 
 def test_orm_write_without_request_has_no_context():
     from apps.directions.models import Direction
-    d = Direction.objects.create(name='__chg_noctx__', sheet_name='chg', is_individual=False)
+    d = Direction.objects.create(name='__chg_noctx__', is_individual=False)
     ev_model = apps.get_model('directions', 'DirectionEvent')
     ev = ev_model.objects.filter(pgh_obj_id=d.id).first()
     assert ev.pgh_context_id is None

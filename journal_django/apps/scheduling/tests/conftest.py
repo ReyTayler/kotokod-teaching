@@ -46,8 +46,8 @@ def sched_setup(db):
         account_a = cur.fetchone()[0]
 
         cur.execute(
-            "INSERT INTO directions (name,sheet_name,is_individual,total_lessons,color,active) "
-            "VALUES ('__sched_dir__','__s__',false,8,'#4F59F9',true) RETURNING id"
+            "INSERT INTO directions (name,is_individual,total_lessons,color,active) "
+            "VALUES ('__sched_dir__',false,8,'#4F59F9',true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
 

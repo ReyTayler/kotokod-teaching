@@ -23,6 +23,12 @@ from apps.teacher_spa.calculator import (
 )
 
 
+def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
+    """Пост-коммит-хук: подвинуть авто-стадию «Урок N» раздела «Продления»."""
+    from apps.renewals import engine
+    engine.sync_lesson_stage_safe(student_id, direction_id)
+
+
 def get_current_teacher(account_id: int) -> Optional[str]:
     """
     Порт currentTeacher() из routes/teacher.js.
@@ -128,6 +134,7 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     by_name = {r['full_name']: r for r in stud_rows}
 
     present_membership_ids: list[int] = []
+    present_student_ids: list[int] = []
     attendance: list[dict] = []
     for s in students:
         meta = by_name.get(s['name'])
@@ -141,6 +148,7 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
         attendance.append({'student_id': meta['student_id'], 'present': bool(s['present'])})
         if s['present']:
             present_membership_ids.append(meta['membership_id'])
+            present_student_ids.append(meta['student_id'])
 
     # 6. subLabel — тип урока
     if is_substitution:
@@ -173,6 +181,12 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
             'payment': payment,
             'penalty': penalty,
         })
+
+        # Подвинуть авто-стадию «Урок N» раздела «Продления» по факту посещаемости
+        # (после коммита — сбой этой вторичной CRM-фичи не должен уронить submitLesson).
+        direction_id = ids['direction_id']
+        for sid in present_student_ids:
+            transaction.on_commit(lambda sid=sid: _sync_renewal_stage(sid, direction_id))
 
     # lessonNumber: если целое → int, иначе float (JS-совместимость)
     lesson_number_out = int(lesson_num) if lesson_num == int(lesson_num) else lesson_num

@@ -201,18 +201,35 @@
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.date-input__trigger:has(.date-input__field:hover):not(:has(.date-input__field:disabled)) { border-color: var(--border-strong); }
+.date-input.is-open .date-input__trigger { border-color: var(--accent); }
+.date-input__trigger:has(.date-input__field:disabled) { opacity: 0.5; cursor: not-allowed; }
+.date-input__field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
   font: inherit;
   font-variant-numeric: tabular-nums;
   color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
-  transition: border-color var(--t-fast) var(--ease);
 }
-.date-input__trigger:hover:not(:disabled) { border-color: var(--border-strong); }
-.date-input.is-open .date-input__trigger { border-color: var(--accent); }
-.date-input__trigger:disabled { opacity: 0.5; cursor: not-allowed; }
-.date-input__value.is-placeholder { color: var(--text4); }
+.date-input__field::placeholder { color: var(--text4); }
+.date-input__field:disabled { cursor: not-allowed; }
+.date-input__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.date-input__icon-btn:disabled { cursor: not-allowed; }
 .date-input__icon { color: var(--text3); flex-shrink: 0; }
 .date-input.is-open .date-input__icon { color: var(--accent); }
 

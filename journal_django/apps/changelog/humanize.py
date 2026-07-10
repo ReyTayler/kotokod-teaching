@@ -41,7 +41,7 @@ DAY_OF_WEEK_RU = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
 _NARROW = ' '  # NARROW NO-BREAK SPACE — разделитель тысяч и перед знаком ₽
 
 # Технический шум: в insert/delete-снапшоте и в update прятать эти поля.
-_NOISE_FIELDS = {'created_at', 'updated_at', 'sheet_name', 'sheet_row'}
+_NOISE_FIELDS = {'created_at', 'updated_at', 'sheet_row'}
 
 # FK, уже вынесенные в title сущности → не дублировать их в списке изменений
 # insert/delete (в update оставляем: смена FK там осмысленна — напр. смена препода).
@@ -250,7 +250,7 @@ def humanize_changes(ev: dict, lk: summary.Lookups) -> list[dict]:
 
     update — из pgh_diff (old и new очеловечены); insert — из pgh_data
     ({old: None, new: значение}); delete — зеркально. Для insert/delete скрываем
-    шум: null-поля, created_at/updated_at, sheet_name/sheet_row, id/pk и FK, уже
+    шум: null-поля, created_at/updated_at, sheet_row, id/pk и FK, уже
     вынесенные в title.
     """
     model_label = _model_label(ev)

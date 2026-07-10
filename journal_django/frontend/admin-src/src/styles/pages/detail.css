@@ -15,22 +15,22 @@
 
 /* ── STUDENT HERO (KOTOKOD-style) ── */
 .student-hero {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 24px;
-  margin-bottom: 28px;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+  align-items: flex-start;
 }
 .student-hero__avatar {
   width: 112px; height: 112px;
-  border-radius: 16px;
+  border-radius: var(--r-lg);
   border: 2px solid;
   display: flex; align-items: center; justify-content: center;
   font-size: 40px; font-weight: 800;
   letter-spacing: -0.02em;
   flex-shrink: 0;
 }
-.student-hero__info { min-width: 0; }
+.student-hero__info { flex: 0 1 380px; min-width: 0; }
 .student-hero__name-row {
   display: flex; align-items: center; gap: 12px;
   flex-wrap: wrap;
@@ -55,26 +55,28 @@
 }
 .student-hero__actions {
   display: flex;
-  gap: 8px;
-  margin-top: 14px;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
   flex-wrap: wrap;
 }
+.student-hero__actions .btn-save { margin-left: 0; }
 .student-hero__pills {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: stretch;
-  min-width: 200px;
+  flex: 0 0 auto;
+  min-width: 220px;
+  max-width: 320px;
 }
 .student-pill {
-  background: rgba(12, 155, 199, .10);
-  border: 1px solid rgba(12, 155, 199, .25);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklch, var(--accent) 25%, transparent);
   color: var(--accent);
-  border-radius: 10px;
+  border-radius: var(--r);
   padding: 8px 14px;
   font-size: 15px;
   font-weight: 600;
-  white-space: nowrap;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -87,25 +89,47 @@
 .student-pill__value {
   font-weight: 700;
 }
-[data-theme="dark"] .student-pill {
-  background: rgba(63, 210, 238, .14);
-  border-color: rgba(63, 210, 238, .35);
-  color: #6fe0f6;
-}
-
 @media (max-width: 720px) {
-  .student-hero {
-    grid-template-columns: auto 1fr;
-    gap: 16px;
-  }
+  .student-hero { gap: var(--space-4); }
   .student-hero__pills {
-    grid-column: 1 / -1;
     flex-direction: row;
     flex-wrap: wrap;
-    min-width: 0;
+    width: 100%;
   }
   .student-hero__avatar { width: 80px; height: 80px; font-size: 28px; }
   .student-hero__name { font-size: 22px; }
+}
+
+/* ── KPI ROW (страница ученика) ── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+.kpi-card {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: var(--space-4);
+}
+.kpi-card__label {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--text3); margin-bottom: var(--space-2);
+}
+.kpi-card__value {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 28px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1;
+}
+
+/* ── СТУДЕНТ: таб «Обучение» — курсы слева, данные/группы справа ── */
+.student-learning-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+.student-learning-grid__side { display: flex; flex-direction: column; gap: var(--space-4); }
+@media (max-width: 900px) {
+  .student-learning-grid { grid-template-columns: 1fr; }
 }
 
 /* ── LINKED CARDS ── */
@@ -863,7 +887,6 @@
   color: var(--text3);
   font-size: 13px;
 }
-
 
 /* Последний комментарий в шапке карточки (рядом с возрастом/телефоном) */
 .student-hero__last-comment {

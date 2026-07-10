@@ -19,7 +19,6 @@ export interface Teacher {
 export interface Direction {
   id: ID;
   name: string;
-  sheet_name: string;
   is_individual: boolean;
   active: boolean;
   total_lessons: number | null;
@@ -82,10 +81,14 @@ export interface Student {
   id: ID;
   full_name: string;
   birth_date: string | null;
-  phone: string | null;
-  school_grade: number | null;
   platform_id: string | null;
-  parent_name: string | null;
+  bitrix24_link: string | null;
+  parent1_name: string | null;
+  parent1_phone: string | null;
+  parent1_email: string | null;
+  parent2_name: string | null;
+  parent2_phone: string | null;
+  parent2_email: string | null;
   first_purchase_date: string | null;
   age: number | null;
   pm: string | null;

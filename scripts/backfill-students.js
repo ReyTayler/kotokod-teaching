@@ -15,15 +15,6 @@ function parseStartDate(value) {
   return null;
 }
 
-function parseSchoolGrade(raw) {
-  const s = String(raw || '').trim();
-  if (!s) return null;
-  const n = Number(s);
-  if (!Number.isInteger(n)) return null;
-  if (n < 1 || n > 11) return null;
-  return n;
-}
-
 function mapEnrollmentFromSheets(raw, hasMembership) {
   const s = String(raw || '').trim().toLowerCase();
   const fallback = hasMembership
@@ -51,7 +42,6 @@ function extractStudentsAndMemberships(rows) {
   for (const row of rows) {
     const name        = String(row[0]  || '').trim();
     const ageRaw      = String(row[2]  || '').trim();
-    const schoolRaw   = row[3];
     const platform    = String(row[4]  || '').trim();
     const parent      = String(row[5]  || '').trim();
     const phone       = String(row[6]  || '').trim();
@@ -80,10 +70,9 @@ function extractStudentsAndMemberships(rows) {
         age,
         pm: pm || null,
         birth_date: parseStartDate(birthRaw),
-        phone: phone || null,
-        school_grade: parseSchoolGrade(schoolRaw),
+        parent1_phone: phone || null,
         platform_id: platform || null,
-        parent_name: parent || null,
+        parent1_name: parent || null,
         first_purchase_date: parseStartDate(firstPurRaw),
         enrollment_status: enroll.enrollment_status,
         frozen_until_month: enroll.frozen_until_month,
@@ -131,33 +120,31 @@ async function runBackfill({ dryRun = false } = {}) {
   for (const s of students) {
     const res = await pool.query(
       `INSERT INTO students
-         (full_name, age, pm, birth_date, phone, school_grade, platform_id,
-          parent_name, first_purchase_date, enrollment_status, frozen_until_month)
-       VALUES ($1, $2, $3, $4, NULLIF($5,''), $6, NULLIF($7,''), NULLIF($8,''), $9, $10, $11)
+         (full_name, age, pm, birth_date, parent1_phone, platform_id,
+          parent1_name, first_purchase_date, enrollment_status, frozen_until_month)
+       VALUES ($1, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), $8, $9, $10)
        ON CONFLICT (full_name) DO UPDATE SET
          age                 = EXCLUDED.age,
          pm                  = EXCLUDED.pm,
          birth_date          = EXCLUDED.birth_date,
-         phone               = EXCLUDED.phone,
-         school_grade        = EXCLUDED.school_grade,
+         parent1_phone       = EXCLUDED.parent1_phone,
          platform_id         = EXCLUDED.platform_id,
-         parent_name         = EXCLUDED.parent_name,
+         parent1_name        = EXCLUDED.parent1_name,
          first_purchase_date = EXCLUDED.first_purchase_date,
          enrollment_status   = EXCLUDED.enrollment_status,
          frozen_until_month  = EXCLUDED.frozen_until_month
        WHERE students.age IS DISTINCT FROM EXCLUDED.age
           OR students.pm  IS DISTINCT FROM EXCLUDED.pm
           OR students.birth_date          IS DISTINCT FROM EXCLUDED.birth_date
-          OR students.phone               IS DISTINCT FROM EXCLUDED.phone
-          OR students.school_grade        IS DISTINCT FROM EXCLUDED.school_grade
+          OR students.parent1_phone       IS DISTINCT FROM EXCLUDED.parent1_phone
           OR students.platform_id         IS DISTINCT FROM EXCLUDED.platform_id
-          OR students.parent_name         IS DISTINCT FROM EXCLUDED.parent_name
+          OR students.parent1_name        IS DISTINCT FROM EXCLUDED.parent1_name
           OR students.first_purchase_date IS DISTINCT FROM EXCLUDED.first_purchase_date
           OR students.enrollment_status   IS DISTINCT FROM EXCLUDED.enrollment_status
           OR students.frozen_until_month  IS DISTINCT FROM EXCLUDED.frozen_until_month
        RETURNING (xmax = 0) AS inserted`,
-      [s.full_name, s.age, s.pm, s.birth_date, s.phone, s.school_grade,
-       s.platform_id, s.parent_name, s.first_purchase_date, s.enrollment_status, s.frozen_until_month],
+      [s.full_name, s.age, s.pm, s.birth_date, s.parent1_phone,
+       s.platform_id, s.parent1_name, s.first_purchase_date, s.enrollment_status, s.frozen_until_month],
     );
     if (res.rowCount === 0) result.students_skipped++;
     else if (res.rows[0].inserted) result.students_inserted++;
@@ -208,7 +195,6 @@ if (require.main === module) {
 module.exports = {
   extractStudentsAndMemberships,
   parseStartDate,
-  parseSchoolGrade,
   mapEnrollmentFromSheets,
   runBackfill,
 };

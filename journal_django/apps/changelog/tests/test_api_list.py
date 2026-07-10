@@ -14,7 +14,7 @@ def _mutate(client, name='__chg_list_dir__'):
     # Запись направлений — только superadmin (ReadStaffWriteSuperAdmin), поэтому
     # генератор событий в этих тестах — superadmin_client.
     resp = client.post('/api/admin/directions', {
-        'name': name, 'sheet_name': 'chg', 'is_individual': False,
+        'name': name, 'is_individual': False,
     }, format='json')
     assert resp.status_code in (200, 201), resp.content
     return resp

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { InputHTMLAttributes } from 'react';
+import type { ChangeEvent, InputHTMLAttributes, KeyboardEvent } from 'react';
 import { MONTHS_RU } from '../../lib/slots';
 import { Floating } from './Floating';
 
@@ -33,6 +33,30 @@ function fmtDisplay(s: string | undefined): string {
   const p = parseISO(s);
   if (!p) return '';
   return `${String(p.d).padStart(2, '0')}.${String(p.m + 1).padStart(2, '0')}.${p.y}`;
+}
+
+// Разбирает вручную вписанную строку 'дд.мм.гггг', проверяя реальную
+// валидность даты (диапазон месяца, число дней в конкретном месяце/году).
+function parseTyped(s: string): { y: number; m: number; d: number } | null {
+  const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(s);
+  if (!match) return null;
+  const d = Number(match[1]);
+  const m = Number(match[2]) - 1;
+  const y = Number(match[3]);
+  if (m < 0 || m > 11 || d < 1) return null;
+  const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  if (d > daysInMonth) return null;
+  return { y, m, d };
+}
+
+// Маскирует сырой ввод под 'дд.мм.гггг', оставляя только цифры и
+// расставляя точки по мере набора — тот же подход, что в TimeInput.
+function maskTyped(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  let out = digits.slice(0, 2);
+  if (digits.length > 2) out += `.${digits.slice(2, 4)}`;
+  if (digits.length > 4) out += `.${digits.slice(4, 8)}`;
+  return out;
 }
 
 // Возвращает массив 42 ячеек (6 рядов × 7 дней) для месяца,
@@ -70,11 +94,23 @@ function buildMonthGrid(y: number, m: number): Array<{ y: number; m: number; d: 
 export function DateInput({ value, onChange, placeholder, disabled, className, ...rest }: Props) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const valuePart = useMemo(() => parseISO(value), [value]);
   const today = useMemo(() => todayMSK(), []);
+
+  // Локальный буфер редактирования — то, что реально видно в инпуте.
+  // Не всегда совпадает с fmtDisplay(value): во время набора там промежуточный текст.
+  const [text, setText] = useState(() => fmtDisplay(value));
+  const [isFocused, setIsFocused] = useState(false);
+
+  // Подхватываем внешние изменения value (сброс формы и т.п.), только пока
+  // пользователь не печатает сам — иначе затирали бы набираемый текст.
+  useEffect(() => {
+    if (!isFocused) setText(fmtDisplay(value));
+  }, [value, isFocused]);
 
   // Какой месяц показываем в календаре. Инициализируется текущим значением или сегодня.
   const [viewYM, setViewYM] = useState<{ y: number; m: number }>(() => {
@@ -102,16 +138,64 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
+  // Выбор дня в календаре — всегда явно обновляем и текст (даже если фокус
+  // не терялся: клик по дню делает preventDefault на mousedown).
   const emit = (val: string) => {
     onChange?.({ target: { value: val } });
+    setText(fmtDisplay(val));
     setOpen(false);
-    triggerRef.current?.focus();
+    inputRef.current?.focus();
   };
 
-  const onKey = (e: React.KeyboardEvent) => {
+  const handleInput = (e: ChangeEvent<HTMLInputElement>) => {
+    const masked = maskTyped(e.target.value);
+    setText(masked);
+    // Как только набраны все 8 цифр и дата валидна — сразу коммитим наружу,
+    // не дожидаясь blur (подсвечивается в календаре, доступно форме сразу).
+    if (masked.replace(/\D/g, '').length === 8) {
+      const parsed = parseTyped(masked);
+      if (parsed) onChange?.({ target: { value: fmtISO(parsed.y, parsed.m, parsed.d) } });
+    }
+  };
+
+  const handleFocus = () => {
+    setIsFocused(true);
+    setOpen(true);
+  };
+
+  // На blur либо коммитим валидную дату, либо отменяем недописанный/битый ввод.
+  const commitOrRevert = () => {
+    const trimmed = text.trim();
+    if (trimmed === '') {
+      if (value) onChange?.({ target: { value: '' } });
+      return;
+    }
+    const parsed = parseTyped(trimmed);
+    if (parsed) {
+      const iso = fmtISO(parsed.y, parsed.m, parsed.d);
+      if (iso !== value) onChange?.({ target: { value: iso } });
+      setText(fmtDisplay(iso));
+    } else {
+      setText(fmtDisplay(value));
+    }
+  };
+
+  const handleBlur = () => {
+    commitOrRevert();
+    setIsFocused(false);
+  };
+
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return;
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); }
-    else if (e.key === 'Escape') { if (open) e.stopPropagation(); setOpen(false); } // закрываем календарь, не модалку
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitOrRevert();
+      setOpen(false);
+    } else if (e.key === 'Escape') {
+      if (open) e.stopPropagation(); // закрываем календарь, не модалку
+      setOpen(false);
+      setText(fmtDisplay(value));
+    }
   };
 
   const grid = useMemo(() => buildMonthGrid(viewYM.y, viewYM.m), [viewYM]);
@@ -123,30 +207,43 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
     });
   };
 
-  const display = fmtDisplay(value);
-
   return (
     <div className={`date-input ${open ? 'is-open' : ''} ${className || ''}`} ref={containerRef}>
-      <button
-        type="button"
-        ref={triggerRef}
-        className="date-input__trigger"
-        onClick={() => !disabled && setOpen((o) => !o)}
-        onKeyDown={onKey}
-        disabled={disabled}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        <span className={`date-input__value ${display ? '' : 'is-placeholder'}`}>
-          {display || (placeholder || 'дд.мм.гггг')}
-        </span>
-        <svg className="date-input__icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <rect x="2" y="3" width="10" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-          <path d="M2 5.5h10M5 1.5v2M9 1.5v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-        </svg>
-      </button>
+      <div ref={fieldRef} className="date-input__trigger">
+        <input
+          {...rest}
+          type="text"
+          inputMode="numeric"
+          ref={inputRef}
+          className="date-input__field"
+          value={text}
+          onChange={handleInput}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onKeyDown={onKey}
+          disabled={disabled}
+          placeholder={placeholder || 'дд.мм.гггг'}
+          maxLength={10}
+          autoComplete="off"
+          role="combobox"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        />
+        <button
+          type="button"
+          className="date-input__icon-btn"
+          onClick={() => !disabled && setOpen((o) => !o)}
+          disabled={disabled}
+          aria-label={open ? 'Скрыть календарь' : 'Показать календарь'}
+        >
+          <svg className="date-input__icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <rect x="2" y="3" width="10" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+            <path d="M2 5.5h10M5 1.5v2M9 1.5v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+          </svg>
+        </button>
+      </div>
       <Floating
-        anchorRef={triggerRef}
+        anchorRef={fieldRef}
         floatingRef={popoverRef}
         open={open}
         matchWidth={false}

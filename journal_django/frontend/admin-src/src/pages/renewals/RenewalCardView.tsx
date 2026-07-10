@@ -5,29 +5,14 @@ import type { RenewalCard } from '../../lib/renewals';
 // Порог «сделка зависла в стадии» — подсвечиваем SLA-бейдж красным.
 const SLA_OVERDUE_DAYS = 5;
 
-interface Props {
-  card: RenewalCard;
-  onOpen: (id: number) => void;
-}
-
-export function RenewalCardView({ card, onOpen }: Props) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: card.id });
-
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
-
+/**
+ * Разметка карточки без drag-обвязки — переиспользуется и в самой колонке,
+ * и в DragOverlay (там своя, немонтируемая копия, которую dnd-kit носит за курсором).
+ */
+export function RenewalCardContent({ card }: { card: RenewalCard }) {
   const overdue = card.days_in_stage > SLA_OVERDUE_DAYS;
-
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`renewal-card${isDragging ? ' renewal-card--dragging' : ''}`}
-      onClick={() => onOpen(card.id)}
-      {...listeners}
-      {...attributes}
-    >
+    <>
       <div className="renewal-card__student">{card.student_name || '—'}</div>
       <div
         className="renewal-card__direction"
@@ -48,10 +33,31 @@ export function RenewalCardView({ card, onOpen }: Props) {
       </div>
       <div className="renewal-card__footer">
         <span className="renewal-card__assignee">{card.assignee_name || '—'}</span>
-        {card.expected_amount && (
+        {card.expected_amount != null && (
           <span className="renewal-card__amount">{fmtRub(card.expected_amount)}</span>
         )}
       </div>
+    </>
+  );
+}
+
+interface Props {
+  card: RenewalCard;
+  onOpen: (id: number) => void;
+}
+
+export function RenewalCardView({ card, onOpen }: Props) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`renewal-card${isDragging ? ' renewal-card--dragging' : ''}`}
+      onClick={() => onOpen(card.id)}
+      {...listeners}
+      {...attributes}
+    >
+      <RenewalCardContent card={card} />
     </div>
   );
 }

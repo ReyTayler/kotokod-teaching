@@ -23,7 +23,7 @@ from apps.teachers.models import Teacher
 
 
 def _seed(duration: int = 90):
-    d = Direction.objects.create(name=f'ORM-DIR-{duration}', sheet_name='s', is_individual=False)
+    d = Direction.objects.create(name=f'ORM-DIR-{duration}', is_individual=False)
     t = Teacher.objects.create(name=f'ORM-T-{duration}', created_at=Now())
     g = Group.objects.create(
         name=f'ORM-G-{duration}', direction_id=d.id, teacher_id=t.id,

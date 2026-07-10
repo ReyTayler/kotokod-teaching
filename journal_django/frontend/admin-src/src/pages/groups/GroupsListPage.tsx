@@ -76,7 +76,7 @@ export default function GroupsListPage() {
       searchable: true,
       searchOptions: directionOptions,
       cell: (r) => r.direction_name
-        ? <DirTag direction={{ id: r.direction_id, name: r.direction_name, color: r.direction_color ?? null, sheet_name: '', is_individual: false, active: true, total_lessons: null, subscription_price: null }} />
+        ? <DirTag direction={{ id: r.direction_id, name: r.direction_name, color: r.direction_color ?? null, is_individual: false, active: true, total_lessons: null, subscription_price: null }} />
         : <span className="id-cell">#{r.direction_id}</span>,
     },
     {

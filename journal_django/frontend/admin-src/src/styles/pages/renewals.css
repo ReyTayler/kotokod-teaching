@@ -278,7 +278,17 @@
   color: var(--text3);
   font-size: 12px;
   padding: var(--space-2);
+  cursor: pointer;
+}
+
+.renewal-col__more:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text3);
+}
+
+.renewal-col__more:disabled {
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .renewal-card {
@@ -298,9 +308,19 @@
   border-color: var(--border-strong);
 }
 
+/* Карточка-источник во время драга — тускнеет на месте, сам «полёт» рисует
+   .renewal-card--overlay внутри DragOverlay (см. RenewalBoard.tsx). */
 .renewal-card--dragging {
-  opacity: 0.6;
+  opacity: 0.35;
+}
+
+/* Плавающая копия внутри DragOverlay: dnd-kit порталит её в document.body,
+   поэтому она вне overflow/stacking-контекста колонок — не обрезается и не
+   уезжает под соседние колонки. Ширина — явная (280px колонки минус 2×padding). */
+.renewal-card--overlay {
+  width: 256px;
   cursor: grabbing;
+  box-shadow: var(--shadow-popover);
 }
 
 .renewal-card__student {

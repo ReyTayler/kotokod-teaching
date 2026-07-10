@@ -94,7 +94,6 @@ def read_all_students() -> dict:
             age=F('student__age'),
             pm=F('student__pm'),
             membership_id=F('id'),
-            direction_sheet_name=F('group__direction__sheet_name'),
         )
     )
 
@@ -106,7 +105,10 @@ def read_all_students() -> dict:
     for r in rows:
         teacher = r['teacher_name']
         group = r['group_name']
-        sheet_name = 'Индивидуальные' if r['is_individual'] else r['direction_sheet_name']
+        # Legacy Google Sheets поле direction.sheet_name удалено (раздел 05).
+        # sheetName/sheetRow — вестигиальные поля, фронт их больше не читает по
+        # значению; сохраняем ключ и осмысленный маркер «Индивидуальные».
+        sheet_name = 'Индивидуальные' if r['is_individual'] else ''
 
         if teacher not in data:
             data[teacher] = {}
@@ -188,7 +190,7 @@ def resolve_ids(teacher_name: str, group_name: str) -> Optional[dict]:
     """
     grp = (
         Group.objects.filter(name=group_name)
-        .values('id', 'teacher_id', 'lesson_duration_minutes')
+        .values('id', 'teacher_id', 'lesson_duration_minutes', 'direction_id')
         .first()
     )
     if grp is None:
@@ -202,6 +204,7 @@ def resolve_ids(teacher_name: str, group_name: str) -> Optional[dict]:
         'group_id': grp['id'],
         'group_owner_id': grp['teacher_id'],
         'lesson_duration_minutes': grp['lesson_duration_minutes'],
+        'direction_id': grp['direction_id'],
     }
 
 

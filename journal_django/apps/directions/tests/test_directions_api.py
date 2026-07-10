@@ -17,7 +17,6 @@ def _cleanup_direction(direction_id: int) -> None:
 def _direction_payload(**overrides) -> dict:
     return {
         'name': '__test_api_direction__',
-        'sheet_name': 'TestSheet',
         'is_individual': False,
         **overrides,
     }
@@ -85,7 +84,6 @@ def test_retrieve_existing_returns_200(admin_client):
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_api_get_dir__',
-        'sheet_name': 'Sheet',
         'is_individual': False,
     })
     try:
@@ -127,13 +125,12 @@ def test_create_duplicate_name_returns_409(superadmin_client):
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_dup_dir__',
-        'sheet_name': 'S',
         'is_individual': False,
     })
     try:
         resp = superadmin_client.post(
             BASE_URL,
-            {'name': '__test_dup_dir__', 'sheet_name': 'S', 'is_individual': False},
+            {'name': '__test_dup_dir__', 'is_individual': False},
             format='json',
         )
         assert resp.status_code == 409
@@ -150,7 +147,6 @@ def test_patch_returns_200(superadmin_client):
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_patch_dir__',
-        'sheet_name': 'S',
         'is_individual': False,
     })
     try:
@@ -182,7 +178,6 @@ def test_delete_no_payments_returns_204(superadmin_client):
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_del_dir_204__',
-        'sheet_name': 'S',
         'is_individual': False,
     })
     try:
@@ -226,7 +221,6 @@ def test_directions_patch_delete_forbidden_for_manager_and_admin(manager_client,
     from apps.directions import repository
     d = repository.create_direction({
         'name': '__test_rbac_direction_write__',
-        'sheet_name': 'S',
         'is_individual': False,
     })
     try:

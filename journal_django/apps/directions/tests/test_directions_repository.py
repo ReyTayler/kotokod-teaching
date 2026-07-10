@@ -17,7 +17,6 @@ def _cleanup_direction(direction_id: int) -> None:
 def _direction_data(**overrides) -> dict:
     return {
         'name': '__test_direction__',
-        'sheet_name': 'TestSheet',
         'is_individual': False,
         **overrides,
     }

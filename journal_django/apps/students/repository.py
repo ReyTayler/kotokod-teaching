@@ -38,7 +38,6 @@ _SORTABLE: dict[str, str] = {
     'id':                  'id',
     'full_name':           'full_name',
     'age':                 'age',
-    'school_grade':        'school_grade',
     'enrollment_status':   'enrollment_status',
     'first_purchase_date': 'first_purchase_date',
     'created_at':          'created_at',
@@ -51,8 +50,8 @@ _DEFAULT_SORT_DIR = 'asc'
 def _apply_filters(qs, filters: dict[str, Any]):
     """
     Фильтры (мимикрируют F.*-билдеры services/pagination.js):
-      full_name (LIKE), phone/parent_name/pm/platform_id (likeNullable),
-      enrollment_status (exact), school_grade/age (num).
+      full_name (LIKE), parent1_phone/parent1_name/pm/platform_id (likeNullable),
+      enrollment_status (exact), age (num).
 
     likeNullable (col IS NOT NULL AND LOWER(col) LIKE) выражается __icontains —
     NULL по col не матчится автоматически, поэтому IS NOT NULL избыточен.
@@ -61,13 +60,13 @@ def _apply_filters(qs, filters: dict[str, Any]):
     if full_name not in (None, ''):
         qs = qs.filter(full_name__icontains=str(full_name))
 
-    phone = filters.get('phone')
-    if phone not in (None, ''):
-        qs = qs.filter(phone__icontains=str(phone))
+    parent1_phone = filters.get('parent1_phone')
+    if parent1_phone not in (None, ''):
+        qs = qs.filter(parent1_phone__icontains=str(parent1_phone))
 
-    parent_name = filters.get('parent_name')
-    if parent_name not in (None, ''):
-        qs = qs.filter(parent_name__icontains=str(parent_name))
+    parent1_name = filters.get('parent1_name')
+    if parent1_name not in (None, ''):
+        qs = qs.filter(parent1_name__icontains=str(parent1_name))
 
     pm = filters.get('pm')
     if pm not in (None, ''):
@@ -80,10 +79,6 @@ def _apply_filters(qs, filters: dict[str, Any]):
     enrollment_status = filters.get('enrollment_status')
     if enrollment_status not in (None, ''):
         qs = qs.filter(enrollment_status=str(enrollment_status))
-
-    school_grade = filters.get('school_grade')
-    if school_grade not in (None, ''):
-        qs = qs.filter(school_grade=int(school_grade))
 
     age = filters.get('age')
     if age not in (None, ''):
@@ -135,16 +130,20 @@ def create_student(data: dict) -> dict:
     """
     Создаёт ученика (INSERT ... RETURNING *).
 
-    NULLIF('', '') → пустая строка → None (phone/platform_id/parent_name/pm).
+    NULLIF('', '') → пустая строка → None (platform_id/bitrix24_link/parent1_*/parent2_*/pm).
     enrollment_status по умолчанию 'enrolled'. created_at — DB DEFAULT now() через Now().
     """
     obj = Student.objects.create(
         full_name=data['full_name'],
         birth_date=data.get('birth_date') or None,
-        phone=data.get('phone') or None,
-        school_grade=data.get('school_grade') or None,
         platform_id=data.get('platform_id') or None,
-        parent_name=data.get('parent_name') or None,
+        bitrix24_link=data.get('bitrix24_link') or None,
+        parent1_name=data.get('parent1_name') or None,
+        parent1_phone=data.get('parent1_phone') or None,
+        parent1_email=data.get('parent1_email') or None,
+        parent2_name=data.get('parent2_name') or None,
+        parent2_phone=data.get('parent2_phone') or None,
+        parent2_email=data.get('parent2_email') or None,
         first_purchase_date=data.get('first_purchase_date') or None,
         age=data.get('age') if data.get('age') is not None else None,
         pm=data.get('pm') or None,
@@ -173,14 +172,22 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
         obj.full_name = data['full_name']
     if data.get('birth_date'):
         obj.birth_date = data['birth_date']
-    if data.get('phone'):                      # NULLIF: пустая строка → не трогаем
-        obj.phone = data['phone']
-    if data.get('school_grade') is not None:
-        obj.school_grade = data['school_grade']
     if data.get('platform_id'):
         obj.platform_id = data['platform_id']
-    if data.get('parent_name'):
-        obj.parent_name = data['parent_name']
+    if data.get('bitrix24_link'):              # NULLIF: пустая строка → не трогаем
+        obj.bitrix24_link = data['bitrix24_link']
+    if data.get('parent1_name'):
+        obj.parent1_name = data['parent1_name']
+    if data.get('parent1_phone'):
+        obj.parent1_phone = data['parent1_phone']
+    if data.get('parent1_email'):
+        obj.parent1_email = data['parent1_email']
+    if data.get('parent2_name'):
+        obj.parent2_name = data['parent2_name']
+    if data.get('parent2_phone'):
+        obj.parent2_phone = data['parent2_phone']
+    if data.get('parent2_email'):
+        obj.parent2_email = data['parent2_email']
     if data.get('first_purchase_date'):
         obj.first_purchase_date = data['first_purchase_date']
     if data.get('age') is not None:

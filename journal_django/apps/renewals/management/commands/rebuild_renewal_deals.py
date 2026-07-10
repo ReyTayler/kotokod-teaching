@@ -13,5 +13,9 @@ class Command(BaseCommand):
         processed = 0
         for row in repository.active_cycles():
             engine.ensure_deal(row['student_id'], row['direction_id'], row['cycle_no'])
+            # Подхватывает дрейф авто-стадии «Урок N» от любых мутаций lessons_done,
+            # которые могли пройти мимо sync_lesson_stage_safe (ручная правка
+            # membership и т.п.) — backstop-самозаживление, как и для самих сделок.
+            engine.sync_lesson_stage_safe(row['student_id'], row['direction_id'])
             processed += 1
         self.stdout.write(self.style.SUCCESS(f'renewals: обработано {processed} циклов'))

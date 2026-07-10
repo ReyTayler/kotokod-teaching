@@ -36,10 +36,14 @@ def _make_student_data(**overrides) -> dict:
     return {
         'full_name': '__test_repo_student__',
         'birth_date': None,
-        'phone': None,
-        'school_grade': None,
         'platform_id': None,
-        'parent_name': None,
+        'bitrix24_link': None,
+        'parent1_name': None,
+        'parent1_phone': None,
+        'parent1_email': None,
+        'parent2_name': None,
+        'parent2_phone': None,
+        'parent2_email': None,
         'first_purchase_date': None,
         'age': None,
         'pm': None,
@@ -184,17 +188,27 @@ class TestCreateStudent:
         finally:
             _cleanup_student(student['id'])
 
-    def test_create_with_phone_and_grade(self):
+    def test_create_with_parent_contacts_and_age(self):
         data = _make_student_data(
             full_name='__test_create_full__',
-            phone='+79001234567',
-            school_grade=5,
+            parent1_name='Иван Петров',
+            parent1_phone='+79001234567',
+            parent1_email='parent1@example.com',
+            parent2_name='Мария Петрова',
+            parent2_phone='+79007654321',
+            parent2_email='parent2@example.com',
+            bitrix24_link='https://bitrix24.example/crm/deal/1',
             age=11,
         )
         student = repository.create_student(data)
         try:
-            assert student['phone'] == '+79001234567'
-            assert student['school_grade'] == 5
+            assert student['parent1_name'] == 'Иван Петров'
+            assert student['parent1_phone'] == '+79001234567'
+            assert student['parent1_email'] == 'parent1@example.com'
+            assert student['parent2_name'] == 'Мария Петрова'
+            assert student['parent2_phone'] == '+79007654321'
+            assert student['parent2_email'] == 'parent2@example.com'
+            assert student['bitrix24_link'] == 'https://bitrix24.example/crm/deal/1'
             assert student['age'] == 11
         finally:
             _cleanup_student(student['id'])
@@ -239,14 +253,12 @@ class TestUpdateStudent:
         """Если поля не переданы — старые значения сохраняются."""
         data = _make_student_data(
             full_name='__test_coalesce__',
-            school_grade=7,
             age=13,
         )
         student = repository.create_student(data)
         sid = student['id']
         try:
             updated = repository.update_student(sid, {'full_name': '__test_coalesce_new__'})
-            assert updated['school_grade'] == 7
             assert updated['age'] == 13
         finally:
             _cleanup_student(sid)

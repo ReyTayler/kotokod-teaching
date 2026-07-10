@@ -290,7 +290,33 @@ def test_create_persists_in_db(admin_client):
 
 @pytest.mark.django_db
 def test_create_missing_full_name_returns_400(admin_client):
-    resp = admin_client.post(BASE_URL, {'phone': '+79001234567'}, format='json')
+    resp = admin_client.post(BASE_URL, {'parent1_phone': '+79001234567'}, format='json')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_create_invalid_parent1_email_returns_400(admin_client):
+    """parent1_email — EmailField: некорректный email → 400."""
+    payload = _student_payload(
+        full_name='__test_post_bad_email__',
+        parent1_email='not-an-email',
+    )
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    if resp.status_code == 201:
+        _cleanup_student(resp.json()['id'])
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_create_invalid_bitrix24_link_returns_400(admin_client):
+    """bitrix24_link — URLField (strict): ссылка без схемы → 400."""
+    payload = _student_payload(
+        full_name='__test_post_bad_link__',
+        bitrix24_link='bitrix24.example/crm/1',
+    )
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    if resp.status_code == 201:
+        _cleanup_student(resp.json()['id'])
     assert resp.status_code == 400
 
 
@@ -320,17 +346,15 @@ def test_create_frozen_with_month_returns_201(admin_client):
 
 
 @pytest.mark.django_db
-def test_create_with_school_grade_and_age(admin_client):
+def test_create_with_age(admin_client):
     payload = _student_payload(
-        full_name='__test_post_grade__',
-        school_grade=8,
+        full_name='__test_post_age__',
         age=14,
     )
     resp = admin_client.post(BASE_URL, payload, format='json')
     assert resp.status_code == 201
     body = resp.json()
     try:
-        assert body['school_grade'] == 8
         assert body['age'] == 14
     finally:
         _cleanup_student(body['id'])
@@ -382,14 +406,14 @@ def test_patch_nonexistent_returns_404(admin_client):
 
 
 @pytest.mark.django_db
-def test_patch_school_grade(admin_client, existing_student):
+def test_patch_age(admin_client, existing_student):
     resp = admin_client.patch(
         f"{BASE_URL}/{existing_student['id']}",
-        {'school_grade': 9},
+        {'age': 9},
         format='json',
     )
     assert resp.status_code == 200
-    assert resp.json()['school_grade'] == 9
+    assert resp.json()['age'] == 9
 
 
 # ---------------------------------------------------------------------------

@@ -24,8 +24,8 @@ def seed():
     ids: dict[str, int] = {}
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, sheet_name, is_individual, active) "
-            "VALUES ('__imf_dir__', '__imf_dir__', false, true) RETURNING id"
+            "INSERT INTO directions (name, is_individual, active) "
+            "VALUES ('__imf_dir__', false, true) RETURNING id"
         )
         ids['direction_id'] = cur.fetchone()[0]
         cur.execute(
