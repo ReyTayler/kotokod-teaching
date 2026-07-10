@@ -155,6 +155,29 @@ class TestCreatePayment:
                 with connection.cursor() as cur:
                     cur.execute('DELETE FROM payments WHERE id = %s', [res['payment']['id']])
 
+    def test_cap_counts_prepayment_lessons(self, direction_fixture, student_fixture):
+        """Предоплата (lessons_count=3) занимает ёмкость: cap считается в уроках,
+        already возвращается в уроках (direction_fixture: total_lessons=8)."""
+        created = []
+        try:
+            r1 = repository.create_payment({
+                'student_id': student_fixture, 'direction_id': direction_fixture,
+                'lessons_count': 3, 'total_amount': '1500.00', 'paid_at': '2026-01-01',
+            })
+            assert 'payment' in r1, r1
+            created.append(r1['payment']['id'])
+            # ещё 2 блока = 8 уроков → 3 + 8 = 11 > 8 → cap_exceeded, already в уроках = 3
+            r2 = repository.create_payment({
+                'student_id': student_fixture, 'direction_id': direction_fixture,
+                'lessons_count': 8, 'total_amount': '4000.00', 'paid_at': '2026-01-01',
+            })
+            assert r2['error'] == 'cap_exceeded'
+            assert r2['already'] == 3
+        finally:
+            with connection.cursor() as cur:
+                for pid in created:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [pid])
+
 
 # ---------------------------------------------------------------------------
 # Tests: list_payments

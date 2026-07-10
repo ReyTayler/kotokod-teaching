@@ -154,7 +154,7 @@ export function StudentBalanceBlock({ studentId }: Props) {
                       <span> · </span>
                       <span>{p.subscriptions_count} аб.</span>
                       <span> · </span>
-                      <span>{fmtRub(p.unit_price)}/аб = <strong>{fmtRub(p.total_amount)}</strong></span>
+                      <span>{fmtRub(Number(p.total_amount) / p.subscriptions_count)}/аб = <strong>{fmtRub(p.total_amount)}</strong></span>
                     </>
                   ) : (
                     <>
