@@ -209,6 +209,46 @@ def balance_for_student(student_id: int) -> int | float:
     return balances_for_students([student_id])[student_id]
 
 
+def student_fifo_remaining(student_id: int) -> dict:
+    """
+    Неотработанный остаток ученика: сколько уроков и денег ещё не списано.
+    remaining_lessons = баланс (purchased − attended, half-lesson учтён).
+    remaining_value   = FIFO remaining_value по партиям-покупкам ученика.
+    """
+    from apps.finances.fifo import compute_fifo
+
+    remaining_lessons = balance_for_student(student_id)
+
+    lots_rows = (
+        Payment.objects.filter(student_id=student_id, kind='purchase')
+        .order_by('paid_at', 'id')
+        .values('total_amount', 'lessons_count')
+    )
+    lots = []
+    for r in lots_rows:
+        lessons = int(r['lessons_count']) if r['lessons_count'] is not None else 0
+        if lessons > 0:
+            lots.append({
+                'lessons': lessons,
+                'price_per_lesson': to_decimal(r['total_amount']) / Decimal(lessons),
+            })
+
+    cons_rows = (
+        LessonAttendance.objects.filter(student_id=student_id, present=True)
+        .annotate(units=_attended_units_case())
+        .order_by('lesson__lesson_date', 'lesson_id')
+        .values('units', lesson_date=F('lesson__lesson_date'))
+    )
+    cons = [{'units': to_decimal(r['units']), 'date': _date_str(r['lesson_date']),
+             'direction_id': None} for r in cons_rows]
+
+    fifo = compute_fifo(lots, cons, '0001-01-01', '9999-12-31')
+    return {
+        'remaining_lessons': remaining_lessons,
+        'remaining_value': fifo['remaining_value'],
+    }
+
+
 def paid_by_direction_rows(student_id: int) -> list[dict]:
     """
     Оплачено по направлениям (по тегу оплаты payments.direction_id) — ТОЛЬКО
