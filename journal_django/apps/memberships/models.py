@@ -39,7 +39,6 @@ class GroupMembership(models.Model):
     )
     # numeric(6,1) — поддержка half-lesson (0.5), НЕ целое.
     lessons_done = models.DecimalField(max_digits=6, decimal_places=1, default=0)
-    remaining = models.DecimalField(max_digits=6, decimal_places=1, default=0)
     start_date = models.DateField(null=True, blank=True)
     sheet_row = models.IntegerField(null=True, blank=True)
     active = models.BooleanField(default=True)
