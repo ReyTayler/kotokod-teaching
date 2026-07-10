@@ -58,6 +58,8 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
   const [discountIds, setDiscountIds] = useState<number[]>([]);
   const [mode, setMode] = useState<'blocks' | 'prepay'>('blocks');
   const [prepayLessons, setPrepayLessons] = useState(0); // 1..3
+  const [priceMode, setPriceMode] = useState<'per_block' | 'total'>('per_block');
+  const [totalInput, setTotalInput] = useState<number | ''>('');
 
   // Reset при открытии
   useEffect(() => {
@@ -73,8 +75,15 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
       setDiscountIds([]);
       setMode('blocks');
       setPrepayLessons(0);
+      setPriceMode('per_block');
+      setTotalInput('');
     }
   }, [open, studentId, directionId]);
+
+  // Единая сумма применима только для покупки 2+ блоков.
+  useEffect(() => {
+    if (mode !== 'blocks' || count < 2) setPriceMode('per_block');
+  }, [mode, count]);
 
   const existing = usePayments({ student_id: stId, direction_id: dirId });
   const alreadyPurchased = useMemo(() => {
@@ -138,7 +147,16 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
   const perLesson = basePrice != null ? Math.round((basePrice / 4) * 100) / 100 : 0;
   const prepayTotal = Math.round(perLesson * prepayLessons * 100) / 100;
   const lessonsCount = mode === 'blocks' ? count * 4 : prepayLessons;
-  const total = mode === 'prepay' ? prepayTotal : computedUnitPrice * count;
+  const total =
+    mode === 'prepay'
+      ? prepayTotal
+      : priceMode === 'total'
+        ? (typeof totalInput === 'number' ? totalInput : 0)
+        : computedUnitPrice * count;
+  const derivedPerBlock =
+    priceMode === 'total' && count > 0 && typeof totalInput === 'number'
+      ? Math.round((totalInput / count) * 100) / 100
+      : null;
 
   const studentOptions = useMemo(() => {
     if (!students.data) return [];
@@ -185,6 +203,9 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
     }
     if (!paidAt) e.date = FILL_FIELD;
     if (customPriceOpen && customPrice === '') e.price = FILL_FIELD;
+    if (mode === 'blocks' && count >= 2 && priceMode === 'total') {
+      if (typeof totalInput !== 'number' || totalInput <= 0) e.price = FILL_FIELD;
+    }
     return e;
   };
 
@@ -321,7 +342,31 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
         </Field>
 
         <Field label="Цена за абонемент" error={errors.price}>
-          {!customPriceOpen ? (
+          {mode === 'blocks' && count >= 2 && (
+            <div className="payment-form__segment" role="tablist" style={{ marginBottom: 8 }}>
+              <button type="button" role="tab" aria-selected={priceMode === 'per_block'}
+                className={`seg${priceMode === 'per_block' ? ' seg--on' : ''}`}
+                onClick={() => setPriceMode('per_block')}>За абонемент</button>
+              <button type="button" role="tab" aria-selected={priceMode === 'total'}
+                className={`seg${priceMode === 'total' ? ' seg--on' : ''}`}
+                onClick={() => setPriceMode('total')}>Единой суммой</button>
+            </div>
+          )}
+          {mode === 'blocks' && count >= 2 && priceMode === 'total' ? (
+            <div className="payment-form__price-row">
+              <NumberInput
+                value={totalInput}
+                min={0}
+                step="0.01"
+                onChange={(e) => { setTotalInput(e.target.value === '' ? '' : Number(e.target.value)); clearError('price'); }}
+                style={{ width: 160 }}
+              />
+              <span>₽ за все {count} абонемента</span>
+              {derivedPerBlock != null && (
+                <span className="muted">≈ {fmtRub(derivedPerBlock)}/абонемент</span>
+              )}
+            </div>
+          ) : !customPriceOpen ? (
             <div className="payment-form__price-row">
               <span className="payment-form__price">
                 {basePrice != null ? fmtRub(basePrice) : 'не настроена'}
