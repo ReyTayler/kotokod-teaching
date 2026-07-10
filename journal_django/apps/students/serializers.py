@@ -104,3 +104,28 @@ class StudentUpdateSerializer(serializers.Serializer):
 
     def validate_full_name(self, value: str) -> str:
         return value.strip()
+
+
+class StudentCommentSerializer(serializers.Serializer):
+    """Read-only элемент списка комментариев (GET .../comments)."""
+
+    id = serializers.IntegerField()
+    body = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    author_id = serializers.IntegerField(allow_null=True)
+    author_name = serializers.SerializerMethodField()
+
+    def get_author_name(self, obj) -> str | None:
+        return obj.author.full_name if obj.author_id and obj.author else None
+
+
+class StudentCommentWriteSerializer(serializers.Serializer):
+    """Ввод для POST .../comments."""
+
+    body = serializers.CharField(max_length=5000, allow_blank=False)
+
+    def validate_body(self, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError('body must not be blank')
+        return stripped
