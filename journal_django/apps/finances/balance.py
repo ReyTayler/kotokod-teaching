@@ -24,6 +24,7 @@ def get_student_balance(student_id: int) -> dict:
     from apps.payments.repository import list_payments
 
     total_balance = repository.balance_for_student(student_id)
+    remaining = repository.student_fifo_remaining(student_id)
 
     paid_by_direction = [
         {
@@ -49,6 +50,7 @@ def get_student_balance(student_id: int) -> dict:
 
     return {
         'total_balance':         total_balance,
+        'remaining_value':       repository._js_number(remaining['remaining_value']),
         'total_paid_amount':     total_paid,
         'paid_by_direction':     paid_by_direction,
         'attended_by_direction': attended_by_direction,

@@ -191,3 +191,21 @@ def test_balance_uses_lessons_count(student_fixture, direction_fixture, graph_cl
     graph_cleanup['payments'].append(pid)
     # Источник правды — lessons_count (4), НЕ subscriptions_count*4 (=396).
     assert balance_for_student(student_fixture) == 4
+
+
+def test_get_student_balance_exposes_remaining_value(student_fixture, direction_fixture, graph_cleanup):
+    from django.db import connection
+    from apps.finances.balance import get_student_balance
+    from apps.finances.repository import student_fifo_remaining, _js_number
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+            "lessons_count, kind, unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s,%s,1,4,'purchase',1000,4000,'2026-01-01','t') RETURNING id",
+            [student_fixture, direction_fixture])
+        pid = cur.fetchone()[0]
+    graph_cleanup['payments'].append(pid)
+    result = get_student_balance(student_fixture)
+    assert 'remaining_value' in result
+    assert result['remaining_value'] == 4000
+    assert result['remaining_value'] == _js_number(student_fifo_remaining(student_fixture)['remaining_value'])
