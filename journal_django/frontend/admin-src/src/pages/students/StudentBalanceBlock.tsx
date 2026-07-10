@@ -141,21 +141,29 @@ export function StudentBalanceBlock({ studentId }: Props) {
           {historyOpen && (
           <ul className="balance-block__history">
             {data.payments.map((p) => (
-              <li key={p.id} className="balance-block__history-row">
+              <li key={p.id}
+                  className={`balance-block__history-row${p.kind === 'refund' ? ' is-refund' : ''}`}>
                 <div className="balance-block__history-main">
                   <span>{fmtDate(p.paid_at)}</span>
                   <span> · </span>
-                  <span>{p.direction_name || <em className="muted">Архив</em>}</span>
-                  <span> · </span>
-                  {p.subscriptions_count != null ? (
+                  {p.kind === 'refund' ? (
+                    <span className="refund-badge">Возврат {fmtRub(p.total_amount)}</span>
+                  ) : p.subscriptions_count != null ? (
                     <>
+                      <span>{p.direction_name || <em className="muted">Архив</em>}</span>
+                      <span> · </span>
                       <span>{p.subscriptions_count} аб.</span>
                       <span> · </span>
                       <span>{fmtRub(p.unit_price)}/аб = <strong>{fmtRub(p.total_amount)}</strong></span>
                     </>
                   ) : (
-                    <span><strong>{fmtRub(p.total_amount)}</strong></span>
+                    <>
+                      <span>предоплата, {p.lessons_count} уроков</span>
+                      <span> · </span>
+                      <span><strong>{fmtRub(p.total_amount)}</strong></span>
+                    </>
                   )}
+                  {p.created_by && <span className="muted"> · внёс: {p.created_by}</span>}
                   {p.note && <span className="muted"> — «{p.note}»</span>}
                 </div>
                 <button

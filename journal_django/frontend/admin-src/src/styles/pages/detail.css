@@ -563,6 +563,8 @@
 .balance-block__history-row:first-child { border-top: none; }
 .balance-block__history-main { font-size: 14px; }
 .balance-neg { color: var(--danger, #c44); font-weight: 600; }
+.balance-block__history-row.is-refund { color: var(--danger); }
+.balance-block__history-row .refund-badge { font-weight: 600; }
 
 .btn-danger {
   padding: 8px 14px; border: 1px solid var(--danger);
