@@ -36,7 +36,7 @@ def _seed():
     s = Student.objects.create(full_name='FIN-S', created_at=Now())
     # Оплата: 1 абонемент = 4 урока, цена 4000 (1000/урок)
     Payment.objects.create(
-        student_id=s.id, direction_id=d.id, subscriptions_count=1,
+        student_id=s.id, direction_id=d.id, subscriptions_count=1, lessons_count=1 * 4,
         unit_price=Decimal('4000.00'), total_amount=Decimal('4000.00'),
         paid_at='2026-01-01', created_at=Now(),
     )

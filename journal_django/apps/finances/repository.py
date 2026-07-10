@@ -156,6 +156,8 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
     Используется там, где строк много за один раз (teacher_spa.read_all_students
     тянет всю школу разом на 2 CPU/2 ГБ VPS). Каждый переданный student_id
     гарантированно есть в результате (0, если нет ни оплат, ни посещений).
+
+    purchased = SUM(lessons_count) (включает отрицательные строки возврата → net).
     """
     ids = list(student_ids)
     if not ids:
@@ -166,7 +168,7 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
     purchased = (
         Payment.objects.filter(student_id__in=ids)
         .values('student_id')
-        .annotate(s=Coalesce(Sum(F('subscriptions_count') * 4, output_field=_DEC), _ZERO))
+        .annotate(s=Coalesce(Sum('lessons_count', output_field=_DEC), _ZERO))
     )
     for r in purchased:
         balances[r['student_id']] += r['s']

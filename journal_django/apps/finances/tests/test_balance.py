@@ -18,9 +18,10 @@ pytestmark = pytest.mark.django_db
 def _add_payment(created, student_id, direction_id, subs, total, paid_at='2026-06-01'):
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO payments (student_id, direction_id, subscriptions_count, unit_price, "
-            "total_amount, paid_at, created_by) VALUES (%s,%s,%s,%s,%s,%s,'test') RETURNING id",
-            [student_id, direction_id, subs, total, total, paid_at],
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+            "unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,'test') RETURNING id",
+            [student_id, direction_id, subs, subs * 4, total, total, paid_at],
         )
         pid = cur.fetchone()[0]
     created['payments'].append(pid)
@@ -175,3 +176,18 @@ def test_balances_for_students_matches_single(
 def test_balances_for_students_empty_input():
     """Пустой список id → пустой словарь, без похода в БД с IN ()."""
     assert repository.balances_for_students([]) == {}
+
+
+def test_balance_uses_lessons_count(student_fixture, direction_fixture, graph_cleanup):
+    from django.db import connection
+    from apps.finances.repository import balance_for_student
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
+            "lessons_count, kind, unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s, %s, 99, 4, 'purchase', 1000, 4000, '2026-01-01', 't') RETURNING id",
+            [student_fixture, direction_fixture])
+        pid = cur.fetchone()[0]
+    graph_cleanup['payments'].append(pid)
+    # Источник правды — lessons_count (4), НЕ subscriptions_count*4 (=396).
+    assert balance_for_student(student_fixture) == 4
