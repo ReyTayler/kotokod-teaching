@@ -44,6 +44,9 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     используется только для атрибуции worked_off_by_direction в отчётах, партию
     FIFO-очереди это не меняет (лоты и посещения уже приходят единым пулом на
     ученика — см. apps/finances/repository.py::fifo_inputs).
+    Запись consumption может нести 'refund': True — такая запись гасит партии
+    (уменьшает remaining_value), но не идёт в worked_off_total/worked_off_month/
+    by_month/by_direction и не учитывается в over_consumed_lessons.
     """
     lot_idx = 0
     lot_remaining = to_decimal(lots[0]['lessons']) if lots else _ZERO
@@ -58,6 +61,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         # Полуинтервал [month_start, month_end); сравнение строк 'YYYY-MM-DD' = хронологическое.
         in_month = month_start <= c['date'] < month_end
         direction_id = c.get('direction_id')
+        is_refund = bool(c.get('refund'))
         while need > 0 and lot_idx < len(lots):
             if lot_remaining <= 0:
                 lot_idx += 1
@@ -67,16 +71,17 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                 continue
             take = need if need < lot_remaining else lot_remaining  # min(need, lot_remaining)
             value = take * to_decimal(lots[lot_idx]['price_per_lesson'])
-            worked_off_total += value
-            ym = c['date'][:7]
-            by_month[ym] = by_month.get(ym, _ZERO) + value
-            if direction_id is not None:
-                by_direction[direction_id] = by_direction.get(direction_id, _ZERO) + value
-            if in_month:
-                worked_off_month += value
+            if not is_refund:
+                worked_off_total += value
+                ym = c['date'][:7]
+                by_month[ym] = by_month.get(ym, _ZERO) + value
+                if direction_id is not None:
+                    by_direction[direction_id] = by_direction.get(direction_id, _ZERO) + value
+                if in_month:
+                    worked_off_month += value
             lot_remaining -= take
             need -= take
-        if need > 0:
+        if need > 0 and not is_refund:
             over_consumed_lessons += need
 
     remaining_value = _ZERO

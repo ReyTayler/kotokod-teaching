@@ -151,3 +151,16 @@ def test_worked_off_by_direction_absent_key_is_ignored():
     cons = _lessons(2, '2026-06-10')
     r = compute_fifo(lots, cons, MS, ME)
     assert r['worked_off_by_direction'] == {}
+
+
+def test_refund_consumption_zeroes_remaining_without_revenue():
+    from decimal import Decimal
+    from apps.finances.fifo import compute_fifo
+    lots = [{'lessons': 4, 'price_per_lesson': Decimal('1000')}]
+    cons = [
+        {'units': Decimal('1'), 'date': '2026-01-05', 'direction_id': None},
+        {'units': Decimal('3'), 'date': '2026-01-31', 'direction_id': None, 'refund': True},
+    ]
+    r = compute_fifo(lots, cons, '2026-01-01', '2026-02-01')
+    assert r['remaining_value'] == Decimal('0.00')      # хвост погашен возвратом
+    assert r['worked_off_total'] == Decimal('1000.00')  # только 1 реальный урок
