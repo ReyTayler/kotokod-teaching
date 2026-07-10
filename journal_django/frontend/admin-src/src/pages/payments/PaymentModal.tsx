@@ -56,6 +56,8 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
   const [note, setNote] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [discountIds, setDiscountIds] = useState<number[]>([]);
+  const [mode, setMode] = useState<'blocks' | 'prepay'>('blocks');
+  const [prepayLessons, setPrepayLessons] = useState(0); // 1..3
 
   // Reset при открытии
   useEffect(() => {
@@ -69,6 +71,8 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
       setNote('');
       setErrors({});
       setDiscountIds([]);
+      setMode('blocks');
+      setPrepayLessons(0);
     }
   }, [open, studentId, directionId]);
 
@@ -76,6 +80,10 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
   const alreadyPurchased = useMemo(() => {
     if (!existing.data) return 0;
     return existing.data.reduce((s, p) => s + Number(p.subscriptions_count), 0);
+  }, [existing.data]);
+  const alreadyPurchasedLessons = useMemo(() => {
+    if (!existing.data) return 0;
+    return existing.data.reduce((s, p) => s + Number(p.lessons_count ?? 0), 0);
   }, [existing.data]);
 
   const direction = useMemo(
@@ -111,7 +119,7 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
     return selectedDiscounts.reduce((s, d) => s + Number(d.amount), 0);
   }, [selectedDiscounts]);
 
-  const discountsApplicable = count === 1;
+  const discountsApplicable = mode === 'blocks' && count === 1;
 
   // База, к которой применяются скидки: custom при раскрытом поле, иначе цена направления.
   const priceBeforeDiscount = useMemo(() => {
@@ -127,7 +135,10 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
     return Math.round(priceBeforeDiscount * factor * 100) / 100;
   }, [priceBeforeDiscount, discountsApplicable, selectedDiscounts.length, totalDiscountAmount]);
 
-  const total = computedUnitPrice * count;
+  const perLesson = basePrice != null ? Math.round((basePrice / 4) * 100) / 100 : 0;
+  const prepayTotal = Math.round(perLesson * prepayLessons * 100) / 100;
+  const lessonsCount = mode === 'blocks' ? count * 4 : prepayLessons;
+  const total = mode === 'prepay' ? prepayTotal : computedUnitPrice * count;
 
   const studentOptions = useMemo(() => {
     if (!students.data) return [];
@@ -164,8 +175,13 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
     if (!dirId) e.direction = FILL_FIELD;
     else if (noCapacity) e.direction = 'У направления не задан total_lessons';
     if (dirId && !noCapacity) {
-      if (count < 1) e.count = FILL_FIELD;
-      else if (alreadyPurchased + count > totalSubs) e.count = 'Превышена ёмкость курса';
+      if (mode === 'prepay') {
+        if (prepayLessons < 1 || prepayLessons > 3) e.count = FILL_FIELD;
+        else if (alreadyPurchasedLessons + prepayLessons > (direction?.total_lessons ?? 0)) e.count = 'Превышена ёмкость курса';
+      } else {
+        if (count < 1) e.count = FILL_FIELD;
+        else if (alreadyPurchasedLessons + count * 4 > (direction?.total_lessons ?? 0)) e.count = 'Превышена ёмкость курса';
+      }
     }
     if (!paidAt) e.date = FILL_FIELD;
     if (customPriceOpen && customPrice === '') e.price = FILL_FIELD;
@@ -189,7 +205,7 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
       await muts.create.mutateAsync({
         student_id: stId!,
         direction_id: dirId!,
-        lessons_count: count * 4,
+        lessons_count: lessonsCount,
         total_amount: total,
         paid_at: paidAt,
         note: finalNote || null,
@@ -224,19 +240,45 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
           Уже куплено: {alreadyPurchased} абонементов ({alreadyPurchased * 4} уроков),
           свободно {totalSubs - alreadyPurchased} из {totalSubs}.
         </div>
-        <Field label="Блоки (4 урока в блоке)" error={errors.count}>
-          <BlockSelector
-            totalSubscriptions={totalSubs}
-            alreadyPurchased={alreadyPurchased}
-            selected={count}
-            color={direction.color}
-            onChange={(n) => {
-              setCount(n);
-              clearError('count');
-              if (n > 1) setDiscountIds([]);
-            }}
-          />
-        </Field>
+        <div className="payment-form__segment" role="tablist">
+          <button type="button" role="tab" aria-selected={mode === 'blocks'}
+            className={`seg${mode === 'blocks' ? ' seg--on' : ''}`}
+            onClick={() => { setMode('blocks'); setPrepayLessons(0); clearError('count'); }}>
+            Блоки по 4
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'prepay'}
+            className={`seg${mode === 'prepay' ? ' seg--on' : ''}`}
+            onClick={() => { setMode('prepay'); setCount(0); setDiscountIds([]); clearError('count'); }}>
+            Предоплата 1–3 урока
+          </button>
+        </div>
+        {mode === 'prepay' ? (
+          <Field label="Уроков в предоплату" error={errors.count}>
+            <div className="prepay-picker">
+              {[1, 2, 3].map((n) => (
+                <button key={n} type="button"
+                  className={`prepay-cell${prepayLessons === n ? ' is-on' : ''}`}
+                  onClick={() => { setPrepayLessons(n); clearError('count'); }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </Field>
+        ) : (
+          <Field label="Блоки (4 урока в блоке)" error={errors.count}>
+            <BlockSelector
+              totalSubscriptions={totalSubs}
+              alreadyPurchased={alreadyPurchased}
+              selected={count}
+              color={direction.color}
+              onChange={(n) => {
+                setCount(n);
+                clearError('count');
+                if (n > 1) setDiscountIds([]);
+              }}
+            />
+          </Field>
+        )}
       </>
     );
   };
@@ -408,7 +450,8 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
 
         <div className="payment-form__total">
           Итого: <strong>{fmtRub(total)}</strong>
-          {count > 0 && ` (${count} × ${fmtRub(computedUnitPrice)})`}
+          {mode === 'blocks' && count > 0 && ` (${count} × ${fmtRub(computedUnitPrice)})`}
+          {mode === 'prepay' && prepayLessons > 0 && ` (${prepayLessons} × ${fmtRub(perLesson)}/урок)`}
         </div>
 
         <div className="payment-form__footer">

@@ -252,4 +252,28 @@
   margin-top: 4px;
 }
 
+.payment-form__segment { display: flex; gap: 8px; margin: 8px 0; }
+.payment-form__segment .seg {
+  flex: 1; padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: transparent; cursor: pointer;
+  font: inherit; color: var(--text2);
+  transition: border-color .12s, background .12s, color .12s;
+}
+.payment-form__segment .seg:hover:not(.seg--on) { border-color: var(--border-strong); }
+.payment-form__segment .seg--on {
+  border-color: var(--accent); color: var(--accent);
+  background: var(--accent-soft);
+}
+.prepay-picker { display: flex; gap: 8px; }
+.prepay-cell {
+  width: 44px; height: 44px; border: 2px solid var(--border);
+  border-radius: var(--r-sm); background: var(--bg3); cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--text2);
+  transition: border-color .12s, background .12s, color .12s;
+}
+.prepay-cell:hover:not(.is-on) { border-color: var(--border-strong); }
+.prepay-cell.is-on {
+  border-color: var(--accent); color: #fff; background: var(--accent);
+}
+
 /* nav-btn--cta defined in ── SIDEBAR ── block above */
