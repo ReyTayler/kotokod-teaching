@@ -55,7 +55,8 @@ class PaymentListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
 
         data = dict(serializer.validated_data)
-        data['created_by'] = f'acct:{request.user.id}' if request.user else None
+        user = request.user
+        data['created_by'] = (getattr(user, 'full_name', None) or getattr(user, 'email', None)) if user else None
 
         result = services.create_payment(data)
 

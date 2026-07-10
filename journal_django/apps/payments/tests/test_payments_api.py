@@ -291,3 +291,20 @@ def test_delete_adds_warning_when_balance_negative(
                 )
                 cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
         # pid уже удалён через DELETE endpoint
+
+
+def test_create_payment_stores_author(admin_client, student_fixture, direction_fixture):
+    import json
+
+    from django.db import connection
+    resp = admin_client.post('/api/admin/payments', json.dumps({
+        'student_id': student_fixture, 'direction_id': direction_fixture,
+        'lessons_count': 4, 'total_amount': '4000.00', 'paid_at': '2026-01-01',
+    }), content_type='application/json')
+    assert resp.status_code == 201, resp.content
+    body = resp.json()
+    cb = body['created_by']
+    assert cb and not cb.startswith('acct:')  # a name/email, not the old machine token
+    # cleanup (FK RESTRICT): delete the created payment before teardown
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM payments WHERE id = %s', [body['id']])
