@@ -26,7 +26,7 @@ class PaymentCreateSerializer(serializers.Serializer):
     note = serializers.CharField(max_length=500, allow_null=True, required=False, default=None)
 
     def validate_lessons_count(self, value):
-        # Фаза 1: только целые блоки (кратно 4). Фаза 2 разрешит 1|2|3.
-        if value % 4 != 0:
-            raise serializers.ValidationError('lessons_count должен быть кратен 4')
-        return value
+        # Одна оплата: либо целые блоки (кратно 4), либо предоплата 1|2|3.
+        if value % 4 == 0 or value in (1, 2, 3):
+            return value
+        raise serializers.ValidationError('lessons_count: кратно 4 (блоки) или 1–3 (предоплата)')

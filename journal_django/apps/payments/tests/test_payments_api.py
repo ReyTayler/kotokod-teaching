@@ -308,3 +308,19 @@ def test_create_payment_stores_author(admin_client, student_fixture, direction_f
     # cleanup (FK RESTRICT): delete the created payment before teardown
     with connection.cursor() as cur:
         cur.execute('DELETE FROM payments WHERE id = %s', [body['id']])
+
+
+def test_prepayment_two_lessons(admin_client, student_fixture, direction_fixture):
+    import json
+    from django.db import connection
+    resp = admin_client.post('/api/admin/payments', json.dumps({
+        'student_id': student_fixture, 'direction_id': direction_fixture,
+        'lessons_count': 2, 'total_amount': '2000.00', 'paid_at': '2026-01-01',
+    }), content_type='application/json')
+    assert resp.status_code == 201, resp.content
+    body = resp.json()
+    assert body['lessons_count'] == 2
+    assert body['subscriptions_count'] is None
+    assert str(body['unit_price']) == '1000.00'
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM payments WHERE id = %s', [body['id']])
