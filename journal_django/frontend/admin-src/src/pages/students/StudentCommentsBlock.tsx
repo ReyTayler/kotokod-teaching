@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Textarea } from '../../components/form/Textarea';
 import { fmtDateTime } from '../../lib/format';
@@ -27,36 +27,21 @@ export default function StudentCommentsBlock({ studentId }: Props) {
   const { me } = useAuth();
   const canDelete = canDeleteStudentComments(me?.role as Role);
 
-  const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<StudentComment[]>([]);
   const [text, setText] = useState('');
   const [confirmId, setConfirmId] = useState<number | null>(null);
 
-  const { data, isLoading, isFetching } = useStudentComments(studentId, page, PAGE_SIZE);
+  const {
+    data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage,
+  } = useStudentComments(studentId, PAGE_SIZE);
   const { add, remove } = useStudentCommentMutations(studentId);
 
-  // Смена ученика — сбрасываем накопленную ленту.
-  useEffect(() => {
-    setPage(1);
-    setRows([]);
-    setConfirmId(null);
-  }, [studentId]);
-
-  // Накапливаем страницы (лента, а не таблица): page 1 заменяет, следующие — дозагружают.
-  useEffect(() => {
-    if (!data) return;
-    setRows((prev) => (page === 1 ? data.rows : [...prev, ...data.rows]));
-  }, [data, page]);
-
-  const backToFirstPage = () => {
-    setPage(1);
-    setRows([]);
-  };
+  // useInfiniteQuery хранит страницы сам — просто разворачиваем в плоский список.
+  const rows: StudentComment[] = data?.pages.flatMap((p) => p.rows) ?? [];
 
   const submit = () => {
     const body = text.trim();
     if (!body) return;
-    add.mutate(body, { onSuccess: () => { setText(''); backToFirstPage(); } });
+    add.mutate(body, { onSuccess: () => setText('') });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -67,10 +52,9 @@ export default function StudentCommentsBlock({ studentId }: Props) {
   };
 
   const confirmDelete = (id: number) => {
-    remove.mutate(id, { onSuccess: () => { setConfirmId(null); backToFirstPage(); } });
+    remove.mutate(id, { onSuccess: () => setConfirmId(null) });
   };
 
-  const hasMore = !!data && rows.length < data.total;
   const remaining = MAX_LEN - text.length;
   const showEmpty = !isLoading && rows.length === 0;
 
@@ -176,14 +160,14 @@ export default function StudentCommentsBlock({ studentId }: Props) {
         </ul>
       )}
 
-      {hasMore && (
+      {hasNextPage && (
         <button
           type="button"
           className="btn-secondary comments__more"
-          disabled={isFetching}
-          onClick={() => setPage((p) => p + 1)}
+          disabled={isFetchingNextPage}
+          onClick={() => fetchNextPage()}
         >
-          {isFetching ? 'Загрузка…' : 'Показать ещё'}
+          {isFetchingNextPage ? 'Загрузка…' : 'Показать ещё'}
         </button>
       )}
     </div>

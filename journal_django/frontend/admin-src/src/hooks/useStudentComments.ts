@@ -1,19 +1,27 @@
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { Paginated } from '../lib/shared-types';
 import type { StudentComment } from '../lib/student-comments';
 
 const KEY = ['students', 'comments'] as const;
 
-export function useStudentComments(studentId: number | null, page: number, pageSize: number) {
-  return useQuery({
-    queryKey: [...KEY, studentId, page, pageSize],
-    queryFn: () => api<Paginated<StudentComment>>(
-      'GET',
-      `/api/admin/students/${studentId}/comments?page=${page}&page_size=${pageSize}`,
-    ),
+/**
+ * Лента комментариев ученика с накопительной пагинацией («Показать ещё»).
+ * useInfiniteQuery сам хранит массив страниц и корректно перезагружает их при
+ * инвалидации — без ручного накопления rows и риска дублей.
+ */
+export function useStudentComments(studentId: number | null, pageSize: number) {
+  return useInfiniteQuery({
+    queryKey: [...KEY, studentId, pageSize],
+    queryFn: ({ pageParam }) =>
+      api<Paginated<StudentComment>>(
+        'GET',
+        `/api/admin/students/${studentId}/comments?page=${pageParam}&page_size=${pageSize}`,
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.page * lastPage.page_size < lastPage.total ? lastPage.page + 1 : undefined,
     enabled: !!studentId,
-    placeholderData: keepPreviousData,
   });
 }
 
