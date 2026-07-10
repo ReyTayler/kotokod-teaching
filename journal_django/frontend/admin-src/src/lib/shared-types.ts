@@ -188,6 +188,8 @@ export interface Payment {
   subscriptions_count: number | null;
   unit_price: number | string;   // numeric(10,2) → строка от pg
   total_amount: number | string;
+  lessons_count: number | null;
+  kind: 'purchase' | 'refund';
   paid_at: string;               // 'YYYY-MM-DD'
   note: string | null;
   created_at: string;

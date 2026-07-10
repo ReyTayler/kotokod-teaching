@@ -189,8 +189,8 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
       await muts.create.mutateAsync({
         student_id: stId!,
         direction_id: dirId!,
-        subscriptions_count: count,
-        unit_price: computedUnitPrice,
+        lessons_count: count * 4,
+        total_amount: total,
         paid_at: paidAt,
         note: finalNote || null,
       });

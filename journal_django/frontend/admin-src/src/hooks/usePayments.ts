@@ -14,8 +14,8 @@ export interface PaymentFilters {
 export interface PaymentCreateInput {
   student_id: number;
   direction_id: number;
-  subscriptions_count: number;
-  unit_price: number;
+  lessons_count: number;
+  total_amount: number;
   paid_at: string;
   note?: string | null;
 }
