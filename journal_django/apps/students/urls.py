@@ -10,6 +10,8 @@ from django.urls import path
 
 from apps.students.views import (
     StudentBalanceView,
+    StudentCommentDetailView,
+    StudentCommentListView,
     StudentDetailView,
     StudentListCreateView,
     StudentStatsView,
@@ -20,4 +22,10 @@ urlpatterns = [
     path('/<int:pk>', StudentDetailView.as_view(), name='students-detail'),
     path('/<int:pk>/stats', StudentStatsView.as_view(), name='students-stats'),
     path('/<int:pk>/balance', StudentBalanceView.as_view(), name='students-balance'),
+    path('/<int:pk>/comments', StudentCommentListView.as_view(), name='students-comments'),
+    path(
+        '/<int:pk>/comments/<int:comment_id>',
+        StudentCommentDetailView.as_view(),
+        name='students-comment-detail',
+    ),
 ]

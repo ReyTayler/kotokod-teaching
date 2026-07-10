@@ -14,14 +14,20 @@ StudentsView — тонкие APIView для /api/admin/students.
 """
 from __future__ import annotations
 
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin
+from apps.core.pagination import StandardPagination
+from apps.core.permissions import IsManagerOrAdmin, ReadStaffWriteAdmin
 from apps.students import services
+from apps.students.models import StudentComment
+from apps.students.serializers import (
+    StudentCommentSerializer,
+    StudentCommentWriteSerializer,
+)
 from apps.students.serializers import StudentUpdateSerializer, StudentWriteSerializer
 
 # Допустимые значения sort_by (whitelist)
@@ -157,3 +163,50 @@ class StudentBalanceView(APIView):
     def get(self, request: Request, pk: int) -> Response:
         balance = services.get_student_balance(pk)
         return Response(balance)
+
+
+class StudentCommentListView(generics.ListAPIView):
+    """
+    GET  /api/admin/students/:id/comments — список комментариев, пагинация
+    POST /api/admin/students/:id/comments — добавить комментарий → 201
+
+    404 если ученик не найден (единообразно с StudentStatsView).
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+    pagination_class = StandardPagination
+    serializer_class = StudentCommentSerializer
+
+    def get_queryset(self):
+        return (
+            StudentComment.objects
+            .filter(student_id=self.kwargs['pk'])
+            .select_related('author')
+            .order_by('-created_at')
+        )
+
+    def get(self, request: Request, pk: int) -> Response:
+        if services.get_student(pk) is None:
+            raise NotFound({'error': 'Not found'})
+        return super().get(request, pk)
+
+    def post(self, request: Request, pk: int) -> Response:
+        if services.get_student(pk) is None:
+            raise NotFound({'error': 'Not found'})
+        ser = StudentCommentWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        comment = services.add_comment(
+            pk, ser.validated_data['body'], getattr(request.user, 'id', None))
+        return Response(StudentCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
+
+
+class StudentCommentDetailView(APIView):
+    """DELETE /api/admin/students/:id/comments/:comment_id — только admin/superadmin."""
+
+    permission_classes = [ReadStaffWriteAdmin]
+
+    def delete(self, request: Request, pk: int, comment_id: int) -> Response:
+        ok = services.delete_comment(pk, comment_id)
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response(status=status.HTTP_204_NO_CONTENT)
