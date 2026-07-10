@@ -13,8 +13,8 @@ def test_rebuild_creates_deal_for_active_membership(make_student, make_direction
         cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
                     "VALUES ('__rg__', %s, %s, false, true, now()) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
-        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, remaining, active) "
-                    "VALUES (%s,%s,0,4,true)", [gid, sid])
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s,%s,0,true)", [gid, sid])
     try:
         call_command('rebuild_renewal_deals')
         assert RenewalDeal.objects.filter(student_id=sid, direction_id=did, cycle_no=1).exists()

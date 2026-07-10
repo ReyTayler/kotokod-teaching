@@ -32,8 +32,8 @@ def _seed(duration: int = 90):
     )
     s1 = Student.objects.create(full_name=f'ORM-S1-{duration}', created_at=Now())
     s2 = Student.objects.create(full_name=f'ORM-S2-{duration}', created_at=Now())
-    GroupMembership.objects.create(group_id=g.id, student_id=s1.id, lessons_done=0, remaining=0)
-    GroupMembership.objects.create(group_id=g.id, student_id=s2.id, lessons_done=0, remaining=0)
+    GroupMembership.objects.create(group_id=g.id, student_id=s1.id, lessons_done=0)
+    GroupMembership.objects.create(group_id=g.id, student_id=s2.id, lessons_done=0)
     return d, t, g, s1, s2
 
 
