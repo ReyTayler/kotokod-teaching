@@ -21,7 +21,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.pagination import StandardPagination
-from apps.core.permissions import IsManagerOrAdmin, ReadStaffWriteAdmin
+from apps.core.permissions import IsAdminOrSuperAdmin, IsManagerOrAdmin, ReadStaffWriteAdmin
+from apps.payments import services as payment_services
 from apps.students import services
 from apps.students.models import StudentComment
 from apps.students.serializers import (
@@ -210,3 +211,19 @@ class StudentCommentDetailView(APIView):
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StudentRefundView(APIView):
+    """POST /api/admin/students/{id}/refund — возврат неотработанного остатка (admin/superadmin)."""
+
+    permission_classes = [IsAdminOrSuperAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        user = request.user
+        author = (getattr(user, 'full_name', None) or getattr(user, 'email', None)) if user else None
+        result = payment_services.refund_student(pk, created_by=author)
+        if result.get('error') == 'student_not_found':
+            raise NotFound({'error': 'Not found'})
+        if result.get('error') == 'nothing_to_refund':
+            return Response({'error': 'nothing_to_refund'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result, status=status.HTTP_201_CREATED)

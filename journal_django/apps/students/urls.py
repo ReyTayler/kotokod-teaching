@@ -14,6 +14,7 @@ from apps.students.views import (
     StudentCommentListView,
     StudentDetailView,
     StudentListCreateView,
+    StudentRefundView,
     StudentStatsView,
 )
 
@@ -28,4 +29,5 @@ urlpatterns = [
         StudentCommentDetailView.as_view(),
         name='students-comment-detail',
     ),
+    path('/<int:pk>/refund', StudentRefundView.as_view(), name='students-refund'),
 ]

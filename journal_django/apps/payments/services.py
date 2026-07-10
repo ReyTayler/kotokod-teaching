@@ -40,3 +40,7 @@ def delete_payment(payment_id: int) -> dict:
 
 def get_student_balance(student_id: int) -> dict:
     return repository.get_student_balance(student_id)
+
+
+def refund_student(student_id: int, created_by: Optional[str] = None) -> dict:
+    return repository.refund_student(student_id, created_by=created_by)

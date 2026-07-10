@@ -324,3 +324,43 @@ def test_prepayment_two_lessons(admin_client, student_fixture, direction_fixture
     assert str(body['unit_price']) == '1000.00'
     with connection.cursor() as cur:
         cur.execute('DELETE FROM payments WHERE id = %s', [body['id']])
+
+
+def test_refund_endpoint_admin(admin_client, student_fixture, direction_fixture):
+    import json
+    from django.db import connection
+    r = admin_client.post('/api/admin/payments', json.dumps({
+        'student_id': student_fixture, 'direction_id': direction_fixture,
+        'lessons_count': 4, 'total_amount': '4000.00', 'paid_at': '2026-01-01'}),
+        content_type='application/json')
+    assert r.status_code == 201, r.content
+    try:
+        resp = admin_client.post(f'/api/admin/students/{student_fixture}/refund', '{}',
+                                 content_type='application/json')
+        assert resp.status_code == 201, resp.content
+        body = resp.json()
+        assert float(body['refunded_amount']) == 4000.0
+        assert body['new_balance'] == 0
+        assert body['refund']['kind'] == 'refund'
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM payments WHERE student_id = %s', [student_fixture])
+
+
+def test_refund_endpoint_forbidden_for_manager(manager_client, student_fixture):
+    resp = manager_client.post(f'/api/admin/students/{student_fixture}/refund', '{}',
+                               content_type='application/json')
+    assert resp.status_code == 403
+
+
+def test_refund_endpoint_forbidden_for_teacher(teacher_client, student_fixture):
+    resp = teacher_client.post(f'/api/admin/students/{student_fixture}/refund', '{}',
+                               content_type='application/json')
+    assert resp.status_code == 403
+
+
+def test_refund_endpoint_nothing_to_refund(admin_client, student_fixture):
+    resp = admin_client.post(f'/api/admin/students/{student_fixture}/refund', '{}',
+                             content_type='application/json')
+    assert resp.status_code == 400
+    assert resp.json()['error'] == 'nothing_to_refund'
