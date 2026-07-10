@@ -441,8 +441,8 @@ class TestStudentStatsRemaining:
                 )
                 cur.execute(
                     "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
-                    "unit_price, total_amount, paid_at, created_by) "
-                    "VALUES (%s,%s,1,2000,2000,'2026-06-01','test')",
+                    "lessons_count, unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s,%s,1,4,2000,2000,'2026-06-01','test')",
                     [sid, direction_id],
                 )
 
