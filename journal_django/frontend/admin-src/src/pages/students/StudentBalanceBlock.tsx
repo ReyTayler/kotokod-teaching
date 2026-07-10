@@ -4,7 +4,9 @@ import { usePaymentMutations } from '../../hooks/usePayments';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
+import { useAuth } from '../../hooks/useAuth';
 import { fmtRub, fmtLessons, fmtDate } from '../../lib/format';
+import { RefundModal } from './RefundModal';
 
 interface Props {
   studentId: number;
@@ -16,11 +18,14 @@ export function StudentBalanceBlock({ studentId }: Props) {
   const { open } = usePaymentModal();
   const showError = useApiError();
   const { toast } = useToast();
+  const { me } = useAuth();
+  const canRefund = me?.role === 'admin' || me?.role === 'superadmin';
 
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [paidOpen, setPaidOpen] = useState(false);
   const [attendedOpen, setAttendedOpen] = useState(false);
+  const [refundOpen, setRefundOpen] = useState(false);
 
   if (balance.isLoading) return null;
   const data = balance.data;
@@ -50,9 +55,16 @@ export function StudentBalanceBlock({ studentId }: Props) {
     <section className="balance-block">
       <div className="balance-block__head">
         <h3>Баланс</h3>
-        <button type="button" className="btn-save" onClick={() => open({ studentId })}>
-          + Внести оплату
-        </button>
+        <div className="balance-block__head-actions">
+          {canRefund && data.total_balance > 0 && (
+            <button type="button" className="btn-danger" onClick={() => setRefundOpen(true)}>
+              Возврат средств
+            </button>
+          )}
+          <button type="button" className="btn-save" onClick={() => open({ studentId })}>
+            + Внести оплату
+          </button>
+        </div>
       </div>
 
       <div className="balance-block__totals">
@@ -161,6 +173,14 @@ export function StudentBalanceBlock({ studentId }: Props) {
           )}
         </>
       )}
+
+      <RefundModal
+        open={refundOpen}
+        onClose={() => setRefundOpen(false)}
+        studentId={studentId}
+        remainingValue={data.remaining_value}
+        remainingLessons={data.total_balance}
+      />
     </section>
   );
 }

@@ -218,6 +218,7 @@ export interface AttendedByDirection {
 export interface StudentBalance {
   total_balance: number;              // общий пул ученика, не по направлению
   total_paid_amount: number | string;
+  remaining_value: number;            // неотработанный остаток в деньгах
   paid_by_direction: PaidByDirection[];
   attended_by_direction: AttendedByDirection[];
   payments: Payment[];

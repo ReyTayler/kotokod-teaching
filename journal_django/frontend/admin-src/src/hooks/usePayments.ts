@@ -63,5 +63,11 @@ export function usePaymentMutations() {
         api<PaymentDeleteResult>('DELETE', `/api/admin/payments/${id}`),
       onSuccess: invalidate,
     }),
+    refund: useMutation({
+      mutationFn: (studentId: number) =>
+        api<{ refund: Payment; new_balance: number; refunded_amount: number }>(
+          'POST', `/api/admin/students/${studentId}/refund`, {}),
+      onSuccess: invalidate,
+    }),
   };
 }

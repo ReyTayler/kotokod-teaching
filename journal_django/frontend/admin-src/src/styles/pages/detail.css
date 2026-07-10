@@ -535,6 +535,7 @@
   margin-bottom: 12px;
 }
 .balance-block__head h3 { margin: 0; }
+.balance-block__head-actions { display: flex; gap: var(--space-2, 8px); align-items: center; }
 .balance-block__totals {
   display: flex; gap: 24px; flex-wrap: wrap;
   padding: 10px 0; border-bottom: 1px solid var(--border);
@@ -562,6 +563,15 @@
 .balance-block__history-row:first-child { border-top: none; }
 .balance-block__history-main { font-size: 14px; }
 .balance-neg { color: var(--danger, #c44); font-weight: 600; }
+
+.btn-danger {
+  padding: 8px 14px; border: 1px solid var(--danger);
+  color: var(--danger); background: transparent; border-radius: var(--r-sm);
+  cursor: pointer; font: inherit;
+}
+.btn-danger:hover { background: color-mix(in oklab, var(--danger) 8%, transparent); }
+.refund-modal { display: flex; flex-direction: column; gap: 10px; }
+.refund-modal__amount { font-size: 1.1rem; }
 
 /* ── BTN-LINK (inline текстовая кнопка) ── */
 .btn-link {
