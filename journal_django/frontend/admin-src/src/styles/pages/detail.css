@@ -852,3 +852,54 @@
   font-size: 13px;
 }
 
+
+/* Последний комментарий в шапке карточки (рядом с возрастом/телефоном) */
+.student-hero__last-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.student-hero__last-comment:hover {
+  border-color: var(--border-strong);
+  background: var(--bg3);
+}
+.student-hero__last-comment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.student-hero__last-comment-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text3);
+}
+.student-hero__last-comment-head svg { width: 13px; height: 13px; color: var(--text4); }
+.student-hero__last-comment-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.student-hero__last-comment-meta {
+  font-size: 11px;
+  color: var(--text4);
+  font-variant-numeric: tabular-nums;
+}
+

@@ -1,9 +1,26 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { Paginated } from '../lib/shared-types';
 import type { StudentComment } from '../lib/student-comments';
 
 const KEY = ['students', 'comments'] as const;
+
+/**
+ * Самый свежий комментарий ученика (для шапки карточки). Общий префикс ключа с
+ * лентой — инвалидация после add/delete обновляет и шапку, и вкладку.
+ */
+export function useLatestStudentComment(studentId: number | null) {
+  return useQuery({
+    queryKey: [...KEY, studentId, 'latest'],
+    queryFn: () =>
+      api<Paginated<StudentComment>>(
+        'GET',
+        `/api/admin/students/${studentId}/comments?page=1&page_size=1`,
+      ),
+    enabled: !!studentId,
+    select: (d) => d.rows[0] ?? null,
+  });
+}
 
 /**
  * Лента комментариев ученика с накопительной пагинацией («Показать ещё»).
