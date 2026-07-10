@@ -63,7 +63,6 @@ function extractStudentsAndMemberships(rows) {
     const startRaw    = row[13];
     const sheetRow    = parseInt(row[14], 10) || null;
     const done        = Math.round((parseFloat(row[16]) || 0) * 10) / 10;
-    const rem         = parseInt(row[17], 10) || 0;
     const enrollRaw   = row[19];
 
     if (!name) continue;
@@ -96,7 +95,6 @@ function extractStudentsAndMemberships(rows) {
         student_name: name,
         group_name: group,
         lessons_done: done,
-        remaining: rem,
         start_date: parseStartDate(startRaw),
         sheet_row: sheetRow,
       });
@@ -171,19 +169,17 @@ async function runBackfill({ dryRun = false } = {}) {
       `WITH g AS (SELECT id FROM groups   WHERE name = $1),
             s AS (SELECT id FROM students WHERE full_name = $2)
        INSERT INTO group_memberships
-         (group_id, student_id, lessons_done, remaining, start_date, sheet_row, active)
-       SELECT g.id, s.id, $3, $4, $5, $6, true FROM g, s
+         (group_id, student_id, lessons_done, start_date, sheet_row, active)
+       SELECT g.id, s.id, $3, $4, $5, true FROM g, s
        ON CONFLICT (group_id, student_id) DO UPDATE SET
          lessons_done = EXCLUDED.lessons_done,
-         remaining    = EXCLUDED.remaining,
          start_date   = EXCLUDED.start_date,
          sheet_row    = EXCLUDED.sheet_row
        WHERE group_memberships.lessons_done IS DISTINCT FROM EXCLUDED.lessons_done
-          OR group_memberships.remaining    IS DISTINCT FROM EXCLUDED.remaining
           OR group_memberships.start_date   IS DISTINCT FROM EXCLUDED.start_date
           OR group_memberships.sheet_row    IS DISTINCT FROM EXCLUDED.sheet_row
        RETURNING (xmax = 0) AS inserted`,
-      [m.group_name, m.student_name, m.lessons_done, m.remaining, m.start_date, m.sheet_row],
+      [m.group_name, m.student_name, m.lessons_done, m.start_date, m.sheet_row],
     );
     if (res.rowCount === 0) result.memberships_skipped++;
     else if (res.rows[0].inserted) result.memberships_inserted++;
