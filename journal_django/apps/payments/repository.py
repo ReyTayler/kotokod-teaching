@@ -13,6 +13,7 @@ ORM-порт services/repo/payments.js (раздел 09).
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Optional
 
 from django.db import transaction
@@ -27,7 +28,7 @@ from .models import Payment
 
 # Поля строки оплаты (p.* / RETURNING *), в порядке схемы.
 _PAYMENT_FIELDS = (
-    'id', 'student_id', 'direction_id', 'subscriptions_count', 'unit_price',
+    'id', 'student_id', 'direction_id', 'subscriptions_count', 'lessons_count', 'kind', 'unit_price',
     'total_amount', 'paid_at', 'note', 'created_at', 'created_by',
 )
 
@@ -51,14 +52,13 @@ def create_payment(data: dict) -> dict:
 
     student_id = data['student_id']
     direction_id = data['direction_id']
-    subscriptions_count = data['subscriptions_count']
-    unit_price = data['unit_price']
+    lessons_count = data['lessons_count']
+    total_amount = data['total_amount']
     paid_at = data['paid_at']
     note = data.get('note')
     created_by = data.get('created_by')
 
     with transaction.atomic():
-        # 1. Лок direction'а, читаем total_lessons.
         dir_row = (
             Direction.objects.select_for_update()
             .filter(id=direction_id)
@@ -70,29 +70,30 @@ def create_payment(data: dict) -> dict:
         if not dir_row['total_lessons'] or dir_row['total_lessons'] <= 0:
             return {'error': 'no_capacity'}
 
-        # 2. Под локом считаем уже-куплено и сверяем с cap.
+        # cap в уроках: считаем только покупки этого направления
         already = (
             Payment.objects
-            .filter(student_id=student_id, direction_id=direction_id)
-            .aggregate(s=Coalesce(Sum('subscriptions_count'), Value(0)))['s']
+            .filter(student_id=student_id, direction_id=direction_id, kind='purchase')
+            .aggregate(s=Coalesce(Sum('lessons_count'), Value(0)))['s']
         )
-        cap_subs = int(dir_row['total_lessons'] // 4)
-        if already + subscriptions_count > cap_subs:
+        if already + lessons_count > dir_row['total_lessons']:
             return {
                 'error': 'cap_exceeded',
                 'already': already,
-                'cap_subscriptions': cap_subs,
+                'cap_subscriptions': int(dir_row['total_lessons'] // 4),
             }
 
-        # 3. INSERT — unit_price округляем до копеек ДО умножения.
-        price = round_kopecks(unit_price)
-        total = price * subscriptions_count  # Decimal * int — точно
+        total = round_kopecks(total_amount)
+        unit_price = round_kopecks(total / Decimal(lessons_count))
+        subs = lessons_count // 4 if lessons_count % 4 == 0 else None
 
         obj = Payment.objects.create(
             student_id=student_id,
             direction_id=direction_id,
-            subscriptions_count=subscriptions_count,
-            unit_price=price,
+            subscriptions_count=subs,
+            lessons_count=lessons_count,
+            kind='purchase',
+            unit_price=unit_price,
             total_amount=total,
             paid_at=paid_at,
             note=note or None,

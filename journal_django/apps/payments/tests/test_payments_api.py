@@ -16,8 +16,8 @@ def _payment_payload(student_id: int, direction_id: int, **overrides) -> dict:
     return {
         'student_id': student_id,
         'direction_id': direction_id,
-        'subscriptions_count': 1,
-        'unit_price': '500.00',
+        'lessons_count': 4,
+        'total_amount': '2000.00',
         'paid_at': '2026-03-01',
         **overrides,
     }
@@ -177,7 +177,7 @@ def test_post_cap_exceeded_returns_400(admin_client, direction_fixture, student_
         assert resp.status_code == 400
         body = resp.json()
         assert body['error'] == 'cap_exceeded'
-        assert body['already'] == 2
+        assert body['already'] == 8
         assert body['cap_subscriptions'] == 2
     finally:
         with connection.cursor() as cur:
@@ -186,8 +186,8 @@ def test_post_cap_exceeded_returns_400(admin_client, direction_fixture, student_
 
 
 @pytest.mark.django_db
-def test_post_invalid_subscriptions_count_returns_400(admin_client, direction_fixture, student_fixture):
-    payload = _payment_payload(student_fixture, direction_fixture, subscriptions_count=0)
+def test_post_invalid_lessons_count_returns_400(admin_client, direction_fixture, student_fixture):
+    payload = _payment_payload(student_fixture, direction_fixture, lessons_count=5)
     resp = admin_client.post(BASE_URL, payload, format='json')
     assert resp.status_code == 400
 

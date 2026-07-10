@@ -205,9 +205,9 @@ def payment_fixture(direction_fixture, student_fixture):
         cur.execute(
             """
             INSERT INTO payments
-               (student_id, direction_id, subscriptions_count, unit_price, total_amount,
+               (student_id, direction_id, subscriptions_count, lessons_count, unit_price, total_amount,
                 paid_at, created_by)
-            VALUES (%s, %s, 1, 1000.00, 1000.00, '2026-01-01', 'test')
+            VALUES (%s, %s, 1, 4, 1000.00, 1000.00, '2026-01-01', 'test')
             RETURNING id
             """,
             [student_fixture, direction_fixture],

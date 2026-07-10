@@ -40,32 +40,40 @@ class TestPaymentsDirectionCountConstraint:
                 cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
                 cur.execute('DELETE FROM students WHERE id = %s', [sid])
 
-    def test_subscriptions_count_zero_still_rejected(self):
-        """payments_subscriptions_count_check по-прежнему работает (constraint не трогали)."""
+    def test_purchase_zero_lessons_rejected(self):
+        """payments_purchase_signs: purchase с lessons_count=0 (требуется >0) отклоняется."""
         sid = _make_student()
         try:
             with pytest.raises(IntegrityError), transaction.atomic():
-                Payment.objects.create(
-                    student_id=sid, direction_id=None, subscriptions_count=0,
-                    unit_price='100.00', total_amount='0.00',
-                    paid_at='2026-01-01', created_at='2026-01-01T00:00:00Z',
-                )
+                with connection.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO payments (student_id, direction_id, kind, lessons_count, "
+                        "unit_price, total_amount, paid_at, created_at) "
+                        "VALUES (%s, NULL, 'purchase', 0, 100.00, 0.00, '2026-01-01', "
+                        "'2026-01-01T00:00:00Z')",
+                        [sid],
+                    )
         finally:
             with connection.cursor() as cur:
+                cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
                 cur.execute('DELETE FROM students WHERE id = %s', [sid])
 
-    def test_total_amount_mismatch_still_rejected(self):
-        """payments_total_match по-прежнему работает (constraint не трогали)."""
+    def test_refund_positive_lessons_rejected(self):
+        """payments_refund_signs: refund с положительным lessons_count (требуется <0) отклоняется."""
         sid = _make_student()
         try:
             with pytest.raises(IntegrityError), transaction.atomic():
-                Payment.objects.create(
-                    student_id=sid, direction_id=None, subscriptions_count=2,
-                    unit_price='100.00', total_amount='999.00',  # должно быть 200.00
-                    paid_at='2026-01-01', created_at='2026-01-01T00:00:00Z',
-                )
+                with connection.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO payments (student_id, direction_id, kind, lessons_count, "
+                        "unit_price, total_amount, paid_at, created_at) "
+                        "VALUES (%s, NULL, 'refund', 1, 100.00, 0.00, '2026-01-01', "
+                        "'2026-01-01T00:00:00Z')",
+                        [sid],
+                    )
         finally:
             with connection.cursor() as cur:
+                cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
                 cur.execute('DELETE FROM students WHERE id = %s', [sid])
 
 
@@ -139,7 +147,12 @@ class TestBackfillLegacySubscriptionsCount:
                 cur.execute('DELETE FROM students WHERE id = %s', [sid])
 
     def test_backfilled_payment_counts_in_global_balance(self):
-        """Ключевая проверка бага: после бэкафилла легаси-оплата считается в balance_for_student."""
+        """Легаси-оплата (direction NULL) считается в balance_for_student по lessons_count.
+
+        Баланс теперь считается по lessons_count (не subscriptions_count), поэтому
+        строка с lessons_count=4 даёт куплено=4 сразу; бэкафилл subscriptions_count —
+        безобидный no-op для баланса, но не должен его сломать.
+        """
         from apps.finances.repository import balance_for_student
 
         sid = _make_student()
@@ -147,17 +160,17 @@ class TestBackfillLegacySubscriptionsCount:
             with connection.cursor() as cur:
                 cur.execute(
                     "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
-                    "unit_price, total_amount, paid_at, created_by) "
-                    "VALUES (%s, NULL, NULL, 9990.00, 9990.00, '2024-03-15', 'backfill-script')",
+                    "lessons_count, unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, NULL, NULL, 4, 9990.00, 9990.00, '2024-03-15', 'backfill-script')",
                     [sid],
                 )
 
-            assert balance_for_student(sid) == 0  # куплено 0 (subscriptions_count NULL), отработано 0
+            assert balance_for_student(sid) == 4  # lessons_count=4, отработано 0
 
             from django.apps import apps as global_apps
             backfill_module.backfill_subscriptions_count(global_apps, None)
 
-            assert balance_for_student(sid) == 4  # теперь 1 абонемент × 4 урока, куплено = 4
+            assert balance_for_student(sid) == 4  # бэкафилл subscriptions_count не меняет баланс
         finally:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])

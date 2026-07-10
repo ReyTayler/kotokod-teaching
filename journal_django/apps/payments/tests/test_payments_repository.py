@@ -32,8 +32,8 @@ class TestCreatePayment:
         data = {
             'student_id': student_fixture,
             'direction_id': direction_fixture,
-            'subscriptions_count': 1,
-            'unit_price': '375.00',
+            'lessons_count': 4,
+            'total_amount': '375.00',
             'paid_at': '2026-01-15',
             'created_by': 'acct:1',
         }
@@ -51,12 +51,12 @@ class TestCreatePayment:
                     cur.execute('DELETE FROM payments WHERE id = %s', [result['payment']['id']])
 
     def test_rounds_unit_price_to_kopecks(self, direction_fixture, student_fixture):
-        """unit_price = 375.333... → rounds to 375.33 before storing."""
+        """unit_price = total_amount/lessons_count, округляется до копеек (1000/3 → 333.33)."""
         data = {
             'student_id': student_fixture,
             'direction_id': direction_fixture,
-            'subscriptions_count': 1,
-            'unit_price': '375.333',
+            'lessons_count': 3,
+            'total_amount': '1000.00',
             'paid_at': '2026-01-15',
         }
         result = repository.create_payment(data)
@@ -64,7 +64,7 @@ class TestCreatePayment:
             assert 'payment' in result
             price_str = str(result['payment']['unit_price'])
             # Rounded to 2 dp
-            assert float(price_str) == pytest.approx(375.33, abs=0.001)
+            assert float(price_str) == pytest.approx(333.33, abs=0.001)
         finally:
             if 'payment' in result:
                 with connection.cursor() as cur:
@@ -74,8 +74,8 @@ class TestCreatePayment:
         data = {
             'student_id': student_fixture,
             'direction_id': 999_999_999,
-            'subscriptions_count': 1,
-            'unit_price': '1000.00',
+            'lessons_count': 4,
+            'total_amount': '1000.00',
             'paid_at': '2026-01-15',
         }
         result = repository.create_payment(data)
@@ -97,8 +97,8 @@ class TestCreatePayment:
             data = {
                 'student_id': student_fixture,
                 'direction_id': dir_id,
-                'subscriptions_count': 1,
-                'unit_price': '1000.00',
+                'lessons_count': 4,
+                'total_amount': '1000.00',
                 'paid_at': '2026-01-15',
             }
             result = repository.create_payment(data)
@@ -109,8 +109,7 @@ class TestCreatePayment:
 
     def test_cap_exceeded(self, direction_fixture, student_fixture):
         """
-        direction_fixture: total_lessons=8 → cap=2.
-        Создаём 2 оплаты (already=2), третья → cap_exceeded.
+        total_lessons=8 → cap=8 уроков (2 блока по 4); третья оплата → cap_exceeded
         """
         created_ids = []
         try:
@@ -118,8 +117,8 @@ class TestCreatePayment:
                 data = {
                     'student_id': student_fixture,
                     'direction_id': direction_fixture,
-                    'subscriptions_count': 1,
-                    'unit_price': '500.00',
+                    'lessons_count': 4,
+                    'total_amount': '500.00',
                     'paid_at': '2026-01-15',
                 }
                 r = repository.create_payment(data)
@@ -129,12 +128,32 @@ class TestCreatePayment:
             # Третья должна упасть
             result = repository.create_payment(data)
             assert result['error'] == 'cap_exceeded'
-            assert result['already'] == 2
+            assert result['already'] == 8
             assert result['cap_subscriptions'] == 2
         finally:
             with connection.cursor() as cur:
                 for pid in created_ids:
                     cur.execute('DELETE FROM payments WHERE id = %s', [pid])
+
+    def test_derives_unit_and_subs(self, direction_fixture, student_fixture):
+        from decimal import Decimal
+        res = repository.create_payment({
+            'student_id': student_fixture, 'direction_id': direction_fixture,
+            'lessons_count': 4, 'total_amount': Decimal('4000.00'),
+            'paid_at': '2026-01-01', 'created_by': 'Тест Тестов',
+        })
+        try:
+            p = res['payment']
+            assert p['lessons_count'] == 4
+            assert p['kind'] == 'purchase'
+            assert p['subscriptions_count'] == 1
+            assert str(p['unit_price']) == '1000.00'
+            assert str(p['total_amount']) == '4000.00'
+            assert p['created_by'] == 'Тест Тестов'
+        finally:
+            if 'payment' in res:
+                with connection.cursor() as cur:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [res['payment']['id']])
 
 
 # ---------------------------------------------------------------------------
@@ -190,8 +209,8 @@ class TestListPayments:
                 r = repository.create_payment({
                     'student_id': student_fixture,
                     'direction_id': direction_fixture,
-                    'subscriptions_count': 1,
-                    'unit_price': '500.00',
+                    'lessons_count': 4,
+                    'total_amount': '500.00',
                     'paid_at': date,
                 })
                 created_ids.append(r['payment']['id'])
@@ -238,8 +257,8 @@ class TestDeletePayment:
         r = repository.create_payment({
             'student_id': student_fixture,
             'direction_id': direction_fixture,
-            'subscriptions_count': 1,
-            'unit_price': '1000.00',
+            'lessons_count': 4,
+            'total_amount': '1000.00',
             'paid_at': '2026-03-01',
         })
         pid = r['payment']['id']
@@ -272,8 +291,8 @@ class TestDeletePayment:
                 r = repository.create_payment({
                     'student_id': student_fixture,
                     'direction_id': direction_fixture,
-                    'subscriptions_count': 1,
-                    'unit_price': '1000.00',
+                    'lessons_count': 4,
+                    'total_amount': '1000.00',
                     'paid_at': '2026-03-01',
                 })
                 ids.append(r['payment']['id'])
