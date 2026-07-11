@@ -2,6 +2,10 @@
 PaymentsService — тонкий слой между views и repository.
 
 Никакого SQL здесь — всё через repository.
+
+Инвалидацию кэша «Реестра куратора» payments НЕ делает: read-model (dashboard)
+сам подписан на сигналы Payment (apps/dashboard/signals.py) — правильное
+направление зависимостей, payments про дашборд ничего не знает.
 """
 from __future__ import annotations
 

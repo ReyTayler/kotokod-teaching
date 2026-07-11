@@ -23,7 +23,9 @@ def test_payment_orm_create_closes_deal(django_capture_on_commit_callbacks,
             pay = Payment.objects.create(
                 student_id=sid, direction_id=did, subscriptions_count=1,
                 unit_price=4000, total_amount=4000, paid_at='2026-07-08', created_at=Now())
-        assert len(callbacks) == 1
+        # >= 1: на Payment.post_save подписаны и renewals (закрытие сделки), и
+        # dashboard (сброс кэша реестра) — проверяем СВОЙ эффект ниже, не число слушателей.
+        assert len(callbacks) >= 1
         assert RenewalDeal.objects.filter(
             student_id=sid, direction_id=did, outcome_at__isnull=False).count() == 1
         assert RenewalDeal.objects.filter(

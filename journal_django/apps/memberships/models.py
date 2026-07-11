@@ -53,3 +53,9 @@ class GroupMembership(models.Model):
                 name='group_memberships_group_id_student_id_key',
             ),
         ]
+        indexes = [
+            # Реестр куратора фильтрует membership по одному student_id (attended/
+            # planned/codes-подзапросы). Композитный (group_id, student_id) для
+            # этого не годится (student_id — не ведущая колонка). См. вариант B.
+            models.Index(fields=['student'], name='gm_student_idx'),
+        ]

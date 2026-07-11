@@ -34,6 +34,8 @@ urlpatterns = [
     path('api/admin/payroll', include('apps.payroll.urls')),
     # Phase 8 — dashboard (FIFO read-model)
     path('api/admin/dashboard', include('apps.dashboard.urls')),
+    # Реестр куратора — операционный список активных учеников (вкладка дашборда)
+    path('api/admin/registry', include('apps.dashboard.registry_urls')),
     # Phase 9 — accounts (admin-only RBAC)
     path('api/admin/accounts', include('apps.accounts.urls')),
     # Продления — CRM-воронка продлений (/api/admin/renewals, role=manager/admin)

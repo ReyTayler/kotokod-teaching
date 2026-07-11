@@ -146,6 +146,64 @@ DATABASES = {
 DATABASES['default']['CONN_MAX_AGE'] = 0
 
 # ---------------------------------------------------------------------------
+# Cache — Redis (django-redis) при заданном REDIS_URL, иначе локальный in-memory.
+# Кэширует дорогой снимок «Реестра куратора» (apps/dashboard/registry_service).
+#
+# GRACEFUL DEGRADATION (важно для локальной разработки на Windows):
+#   • REDIS_URL не задан (dev/тесты) → LocMemCache — пакет redis НЕ нужен, ничего
+#     не поднимаем; путь django_redis активируется ТОЛЬКО в проде (см. deploy/).
+#   • Redis временно недоступен в проде → IGNORE_EXCEPTIONS=True: get/set «мимо»
+#     (кэш-промах), запрос не падает.
+# Cache — оптимизация, не источник правды: registry_service всё равно оборачивает
+# доступ в try/except и падает обратно на синхронный расчёт.
+# ---------------------------------------------------------------------------
+REDIS_URL: str = env('REDIS_URL', default='')
+
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'IGNORE_EXCEPTIONS': True,  # Redis down → кэш-промах, не 500
+            },
+            'KEY_PREFIX': 'journal',
+        },
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'journal-locmem',
+        },
+    }
+
+# ---------------------------------------------------------------------------
+# Celery (Фаза 3, спека 2026-07-11) — асинхронный прогрев кэша реестра.
+#
+# Broker/result — Redis (тот же REDIS_URL). beat_schedule раз в 60с обновляет
+# снимок «Реестра куратора», держа кэш (TTL 120с) тёплым в проде.
+#
+# GRACEFUL DEGRADATION: без REDIS_URL (dev) TASK_ALWAYS_EAGER=True — любые .delay()
+# выполняются синхронно, без брокера/воркера. Воркер/beat в dev НЕ запускают;
+# приложение работает и без них (registry_service считает снимок синхронно).
+# Локально пакет celery может быть НЕ установлен — config/__init__.py импортирует
+# celery-app под try/except (Django стартует без Celery). Юниты — deploy/systemd/.
+# ---------------------------------------------------------------------------
+CELERY_BROKER_URL = REDIS_URL or 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = REDIS_URL or 'redis://localhost:6379/0'
+CELERY_TIMEZONE = 'Europe/Moscow'
+CELERY_ENABLE_UTC = False
+CELERY_TASK_ALWAYS_EAGER = not REDIS_URL
+CELERY_BEAT_SCHEDULE = {
+    'refresh-registry-summary': {
+        'task': 'apps.dashboard.tasks.refresh_registry_summary',
+        'schedule': 60.0,  # < TTL(120с) → кэш сводки всегда тёплый
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Internationalisation
 # ---------------------------------------------------------------------------
 LANGUAGE_CODE = 'ru-ru'

@@ -1,4 +1,4 @@
-import type { EnrollmentStatus, LessonType } from './types';
+import type { EnrollmentStatus, LessonType, RegistryStatus } from './types';
 
 // ===== Enrollment status =====
 // Подписи в Title Case — используются и в badge, и в формах, и в фильтрах.
@@ -14,6 +14,17 @@ export const ENROLLMENT_STATUS_LABELS: Record<EnrollmentStatus, string> = {
 export const ENROLLMENT_STATUS_OPTIONS: { value: EnrollmentStatus; label: string }[] =
   (Object.entries(ENROLLMENT_STATUS_LABELS) as [EnrollmentStatus, string][])
     .map(([value, label]) => ({ value, label }));
+
+// ===== Реестр куратора — статус ученика =====
+// Подписи бейджа и строк сигналов. Коды приходят с бэка (registry_service.classify).
+
+export const REGISTRY_STATUS_LABELS: Record<RegistryStatus, string> = {
+  closed:  'Пакет закрыт',
+  ending:  'Заканчивается',
+  idle:    'Простой',
+  no_plan: 'Нет плана',
+  ok:      'Активен',
+};
 
 // ===== Lesson type =====
 

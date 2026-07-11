@@ -1,0 +1,45 @@
+# systemd-юнит — KOTOKOD journal Celery worker (прогрев кэша «Реестра куратора»).
+#
+# Введено «понемногу» (спека 2026-07-11). Пока единственная задача — обновление
+# снимка реестра; concurrency=1 достаточно (VPS 2 CPU / 2 ГБ). Требует Redis
+# (apt install redis-server) и REDIS_URL в .env. Без воркера приложение работает
+# синхронно — воркер лишь ускоряет реестр.
+#
+# Установка (Beget VPS, Ubuntu 22.04, БЕЗ Docker):
+#   sudo apt install redis-server
+#   sudo cp deploy/systemd/journal-celery-worker.service /etc/systemd/system/
+#   # отредактировать User/WorkingDirectory/EnvironmentFile под реальные пути
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now journal-celery-worker
+#   sudo systemctl status journal-celery-worker
+
+[Unit]
+Description=KOTOKOD journal Celery worker
+After=network.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=kotokod                                   # ЗАМЕНИТЬ на сервисного пользователя
+Group=www-data
+WorkingDirectory=/opt/kotokod/journal-backend/journal_django   # ЗАМЕНИТЬ
+EnvironmentFile=/opt/kotokod/journal-backend/.env              # должен содержать REDIS_URL
+Environment=DJANGO_SETTINGS_MODULE=config.settings.production
+Environment=TZ=Europe/Moscow
+ExecStart=/opt/kotokod/journal-backend/journal_django/.venv/bin/celery \
+          -A config worker --loglevel=info --concurrency=1
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening (как journal-django.service)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

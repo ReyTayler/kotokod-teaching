@@ -245,6 +245,53 @@ export interface Paginated<T> {
   page_size: number;
 }
 
+// ===== Реестр куратора (вкладка дашборда) =====
+
+export type RegistryStatus = 'closed' | 'ending' | 'idle' | 'no_plan' | 'ok';
+export type RegistrySegment = 'all' | 'ending' | 'closed' | 'idle' | 'no_plan';
+
+export interface RegistryKpis {
+  active_students: number;
+  renewal_upsell: number;
+  idle: number;
+  avg_progress: number;
+  lessons_ahead: number;
+  cancellations: number;
+}
+
+export interface TodayStreamItem {
+  time: string | null;
+  group_code: string;
+  teacher_name: string | null;
+  student_names: string[];
+  status: string;
+}
+
+export interface RegistrySignal {
+  count: number;
+}
+
+export interface RegistrySummary {
+  generated_at: string;
+  kpis: RegistryKpis;
+  today_stream: TodayStreamItem[];
+  signals: Record<'ending' | 'closed' | 'idle' | 'no_plan', RegistrySignal>;
+}
+
+export interface RegistryStudent {
+  student_id: number;
+  student_name: string;
+  codes: string[];
+  teacher_names: string[];
+  balance: number;
+  attended: number;
+  planned: number;
+  progress_pct: number | null;
+  last_lesson_date: string | null;
+  next_lesson_date: string | null;
+  status: RegistryStatus;
+}
+
 // ===== Accounts & RBAC =====
 
 export type Role = 'teacher' | 'manager' | 'admin' | 'superadmin';

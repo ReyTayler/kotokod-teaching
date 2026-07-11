@@ -11,7 +11,7 @@ import datetime
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Min
 
 from apps.core.utils.dates import msk_now
 from apps.groups.models import GroupScheduleSlot
@@ -21,7 +21,7 @@ from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import planner
 from apps.scheduling.models import PlannedLesson
-from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING, Slot, _step_for
+from apps.scheduling.occurrences import CANCELLED, DONE, MOVED, OVERDUE, PENDING, Slot, _step_for
 from apps.scheduling.planner import Fact, PlannedRow
 
 
@@ -162,6 +162,71 @@ def groups_without_plan(teacher_id: int) -> list[dict]:
             reason = 'not_generated'
         out.append({'group': g['name'], 'reason': reason})
     return out
+
+
+# ---------------------------------------------------------------------------
+# ЧТЕНИЕ planned_lessons для реестра куратора (admin, вся школа).
+# Скоуп НЕ по преподавателю — единственное место, где planned_lessons читаются
+# по ВСЕМ активным группам разом. Батч, без N+1. Потребитель —
+# apps/dashboard/registry_service.py.
+# ---------------------------------------------------------------------------
+
+def occurrences_on_date(target: datetime.date) -> list[dict]:
+    """
+    Плановые занятия ВСЕХ активных групп на конкретную дату (для «Потока дня»).
+
+    Исключены маркеры отмены/переноса (cancelled/moved) — показываем реальные
+    занятия дня. Возвращает value-словари (time — объект); имена преподавателей и
+    учеников подтягивает вызывающий через teacher_names / student_names_by_group.
+    """
+    return list(
+        PlannedLesson.objects
+        .filter(group__active=True, scheduled_date=target)
+        .exclude(status__in=(CANCELLED, MOVED))
+        .order_by('scheduled_time', 'group_id')
+        .values(
+            'id', 'scheduled_time', 'status', 'teacher_id',
+            group_pk=F('group_id'),
+            group_name=F('group__name'),
+        )
+    )
+
+
+def next_occurrence_by_group(from_date: datetime.date) -> dict[int, datetime.date]:
+    """
+    group_id → ближайшая плановая дата (>= from_date) среди pending/overdue строк
+    активных групп. Один запрос с Min-агрегацией. Для колонки «Ближайший» (min по
+    группам ученика вычисляет вызывающий).
+    """
+    rows = (
+        PlannedLesson.objects
+        .filter(
+            group__active=True,
+            scheduled_date__gte=from_date,
+            status__in=(PENDING, OVERDUE),
+        )
+        .values('group_id')
+        .annotate(nx=Min('scheduled_date'))
+    )
+    return {r['group_id']: r['nx'] for r in rows}
+
+
+def cancellations_count(period_start, period_end) -> int:
+    """
+    Число отменённых плановых занятий (маркеры status='cancelled') активных групп
+    в полуинтервале [period_start, period_end) — KPI «Отмены» реестра.
+    Границы — 'YYYY-MM-DD' строки или date (Django принимает оба для DateField).
+    """
+    return (
+        PlannedLesson.objects
+        .filter(
+            group__active=True,
+            status=CANCELLED,
+            scheduled_date__gte=period_start,
+            scheduled_date__lt=period_end,
+        )
+        .count()
+    )
 
 
 # ---------------------------------------------------------------------------

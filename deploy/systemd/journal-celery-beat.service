@@ -1,0 +1,46 @@
+# systemd-юнит — KOTOKOD journal Celery beat (планировщик прогрева кэша реестра).
+#
+# beat раз в 60с ставит задачу refresh_registry_summary (CELERY_BEAT_SCHEDULE в
+# config/settings/base.py), держа кэш сводки (TTL 120с) тёплым. Запускать ОДИН
+# экземпляр beat на кластер (иначе дубли задач). Требует worker + Redis.
+#
+# Установка:
+#   sudo cp deploy/systemd/journal-celery-beat.service /etc/systemd/system/
+#   # отредактировать пути, затем:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now journal-celery-beat
+#   sudo systemctl status journal-celery-beat
+
+[Unit]
+Description=KOTOKOD journal Celery beat (scheduler)
+After=network.target redis-server.service journal-celery-worker.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=kotokod                                   # ЗАМЕНИТЬ
+Group=www-data
+WorkingDirectory=/opt/kotokod/journal-backend/journal_django   # ЗАМЕНИТЬ
+EnvironmentFile=/opt/kotokod/journal-backend/.env              # REDIS_URL
+Environment=DJANGO_SETTINGS_MODULE=config.settings.production
+Environment=TZ=Europe/Moscow
+# --schedule в /run (RuntimeDirectory) — ФС в остальном read-only (ProtectSystem=strict).
+RuntimeDirectory=journal-celery-beat
+ExecStart=/opt/kotokod/journal-backend/journal_django/.venv/bin/celery \
+          -A config beat --loglevel=info \
+          --schedule=/run/journal-celery-beat/celerybeat-schedule
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

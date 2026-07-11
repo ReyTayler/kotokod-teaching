@@ -14,6 +14,29 @@ Runbook перевода продакшена с Node/Express на Django за n
 - `nginx/local/nginx.conf` + `nginx/local/start-local-nginx.ps1` — локальный запуск через nginx (Windows)
 - `gunicorn.conf.py` — WSGI app-server (unix-сокет)
 - `systemd/journal-django.service` — автозапуск gunicorn
+- `systemd/journal-celery-worker.service` + `systemd/journal-celery-beat.service` — Celery (прогрев кэша «Реестра куратора»)
+
+---
+
+## Redis + Celery (кэш «Реестра куратора», спека 2026-07-11)
+
+Реестр кэширует дорогой снимок; Redis хранит кэш, Celery-beat держит его тёплым.
+**Вводится «понемногу» и полностью опционально:** без `REDIS_URL` приложение
+работает на встроенном LocMemCache и считает снимок синхронно (локальная
+разработка на Windows Redis/Celery НЕ требует).
+
+Включение на проде (Beget, без Docker):
+1. `sudo apt install redis-server` (по умолчанию `redis://localhost:6379/0`).
+2. В корневом `.env` добавить `REDIS_URL=redis://localhost:6379/0` — это активирует
+   django-redis-кэш и Celery-broker (см. `config/settings/base.py`).
+3. `pip install -r requirements.txt` (подтянет `django-redis`, `celery`, `redis`).
+4. Установить и включить юниты worker + beat (инструкции в шапке каждого файла):
+   `journal-celery-worker.service`, `journal-celery-beat.service`.
+5. Проверка: `journalctl -u journal-celery-beat -f` — раз в 60с задача
+   `refresh_registry_summary`. На 2 ГБ RAM: worker `--concurrency=1`, один beat.
+
+Откат: снять юниты и убрать `REDIS_URL` из `.env` → приложение вернётся на
+синхронный расчёт без потери функциональности.
 
 ---
 

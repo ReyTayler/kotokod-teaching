@@ -248,6 +248,258 @@
 }
 
 /* ============================================================
+ *  DASHBOARD TABS (Финансы | Реестр)
+ * ============================================================ */
+.dash-tabs {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: 3px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  width: fit-content;
+}
+
+.dash-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.dash-tab:hover { color: var(--text); }
+.dash-tab--active {
+  background: var(--bg2);
+  color: var(--text);
+  box-shadow: var(--shadow-modal);
+}
+
+/* ── Clickable KPI (реестр — плашка-фильтр) ── */
+.kpi-card--clickable {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  appearance: none;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.kpi-card--clickable:hover { border-color: var(--border-strong); }
+.kpi-card--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* 6 KPI в ряд → 3 → 2 → 1 */
+.dashboard__kpis--6 { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1100px) { .dashboard__kpis--6 { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px)  { .dashboard__kpis--6 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px)  { .dashboard__kpis--6 { grid-template-columns: 1fr; } }
+
+/* ============================================================
+ *  РЕЕСТР КУРАТОРА
+ * ============================================================ */
+
+/* Поток дня + Сигналы — две карточки в ряд */
+.reg-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+@media (max-width: 820px) { .reg-grid { grid-template-columns: 1fr; } }
+
+/* ── Поток дня ── */
+.reg-stream { list-style: none; margin: 0; padding: 0; }
+.reg-stream__empty {
+  padding: var(--space-5);
+  font-size: 13px;
+  color: var(--text4);
+  text-align: center;
+}
+.reg-stream__row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border2);
+}
+.reg-stream__row:last-child { border-bottom: none; }
+.reg-stream__time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+}
+.reg-stream__code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.reg-stream__who {
+  font-size: 13px;
+  color: var(--text2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reg-stream__teacher { color: var(--text4); }
+.reg-stream__status {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  white-space: nowrap;
+}
+.reg-stream__status--overdue { color: var(--danger); }
+.reg-stream__status--done { color: var(--success); }
+
+/* ── Сигналы менеджеру ── */
+.reg-signals { list-style: none; margin: 0; padding: 0; }
+.reg-signal {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border2);
+  padding: var(--space-3) var(--space-5);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.reg-signals li:last-child .reg-signal { border-bottom: none; }
+.reg-signal:hover { background: var(--bg3); }
+.reg-signal--active { background: var(--accent-soft); }
+.reg-signal__count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: center;
+  color: var(--text3);
+}
+.reg-signal__count--ending { color: var(--warning); }
+.reg-signal__count--closed { color: var(--danger); }
+.reg-signal__count--idle { color: var(--info); }
+.reg-signal__count--no_plan { color: var(--text3); }
+.reg-signal__label { font-size: 13px; color: var(--text2); }
+
+/* ── Статус-бейдж строки реестра ── */
+.reg-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.reg-badge--closed {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.reg-badge--ending {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 32%, transparent);
+}
+.reg-badge--idle {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  border-color: color-mix(in srgb, var(--info) 30%, transparent);
+}
+.reg-badge--no_plan {
+  color: var(--text3);
+  background: var(--bg3);
+  border-color: var(--border);
+}
+.reg-badge--ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+/* ── Плашка активного сегмент-фильтра (снимает фильтр) ── */
+.reg-active-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.reg-active-filter__label {
+  font-size: 12px;
+  color: var(--text3);
+}
+.reg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px var(--space-3);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.reg-chip:hover { background: var(--accent-soft-h); }
+.reg-chip__x { font-size: 11px; opacity: 0.7; }
+
+/* ── Ячейки таблицы реестра ── */
+.reg-cell-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.reg-cell-name { font-weight: 500; color: var(--text); }
+.reg-balance {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text2);
+}
+.reg-balance--zero { color: var(--danger); }
+
+.reg-progress { display: flex; align-items: center; gap: var(--space-2); }
+.reg-progress__num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text2);
+  min-width: 44px;
+}
+.reg-progress__bar {
+  flex: 1;
+  min-width: 40px;
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.reg-progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+/* ============================================================
  *  FINANCE CHARTS SECTION
  *  Two monthly area-charts (revenue + worked-off).
  *  Surface: same borders-only + shadow-modal as kpi-cards.
