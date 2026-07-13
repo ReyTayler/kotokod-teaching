@@ -12,7 +12,7 @@ function fmtLessonDate(iso: string): string {
   return `${WD[wd]}, ${d} ${MON[m - 1]}`;
 }
 
-type CellStatus = 'present' | 'absent' | 'planned';
+type CellStatus = 'present' | 'absent' | 'planned' | 'transferred';
 
 function cellStatus(cell: boolean | null): CellStatus {
   if (cell === true) return 'present';
@@ -24,7 +24,21 @@ const STATUS_LABEL: Record<CellStatus, string> = {
   present: 'Был',
   absent: 'Не был',
   planned: 'Не проведён',
+  transferred: 'Перевод',
 };
+
+/**
+ * Статусы ленты ученика с учётом «бюджета» переведённых уроков: расходуется
+ * слева направо только на cell === null, реальные true/false никогда не
+ * перекрываются статусом transferred.
+ */
+function computeCellStatuses(cells: (boolean | null)[], transferredLessons: number): CellStatus[] {
+  let transferredLeft = transferredLessons;
+  return cells.map((cell) => {
+    if (cell === null && transferredLeft > 0) { transferredLeft--; return 'transferred'; }
+    return cellStatus(cell);
+  });
+}
 
 /** Цвет процента посещаемости: ≥80 зелёный, ≥60 янтарный, иначе красный. */
 function pctColor(pct: number): string {
@@ -37,6 +51,7 @@ interface TipState {
   slot: number;
   status: CellStatus;
   date: string | null;
+  transferredFromGroupName: string | null;
   x: number;
   y: number;
 }
@@ -60,12 +75,15 @@ export function GroupProgressView({ data }: { data: GroupProgress }) {
 
   const slots: ProgressSlot[] = data.slots;
 
-  const showTip = (e: MouseEvent<HTMLElement>, slot: ProgressSlot, cell: boolean | null) => {
+  const showTip = (
+    e: MouseEvent<HTMLElement>, slot: ProgressSlot, status: CellStatus, transferredFromGroupName: string | null,
+  ) => {
     const r = e.currentTarget.getBoundingClientRect();
     setTip({
       slot: slot.slot,
-      status: cellStatus(cell),
+      status,
       date: slot.date,
+      transferredFromGroupName,
       x: r.left + r.width / 2,
       y: r.top,
     });
@@ -78,6 +96,7 @@ export function GroupProgressView({ data }: { data: GroupProgress }) {
           <span className="progress-legend__item"><span className="progress-chip is-present" />Был</span>
           <span className="progress-legend__item"><span className="progress-chip is-absent" />Не был</span>
           <span className="progress-legend__item"><span className="progress-chip is-planned" />Не проведён</span>
+          <span className="progress-legend__item"><span className="progress-chip is-transferred" />Перевод</span>
         </div>
         <div className="progress-view__summary">
           {avgPct !== null && (
@@ -100,16 +119,18 @@ export function GroupProgressView({ data }: { data: GroupProgress }) {
             </div>
 
             <div className="progress-ribbon">
-              {s.cells.map((cell, i) => {
+              {computeCellStatuses(s.cells, s.transferred_lessons).map((st, i) => {
                 const slot = slots[i];
-                const st = cellStatus(cell);
+                const label = st === 'transferred'
+                  ? `Урок №${slot.slot}: Перевод из «${s.transferred_from_group_name}»`
+                  : `Урок №${slot.slot}: ${STATUS_LABEL[st]}${slot.date ? `, ${fmtLessonDate(slot.date)}` : ''}`;
                 return (
                   <span
                     key={slot.slot}
                     className={`progress-sq is-${st}`}
                     role="img"
-                    aria-label={`Урок №${slot.slot}: ${STATUS_LABEL[st]}${slot.date ? `, ${fmtLessonDate(slot.date)}` : ''}`}
-                    onMouseEnter={(e) => showTip(e, slot, cell)}
+                    aria-label={label}
+                    onMouseEnter={(e) => showTip(e, slot, st, st === 'transferred' ? s.transferred_from_group_name : null)}
                   />
                 );
               })}
@@ -133,7 +154,11 @@ export function GroupProgressView({ data }: { data: GroupProgress }) {
           role="tooltip"
         >
           <span className="progress-tip__lesson">Урок №{tip.slot}</span>
-          <span className="progress-tip__date">{tip.date ? fmtLessonDate(tip.date) : 'ещё не проведён'}</span>
+          <span className="progress-tip__date">
+            {tip.status === 'transferred'
+              ? `из «${tip.transferredFromGroupName}»`
+              : (tip.date ? fmtLessonDate(tip.date) : 'ещё не проведён')}
+          </span>
           <span className="progress-tip__status">
             <span className="progress-tip__dot" />{STATUS_LABEL[tip.status]}
           </span>
