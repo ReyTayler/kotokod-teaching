@@ -68,6 +68,36 @@ def get_all_data(account_id: int) -> dict:
     return {'teacher': teacher, 'data': unified['data']}
 
 
+def get_group_progress(account_id: int, group_name: str) -> dict:
+    """
+    Матрица посещаемости группы для страницы группы в teacher SPA.
+
+    Доступ: владелец группы ИЛИ преподаватель, которому назначено хотя бы одно
+    НЕотменённое плановое занятие этой группы («Сменить преподавателя» в admin).
+    Ответ — тот же контракт, что admin GET /api/admin/groups/:id/progress
+    (apps.groups.services.get_group_progress), без дублирования логики.
+    """
+    from apps.groups import services as groups_services
+
+    acc = get_by_id_with_teacher(account_id)
+    teacher_id = acc['teacher_id'] if acc else None
+    if not teacher_id:
+        return {'_error': 'Аккаунт не привязан к преподавателю', '_status': 403}
+
+    grp = repository.resolve_group_meta(group_name)
+    if grp is None:
+        return {'_error': 'Группа не найдена', '_status': 404}
+    if grp['teacher_id'] != teacher_id and not repository.teacher_has_any_planned_lesson(
+        grp['id'], teacher_id,
+    ):
+        return {'_error': 'Нет доступа к этой группе', '_status': 403}
+
+    data = groups_services.get_group_progress(grp['id'])
+    if data is None:
+        return {'_error': 'Группа не найдена', '_status': 404}
+    return data
+
+
 def submit_lesson(account_id: int, validated: dict) -> dict:
     """
     Порт POST /api/submitLesson из routes/teacher.js (lines 38-139).
@@ -81,24 +111,36 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     group = validated['group']
     date = validated['date']
     record_url = validated.get('recordUrl') or None
-    lesson_type = validated.get('lessonType')
-    is_substitution = bool(validated.get('isSubstitution', False))
-    original_teacher = validated.get('originalTeacher')
     students = validated['students']
+
+    # Дата занятия жёстко зафиксирована на фронте (LessonForm не даёт её менять) —
+    # это подстраховка от гонки состояний (устаревший кэш календаря) и прямых
+    # запросов к API. Сравнение только по дню (строки 'YYYY-MM-DD' сравнимы
+    # лексикографически), без учёта времени начала урока.
+    if date > format_msk_date():
+        return {
+            'success': False,
+            'error': 'Урок ещё не наступил — отметить его можно только в день занятия или позже.',
+        }
 
     # 1. Auth — препод из сессии
     teacher = get_current_teacher(account_id)
     if not teacher:  # порт JS if(!teacher): None и пустая строка → не привязан
         return {'_error': 'Аккаунт не привязан к преподавателю', '_status': 403}
 
-    # 2. Актуальное состояние (readAllStudents)
+    # 2. Актуальное состояние (readAllStudents). Группа ищется по имени среди
+    #    ВСЕХ преподавателей: своя → обычный урок; чужая допустима только если
+    #    занятие назначено этому преподавателю админом (проверка в шаге 3).
     unified = repository.read_all_students()
-    teacher_for_group = original_teacher if (is_substitution and original_teacher) else teacher
-    teacher_data = unified['data'].get(teacher_for_group)
-    if not teacher_data or group not in teacher_data:
+    own_groups = unified['data'].get(teacher) or {}
+    if group in own_groups:
+        owner_name = teacher
+    else:
+        owner_name = next((t for t, gs in unified['data'].items() if group in gs), None)
+    if owner_name is None:
         return {'success': False, 'error': 'Группа не найдена'}
 
-    group_data = teacher_data[group]
+    group_data = unified['data'][owner_name][group]
 
     # 3. Resolve IDs (submitter + группа + продолжительность). Делаем ДО расчётов:
     #    half-lesson теперь определяется СТРУКТУРНО (lesson_duration_minutes == 45),
@@ -108,6 +150,18 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
         return {'success': False, 'error': 'Группа/преподаватель не найдены в БД'}
 
     lesson_teacher_id = ids['submitter_teacher_id']
+    # Замена выводится СЕРВЕРОМ, а не флагом клиента: группа принадлежит другому
+    # преподавателю. Право отметить чужой урок даёт ТОЛЬКО плановое занятие этой
+    # группы на эту дату с teacher_id отправителя — его назначает админ через
+    # «Сменить преподавателя» (клиентские isSubstitution/originalTeacher — 400
+    # в SubmitLessonSerializer).
+    is_substitution = (
+        ids['group_owner_id'] is not None and ids['group_owner_id'] != lesson_teacher_id
+    )
+    if is_substitution and not repository.has_assigned_planned_lesson(
+        ids['group_id'], date, lesson_teacher_id,
+    ):
+        return {'_error': 'Занятие этой группы вам не назначено', '_status': 403}
     original_teacher_id = ids['group_owner_id'] if is_substitution else None
 
     # 4. Расчёты — half-lesson, lesson_number, payment, penalty
@@ -150,10 +204,12 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
             present_membership_ids.append(meta['membership_id'])
             present_student_ids.append(meta['student_id'])
 
-    # 6. subLabel — тип урока
+    # 6. subLabel — тип урока. Выводится СЕРВЕРОМ из плана (клиентский lessonType
+    #    не принимается): замена — чужая группа (шаг 3); перенос — плановая строка
+    #    этой группы/даты/препода перенесена НА эту дату (moved_from_date задан).
     if is_substitution:
         sub_label = 'substitution'
-    elif lesson_type == 'reschedule':
+    elif repository.planned_lesson_is_moved(ids['group_id'], date, lesson_teacher_id):
         sub_label = 'reschedule'
     else:
         sub_label = 'regular'

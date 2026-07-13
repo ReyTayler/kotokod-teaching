@@ -494,6 +494,26 @@ class MyLessonsView(ListAPIView):
         return qs
 
 
+class GroupProgressView(APIView):
+    """
+    GET /api/group-progress?group=<name> — матрица посещаемости группы для
+    страницы группы в teacher SPA. Контракт ответа = admin
+    /api/admin/groups/:id/progress; доступ гейтит services.get_group_progress
+    (владелец группы или назначенный заменщик).
+    """
+
+    permission_classes = [IsTeacher]
+
+    def get(self, request: Request) -> Response:
+        group_name = request.query_params.get('group')
+        if not group_name:
+            return Response({'error': 'Параметр group обязателен'}, status=status.HTTP_400_BAD_REQUEST)
+        result = services.get_group_progress(request.user.id, group_name)
+        if '_error' in result:
+            return Response({'error': result['_error']}, status=result['_status'])
+        return Response(result)
+
+
 class GroupDirectionsView(APIView):
     """
     GET /api/group-directions — карта {имя группы → направление+цвет} для ВСЕХ

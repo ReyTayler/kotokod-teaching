@@ -145,6 +145,21 @@ class GroupDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class GroupProgressView(APIView):
+    """
+    GET /api/admin/groups/:id/progress — обзорная матрица посещаемости
+    (слоты уроков × ученики) для вкладки «Прогресс». Read-only.
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        data = services.get_group_progress(pk)
+        if data is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(data)
+
+
 class GroupScheduleView(APIView):
     """
     GET  /api/admin/groups/:id/schedule         — слоты (с датами действия) + исключения

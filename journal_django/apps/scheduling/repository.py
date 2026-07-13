@@ -120,6 +120,7 @@ def planned_lessons_in_window(
             is_individual=F('group__is_individual'),
             lesson_duration_minutes=F('group__lesson_duration_minutes'),
             group_teacher_id=F('group__teacher_id'),
+            group_vk_chat=F('group__vk_chat'),
             direction_name=F('group__direction__name'),
             direction_color=F('group__direction__color'),
         )

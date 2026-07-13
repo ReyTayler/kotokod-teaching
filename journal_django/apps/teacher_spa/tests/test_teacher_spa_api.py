@@ -188,6 +188,18 @@ class TestSubmitLesson:
         assert body['success'] is False
         assert 'Группа не найдена' in body['error']
 
+    def test_future_date_rejected(self, teacher_fixture, account_fixture):
+        """Дата урока в будущем (позже сегодняшней МСК) → 200 {success:false}, без побочных эффектов."""
+        resp = self._submit(account_fixture, {
+            'group': '__nonexistent_group__',
+            'date': '2099-01-01',
+            'students': [],
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body['success'] is False
+        assert 'наступил' in body['error']
+
     def test_valid_submit_creates_records(
         self,
         teacher_fixture, account_fixture,
@@ -376,45 +388,145 @@ class TestSubmitLesson:
                 [membership_fixture],
             )
 
-    def test_substitution_branch(
+    def test_substitution_derived_from_assigned_planned_lesson(
+        self,
+        teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """
+        Замена выводится сервером: чужая группа + плановое занятие, назначенное
+        заменщику админом («Сменить преподавателя»), → lesson_type='substitution',
+        teacher_id=заменщик, original_teacher_id=владелец группы.
+        """
+        owner_id, _ = teacher_fixture
+        sub_id, _ = sub_teacher_fixture
+        group_name = '__spa_test_group__ пн 10:00'
+        student_name = '__spa_test_student__'
+        token = f'acct:{sub_account_fixture}'
+
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW()) RETURNING id",
+                [group_fixture, sub_id],
+            )
+            planned_id = cur.fetchone()[0]
+
+        try:
+            resp = self._submit(sub_account_fixture, {
+                'group': group_name,
+                'date': '2026-06-10',
+                'students': [{'name': student_name, 'present': True}],
+            })
+            assert resp.status_code == 200
+            assert resp.json()['success'] is True
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert lesson_id is not None
+            try:
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'SELECT lesson_type, teacher_id, original_teacher_id FROM lessons WHERE id = %s',
+                        [lesson_id],
+                    )
+                    lt, tid, orig = cur.fetchone()
+                assert lt == 'substitution'
+                assert tid == sub_id
+                assert orig == owner_id
+            finally:
+                _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture],
+                    )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
+
+    def test_foreign_group_without_assignment_403(
+        self,
+        teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Чужая группа БЕЗ назначенного планового занятия → 403, урок не создан."""
+        resp = self._submit(sub_account_fixture, {
+            'group': '__spa_test_group__ пн 10:00',
+            'date': '2026-06-10',
+            'students': [{'name': '__spa_test_student__', 'present': True}],
+        })
+        assert resp.status_code == 403
+        assert _get_lesson_id(group_fixture, f'acct:{sub_account_fixture}') is None
+
+    def test_client_substitution_fields_rejected_400(
         self,
         teacher_fixture, account_fixture,
         group_fixture, student_fixture, membership_fixture,
     ):
-        """isSubstitution=true → lesson_type='substitution'."""
+        """Клиентские isSubstitution/originalTeacher/lessonType больше не принимаются → 400."""
         _, teacher_name = teacher_fixture
-        group_name = '__spa_test_group__ пн 10:00'
-        student_name = '__spa_test_student__'
+        base = {
+            'group': '__spa_test_group__ пн 10:00',
+            'date': '2026-06-10',
+            'students': [{'name': '__spa_test_student__', 'present': True}],
+        }
+        assert self._submit(account_fixture, {**base, 'isSubstitution': True}).status_code == 400
+        assert self._submit(account_fixture, {**base, 'isSubstitution': False}).status_code == 400
+        assert self._submit(account_fixture, {**base, 'originalTeacher': teacher_name}).status_code == 400
+        assert self._submit(account_fixture, {**base, 'lessonType': 'reschedule'}).status_code == 400
+        assert self._submit(account_fixture, {**base, 'lessonType': 'regular'}).status_code == 400
+        assert _get_lesson_id(group_fixture, f'acct:{account_fixture}') is None
+
+    def test_reschedule_derived_from_moved_planned_lesson(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """
+        Плановая строка своей группы перенесена НА дату отметки (moved_from_date
+        задан) → сервер пишет lesson_type='reschedule' без клиентского флага.
+        """
+        teacher_id, _ = teacher_fixture
         token = f'acct:{account_fixture}'
 
-        resp = self._submit(account_fixture, {
-            'group': group_name,
-            'date': '2026-06-10',
-            'isSubstitution': True,
-            'originalTeacher': teacher_name,
-            'students': [{'name': student_name, 'present': True}],
-        })
-        assert resp.status_code == 200
-        assert resp.json()['success'] is True
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, moved_from_date, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, 'pending', '2026-06-08', NOW(), NOW()) "
+                'RETURNING id',
+                [group_fixture, teacher_id],
+            )
+            planned_id = cur.fetchone()[0]
 
-        lesson_id = _get_lesson_id(group_fixture, token)
-        assert lesson_id is not None
         try:
-            with connection.cursor() as cur:
-                cur.execute(
-                    'SELECT lesson_type, original_teacher_id FROM lessons WHERE id = %s',
-                    [lesson_id],
-                )
-                lt, orig = cur.fetchone()
-            assert lt == 'substitution'
-            assert orig is not None
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.status_code == 200
+            assert resp.json()['success'] is True
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert lesson_id is not None
+            try:
+                with connection.cursor() as cur:
+                    cur.execute('SELECT lesson_type FROM lessons WHERE id = %s', [lesson_id])
+                    assert cur.fetchone()[0] == 'reschedule'
+            finally:
+                _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture],
+                    )
         finally:
-            _cleanup_lesson(lesson_id)
             with connection.cursor() as cur:
-                cur.execute(
-                    'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
-                    [membership_fixture],
-                )
+                cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
 
     def test_transaction_rollback_on_payroll_failure(
         self, monkeypatch,
@@ -434,7 +546,6 @@ class TestSubmitLesson:
             services.submit_lesson(account_fixture, {
                 'group': '__spa_test_group__ пн 10:00',
                 'date': '2026-06-10',
-                'isSubstitution': False,
                 'students': [{'name': '__spa_test_student__', 'present': True}],
             })
 
@@ -708,3 +819,74 @@ class TestGroupDirections:
         # Ф4: продолжительность + длина курса для half-lesson/лимита без regex
         assert entry['lessonDurationMinutes'] == 60
         assert entry['totalLessons'] == 8
+
+
+# ---------------------------------------------------------------------------
+# GET /api/group-progress — матрица посещаемости группы (страница группы)
+# ---------------------------------------------------------------------------
+
+_GROUP_NAME = '__spa_test_group__ пн 10:00'
+
+
+class TestGroupProgress:
+
+    @staticmethod
+    def _url(name: str = _GROUP_NAME) -> str:
+        from urllib.parse import quote
+        return f'/api/group-progress?group={quote(name)}'
+
+    def test_no_cookie_401(self):
+        assert _client(None).get(self._url()).status_code == 401
+
+    def test_manager_403(self, manager_client):
+        assert manager_client.get(self._url()).status_code == 403
+
+    def test_missing_param_400(self, teacher_fixture, account_fixture):
+        assert _client('teacher', account_fixture).get('/api/group-progress').status_code == 400
+
+    def test_unknown_group_404(self, teacher_fixture, account_fixture):
+        assert _client('teacher', account_fixture).get(
+            self._url('__nonexistent_group__'),
+        ).status_code == 404
+
+    def test_owner_200_contract(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Владелец группы → 200, контракт admin-прогресса (students/slots/…)."""
+        resp = _client('teacher', account_fixture).get(self._url())
+        assert resp.status_code == 200
+        body = resp.json()
+        assert 'students' in body and 'slots' in body
+        assert 'total_slots' in body and 'held_slots' in body
+        names = [s['name'] for s in body['students']]
+        assert '__spa_test_student__' in names
+
+    def test_foreign_teacher_403(
+        self, teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Чужая группа без назначенных занятий → 403."""
+        assert _client('teacher', sub_account_fixture).get(self._url()).status_code == 403
+
+    def test_assigned_substitute_200(
+        self, teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Заменщик с назначенным плановым занятием группы → 200."""
+        sub_id, _ = sub_teacher_fixture
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW()) RETURNING id",
+                [group_fixture, sub_id],
+            )
+            planned_id = cur.fetchone()[0]
+        try:
+            assert _client('teacher', sub_account_fixture).get(self._url()).status_code == 200
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])

@@ -66,14 +66,17 @@ export interface GetAllDataResponse {
   data: Record<string, GroupMap>;
 }
 
+/**
+ * isSubstitution/originalTeacher/lessonType удалены: тип урока выводит сервер
+ * из planned_lessons — замену из назначения «Сменить преподавателя» (admin),
+ * перенос из moved_from_date плановой строки; присланные клиентом поля
+ * отклоняются с 400.
+ */
 export interface SubmitPayload {
   group: string;
   date: string; // 'YYYY-MM-DD'
   recordUrl?: string;
   students: { name: string; present: boolean }[];
-  isSubstitution?: boolean;
-  originalTeacher?: string;
-  lessonType?: 'regular' | 'reschedule';
 }
 
 export type SubmitResult =
@@ -149,6 +152,10 @@ export interface Occurrence {
   direction: string | null;
   color: string | null; // hex #RRGGBB или null
   isGroup: boolean;
+  /** Длительность занятия в минутах (groups.lesson_duration_minutes) — высота ячейки в сетке. */
+  durationMinutes: number;
+  /** Ссылка на чат группы (groups.vk_chat) — пункт «Перейти в чат» контекстного меню. */
+  vkChat: string | null;
   date: string;         // 'YYYY-MM-DD' — реальная дата занятия
   time: string | null;  // 'HH:MM'
   day: number;           // 0=Вс…6=Сб (как раньше report.day)

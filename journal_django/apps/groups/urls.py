@@ -9,7 +9,7 @@ APPEND_SLASH=False — пути без trailing slash (зеркало Express/Ne
 from django.urls import path
 
 from apps.groups.views import (
-    GroupDetailView, GroupListCreateView,
+    GroupDetailView, GroupListCreateView, GroupProgressView,
     GroupScheduleChangeView, GroupScheduleView,
 )
 from apps.scheduling.views import (
@@ -21,6 +21,9 @@ from apps.scheduling.views import (
 urlpatterns = [
     path('', GroupListCreateView.as_view(), name='groups-list-create'),
     path('/<int:pk>', GroupDetailView.as_view(), name='groups-detail'),
+    # Прогресс: обзорная матрица посещаемости (слоты × ученики). Read-only.
+    # Стоит ДО teacher-guard /api → RBAC IsManagerOrAdmin.
+    path('/<int:pk>/progress', GroupProgressView.as_view(), name='groups-progress'),
     # Расписание (Ф3): версионные слоты
     path('/<int:pk>/schedule', GroupScheduleView.as_view(), name='groups-schedule'),
     path('/<int:pk>/schedule-change', GroupScheduleChangeView.as_view(), name='groups-schedule-change'),

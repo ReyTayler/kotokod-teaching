@@ -1,13 +1,13 @@
 import { getCourseLimit } from '../../lib/teacher-calc';
 import type { GroupData } from '../../lib/types';
 
-/** Карточка группы/индива в «Моих группах» (своя или чужая — для замены). */
+/** Карточка группы/индива в «Моих группах» — кликабельна, открывает страницу группы. */
 export function GroupCard({
   name,
   data,
   color,
   limit: limitProp,
-  onSubmit,
+  onOpen,
 }: {
   name: string;
   data: GroupData;
@@ -15,17 +15,27 @@ export function GroupCard({
   color: string;
   /** Лимит курса (totalLessons из /api/group-directions) — резолвится в GroupsPage. Фолбэк — эвристика по имени, если не передан. */
   limit?: number | null;
-  onSubmit: () => void;
+  onOpen: () => void;
 }) {
   const limit = limitProp !== undefined ? limitProp : getCourseLimit(name);
-  const hasDebt = (data.students[0]?.remaining ?? 0) <= 0 && data.students.length > 0;
+  // «Долг» — по ЛЮБОМУ ученику с исчерпанным остатком (не только первому).
+  const debtors = data.students.filter((s) => (s.remaining ?? 0) <= 0).length;
   const pct = limit ? Math.min(100, Math.round((data.lessonsDone / limit) * 100)) : null;
 
   return (
-    <div className="grp-card" style={{ ['--subject-color' as any]: color }}>
+    <div
+      className="grp-card grp-card--link"
+      style={{ ['--subject-color' as any]: color }}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
+    >
       <div className="grp-card-head">
         <span className="grp-name">{name}</span>
-        {hasDebt && <span className="grp-debt-badge">Долг</span>}
+        {data.students.length > 0 && debtors > 0 && (
+          <span className="grp-debt-badge">Долг · {debtors}</span>
+        )}
       </div>
 
       <div className="grp-meta-row">
@@ -45,10 +55,6 @@ export function GroupCard({
           <div className="grp-progress-label">{data.lessonsDone} уроков проведено</div>
         )}
       </div>
-
-      <button type="button" className="btn-save grp-card-btn" onClick={onSubmit}>
-        Отметить урок
-      </button>
     </div>
   );
 }

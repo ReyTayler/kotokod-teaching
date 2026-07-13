@@ -38,6 +38,11 @@ def get_group(group_id: int) -> Optional[dict]:
     return repository.get_group(group_id)
 
 
+def get_group_progress(group_id: int) -> Optional[dict]:
+    """Матрица посещаемости группы для вкладки «Прогресс», или None."""
+    return repository.get_group_progress(group_id)
+
+
 def create_group(data: dict) -> dict:
     """
     Создаёт группу.

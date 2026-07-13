@@ -24,6 +24,7 @@ from apps.groups.models import Group
 from apps.lessons.models import Lesson, LessonAttendance
 from apps.memberships.models import GroupMembership
 from apps.payroll.models import Payroll
+from apps.scheduling.models import PlannedLesson
 from apps.students.models import Student
 from apps.teachers.models import Teacher
 
@@ -206,6 +207,60 @@ def resolve_ids(teacher_name: str, group_name: str) -> Optional[dict]:
         'lesson_duration_minutes': grp['lesson_duration_minutes'],
         'direction_id': grp['direction_id'],
     }
+
+
+def resolve_group_meta(group_name: str) -> Optional[dict]:
+    """{'id', 'teacher_id'} группы по имени, None если не найдена."""
+    return (
+        Group.objects.filter(name=group_name).values('id', 'teacher_id').first()
+    )
+
+
+def teacher_has_any_planned_lesson(group_id: int, teacher_id: int) -> bool:
+    """
+    Назначено ли преподавателю хотя бы одно НЕотменённое плановое занятие группы
+    (любая дата) — доступ заменщика к странице группы в teacher SPA.
+    """
+    return (
+        PlannedLesson.objects
+        .filter(group_id=group_id, teacher_id=teacher_id)
+        .exclude(status='cancelled')
+        .exists()
+    )
+
+
+def planned_lesson_is_moved(group_id: int, lesson_date: str, teacher_id: int) -> bool:
+    """
+    Перенесено ли НА эту дату плановое занятие преподавателя (moved_from_date
+    задан). Сервер выводит из этого lesson_type='reschedule' — клиентский
+    выбор «Перенос» в submitLesson упразднён.
+    """
+    return (
+        PlannedLesson.objects
+        .filter(
+            group_id=group_id,
+            scheduled_date=lesson_date,
+            teacher_id=teacher_id,
+            moved_from_date__isnull=False,
+        )
+        .exclude(status='cancelled')
+        .exists()
+    )
+
+
+def has_assigned_planned_lesson(group_id: int, lesson_date: str, teacher_id: int) -> bool:
+    """
+    Есть ли у преподавателя НЕотменённое плановое занятие этой группы на дату.
+
+    Основание отметить урок ЧУЖОЙ группы: замена, назначенная админом через
+    «Сменить преподавателя» (planned_lessons.teacher_id ≠ учитель группы).
+    """
+    return (
+        PlannedLesson.objects
+        .filter(group_id=group_id, scheduled_date=lesson_date, teacher_id=teacher_id)
+        .exclude(status='cancelled')
+        .exists()
+    )
 
 
 def resolve_students(group_id: int) -> list[dict]:

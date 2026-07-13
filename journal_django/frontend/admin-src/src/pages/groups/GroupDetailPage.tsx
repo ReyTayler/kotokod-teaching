@@ -24,8 +24,9 @@ import GroupMembersBlock from './GroupMembersBlock';
 import GroupScheduleBlock from './GroupScheduleBlock';
 import GroupPlanActions, { type GroupPlanActionsHandle } from './GroupPlanActions';
 import GroupPlanTable from './GroupPlanTable';
+import GroupProgressBlock from './GroupProgressBlock';
 
-const GROUP_TABS = ['overview', 'students', 'lessons', 'schedule'] as const;
+const GROUP_TABS = ['overview', 'students', 'lessons', 'progress', 'schedule'] as const;
 type GroupTab = (typeof GROUP_TABS)[number];
 const DEFAULT_TAB: GroupTab = 'overview';
 
@@ -143,6 +144,18 @@ export default function GroupDetailPage() {
               onClose={() => setSelected(null)}
             />
           )}
+        </div>
+      ),
+    },
+    {
+      value: 'progress',
+      label: 'Прогресс',
+      content: (
+        <div className="detail__section">
+          <div className="lesson-grid-hint">
+            Посещаемость каждого ученика по урокам группы. Наведите на плитку — номер урока и дата.
+          </div>
+          <GroupProgressBlock groupId={group.id} />
         </div>
       ),
     },

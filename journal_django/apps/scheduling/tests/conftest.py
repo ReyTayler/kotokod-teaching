@@ -53,7 +53,8 @@ def sched_setup(db):
 
         cur.execute(
             "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,"
-            "group_start_date,active) VALUES ('__sched_group_A__',%s,%s,false,60,'2026-06-01',true) RETURNING id",
+            "group_start_date,active,vk_chat) "
+            "VALUES ('__sched_group_A__',%s,%s,false,60,'2026-06-01',true,'https://vk.me/join/sched_a') RETURNING id",
             [direction_id, teacher_a],
         )
         group_a = cur.fetchone()[0]

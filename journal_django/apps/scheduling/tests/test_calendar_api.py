@@ -97,6 +97,8 @@ class TestCalendar:
         assert first['isGroup'] is True
         assert first['isExtra'] is False
         assert first['isHalf'] is False          # duration 60
+        assert first['durationMinutes'] == 60
+        assert first['vkChat'] == 'https://vk.me/join/sched_a'
         assert first['color'] == '#4F59F9'
         assert first['students'] == []
 

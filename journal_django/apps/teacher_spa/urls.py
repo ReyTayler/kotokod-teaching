@@ -23,4 +23,5 @@ urlpatterns = [
     path('/refreshData', views.RefreshDataView.as_view(), name='teacher-refresh-data'),
     path('/lessons', views.MyLessonsView.as_view(), name='teacher-my-lessons'),
     path('/group-directions', views.GroupDirectionsView.as_view(), name='teacher-group-directions'),
+    path('/group-progress', views.GroupProgressView.as_view(), name='teacher-group-progress'),
 ]

@@ -352,3 +352,136 @@ def apply_schedule_change(group_id: int, effective_from, slots: list[dict]) -> O
         ])
 
     return get_schedule(group_id)
+
+
+# ---------------------------------------------------------------------------
+# Прогресс группы: матрица посещаемости «ученик × урок» (вкладка «Прогресс»)
+# ---------------------------------------------------------------------------
+
+def get_group_progress(group_id: int) -> Optional[dict]:
+    """
+    Обзорная матрица посещаемости группы: слоты уроков (столбцы) × ученики (строки).
+
+    Ровно 3 запроса (участники + уроки + посещаемость) без N+1 — считаем на VPS.
+    None если группы нет.
+
+    Слот = ceil(lesson_number) (как LessonGrid: half-lesson 0.5 схлопывается в слот,
+    первый урок на слот выигрывает). Число слотов = max(последний слот с уроком,
+    direction.total_lessons) — так плановые, ещё не проведённые уроки видны пунктиром.
+
+    ОГРАНИЧЕНИЕ коллапса: если на один слот попадает >1 урока (дробные lesson_number
+    у 45-мин групп ИЛИ дубль номера на другую дату), берётся только первый — посещаемость
+    остальных в % не попадает. В боевых данных lesson_number целочисленный и уникален на
+    группу (проверено SELECT'ом), поэтому на практике коллапс безопасен; зеркалит LessonGrid.
+
+    Ячейка ученика по слоту:
+      True  — был (есть запись посещаемости present=true),
+      False — не был (запись present=false),
+      None  — урок не проведён (плановый слот) ИЛИ ученик не входил в состав на тот
+              урок (нет записи посещаемости) — не учитывается в held/present/pct.
+    """
+    import math
+
+    from apps.lessons.models import Lesson, LessonAttendance
+    from apps.memberships.models import GroupMembership
+
+    grp = (
+        Group.objects
+        .filter(id=group_id)
+        .values('id', total_lessons=F('direction__total_lessons'))
+        .first()
+    )
+    if grp is None:
+        return None
+
+    # Ученики группы — строки матрицы, стабильный порядок по имени.
+    # Только активные (active=True): membership удаляется мягко (active=false),
+    # как и в list_memberships — выбывшие не должны появляться в «Прогрессе».
+    members = list(
+        GroupMembership.objects
+        .filter(group_id=group_id, active=True)
+        .order_by('student__full_name')
+        .values('student_id', name=F('student__full_name'))
+    )
+
+    # Реальные (проведённые) уроки: слот = ceil(lesson_number), первый на слот.
+    lessons = list(
+        Lesson.objects
+        .filter(group_id=group_id)
+        .order_by('lesson_number', 'id')
+        .values('id', 'lesson_number', 'lesson_date')
+    )
+
+    lesson_by_slot: dict[int, dict] = {}
+    max_slot = 0
+    for lesson in lessons:
+        slot = max(1, math.ceil(float(lesson['lesson_number'])))
+        if slot not in lesson_by_slot:
+            lesson_by_slot[slot] = lesson
+        if slot > max_slot:
+            max_slot = slot
+
+    total_lessons = grp['total_lessons'] or 0
+    slot_count = max(max_slot, total_lessons)
+
+    # Посещаемость всех уроков группы разом: (lesson_id, student_id) → present.
+    lesson_ids = [lesson['id'] for lesson in lesson_by_slot.values()]
+    att_map: dict[tuple[int, int], bool] = {}
+    if lesson_ids:
+        for lid, sid, present in (
+            LessonAttendance.objects
+            .filter(lesson_id__in=lesson_ids)
+            .values_list('lesson_id', 'student_id', 'present')
+        ):
+            att_map[(lid, sid)] = present
+
+    # Столбцы (слоты). held=True — урок проведён (есть запись), иначе плановый.
+    slots = []
+    held_slots = 0
+    for slot in range(1, slot_count + 1):
+        lesson = lesson_by_slot.get(slot)
+        if lesson is not None:
+            held_slots += 1
+        slots.append({
+            'slot': slot,
+            'lesson_id': lesson['id'] if lesson else None,
+            'date': lesson['lesson_date'] if lesson else None,
+            'held': lesson is not None,
+        })
+
+    # Строки учеников: cells выровнены по slots (None — не проведён / не в составе).
+    students = []
+    for member in members:
+        sid = member['student_id']
+        cells: list[Optional[bool]] = []
+        present = 0
+        held = 0
+        for col in slots:
+            if not col['held']:
+                cells.append(None)
+                continue
+            key = (col['lesson_id'], sid)
+            if key not in att_map:      # ученик не входил в состав на тот урок
+                cells.append(None)
+                continue
+            is_present = bool(att_map[key])
+            held += 1
+            if is_present:
+                present += 1
+            cells.append(is_present)
+        students.append({
+            'student_id': sid,
+            'name': member['name'],
+            'present': present,
+            'held': held,
+            'pct': round(present / held * 100) if held else 0,
+            'cells': cells,
+        })
+
+    return {
+        'group_id': group_id,
+        'total_slots': slot_count,
+        'held_slots': held_slots,
+        'slots': slots,
+        'students': students,
+    }

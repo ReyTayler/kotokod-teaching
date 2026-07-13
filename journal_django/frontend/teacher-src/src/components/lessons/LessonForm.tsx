@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Field } from '@shared/components/form/Field';
 import { DateInput } from '@shared/components/form/DateInput';
-import { TextInput } from '@shared/components/form/TextInput';
 import { ApiError } from '@shared/lib/api';
 import { useToast } from '@shared/components/ui/Toast';
 import { useSubmitLesson } from '../../hooks/useSubmitLesson';
@@ -11,32 +10,46 @@ import { isoDate, todayMsk } from '../../lib/dates';
 import { calcPayment, fmtNum, getCourseLimit, isHalfLesson, lessonNumber, rub } from '../../lib/teacher-calc';
 import type { GroupData, SubmitPayload, SubmitResult } from '../../lib/types';
 
-type LessonType = 'regular' | 'reschedule';
+/** Похожа ли строка на http(s)-ссылку — только мягкая подсказка, не блокирует сохранение. */
+function looksLikeUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Форма записи проведённого урока (submitLesson). Клиентские расчёты (выплата,
  * номер урока, лимит курса) — только превью; сервер авторитетен и может
  * посчитать иначе (штраф, округления). См. teacher-calc.ts.
+ *
+ * isSubstitution — ТОЛЬКО отображение (подзаголовок «Замена»): сервер выводит
+ * замену сам из planned_lessons (назначение «Сменить преподавателя» в admin),
+ * клиентские isSubstitution/originalTeacher в payload не отправляются (API — 400).
+ * Тип урока (перенос) сервер тоже выводит сам — из moved_from_date плановой
+ * строки, поэтому выбора «По расписанию / Перенос» в форме больше нет.
  */
 export function LessonForm({
   group,
   groupData,
+  initialDate,
   isSubstitution,
-  originalTeacher,
   onClose,
 }: {
   group: string;
   groupData: GroupData;
+  /** Предзаполнение даты (клик по занятию в календаре); по умолчанию — сегодня МСК. */
+  initialDate?: string;
   isSubstitution?: boolean;
-  originalTeacher?: string;
   onClose: () => void;
 }) {
   const { toast } = useToast();
   const submitLesson = useSubmitLesson();
 
   const todayIso = useMemo(() => isoDate(todayMsk()), []);
-  const [lessonType, setLessonType] = useState<LessonType>('regular');
-  const [date, setDate] = useState(todayIso);
+  const [date, setDate] = useState(initialDate ?? todayIso);
   const [recordUrl, setRecordUrl] = useState('');
   const [present, setPresent] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(groupData.students.map((s) => [s.name, true])),
@@ -85,9 +98,7 @@ export function LessonForm({
       group,
       date,
       students: groupData.students.map((s) => ({ name: s.name, present: !!present[s.name] })),
-      lessonType,
       ...(recordUrl.trim() ? { recordUrl: recordUrl.trim() } : {}),
-      ...(isSubstitution ? { isSubstitution: true, originalTeacher } : {}),
     };
 
     submitLesson.mutate(payload, {
@@ -117,28 +128,12 @@ export function LessonForm({
   return (
     <Modal
       title={group}
-      subtitle={isSubstitution ? `Замена · за ${originalTeacher}` : 'Запись урока'}
+      subtitle={isSubstitution ? 'Запись урока · замена' : 'Запись урока'}
       onClose={onClose}
     >
-      <div className="seg">
-        <button
-          type="button"
-          className={`seg-btn${lessonType === 'regular' ? ' active' : ''}`}
-          onClick={() => setLessonType('regular')}
-        >
-          По расписанию
-        </button>
-        <button
-          type="button"
-          className={`seg-btn${lessonType === 'reschedule' ? ' active' : ''}`}
-          onClick={() => setLessonType('reschedule')}
-        >
-          Перенос
-        </button>
-      </div>
-
+      {/* Дата урока = дата занятия по расписанию, менять руками нельзя (иначе штраф за просрочку можно обойти). */}
       <Field label="Дата урока">
-        <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
+        <DateInput value={date} onChange={(e) => setDate(e.target.value)} disabled />
       </Field>
 
       {penaltyWarning && (
@@ -183,9 +178,41 @@ export function LessonForm({
         </div>
       )}
 
-      <Field label="Ссылка на запись (необязательно)">
-        <TextInput value={recordUrl} onChange={(e) => setRecordUrl(e.target.value)} placeholder="https://..." />
-      </Field>
+      <div className="lf-record">
+        <div className="lf-record-head">
+          <span className="t-sec-label">Запись урока</span>
+          <span className="lf-record-optional">необязательно</span>
+        </div>
+        <div className={`lf-record-box${recordUrl.trim() ? (looksLikeUrl(recordUrl.trim()) ? ' is-valid' : ' is-suspect') : ''}`}>
+          <svg className="lf-record-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+          <input
+            className="lf-record-input"
+            type="url"
+            inputMode="url"
+            value={recordUrl}
+            onChange={(e) => setRecordUrl(e.target.value)}
+            placeholder="Вставьте ссылку на запись занятия…"
+            aria-label="Ссылка на запись урока"
+          />
+          {recordUrl && (
+            <button
+              type="button"
+              className="lf-record-clear"
+              onClick={() => setRecordUrl('')}
+              aria-label="Очистить ссылку"
+              title="Очистить"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {recordUrl.trim() !== '' && !looksLikeUrl(recordUrl.trim()) && (
+          <span className="lf-record-hint">Похоже, это не ссылка — проверьте, что скопировали адрес целиком.</span>
+        )}
+      </div>
 
       <div className="lf-preview">
         <div className="lf-preview-row">

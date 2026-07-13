@@ -2,8 +2,6 @@
 Serializers for teacher_spa.
 
 Порт submitLessonSchema из shared/schemas.js (lines 263-274).
-
-VALID_LESSON_TYPES = ('regular', 'substitution', 'reschedule') — из lessonType enum.
 date-поле — DateStringField (YYYY-MM-DD, без timezone drift).
 """
 from __future__ import annotations
@@ -14,7 +12,14 @@ from apps.core.fields import DateStringField
 from apps.directions.models import Direction
 from apps.payroll.models import Payroll
 
-VALID_LESSON_TYPES = ('regular', 'substitution', 'reschedule')
+# Поля, которые клиент больше не выбирает — их выводит сервер из planned_lessons
+# (см. services.submit_lesson): замена — из назначения «Сменить преподавателя»,
+# перенос — из moved_from_date плановой строки.
+_SERVER_DERIVED_FIELDS = {
+    'isSubstitution': 'Поле не принимается: замена назначается администратором.',
+    'originalTeacher': 'Поле не принимается: замена назначается администратором.',
+    'lessonType': 'Поле не принимается: тип урока выводится из плана занятий.',
+}
 
 
 class StudentAttendanceSerializer(serializers.Serializer):
@@ -28,11 +33,14 @@ class SubmitLessonSerializer(serializers.Serializer):
     """
     Порт submitLessonSchema из shared/schemas.js.
 
-    Обязательные: group, date, students.
-    Необязательные: recordUrl, isSubstitution, originalTeacher, lessonType.
+    Обязательные: group, date, students. Необязательные: recordUrl.
+
+    isSubstitution/originalTeacher/lessonType клиентом больше НЕ принимаются
+    (400): тип урока выводит сервер из planned_lessons — замена из назначения
+    «Сменить преподавателя», перенос из moved_from_date (см. services.submit_lesson).
     """
 
-    # Zod: z.string().optional() / lessonType.optional() — null НЕ принимается (Express 400).
+    # Zod: z.string().optional() — null НЕ принимается (Express 400).
     # Пустую строку z.string() принимает → allow_blank=True. z.string() не триммит →
     # trim_whitespace=False.
     group = serializers.CharField()
@@ -41,11 +49,14 @@ class SubmitLessonSerializer(serializers.Serializer):
         allow_blank=True, required=False, trim_whitespace=False
     )
     students = StudentAttendanceSerializer(many=True)
-    isSubstitution = serializers.BooleanField(required=False, default=False)
-    originalTeacher = serializers.CharField(
-        required=False, allow_blank=True, trim_whitespace=False
-    )
-    lessonType = serializers.ChoiceField(choices=VALID_LESSON_TYPES, required=False)
+
+    def validate(self, attrs):
+        forbidden = set(_SERVER_DERIVED_FIELDS) & set(self.initial_data or {})
+        if forbidden:
+            raise serializers.ValidationError({
+                key: _SERVER_DERIVED_FIELDS[key] for key in sorted(forbidden)
+            })
+        return attrs
 
 
 class MyLessonSerializer(serializers.Serializer):

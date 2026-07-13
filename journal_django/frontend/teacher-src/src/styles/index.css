@@ -14,5 +14,7 @@
 @import '@shared/shared/calendar/calendar.css';
 @import './report.css';
 @import '@shared/shared/calendar/modal.css';
+/* Матрица посещаемости «Прогресс» (GroupProgressView) — общая с admin SPA. */
+@import '@shared/shared/progress/progress.css';
 @import './groups.css';
 @import './lessons.css';

@@ -78,6 +78,39 @@ def account_fixture(teacher_fixture):
 
 
 @pytest.fixture
+def sub_teacher_fixture():
+    """Второй препод (заменщик), возвращает (teacher_id, teacher_name)."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO teachers (name, active) VALUES ('__spa_sub_teacher__', true) RETURNING id",
+        )
+        teacher_id = cur.fetchone()[0]
+    yield teacher_id, '__spa_sub_teacher__'
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM teachers WHERE id = %s', [teacher_id])
+
+
+@pytest.fixture
+def sub_account_fixture(sub_teacher_fixture):
+    """Account препода-заменщика. Возвращает account_id."""
+    teacher_id, _ = sub_teacher_fixture
+    pw = make_password('testpass123')
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO accounts (email, password, role, teacher_id, is_active, is_staff, is_superuser, first_name, last_name, token_version, date_joined)
+            VALUES ('__spa_sub__@test.local', %s, 'teacher', %s, true, false, false, '', '', 0, NOW())
+            RETURNING id
+            """,
+            [pw, teacher_id],
+        )
+        account_id = cur.fetchone()[0]
+    yield account_id
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM accounts WHERE id = %s', [account_id])
+
+
+@pytest.fixture
 def direction_fixture():
     """Создаёт тестовое направление."""
     with connection.cursor() as cur:

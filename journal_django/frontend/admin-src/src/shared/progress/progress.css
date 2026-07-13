@@ -1,0 +1,95 @@
+/* ── PROGRESS — матрица посещаемости группы (GroupProgressView) ──────────
+ * Общий для admin (Group detail · вкладка «Прогресс») и teacher (страница
+ * группы). Вынесено из admin styles/pages/detail.css.
+ * Вариант 2: лента плиток посещаемости на ученика + процент/счётчик справа.
+ * Семантика: is-present=был (green), is-absent=не был (red), is-planned=не проведён.
+ */
+.progress-view__head {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.progress-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: 12.5px; color: var(--text2); }
+.progress-legend__item { display: inline-flex; align-items: center; gap: 7px; }
+.progress-chip { width: 14px; height: 14px; border-radius: 4px; flex: none; border: 1.5px solid transparent; }
+.progress-chip.is-present { background: color-mix(in oklch, var(--success) 16%, transparent); border-color: color-mix(in oklch, var(--success) 45%, transparent); }
+.progress-chip.is-absent  { background: color-mix(in oklch, var(--danger) 15%, transparent);  border-color: color-mix(in oklch, var(--danger) 42%, transparent); }
+.progress-chip.is-planned { background: var(--bg3); border: 1.5px dashed var(--border-strong); }
+
+.progress-view__summary { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.progress-summary-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--text2); font-weight: 500;
+  background: var(--bg3); border: 1px solid var(--border);
+  padding: 5px 11px; border-radius: 20px;
+}
+.progress-summary-pill b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.progress-rows { border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; background: var(--bg2); }
+.progress-row {
+  display: grid; grid-template-columns: 210px 1fr auto; align-items: center;
+  gap: var(--space-4); padding: 11px var(--space-4);
+  transition: background var(--t-fast) var(--ease);
+}
+.progress-row + .progress-row { border-top: 1px solid var(--border2); }
+.progress-row:hover { background: var(--bg3); }
+
+.progress-row__who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.progress-row__name {
+  font-size: 13.5px; font-weight: 550; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.progress-ribbon { display: flex; flex-wrap: wrap; gap: 5px; }
+.progress-sq {
+  width: 20px; height: 20px; border-radius: 5px; flex: none;
+  border: 1.5px solid transparent; cursor: default;
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.progress-sq.is-present { background: color-mix(in oklch, var(--success) 16%, transparent); border-color: color-mix(in oklch, var(--success) 42%, transparent); }
+.progress-sq.is-absent  { background: color-mix(in oklch, var(--danger) 15%, transparent);  border-color: color-mix(in oklch, var(--danger) 40%, transparent); }
+.progress-sq.is-planned { background: var(--bg3); border: 1.5px dashed var(--border-strong); }
+.progress-sq:hover {
+  transform: translateY(-2px) scale(1.14); position: relative; z-index: 2;
+  box-shadow: var(--shadow-popover);
+}
+.progress-sq.is-present:hover { border-color: var(--success); }
+.progress-sq.is-absent:hover  { border-color: var(--danger); }
+
+.progress-row__stat { display: flex; align-items: center; gap: var(--space-3); justify-self: end; }
+.progress-bar { display: block; width: 80px; height: 7px; border-radius: 4px; background: var(--bg4); overflow: hidden; border: 1px solid var(--border2); }
+.progress-bar > i { display: block; height: 100%; border-radius: 4px; }
+.progress-pct { font-size: 14.5px; font-weight: 700; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.progress-cnt { font-size: 11.5px; color: var(--text3); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Плавающий тултип: номер урока + дата + статус (position: fixed по курсору) */
+.progress-tip {
+  position: fixed; z-index: 60; pointer-events: none;
+  transform: translate(-50%, calc(-100% - 10px));
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--text); color: var(--bg2);
+  padding: 8px 11px; border-radius: var(--r-sm);
+  box-shadow: var(--shadow-popover); min-width: 128px; white-space: nowrap;
+}
+.progress-tip__lesson { font-weight: 700; font-size: 12.5px; }
+.progress-tip__date { color: var(--text3); font-size: 11px; }
+.progress-tip__status { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11.5px; font-weight: 600; }
+.progress-tip__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.progress-tip.is-present .progress-tip__status { color: var(--success); }
+.progress-tip.is-present .progress-tip__dot { background: var(--success); }
+.progress-tip.is-absent .progress-tip__status { color: var(--danger); }
+.progress-tip.is-absent .progress-tip__dot { background: var(--danger); }
+.progress-tip.is-planned .progress-tip__status { color: var(--text3); }
+.progress-tip.is-planned .progress-tip__dot { background: var(--text4); }
+.progress-tip::after {
+  content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .progress-row { grid-template-columns: 1fr; gap: 10px; }
+  .progress-row__stat { justify-self: start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-sq { transition: none; }
+}

@@ -3,6 +3,7 @@ import { AuthGate } from './components/shell/AuthGate';
 import { TeacherShell } from './components/shell/TeacherShell';
 import CalendarPage from './pages/calendar/CalendarPage';
 import GroupsPage from './pages/groups/GroupsPage';
+import GroupDetailPage from './pages/groups/GroupDetailPage';
 import MyLessonsPage from './pages/lessons/MyLessonsPage';
 import ReportPage from './pages/report/ReportPage';
 
@@ -20,6 +21,7 @@ export function App() {
             <Route path="/" element={<Navigate to="/calendar" replace />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/groups" element={<GroupsPage />} />
+            <Route path="/groups/:group" element={<GroupDetailPage />} />
             <Route path="/lessons" element={<MyLessonsPage />} />
             <Route path="/report" element={<ReportPage />} />
             <Route path="*" element={<Navigate to="/calendar" replace />} />
