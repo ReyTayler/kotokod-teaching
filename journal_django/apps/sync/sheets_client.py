@@ -14,7 +14,7 @@ from django.conf import settings
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-_SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+_SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 _KEY_PATH = Path(settings.REPO_ROOT) / 'service-account-key.json'
 
 _service = None
