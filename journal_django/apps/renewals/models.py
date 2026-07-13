@@ -72,15 +72,17 @@ class RenewalStage(models.Model):
 
 @pghistory.track(pghistory.InsertEvent(), pghistory.UpdateEvent(), pghistory.DeleteEvent())
 class RenewalDeal(models.Model):
+    """
+    Сделка продления — сущность УЧЕНИКА (подписочная модель, LT/LTV):
+    cycle_no считается от общей истории посещений по всем направлениям
+    (цикл = абонемент = 4 суммарных урока). Направления ученика — справочная
+    информация на чтении (активные membership), в идентичность не входят.
+    """
     id = models.BigAutoField(primary_key=True)
-    # RESTRICT — защищаем историю продлений от хард-удаления ученика/направления.
+    # RESTRICT — защищаем историю продлений от хард-удаления ученика.
     student = models.ForeignKey(
         'students.Student', on_delete=models.RESTRICT,
         db_column='student_id', related_name='renewal_deals',
-    )
-    direction = models.ForeignKey(
-        'directions.Direction', on_delete=models.RESTRICT,
-        db_column='direction_id', related_name='renewal_deals',
     )
     cycle_no = models.IntegerField()
     pipeline = models.ForeignKey(
@@ -97,8 +99,10 @@ class RenewalDeal(models.Model):
         db_column='assignee_id', related_name='renewal_deals',
         null=True, blank=True,
     )
-    expected_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     next_touch_at = models.DateField(null=True, blank=True)
+    # Дата «созревания» продления: 4-й урок цикла отработан (ставит движок).
+    # Основа когортной аналитики по месяцам. NULL — цикл ещё не отработан.
+    due_at = models.DateField(null=True, blank=True)
     reason_code = models.TextField(null=True, blank=True)
     stage_entered_at = models.DateTimeField(auto_now_add=True)
     outcome_at = models.DateTimeField(null=True, blank=True)  # NOT NULL ⇒ сделка закрыта
@@ -110,8 +114,8 @@ class RenewalDeal(models.Model):
         db_table = 'renewal_deal'
         constraints = [
             models.UniqueConstraint(
-                fields=['student', 'direction', 'cycle_no'],
-                name='renewal_deal_cycle_uq',
+                fields=['student', 'cycle_no'],
+                name='renewal_deal_student_cycle_uq',
             ),
         ]
         indexes = [

@@ -1,9 +1,9 @@
 """
-Разбитая на 4 стадии авто-прогрессия «Урок 1..4»:
-  - миграция 0003 сидит 4 отдельные is_auto-стадии вместо одной lesson_progress;
-  - ensure_deal стартует новую сделку на первой (Урок 1);
-  - engine.sync_lesson_stage двигает сделку по мере посещаемости;
-  - ручной перевод в decision/won/lost стадию «замораживает» авто-прогресс.
+Авто-прогрессия стадий по ОБЩЕЙ истории посещений ученика (подписочная модель):
+  - 4 отдельные is_auto-стадии «Урок 1..4» (миграция 0003);
+  - engine.sync_lesson_stage двигает сделку по мере посещаемости (lesson_attendance);
+  - цикл отработан → «Ждём продление» (+due_at); баланс ≤ 0 → «Ждём оплату»;
+  - ручной перевод в decision-стадию «замораживает» авто-прогресс.
 """
 from __future__ import annotations
 
@@ -15,24 +15,17 @@ from apps.renewals.models import RenewalDeal, RenewalPipeline, RenewalStage
 
 
 def _make_group_with_membership(direction_id: int, teacher_id: int, student_id: int,
-                                 lessons_done: float = 0) -> int:
+                                name: str = '__lp_test_group__') -> int:
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-            "VALUES ('__lp_test_group__', %s, %s, false, true, now()) RETURNING id",
-            [direction_id, teacher_id])
+            "VALUES (%s, %s, %s, false, true, now()) RETURNING id",
+            [name, direction_id, teacher_id])
         group_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
-            "VALUES (%s, %s, %s, true)", [group_id, student_id, lessons_done])
+            "VALUES (%s, %s, 0, true)", [group_id, student_id])
     return group_id
-
-
-def _set_lessons_done(group_id: int, student_id: int, value: float) -> None:
-    with connection.cursor() as cur:
-        cur.execute(
-            "UPDATE group_memberships SET lessons_done = %s WHERE group_id = %s AND student_id = %s",
-            [value, group_id, student_id])
 
 
 def _cleanup_group(group_id: int, student_id: int) -> None:
@@ -55,27 +48,30 @@ def test_default_pipeline_has_four_lesson_stages():
 
 
 @pytest.mark.django_db
-def test_ensure_deal_starts_on_lesson_1(make_student, make_direction):
-    sid, did = make_student(), make_direction()
-    deal = engine.ensure_deal(sid, did, cycle_no=1)
+def test_ensure_deal_starts_on_lesson_1(make_student):
+    sid = make_student()
+    deal = engine.ensure_deal(sid, cycle_no=1)
     assert deal.stage.key == 'lesson_1'
 
 
 @pytest.mark.django_db
-def test_sync_lesson_stage_advances_with_attendance(make_student, make_direction, make_teacher):
+def test_sync_lesson_stage_advances_with_attendance(make_student, make_direction,
+                                                    make_teacher, make_payment,
+                                                    make_attendance):
     sid, did, tid = make_student(), make_direction(), make_teacher()
-    gid = _make_group_with_membership(did, tid, sid, lessons_done=0)
+    make_payment(sid, did, lessons=8)  # баланс > 0 — иначе уедет в «Ждём оплату»
+    gid = _make_group_with_membership(did, tid, sid)
     try:
-        deal = engine.ensure_deal(sid, did, cycle_no=1)
+        deal = engine.ensure_deal(sid, cycle_no=1)
         assert deal.stage.key == 'lesson_1'
 
-        _set_lessons_done(gid, sid, 1)
-        engine.sync_lesson_stage(sid, did)
+        make_attendance(sid, gid, tid, count=1)
+        engine.sync_lesson_stage(sid)
         deal.refresh_from_db()
         assert deal.stage.key == 'lesson_2'
 
-        _set_lessons_done(gid, sid, 3)
-        engine.sync_lesson_stage(sid, did)
+        make_attendance(sid, gid, tid, count=2, start='2026-06-10')
+        engine.sync_lesson_stage(sid)
         deal.refresh_from_db()
         assert deal.stage.key == 'lesson_4'
     finally:
@@ -83,31 +79,118 @@ def test_sync_lesson_stage_advances_with_attendance(make_student, make_direction
 
 
 @pytest.mark.django_db
-def test_sync_lesson_stage_does_not_override_manual_decision(make_student, make_direction, make_teacher):
+def test_sync_lesson_stage_does_not_override_manual_decision(make_student, make_direction,
+                                                             make_teacher, make_payment,
+                                                             make_attendance):
+    """Ручные (не is_auto) стадии движок не трогает — «Думает» остаётся."""
     sid, did, tid = make_student(), make_direction(), make_teacher()
-    gid = _make_group_with_membership(did, tid, sid, lessons_done=0)
+    make_payment(sid, did, lessons=8)
+    gid = _make_group_with_membership(did, tid, sid)
     try:
-        deal = engine.ensure_deal(sid, did, cycle_no=1)
-        awaiting = RenewalStage.objects.get(pipeline=deal.pipeline, key='awaiting_payment')
-        repository.move_deal(deal.id, awaiting.id, None, author_id=None)
+        deal = engine.ensure_deal(sid, cycle_no=1)
+        thinking = RenewalStage.objects.get(pipeline=deal.pipeline, key='thinking')
+        repository.move_deal(deal.id, thinking.id, None, author_id=None)
 
-        _set_lessons_done(gid, sid, 3)
-        engine.sync_lesson_stage(sid, did)
+        make_attendance(sid, gid, tid, count=3)
+        engine.sync_lesson_stage(sid)
 
         deal.refresh_from_db()
-        assert deal.stage.key == 'awaiting_payment'
+        assert deal.stage.key == 'thinking'
     finally:
         _cleanup_group(gid, sid)
 
 
 @pytest.mark.django_db
-def test_rebuild_command_self_heals_lesson_stage(make_student, make_direction, make_teacher):
+def test_cycle_complete_moves_to_awaiting_renewal(make_student, make_direction,
+                                                  make_teacher, make_payment,
+                                                  make_attendance):
+    """4 суммарных урока отработаны → «Ждём продление» + зафиксирован due_at."""
     sid, did, tid = make_student(), make_direction(), make_teacher()
-    gid = _make_group_with_membership(did, tid, sid, lessons_done=2)
+    make_payment(sid, did, lessons=8)
+    gid = _make_group_with_membership(did, tid, sid)
     try:
-        from django.core.management import call_command
-        call_command('rebuild_renewal_deals')
-        deal = RenewalDeal.objects.get(student_id=sid, direction_id=did, cycle_no=1)
-        assert deal.stage.key == 'lesson_3'
+        make_attendance(sid, gid, tid, count=4)
+        deal = engine.ensure_deal(sid, cycle_no=1)
+        engine.sync_lesson_stage(sid)
+        deal.refresh_from_db()
+        assert deal.stage.key == 'awaiting_renewal'
+        assert deal.due_at is not None
+        assert deal.stage.key != 'lesson_1'  # фикс зацикливания attended % 4
+    finally:
+        _cleanup_group(gid, sid)
+
+
+@pytest.mark.django_db
+def test_balance_zero_mid_cycle_moves_to_awaiting_payment(make_student, make_direction,
+                                                          make_teacher, make_attendance):
+    """Цикл не отработан (2 из 4), оплат нет (баланс ≤ 0) → «Ждём оплату»."""
+    sid, did, tid = make_student(), make_direction(), make_teacher()
+    gid = _make_group_with_membership(did, tid, sid)
+    try:
+        make_attendance(sid, gid, tid, count=2)
+        deal = engine.ensure_deal(sid, cycle_no=1)
+        engine.sync_lesson_stage(sid)
+        deal.refresh_from_db()
+        assert deal.stage.key == 'awaiting_payment'
+        assert deal.due_at is None
+    finally:
+        _cleanup_group(gid, sid)
+
+
+@pytest.mark.django_db
+def test_awaiting_renewal_wins_over_awaiting_payment(make_student, make_direction,
+                                                     make_teacher, make_attendance):
+    """Цикл отработан И баланс ≤ 0 → приоритет у «Ждём продление» (долг — бейджем)."""
+    sid, did, tid = make_student(), make_direction(), make_teacher()
+    gid = _make_group_with_membership(did, tid, sid)
+    try:
+        make_attendance(sid, gid, tid, count=4)
+        deal = engine.ensure_deal(sid, cycle_no=1)
+        engine.sync_lesson_stage(sid)
+        deal.refresh_from_db()
+        assert deal.stage.key == 'awaiting_renewal'
+    finally:
+        _cleanup_group(gid, sid)
+
+
+@pytest.mark.django_db
+def test_cross_direction_attendance_counts_into_one_history(make_student, make_direction,
+                                                            make_teacher, make_payment,
+                                                            make_attendance):
+    """
+    Подписочная модель: посещения РАЗНЫХ направлений складываются в общую
+    историю ученика — 2 + 2 урока в двух группах = цикл отработан.
+    """
+    sid, tid = make_student(), make_teacher()
+    did1, did2 = make_direction('__renew_dir_a__'), make_direction('__renew_dir_b__')
+    make_payment(sid, did1, lessons=8)
+    gid1 = _make_group_with_membership(did1, tid, sid, name='__lp_group_a__')
+    gid2 = _make_group_with_membership(did2, tid, sid, name='__lp_group_b__')
+    try:
+        make_attendance(sid, gid1, tid, count=2, start='2026-06-01')
+        make_attendance(sid, gid2, tid, count=2, start='2026-06-10')
+        deal = engine.ensure_deal(sid, cycle_no=1)
+        engine.sync_lesson_stage(sid)
+        deal.refresh_from_db()
+        assert deal.stage.key == 'awaiting_renewal'  # 4 суммарных урока
+    finally:
+        _cleanup_group(gid1, sid)
+        _cleanup_group(gid2, sid)
+
+
+@pytest.mark.django_db
+def test_prepaid_cycle2_deal_stays_on_lesson_1(make_student, make_direction,
+                                               make_teacher, make_payment,
+                                               make_attendance):
+    """Сделка цикла 2 при attended=2 (ещё идёт цикл 1) стоит на «Урок 1»."""
+    sid, did, tid = make_student(), make_direction(), make_teacher()
+    make_payment(sid, did, lessons=8)
+    gid = _make_group_with_membership(did, tid, sid)
+    try:
+        make_attendance(sid, gid, tid, count=2)
+        engine.ensure_deal(sid, cycle_no=2)
+        engine.sync_lesson_stage(sid)
+        deal = RenewalDeal.objects.get(student_id=sid, cycle_no=2)
+        assert deal.stage.key == 'lesson_1'
     finally:
         _cleanup_group(gid, sid)

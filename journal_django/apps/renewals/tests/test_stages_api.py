@@ -47,9 +47,9 @@ def test_cannot_delete_stage_with_closed_deal(superadmin_client, make_student, m
     stage_id = created.json()['id']
 
     pipe = RenewalPipeline.objects.get(is_default=True)
-    sid, did = make_student(), make_direction()
+    sid = make_student()
     RenewalDeal.objects.create(
-        student_id=sid, direction_id=did, cycle_no=1, pipeline=pipe,
+        student_id=sid, cycle_no=1, pipeline=pipe,
         stage_id=stage_id, outcome_at=timezone.now())
 
     resp = superadmin_client.delete(f'{BASE}/{stage_id}')

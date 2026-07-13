@@ -13,9 +13,10 @@ def test_tables_named_as_expected():
     assert RenewalActivity._meta.db_table == 'renewal_activity'
 
 
-def test_deal_has_cycle_unique_constraint():
+def test_deal_has_student_cycle_unique_constraint():
+    """Сделка — сущность ученика: одна на (student, cycle_no), направления нет."""
     names = {c.name for c in RenewalDeal._meta.constraints}
-    assert 'renewal_deal_cycle_uq' in names
+    assert 'renewal_deal_student_cycle_uq' in names
 
 
 def test_stage_kinds():
@@ -23,7 +24,7 @@ def test_stage_kinds():
 
 
 def test_deal_fks_use_restrict_not_cascade():
-    """Историю продлений нельзя терять при удалении ученика/направления/стадии — RESTRICT, не CASCADE."""
-    for field_name in ('student', 'direction', 'pipeline', 'stage'):
+    """Историю продлений нельзя терять при удалении ученика/стадии — RESTRICT, не CASCADE."""
+    for field_name in ('student', 'pipeline', 'stage'):
         field = RenewalDeal._meta.get_field(field_name)
         assert field.remote_field.on_delete is models.RESTRICT, field_name

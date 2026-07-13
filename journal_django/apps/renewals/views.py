@@ -31,6 +31,21 @@ def _int_or_400(value, field: str) -> int:
 class RenewalCollectionView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
+    def post(self, request: Request) -> Response:
+        """Ручное создание сделки ученику без открытой сделки (из сводки)."""
+        from apps.renewals.serializers import DealCreateSerializer
+        ser = DealCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result = services.create_deal(
+            ser.validated_data['student_id'],
+            author_id=getattr(request.user, 'id', None))
+        if result is None:
+            raise NotFound({'error': 'Student not found'})
+        if result == 'exists':
+            return Response({'error': 'У ученика уже есть открытая сделка'},
+                            status=status.HTTP_409_CONFLICT)
+        return Response(result, status=status.HTTP_201_CREATED)
+
     def get(self, request: Request) -> Response:
         qp = request.query_params
         view = qp.get('view', 'board')
@@ -105,6 +120,36 @@ class RenewalMoveView(APIView):
         if result is None:
             raise NotFound({'error': 'Not found'})
         return Response(result)
+
+
+class RenewalReopenView(APIView):
+    """Переоткрытие закрытой сделки (won/lost → вычисленная авто-стадия)."""
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        result = services.reopen_deal(pk, author_id=getattr(request.user, 'id', None))
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        if result == 'not_closed':
+            return Response({'error': 'Сделка не закрыта — переоткрывать нечего'},
+                            status=status.HTTP_409_CONFLICT)
+        return Response(result)
+
+
+class RenewalUnassignedView(APIView):
+    """Сводка «Ученики без сделок» — источник для ручного создания сделок."""
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        return Response(services.list_unassigned())
+
+
+class RenewalAssigneesView(APIView):
+    """Кандидаты в ответственные (для SelectInput в карточке сделки)."""
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        return Response(services.list_assignees())
 
 
 class RenewalCommentView(APIView):

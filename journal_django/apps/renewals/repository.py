@@ -6,54 +6,86 @@ from django.db import connection
 from apps.renewals import cycle
 
 
-def active_cycles() -> list[dict]:
+def _directions_agg(student_col: str) -> str:
+    """json-массив активных направлений ученика [{name, color}] для SELECT."""
+    return f"""
+    COALESCE((
+        SELECT json_agg(json_build_object('name', x.name, 'color', x.color)
+                        ORDER BY x.name)
+        FROM (SELECT DISTINCT dd.name, dd.color
+              FROM group_memberships mm
+              JOIN groups gg ON gg.id = mm.group_id
+              JOIN directions dd ON dd.id = gg.direction_id
+              WHERE mm.student_id = {student_col} AND mm.active = true) x
+    ), '[]'::json)
+"""
+
+
+DIRECTIONS_AGG_SQL = _directions_agg('d.student_id')
+
+
+def students_without_deal() -> list[dict]:
     """
-    Для каждого активного (ученик × направление) — сколько уроков отработано,
-    чтобы движок мог гарантировать сделку текущего цикла.
+    Сводка «Ученики без сделок»: активный membership есть, открытой сделки нет.
+    Для каждого — направления, суммарно посещено, расчётный цикл и флаг долга.
+    Из неё менеджер вручную создаёт сделку (POST /api/admin/renewals).
     """
-    sql = """
-        SELECT m.student_id,
-               g.direction_id,
-               COALESCE(SUM(m.lessons_done), 0) AS attended
-        FROM group_memberships m
-        JOIN groups g ON g.id = m.group_id
-        WHERE m.active = true AND g.direction_id IS NOT NULL
-        GROUP BY m.student_id, g.direction_id
+    from apps.finances.repository import balances_for_students
+
+    sql = f"""
+        SELECT s.id AS student_id, s.full_name AS student_name,
+               {_directions_agg('s.id')} AS directions,
+               COALESCE((
+                   SELECT SUM(CASE WHEN l.lesson_duration_minutes = 45
+                                   THEN 0.5 ELSE 1 END)
+                   FROM lesson_attendance la
+                   JOIN lessons l ON l.id = la.lesson_id
+                   WHERE la.student_id = s.id AND la.present = true
+               ), 0) AS attended
+        FROM students s
+        WHERE EXISTS (SELECT 1 FROM group_memberships m
+                      WHERE m.student_id = s.id AND m.active = true)
+          AND NOT EXISTS (SELECT 1 FROM renewal_deal d
+                          WHERE d.student_id = s.id AND d.outcome_at IS NULL)
+        ORDER BY s.full_name
     """
     with connection.cursor() as cur:
         cur.execute(sql)
         cols = [c[0] for c in cur.description]
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    balances = balances_for_students([r['student_id'] for r in rows])
     for r in rows:
+        r['attended'] = float(r['attended'])
         r['cycle_no'] = cycle.cycle_no_from_attended(r['attended'])
+        r['debt'] = float(balances.get(r['student_id'], 0)) < 0
     return rows
 
 
 def deal_computed(deal_id: int) -> dict | None:
     """
-    Сделка + вычисляемые поля: имя ученика, направление/цвет, прогресс n/4,
-    remaining, balance, days_in_stage. Баланс — через apps.finances.
+    Сделка + вычисляемые поля: имя ученика, активные направления (справочно),
+    прогресс n/4 от общей истории, balance, days_in_stage. Баланс — apps.finances.
     """
     from apps.finances.repository import balance_for_student
 
-    sql = """
-        SELECT d.id, d.student_id, d.direction_id, d.cycle_no, d.stage_id,
-               d.assignee_id, d.expected_amount, d.next_touch_at, d.reason_code,
-               d.stage_entered_at, d.outcome_at, d.created_at,
+    sql = f"""
+        SELECT d.id, d.student_id, d.cycle_no, d.stage_id,
+               d.assignee_id, d.next_touch_at, d.reason_code,
+               d.due_at, d.stage_entered_at, d.outcome_at, d.created_at,
                s.full_name AS student_name,
-               dir.name AS direction_name, dir.color AS direction_color,
+               {DIRECTIONS_AGG_SQL} AS directions,
                st.key AS stage_key, st.label AS stage_label, st.kind AS stage_kind,
                st.color AS stage_color,
                a.full_name AS assignee_name,
                EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage,
                COALESCE((
-                   SELECT SUM(m.lessons_done) FROM group_memberships m
-                   JOIN groups g ON g.id = m.group_id
-                   WHERE m.student_id = d.student_id AND g.direction_id = d.direction_id
-                     AND m.active = true), 0) AS attended
+                   SELECT SUM(CASE WHEN l.lesson_duration_minutes = 45
+                                   THEN 0.5 ELSE 1 END)
+                   FROM lesson_attendance la
+                   JOIN lessons l ON l.id = la.lesson_id
+                   WHERE la.student_id = d.student_id AND la.present = true), 0) AS attended
         FROM renewal_deal d
         JOIN students s   ON s.id = d.student_id
-        JOIN directions dir ON dir.id = d.direction_id
         JOIN renewal_stage st ON st.id = d.stage_id
         LEFT JOIN accounts a ON a.id = d.assignee_id
         WHERE d.id = %s
@@ -66,8 +98,13 @@ def deal_computed(deal_id: int) -> dict | None:
         cols = [c[0] for c in cur.description]
         data = dict(zip(cols, row))
     attended = float(data.pop('attended') or 0)
-    data['lesson_in_cycle'] = int(attended % cycle.LESSONS_PER_CYCLE) + 1  # 1..4
+    # Прогресс от номера цикла сделки (не attended % 4): у сделки цикла N свои
+    # уроки (N−1)×4+1 .. N×4, иначе после 4-го урока прогресс «заворачивался».
+    into = attended - (data['cycle_no'] - 1) * cycle.LESSONS_PER_CYCLE
+    data['lesson_in_cycle'] = min(max(int(into), 0), cycle.LESSONS_PER_CYCLE - 1) + 1  # 1..4
+    data['cycle_completed'] = into >= cycle.LESSONS_PER_CYCLE
     data['balance'] = balance_for_student(data['student_id'])
+    data['debt'] = float(data['balance']) < 0
     return data
 
 
@@ -99,11 +136,14 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         RenewalActivity.objects.create(
             deal=deal, kind='stage_change', from_stage=from_stage, to_stage=to_stage,
             author_id=author_id, body=reason_code or '')
-        # win-стадия по кнопке (без оплаты) тоже респавнит цикл
+        # Менеджер вручную подтвердил продление — единственный путь закрытия
+        # сделки как «Продлён» (оплата больше не закрывает сделку сама, см.
+        # signals.py). Спавним следующий цикл, перешагивая занятые закрытые
+        # номера (переоткрытия/возвраты могли оставить «дыру»).
         if to_stage.kind == 'won':
             from apps.renewals import engine
-            engine.ensure_deal(deal.student_id, deal.direction_id, deal.cycle_no + 1,
-                               assignee_id=deal.assignee_id)
+            next_cycle = engine.next_open_cycle_no(deal.student_id, deal.cycle_no + 1)
+            engine.ensure_deal(deal.student_id, next_cycle, assignee_id=deal.assignee_id)
     return deal_computed(deal_id)
 
 
@@ -111,7 +151,7 @@ def patch_deal(deal_id: int, data: dict) -> dict | None:
     from django.utils import timezone
     from apps.renewals.models import RenewalDeal
     fields = {}
-    for k in ('assignee_id', 'next_touch_at', 'reason_code', 'expected_amount'):
+    for k in ('assignee_id', 'next_touch_at', 'reason_code'):
         if k in data:
             fields[k] = data[k]
     if not fields:
@@ -157,40 +197,56 @@ def _board_where(filters: dict) -> tuple[str, list]:
     if filters.get('assignee_id'):
         where.append('d.assignee_id = %s'); params.append(int(filters['assignee_id']))
     if filters.get('direction_id'):
-        where.append('d.direction_id = %s'); params.append(int(filters['direction_id']))
+        # Направление — атрибут ученика (активные membership), не сделки.
+        where.append("""EXISTS (
+            SELECT 1 FROM group_memberships fm
+            JOIN groups fg ON fg.id = fm.group_id
+            WHERE fm.student_id = d.student_id AND fm.active = true
+              AND fg.direction_id = %s)""")
+        params.append(int(filters['direction_id']))
     if filters.get('overdue') == 'true':
         where.append("d.next_touch_at IS NOT NULL AND d.next_touch_at < now()::date")
+    if filters.get('student'):
+        # Поиск по имени ученика (per-column search в канбане). ILIKE — регистр
+        # и раскладку не различаем; % экранировать не нужно (параметризованный %s).
+        where.append('s.full_name ILIKE %s'); params.append(f"%{filters['student']}%")
     return ' AND '.join(where), params
 
 
 def board(filters: dict | None = None) -> dict:
     """
     Доска: открытые сделки, сгруппированные по стадиям дефолтной воронки.
-    Возвращает колонки в порядке sort_order с count/sum_potential и первыми N карточками.
+    Возвращает колонки в порядке sort_order с count и первыми N карточками.
     Остальные — через column_cards() («Показать ещё»).
     """
     filters = filters or {}
     from apps.renewals.models import RenewalPipeline, RenewalStage
     pipeline = RenewalPipeline.objects.get(is_default=True)
-    stages = list(RenewalStage.objects.filter(pipeline=pipeline).order_by('sort_order'))
+    # Терминальные (won/lost) колонки на доске не показываем: открытых сделок в них
+    # не бывает (outcome_at ставится при закрытии), закрытие — через зоны drag'а,
+    # архив — списочный вид с фильтром «Показать закрытые».
+    stages = list(RenewalStage.objects.filter(pipeline=pipeline)
+                  .exclude(kind__in=('won', 'lost')).order_by('sort_order'))
 
     where_sql, params = _board_where(filters)
 
     with connection.cursor() as cur:
+        # JOIN students — на случай student-фильтра в where_sql (доска его штатно
+        # не передаёт, но join 1:1 по FK безвреден и держит _board_where консистентным).
         cur.execute(f"""
-            SELECT d.stage_id, COUNT(*) AS cnt, COALESCE(SUM(d.expected_amount),0) AS sum_amt
-            FROM renewal_deal d WHERE {where_sql} GROUP BY d.stage_id
+            SELECT d.stage_id, COUNT(*) AS cnt
+            FROM renewal_deal d
+            JOIN students s ON s.id = d.student_id
+            WHERE {where_sql} GROUP BY d.stage_id
         """, params)
-        agg = {r[0]: {'count': r[1], 'sum_potential': float(r[2])} for r in cur.fetchall()}
+        counts = {r[0]: r[1] for r in cur.fetchall()}
 
     columns = []
     for st in stages:
-        stat = agg.get(st.id, {'count': 0, 'sum_potential': 0.0})
         cards = _deals_in_stage(st.id, where_sql, params, COLUMN_LIMIT, offset=0)
         columns.append({
             'stage_id': st.id, 'key': st.key, 'label': st.label, 'kind': st.kind,
-            'color': st.color, 'count': stat['count'],
-            'sum_potential': stat['sum_potential'], 'cards': cards,
+            'color': st.color, 'count': counts.get(st.id, 0), 'cards': cards,
         })
     return {'columns': columns}
 
@@ -199,29 +255,51 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
                      limit: int, offset: int) -> list[dict]:
     with connection.cursor() as cur:
         cur.execute(f"""
-            SELECT d.id, s.full_name AS student_name, dir.name AS direction_name,
-                   dir.color AS direction_color, d.cycle_no, d.expected_amount,
-                   d.next_touch_at, a.full_name AS assignee_name,
+            SELECT d.id, d.student_id, s.full_name AS student_name,
+                   {DIRECTIONS_AGG_SQL} AS directions,
+                   d.cycle_no,
+                   d.next_touch_at, d.due_at, a.full_name AS assignee_name,
                    EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage
             FROM renewal_deal d
             JOIN students s ON s.id = d.student_id
-            JOIN directions dir ON dir.id = d.direction_id
             LEFT JOIN accounts a ON a.id = d.assignee_id
             WHERE {where_sql} AND d.stage_id = %s
             ORDER BY d.next_touch_at NULLS LAST, d.stage_entered_at
             LIMIT %s OFFSET %s
         """, base_params + [stage_id, limit, offset])
         cols = [c[0] for c in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+        return _annotate_debt([dict(zip(cols, r)) for r in cur.fetchall()])
 
 
-def column_cards(stage_id: int, offset: int, filters: dict | None = None) -> list[dict]:
+def _annotate_debt(cards: list[dict]) -> list[dict]:
+    """Бейдж долга (balance < 0) — батчем через apps.finances, без N+1."""
+    from apps.finances.repository import balances_for_students
+    ids = list({c['student_id'] for c in cards})
+    if not ids:
+        return cards
+    balances = balances_for_students(ids)
+    for c in cards:
+        c['debt'] = float(balances.get(c['student_id'], 0)) < 0
+    return cards
+
+
+def column_cards(stage_id: int, offset: int, filters: dict | None = None) -> dict:
     """
-    Догрузка карточек одной колонки канбана («Показать ещё») — та же выборка
-    и сортировка, что и в board(), но с произвольным offset поверх COLUMN_LIMIT.
+    Карточки одной колонки канбана: count (с учётом фильтров) + страница карточек
+    от offset. Та же выборка/сортировка, что и в board(). Используется для
+    «Показать ещё» и для поиска по имени ученика внутри колонки (filter[student]).
+    count нужен, чтобы фронт знал, есть ли ещё совпадения (кнопка «Показать ещё»).
     """
     where_sql, params = _board_where(filters or {})
-    return _deals_in_stage(stage_id, where_sql, params, COLUMN_LIMIT, offset)
+    with connection.cursor() as cur:
+        cur.execute(f"""
+            SELECT COUNT(*) FROM renewal_deal d
+            JOIN students s ON s.id = d.student_id
+            WHERE {where_sql} AND d.stage_id = %s
+        """, params + [stage_id])
+        count = cur.fetchone()[0]
+    cards = _deals_in_stage(stage_id, where_sql, params, COLUMN_LIMIT, offset)
+    return {'count': count, 'cards': cards}
 
 
 def list_stages() -> list[dict]:
@@ -325,7 +403,12 @@ def list_deals(page: int, page_size: int, sort_by: str, sort_dir: str, filters: 
     if filters.get('assignee_id'):
         where.append('d.assignee_id = %s'); params.append(int(filters['assignee_id']))
     if filters.get('direction_id'):
-        where.append('d.direction_id = %s'); params.append(int(filters['direction_id']))
+        where.append("""EXISTS (
+            SELECT 1 FROM group_memberships fm
+            JOIN groups fg ON fg.id = fm.group_id
+            WHERE fm.student_id = d.student_id AND fm.active = true
+              AND fg.direction_id = %s)""")
+        params.append(int(filters['direction_id']))
     if filters.get('stage_id'):
         where.append('d.stage_id = %s'); params.append(int(filters['stage_id']))
     where_sql = ' AND '.join(where)
@@ -340,13 +423,14 @@ def list_deals(page: int, page_size: int, sort_by: str, sort_dir: str, filters: 
         cur.execute(f"SELECT COUNT(*) FROM renewal_deal d WHERE {where_sql}", params)
         total = cur.fetchone()[0]
         cur.execute(f"""
-            SELECT d.id, s.full_name AS student_name, dir.name AS direction_name,
-                   dir.color AS direction_color, d.cycle_no, st.label AS stage_label,
-                   st.kind AS stage_kind, d.next_touch_at, a.full_name AS assignee_name,
+            SELECT d.id, s.full_name AS student_name,
+                   {DIRECTIONS_AGG_SQL} AS directions,
+                   d.cycle_no, st.label AS stage_label,
+                   st.kind AS stage_kind, st.color AS stage_color,
+                   d.next_touch_at, d.due_at, a.full_name AS assignee_name,
                    EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage
             FROM renewal_deal d
             JOIN students s ON s.id = d.student_id
-            JOIN directions dir ON dir.id = d.direction_id
             JOIN renewal_stage st ON st.id = d.stage_id
             LEFT JOIN accounts a ON a.id = d.assignee_id
             WHERE {where_sql}

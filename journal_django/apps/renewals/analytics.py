@@ -8,11 +8,14 @@ def funnel(group_by: str | None = None) -> dict:
     """
     Распределение открытых сделок по стадиям + renewal rate за 30 дней
     (won / (won + lost) среди закрытых).
+
+    group_by='month' добавляет когорты по месяцам: месяц = когда цикл отработан
+    (due_at); оплатившие заранее (закрыты до 4-го урока, due_at пуст) попадают
+    в месяц закрытия. Каждый цикл — ровно в одном месяце.
     """
     with connection.cursor() as cur:
         cur.execute("""
-            SELECT st.key, st.label, st.kind, COUNT(*) AS cnt,
-                   COALESCE(SUM(d.expected_amount),0) AS sum_amt
+            SELECT st.key, st.label, st.kind, COUNT(*) AS cnt
             FROM renewal_deal d JOIN renewal_stage st ON st.id = d.stage_id
             WHERE d.outcome_at IS NULL
             GROUP BY st.key, st.label, st.kind, st.sort_order
@@ -28,6 +31,29 @@ def funnel(group_by: str | None = None) -> dict:
             GROUP BY st.kind
         """)
         closed = {r[0]: r[1] for r in cur.fetchall()}
+
+        months: list[dict] = []
+        if group_by == 'month':
+            cur.execute("""
+                SELECT to_char(COALESCE(date_trunc('month', d.due_at::timestamp),
+                                        date_trunc('month', d.outcome_at)), 'YYYY-MM') AS month,
+                       COUNT(*) AS matured,
+                       COUNT(*) FILTER (WHERE st.kind = 'won') AS won,
+                       COUNT(*) FILTER (WHERE st.kind = 'lost') AS lost,
+                       COUNT(*) FILTER (WHERE d.outcome_at IS NULL) AS in_progress
+                FROM renewal_deal d JOIN renewal_stage st ON st.id = d.stage_id
+                WHERE d.due_at IS NOT NULL OR d.outcome_at IS NOT NULL
+                GROUP BY 1 ORDER BY 1 DESC LIMIT 24
+            """)
+            cols = [c[0] for c in cur.description]
+            months = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for m in months:
+                done = m['won'] + m['lost']
+                m['conversion'] = round(m['won'] / done * 100, 1) if done else None
+
     won, lost = closed.get('won', 0), closed.get('lost', 0)
     rate = round(won / (won + lost) * 100, 1) if (won + lost) else None
-    return {'stages': stages, 'renewal_rate_30d': rate, 'won_30d': won, 'lost_30d': lost}
+    result = {'stages': stages, 'renewal_rate_30d': rate, 'won_30d': won, 'lost_30d': lost}
+    if group_by == 'month':
+        result['months'] = months
+    return result

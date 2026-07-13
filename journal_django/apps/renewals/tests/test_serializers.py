@@ -15,12 +15,12 @@ def test_patch_all_optional():
 
 
 @pytest.mark.django_db
-def test_deal_computed_shape(make_student, make_direction):
-    sid, did = make_student(), make_direction()
-    deal = engine.ensure_deal(sid, did, cycle_no=1)
+def test_deal_computed_shape(make_student):
+    sid = make_student()
+    deal = engine.ensure_deal(sid, cycle_no=1)
     data = repository.deal_computed(deal.id)
     assert data is not None
-    for key in ('student_name', 'direction_name', 'stage_key', 'lesson_in_cycle', 'balance'):
+    for key in ('student_name', 'directions', 'stage_key', 'lesson_in_cycle', 'balance'):
         assert key in data
     assert data['student_name'] == '__renew_test_student__'
     assert data['lesson_in_cycle'] == 1
