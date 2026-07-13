@@ -1,3 +1,8 @@
+> ⚠️ **УСТАРЕЛ (2026-07-13).** Описывает деплой старого Node/Express-бэкенда, который
+> снесён 2026-06-11 (см. `CLAUDE.md`). Актуальный бэкенд — Django (`journal_django/`).
+> Актуальная инструкция: [`docs/production-admin-guide.md`](production-admin-guide.md).
+> Файл оставлен как историческая справка.
+
 # Deploy runbook — journal-backend (Beget VPS, Ubuntu 22.04, без Docker)
 
 Пошаговое разворачивание на чистый VPS: **2 ядра / 2 ГБ ОЗУ / 30 ГБ NVMe**.
