@@ -331,6 +331,10 @@ class TestChangeTeacherPermanent:
         # даты/дни не изменились
         assert by_seq[5]['scheduled_date'] == '2026-06-29'
         assert by_seq[5]['scheduled_time'] == '10:00'
+        # новый преподаватель хвоста становится преподавателем группы по умолчанию
+        with connection.cursor() as cur:
+            cur.execute('SELECT teacher_id FROM groups WHERE id = %s', [gid])
+            assert cur.fetchone()[0] == plan_group['teacher_b']
 
     def test_missing_group_404(self, manager_client):
         resp = manager_client.post(
@@ -368,6 +372,26 @@ class TestPermanentChange:
         assert slots[(1, '10:00')]['effective_to'] == '2026-06-30'
         assert slots[(3, '14:00')]['effective_from'] == '2026-07-01'
         assert slots[(3, '14:00')]['effective_to'] is None
+        # new_teacher_id не передавали — преподаватель группы по умолчанию не тронут
+        with connection.cursor() as cur:
+            cur.execute('SELECT teacher_id FROM groups WHERE id = %s', [gid])
+            assert cur.fetchone()[0] == plan_group['teacher_a']
+
+    def test_updates_group_default_teacher_when_provided(self, manager_client, plan_group):
+        gid = plan_group['group_id']
+        _generate(manager_client, gid)
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/permanent-change',
+            {'from_seq': 5, 'new_day_of_week': 3, 'new_time': '14:00',
+             'new_teacher_id': plan_group['teacher_b']},
+            format='json',
+        )
+        assert resp.status_code == 200
+        by_seq = _by_seq(resp.json())
+        assert by_seq[5]['teacher_id'] == plan_group['teacher_b']
+        with connection.cursor() as cur:
+            cur.execute('SELECT teacher_id FROM groups WHERE id = %s', [gid])
+            assert cur.fetchone()[0] == plan_group['teacher_b']
 
     def test_effective_from_from_client_rejected(self, manager_client, plan_group):
         """effective_from больше не принимается от клиента (StrictSerializer → 400)."""

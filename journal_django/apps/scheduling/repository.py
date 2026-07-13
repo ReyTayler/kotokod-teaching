@@ -630,6 +630,10 @@ def change_teacher_permanent(
 
     None → группы нет (404). ValueError → нет курсовых строк с указанной позиции.
     Возвращает новый план (get_plan).
+
+    Преподаватель хвоста становится преподавателем группы по умолчанию
+    (groups.teacher_id) — иначе группа продолжает числиться за старым
+    преподавателем, хотя все оставшиеся занятия ведёт новый.
     """
     if not Group.objects.filter(id=group_id).exists():
         return None
@@ -661,6 +665,7 @@ def change_teacher_permanent(
             p.updated_at = now
             to_update.append(p)
         PlannedLesson.objects.bulk_update(to_update, ['teacher', 'updated_at'])
+        Group.objects.filter(id=group_id).update(teacher_id=new_teacher_id)
 
     return get_plan(group_id)
 
@@ -693,6 +698,9 @@ def permanent_change(
 
     None → группы нет (404). ValueError → мульти-слот / нет времени слота / нет
     курсовых строк с указанной позиции. Возвращает новый план (get_plan).
+
+    Если передан new_teacher_id, он же становится преподавателем группы по
+    умолчанию (groups.teacher_id) — как и в change_teacher_permanent.
     """
     # Локальный импорт: избегаем циклической зависимости на уровне модуля
     # (groups.urls → scheduling.views → …). Переиспользуем версионирование слота.
@@ -769,6 +777,8 @@ def permanent_change(
         PlannedLesson.objects.bulk_update(
             to_update, ['scheduled_date', 'scheduled_time', 'teacher', 'updated_at'],
         )
+        if new_teacher_id is not None:
+            Group.objects.filter(id=group_id).update(teacher_id=new_teacher_id)
 
     return get_plan(group_id)
 
