@@ -466,6 +466,7 @@
 /* Memberships в виде link-card (см. .link-card в teacher detail) с двумя стат-показателями */
 .membership-card { padding: 14px 16px; }
 .membership-card .link-card-head { margin-bottom: 12px; }
+.membership-card__actions { display: flex; gap: 6px; }
 .membership-card__remove {
   background: transparent; border: 1px solid var(--border); color: var(--text3);
   width: 28px; height: 28px; border-radius: 8px; cursor: pointer;

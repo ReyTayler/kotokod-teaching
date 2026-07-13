@@ -44,8 +44,8 @@ export function TransferMembershipModal({ membershipId, currentGroupName, target
     >
       <p className="transfer-modal__text">
         Ученик перейдёт в выбранную группу того же направления. Уроки, отработанные
-        в «{currentGroupName}», останутся в истории — новая группа стартует с 0,
-        но на карточке будет видно, откуда пришёл ученик.
+        в «{currentGroupName}», останутся в истории — на карточке новой группы
+        будет видно, откуда пришёл ученик и сколько там отработано.
       </p>
       <Field label="Новая группа" required>
         <SelectInput

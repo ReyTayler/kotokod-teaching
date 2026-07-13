@@ -247,7 +247,7 @@ def transfer_membership(membership_id: int, to_group_id: int) -> Optional[dict]:
         old = (
             GroupMembership.objects
             .select_related('group')
-            .select_for_update()
+            .select_for_update(of=('self',))
             .filter(id=membership_id, active=True)
             .first()
         )

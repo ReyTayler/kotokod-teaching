@@ -99,7 +99,7 @@ export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: 
                   <div className="link-card-title">{card.title}</div>
                   <div className="link-card-meta">{card.meta}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div className="membership-card__actions">
                   {onTransfer && (
                     <button
                       type="button"
