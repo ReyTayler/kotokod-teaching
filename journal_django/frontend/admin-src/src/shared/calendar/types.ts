@@ -25,6 +25,14 @@ export interface Occurrence {
    * поэтому optional, чтобы не требовать его от teacher-src/src/lib/types.ts.
    */
   id?: number | null;
+  /**
+   * groups.id занятия — отдаёт GET /api/admin/calendar (см. services.py
+   * _planned_occurrence_dict). Нужен для кнопки «Открыть группу» в
+   * LessonPopup (onOpenGroup). /api/admin/groups/<id>/plan-мапинг
+   * (useGroupPlanCalendar) его не выставляет — там уже открыта карточка
+   * группы, ссылка не нужна.
+   */
+  groupId?: number | null;
   group: string;
   groupDisplay: string;
   teacher: string;

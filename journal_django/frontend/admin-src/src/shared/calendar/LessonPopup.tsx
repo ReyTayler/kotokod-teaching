@@ -22,12 +22,15 @@ export function LessonPopup({
   onClose,
   onSubmit,
   onAction,
+  onOpenGroup,
   role,
 }: {
   lesson: Occurrence;
   onClose: () => void;
   onSubmit?: () => void;
   onAction?: (kind: LessonActionKind, lesson: Occurrence) => void;
+  /** Кнопка «Открыть группу» — не связана с onAction/onSubmit, видна независимо от role, если передан И lesson.groupId задан. Используется admin-календарём («Календарь» → /admin/groups/:id), не задействован ни в teacher, ни в GroupDetailPage (там карточка группы уже открыта). */
+  onOpenGroup?: (lesson: Occurrence) => void;
   role?: 'teacher' | 'admin';
 }) {
   // done — занятие уже проведено, операции плана его не трогают (инвариант
@@ -75,6 +78,12 @@ export function LessonPopup({
               <div key={`${s.name}-${i}`} className="t-student"><span>{s.name}</span></div>
             ))}
           </div>
+        </div>
+      )}
+
+      {onOpenGroup && lesson.groupId != null && (
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <Button size="sm" onClick={() => onOpenGroup(lesson)}>Открыть группу</Button>
         </div>
       )}
 

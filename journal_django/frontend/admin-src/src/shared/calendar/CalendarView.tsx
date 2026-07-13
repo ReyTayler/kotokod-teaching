@@ -79,6 +79,8 @@ export interface CalendarViewProps {
    * teacher не передаёт — регресс исключён (LessonPopup гейтит по role).
    */
   onAction?: (kind: LessonActionKind, occ: Occurrence) => void;
+  /** Кнопка «Открыть группу» в LessonPopup (см. LessonPopup.onOpenGroup) — используется admin-календарём раздела «Календарь». */
+  onOpenGroup?: (occ: Occurrence) => void;
 }
 
 /**
@@ -98,6 +100,7 @@ export function CalendarView({
   onLessonAction,
   role,
   onAction,
+  onOpenGroup,
 }: CalendarViewProps) {
   const [monday, setMonday] = useState(() => currentMondayMsk());
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonthMsk());
@@ -343,6 +346,7 @@ export function CalendarView({
           onClose={() => setSelected(null)}
           onSubmit={onLessonAction ? () => onLessonAction(selected) : undefined}
           onAction={onAction ? (kind, occ) => { setSelected(null); onAction(kind, occ); } : undefined}
+          onOpenGroup={onOpenGroup}
           role={role}
         />
       )}
