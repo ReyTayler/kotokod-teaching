@@ -16,9 +16,11 @@ interface Props {
   config: Mode;
   renderCard: (m: GroupMembership) => { title: string; meta: React.ReactNode; navigateTo?: string };
   emptyText: string;
+  /** Если передан — на каждой карточке появляется кнопка «⇄ Перевести». */
+  onTransfer?: (m: GroupMembership) => void;
 }
 
-export function MembershipsBlock({ config, renderCard, emptyText }: Props) {
+export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: Props) {
   const navigate = useNavigate();
   const filter = config.mode === 'byStudent'
     ? { student_id: config.studentId }
@@ -81,10 +83,11 @@ export function MembershipsBlock({ config, renderCard, emptyText }: Props) {
               tabIndex={0}
               role="button"
               onClick={(e) => {
-                if ((e.target as HTMLElement).closest('[data-mremove]')) return;
+                if ((e.target as HTMLElement).closest('[data-mremove]') || (e.target as HTMLElement).closest('[data-mtransfer]')) return;
                 if (card.navigateTo) navigate(card.navigateTo);
               }}
               onKeyDown={(e) => {
+                if ((e.target as HTMLElement).closest('[data-mremove]') || (e.target as HTMLElement).closest('[data-mtransfer]')) return;
                 if ((e.key === 'Enter' || e.key === ' ') && card.navigateTo) {
                   e.preventDefault();
                   navigate(card.navigateTo);
@@ -96,13 +99,25 @@ export function MembershipsBlock({ config, renderCard, emptyText }: Props) {
                   <div className="link-card-title">{card.title}</div>
                   <div className="link-card-meta">{card.meta}</div>
                 </div>
-                <button
-                  type="button"
-                  className="membership-card__remove"
-                  data-mremove
-                  aria-label="Убрать"
-                  onClick={() => { void handleRemove(m.id); }}
-                >×</button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {onTransfer && (
+                    <button
+                      type="button"
+                      className="membership-card__transfer-btn"
+                      data-mtransfer
+                      aria-label="Перевести"
+                      title="Перевести в другую группу"
+                      onClick={() => onTransfer(m)}
+                    >⇄</button>
+                  )}
+                  <button
+                    type="button"
+                    className="membership-card__remove"
+                    data-mremove
+                    aria-label="Убрать"
+                    onClick={() => { void handleRemove(m.id); }}
+                  >×</button>
+                </div>
               </div>
               <div className="membership-card__stats">
                 <div className="membership-card__stat">
@@ -110,6 +125,11 @@ export function MembershipsBlock({ config, renderCard, emptyText }: Props) {
                   <span className="membership-card__stat-value">{String(m.lessons_done)}</span>
                 </div>
               </div>
+              {m.transferred_from_group_name && (
+                <div className="membership-card__transferred-note">
+                  Переведён из «{m.transferred_from_group_name}» — там отработано {String(m.transferred_from_lessons_done)} ур.
+                </div>
+              )}
             </div>
           );
         })

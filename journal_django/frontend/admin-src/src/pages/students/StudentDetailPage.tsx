@@ -6,12 +6,13 @@ import { useDirections } from '../../hooks/useDirections';
 import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
 import { StatusBadge } from '../../components/StatusBadge';
 import { MembershipsBlock } from '../../components/memberships/MembershipsBlock';
+import { TransferMembershipModal } from '../../components/memberships/TransferMembershipModal';
 import { DirTag } from '../../components/ui/DirTag';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import { fmtDate, fmtDateTime } from '../../lib/format';
-import type { Student } from '../../lib/types';
+import type { GroupMembership, Student } from '../../lib/types';
 import StudentFormModal from './StudentFormModal';
 import StudentStatsBlock from './StudentStatsBlock';
 import StudentKpiRow from './StudentKpiRow';
@@ -35,6 +36,7 @@ export default function StudentDetailPage() {
   const { data: directions = [] } = useDirections(true);
   const { data: lastComment } = useLatestStudentComment(id);
   const [editing, setEditing] = useState(false);
+  const [transferMembership, setTransferMembership] = useState<GroupMembership | null>(null);
   const { open: openPaymentModal } = usePaymentModal();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -166,6 +168,7 @@ export default function StudentDetailPage() {
                 pickerLabel: 'Выберите группу',
               }}
               emptyText="Не записан ни в одну группу"
+              onTransfer={(m) => setTransferMembership(m)}
               renderCard={(m) => {
                 const g = groups.find((x) => x.id === m.group_id);
                 const dir = g ? directions.find((d) => d.id === g.direction_id) : null;
@@ -214,6 +217,22 @@ export default function StudentDetailPage() {
       {editing && (
         <StudentFormModal initial={student} onClose={() => setEditing(false)} />
       )}
+      {transferMembership && (() => {
+        const currentGroup = groups.find((g) => g.id === transferMembership.group_id);
+        const targetOptions = currentGroup
+          ? groups
+              .filter((g) => g.active && g.direction_id === currentGroup.direction_id && g.id !== currentGroup.id)
+              .map((g) => ({ value: g.id, label: g.name }))
+          : [];
+        return (
+          <TransferMembershipModal
+            membershipId={Number(transferMembership.id)}
+            currentGroupName={currentGroup?.name || `#${transferMembership.group_id}`}
+            targetOptions={targetOptions}
+            onClose={() => setTransferMembership(null)}
+          />
+        );
+      })()}
     </>
   );
 }
