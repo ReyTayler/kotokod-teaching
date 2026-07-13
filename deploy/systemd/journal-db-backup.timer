@@ -1,0 +1,13 @@
+# Таймер — ежедневный бэкап PostgreSQL в 03:00 МСК (00:00 UTC, сервер в Etc/UTC).
+# Установка: см. шапку deploy/scripts/backup-db.sh.
+
+[Unit]
+Description=KOTOKOD journal — daily PostgreSQL backup (timer)
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+# systemd-юнит — ежедневный бэкап PostgreSQL (journal-db-backup.timer его запускает).
+#
+# Установка: см. шапку deploy/scripts/backup-db.sh.
+
+[Unit]
+Description=KOTOKOD journal — daily PostgreSQL backup
+
+[Service]
+Type=oneshot
+ExecStart=/opt/kotokod/backup-db.sh
