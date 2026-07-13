@@ -16,3 +16,5 @@ gunicorn==23.0.0        # WSGI app-server за nginx (cutover, раздел 08)
 openpyxl==3.1.5         # чтение .xlsx для одноразового импорта истории направлений (import_direction_history)
 django-redis==5.4.0     # кэш снимка «Реестра куратора» (apps/dashboard/registry_service); активен ТОЛЬКО при REDIS_URL — локально/тесты идут на LocMemCache без redis. redis-py ставится как зависимость
 celery==5.4.0           # прогрев кэша реестра (beat → apps/dashboard/tasks); broker=Redis. Локально не запускается (config/__init__.py импортирует под try/except). Юниты — deploy/systemd/celery-*.service
+google-api-python-client==2.149.0   # чтение Google Sheets для apps.sync (порт backfill-скриптов)
+google-auth==2.35.0                 # service-account креды для google-api-python-client
