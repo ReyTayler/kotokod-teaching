@@ -19,6 +19,9 @@ DB_NAME="journal"
 KEEP_DAYS=14
 
 mkdir -p "$BACKUP_DIR"
+# Скрипт запускается от root (systemd), а pg_dump — от postgres (sudo -u).
+# Каталог должен быть доступен postgres на запись.
+chown postgres:postgres "$BACKUP_DIR"
 
 STAMP="$(date +%F-%H%M)"
 DUMP_FILE="$BACKUP_DIR/journal-$STAMP.dump"
