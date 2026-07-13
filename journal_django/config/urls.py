@@ -40,6 +40,8 @@ urlpatterns = [
     path('api/admin/accounts', include('apps.accounts.urls')),
     # Продления — CRM-воронка продлений (/api/admin/renewals, role=manager/admin)
     path('api/admin/renewals', include('apps.renewals.urls')),
+    # Календарь (админ, произвольный преподаватель) — /api/admin/calendar
+    path('api/admin/calendar', include('apps.scheduling.admin_urls')),
     # Phase 10 — teacher SPA (/api, после /api/admin — admin стоит выше, как в Express)
     path('api', include('apps.teacher_spa.urls')),
     # Планирование занятий — календарь плановых occurrences (/api/calendar, role=teacher)

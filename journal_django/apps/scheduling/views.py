@@ -88,6 +88,35 @@ class CalendarView(APIView):
 # требуют X-CSRFToken (@csrf_exempt не ставим). Аудит — log_event в services.
 # ---------------------------------------------------------------------------
 
+class AdminCalendarView(APIView):
+    """
+    GET /api/admin/calendar — плановые занятия ПРОИЗВОЛЬНОГО преподавателя за
+    окно [from, to] (role=manager/admin/superadmin). Используется разделом
+    «Календарь» admin SPA. teacher_id обязателен параметром запроса — без
+    него build_calendar() вернул бы пустой конверт, а не ошибку, поэтому
+    валидируем явно (400), не полагаясь на то, что фронт не даст открыть
+    сетку без выбранного преподавателя.
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        window = _parse_window(request)
+        if isinstance(window, Response):
+            return window
+        d_from, d_to = window
+
+        raw_teacher_id = request.query_params.get('teacher_id')
+        if not raw_teacher_id or not raw_teacher_id.isdigit():
+            return Response(
+                {'error': 'Обязателен параметр teacher_id (целое число).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = services.build_calendar(d_from, d_to, teacher_id=int(raw_teacher_id))
+        return Response(result)
+
+
 def _is_unique_violation(exc: Exception) -> bool:
     """Нарушение уникальности PostgreSQL (pgcode 23505) — прямое или в __cause__."""
     if getattr(exc, 'pgcode', None) == '23505':
