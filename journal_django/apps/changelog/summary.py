@@ -390,6 +390,17 @@ def build_summary(operation: str, events: list[dict], lk: Lookups) -> str:
             return f'Зачисление: {student} → {group}'
         if operation == 'membership.delete':
             return f'Отчисление: {student} из {group}'
+        if operation == 'membership.transfer' and len(memberships) == 2:
+            old_ev = next(
+                (e for e in memberships if (e.get('pgh_diff') or {}).get('active') == [True, False]),
+                None,
+            )
+            new_ev = next((e for e in memberships if e is not old_ev), None)
+            if old_ev is not None and new_ev is not None:
+                new_data = new_ev.get('pgh_data') or {}
+                to_group = lk.group(new_data.get('group_id'))
+                from_group = lk.group((old_ev.get('pgh_data') or {}).get('group_id'))
+                return f'Перевод: {student} из {from_group} в {to_group}'
         return _generic_phrase(memberships[0], 'Членство')
 
     # --- Оплаты ---

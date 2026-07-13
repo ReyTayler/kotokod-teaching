@@ -38,6 +38,7 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('PATCH', re.compile(r'^/api/admin/discounts/\d+$'), 'discount.update'),
     ('DELETE', re.compile(r'^/api/admin/discounts/\d+$'), 'discount.delete'),
     # memberships
+    ('POST', re.compile(r'^/api/admin/memberships/\d+/transfer$'), 'membership.transfer'),
     ('POST', re.compile(r'^/api/admin/memberships$'), 'membership.create'),
     ('PATCH', re.compile(r'^/api/admin/memberships/\d+$'), 'membership.update'),
     ('DELETE', re.compile(r'^/api/admin/memberships/\d+$'), 'membership.delete'),

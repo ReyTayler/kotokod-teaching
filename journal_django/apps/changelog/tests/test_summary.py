@@ -9,6 +9,7 @@ from apps.changelog.summary import Lookups, describe_event
 from apps.directions.models import Direction
 from apps.groups.models import Group
 from apps.memberships.models import GroupMembership
+from apps.memberships.repository import transfer_membership
 from apps.scheduling.models import PlannedLesson
 from apps.students.models import Student
 from apps.teachers.models import Teacher
@@ -105,6 +106,41 @@ def test_summary_membership(admin_client, group):
                                        lessons_done=0)
     row = _feed_top(admin_client)
     assert row['summary'] == 'Зачисление: Иван Тестов → ПИ1012'
+
+
+def test_summary_membership_transfer(admin_client, group):
+    target_group = Group.objects.create(
+        name='ПИ1013', direction=group.direction, teacher=group.teacher,
+        is_individual=False, created_at=timezone.now(),
+    )
+    s = Student.objects.create(full_name='Иван Тестов', created_at=timezone.now())
+    old = GroupMembership.objects.create(group=group, student=s, active=True, lessons_done=32)
+
+    with pghistory.context(url=f'/api/admin/memberships/{old.id}/transfer', method='POST'):
+        transfer_membership(old.id, target_group.id)
+
+    row = _feed_top(admin_client)
+    assert row['summary'] == 'Перевод: Иван Тестов из ПИ1012 в ПИ1013'
+
+
+def test_summary_membership_transfer_reactivation(admin_client, group):
+    """Целевая группа уже когда-то видела этого ученика (неактивная membership) —
+    перевод реактивирует её (UPDATE active False→True), а не создаёт новую строку.
+    Обе стороны перевода — 'update'-события, а не insert/update — проверяет,
+    что old/new различаются по diff направления, а не по pgh_label."""
+    target_group = Group.objects.create(
+        name='ПИ1014', direction=group.direction, teacher=group.teacher,
+        is_individual=False, created_at=timezone.now(),
+    )
+    s = Student.objects.create(full_name='Мария Тестова', created_at=timezone.now())
+    GroupMembership.objects.create(group=target_group, student=s, active=False, lessons_done=4)
+    old = GroupMembership.objects.create(group=group, student=s, active=True, lessons_done=32)
+
+    with pghistory.context(url=f'/api/admin/memberships/{old.id}/transfer', method='POST'):
+        transfer_membership(old.id, target_group.id)
+
+    row = _feed_top(admin_client)
+    assert row['summary'] == 'Перевод: Мария Тестова из ПИ1012 в ПИ1014'
 
 
 def test_summary_generic_update(admin_client):
