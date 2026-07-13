@@ -17,7 +17,7 @@ import type { Occurrence } from '../../shared/calendar/types';
  */
 export default function AdminCalendarPage() {
   const navigate = useNavigate();
-  const teachers = useTeachers();
+  const teachers = useTeachers(true); // включая архивных — можно посмотреть их прошлое расписание
   const [teacherId, setTeacherId] = useState<number | null>(null);
   const [range, setRange] = useState(() => {
     const monday = currentMondayMsk();
