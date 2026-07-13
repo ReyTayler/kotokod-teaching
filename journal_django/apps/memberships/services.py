@@ -36,3 +36,8 @@ def update_membership(membership_id: int, data: dict) -> Optional[dict]:
 def remove_membership(membership_id: int) -> bool:
     """Мягкое удаление (active=false). Возвращает False если не найден."""
     return repository.remove_membership(membership_id)
+
+
+def transfer_membership(membership_id: int, to_group_id: int) -> Optional[dict]:
+    """Переводит ученика в другую группу того же направления (см. repository.transfer_membership)."""
+    return repository.transfer_membership(membership_id, to_group_id)

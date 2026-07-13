@@ -15,18 +15,24 @@ from typing import Any, Optional
 from django.db import transaction
 from django.db.models import F
 
+from apps.core.utils.dates import msk_today
 from apps.core.utils.orm import dictrow, dictrows
 from apps.finances.repository import balance_for_student, balances_for_students
 from apps.groups.models import Group
 
-from .exceptions import IndividualGroupFull
+from .exceptions import (
+    DirectionMismatch,
+    IndividualGroupFull,
+    SameGroupTransfer,
+    TargetGroupUnavailable,
+)
 from .models import GroupMembership
 
 
 # Поля строки membership (gm.* / RETURNING *), в порядке схемы.
 _MEMBERSHIP_FIELDS = (
     'id', 'group_id', 'student_id', 'lessons_done',
-    'start_date', 'sheet_row', 'active',
+    'start_date', 'sheet_row', 'active', 'transferred_from_id',
 )
 
 
@@ -50,7 +56,13 @@ def _normalize_dates(row: Optional[dict]) -> Optional[dict]:
 def _membership_row(membership_id: int) -> Optional[dict]:
     """Строка membership (gm.* / RETURNING *) с нормализованной датой и вычисленным remaining."""
     row = _normalize_dates(
-        dictrow(GroupMembership.objects.filter(id=membership_id).values(*_MEMBERSHIP_FIELDS))
+        dictrow(
+            GroupMembership.objects.filter(id=membership_id).values(
+                *_MEMBERSHIP_FIELDS,
+                transferred_from_group_name=F('transferred_from__group__name'),
+                transferred_from_lessons_done=F('transferred_from__lessons_done'),
+            )
+        )
     )
     if row is not None:
         row['remaining'] = balance_for_student(row['student_id'])
@@ -125,6 +137,8 @@ def list_memberships(
             *_MEMBERSHIP_FIELDS,
             group_name=F('group__name'),
             student_name=F('student__full_name'),
+            transferred_from_group_name=F('transferred_from__group__name'),
+            transferred_from_lessons_done=F('transferred_from__lessons_done'),
         )
     )
     balances = balances_for_students({row['student_id'] for row in rows})
@@ -214,3 +228,70 @@ def remove_membership(membership_id: int) -> bool:
     """Мягкое удаление: active=false. True если строка найдена."""
     updated = GroupMembership.objects.filter(id=membership_id).update(active=False)
     return updated > 0
+
+
+def transfer_membership(membership_id: int, to_group_id: int) -> Optional[dict]:
+    """
+    Атомарный перевод активного membership в другую группу ТОГО ЖЕ направления.
+
+    Старая membership деактивируется (active=false, lessons_done остаётся
+    честной историей — реальные уроки именно в старой группе). Новая
+    membership создаётся/реактивируется тем же UPSERT-паттерном, что и
+    add_membership, с transferred_from = старая membership.
+
+    Возвращает None, если исходная membership не найдена/неактивна (view → 404).
+    Бросает SameGroupTransfer/TargetGroupUnavailable/DirectionMismatch (400 во view)
+    или IndividualGroupFull (409 во view).
+    """
+    with transaction.atomic():
+        old = (
+            GroupMembership.objects
+            .select_related('group')
+            .select_for_update()
+            .filter(id=membership_id, active=True)
+            .first()
+        )
+        if old is None:
+            return None
+
+        if to_group_id == old.group_id:
+            raise SameGroupTransfer()
+
+        target = (
+            Group.objects
+            .filter(id=to_group_id, active=True)
+            .values('direction_id')
+            .first()
+        )
+        if target is None:
+            raise TargetGroupUnavailable()
+        if target['direction_id'] != old.group.direction_id:
+            raise DirectionMismatch()
+
+        # Инвариант индивидуальной группы — до записи, как в add_membership.
+        _assert_individual_capacity(to_group_id, exclude_student_id=old.student_id)
+
+        old.active = False
+        old.save(update_fields=['active'])
+
+        new_obj = GroupMembership(
+            group_id=to_group_id,
+            student_id=old.student_id,
+            active=True,
+            transferred_from_id=old.id,
+            start_date=msk_today(),
+        )
+        GroupMembership.objects.bulk_create(
+            [new_obj],
+            update_conflicts=True,
+            unique_fields=['group', 'student'],
+            update_fields=['active', 'transferred_from', 'start_date'],
+        )
+        new_id = (
+            GroupMembership.objects
+            .filter(group_id=to_group_id, student_id=old.student_id)
+            .values_list('id', flat=True)
+            .first()
+        )
+
+    return _membership_row(new_id)
