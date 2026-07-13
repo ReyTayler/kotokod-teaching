@@ -51,6 +51,15 @@ class TestValidation:
         resp = manager_client.get(f"/api/admin/calendar?teacher_id={sched_setup['teacher_a']}")
         assert resp.status_code == 400
 
+    def test_negative_teacher_id_400(self, manager_client):
+        resp = manager_client.get(f'/api/admin/calendar?teacher_id=-5{WIN}')
+        assert resp.status_code == 400
+
+    def test_out_of_range_teacher_id_400(self, manager_client):
+        """teacher_id за пределами PostgreSQL int4 → 400, а не 500 от БД."""
+        resp = manager_client.get(f'/api/admin/calendar?teacher_id=99999999999999{WIN}')
+        assert resp.status_code == 400
+
 
 class TestCalendar:
     def test_returns_only_selected_teacher(self, manager_client, sched_setup):

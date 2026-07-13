@@ -80,13 +80,10 @@ class CalendarView(APIView):
         return Response(result)
 
 
-# ---------------------------------------------------------------------------
-# Admin-план (RBAC IsManagerOrAdmin). Операции над planned_lessons
-# (generate/reschedule/permanent-change/cancel/extra). Смонтированы под
-# /api/admin/groups (ДО teacher-guard /api) → доступ проверяется на API, а не
-# только на фронте. Мутации проходят DRF SessionAuthentication/CookieJWT →
-# требуют X-CSRFToken (@csrf_exempt не ставим). Аудит — log_event в services.
-# ---------------------------------------------------------------------------
+# PostgreSQL int4 (teachers.id) — верхняя граница, чтобы не словить
+# NumericValueOutOfRange из БД на слишком большом teacher_id (500 вместо 400).
+_MAX_INT4 = 2_147_483_647
+
 
 class AdminCalendarView(APIView):
     """
@@ -107,7 +104,9 @@ class AdminCalendarView(APIView):
         d_from, d_to = window
 
         raw_teacher_id = request.query_params.get('teacher_id')
-        if not raw_teacher_id or not raw_teacher_id.isdigit():
+        # isdecimal (не isdigit) — isdigit пропускает юникод-цифры вроде '²',
+        # которые int() не парсит (ValueError → 500 вместо 400).
+        if not raw_teacher_id or not raw_teacher_id.isdecimal() or int(raw_teacher_id) > _MAX_INT4:
             return Response(
                 {'error': 'Обязателен параметр teacher_id (целое число).'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -116,6 +115,14 @@ class AdminCalendarView(APIView):
         result = services.build_calendar(d_from, d_to, teacher_id=int(raw_teacher_id))
         return Response(result)
 
+
+# ---------------------------------------------------------------------------
+# Admin-план (RBAC IsManagerOrAdmin). Операции над planned_lessons
+# (generate/reschedule/permanent-change/cancel/extra). Смонтированы под
+# /api/admin/groups (ДО teacher-guard /api) → доступ проверяется на API, а не
+# только на фронте. Мутации проходят DRF SessionAuthentication/CookieJWT →
+# требуют X-CSRFToken (@csrf_exempt не ставим). Аудит — log_event в services.
+# ---------------------------------------------------------------------------
 
 def _is_unique_violation(exc: Exception) -> bool:
     """Нарушение уникальности PostgreSQL (pgcode 23505) — прямое или в __cause__."""
