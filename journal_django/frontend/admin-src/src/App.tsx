@@ -18,6 +18,7 @@ import GroupDetailPage from './pages/groups/GroupDetailPage';
 import TeacherDetailPage from './pages/teachers/TeacherDetailPage';
 import DirectionDetailPage from './pages/directions/DirectionDetailPage';
 import LessonDetailPage from './pages/lessons/LessonDetailPage';
+import AdminCalendarPage from './pages/calendar/AdminCalendarPage';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import AuditPage from './pages/audit/AuditPage';
 import AccountsPage from './pages/accounts/AccountsPage';
@@ -54,6 +55,7 @@ export function App() {
             <Route path="/admin/lessons/:id" element={<LessonDetailPage />} />
 
             <Route path="/admin/payroll" element={<RequireRole roles={['superadmin']}><PayrollPage /></RequireRole>} />
+            <Route path="/admin/calendar" element={<RequireRole roles={['manager','admin','superadmin']}><AdminCalendarPage /></RequireRole>} />
             <Route path="/admin/subscriptions" element={<SubscriptionsPage />} />
             <Route path="/admin/renewals" element={<RequireRole roles={['manager','admin','superadmin']}><RenewalsPage /></RequireRole>} />
             <Route path="/admin/renewals/analytics" element={<RequireRole roles={['manager','admin','superadmin']}><Suspense fallback={<PageLoading />}><RenewalAnalyticsPage /></Suspense></RequireRole>} />
