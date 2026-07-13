@@ -110,6 +110,9 @@ export interface GroupMembership {
   // joined-only:
   group_name?: string;
   student_name?: string;
+  transferred_from_id?: ID | null;
+  transferred_from_group_name?: string | null;
+  transferred_from_lessons_done?: string | number | null;
 }
 
 // ===== Lessons =====
