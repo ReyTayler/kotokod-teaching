@@ -1,10 +1,18 @@
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
-import { useRenewalAnalytics } from '../../hooks/useRenewalAnalytics';
+import { useRenewalAnalytics, useRenewalMonths } from '../../hooks/useRenewalAnalytics';
 import { KpiCard } from '../dashboard/KpiCard';
-import { fmtRub } from '../../lib/format';
 
-interface TooltipRow { payload?: { label?: string; cnt?: number; sum_amt?: number } }
+// '2026-07' → «июль 2026»
+function fmtMonth(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  if (!y || !m) return ym;
+  const s = new Intl.DateTimeFormat('ru', { month: 'long', year: 'numeric' })
+    .format(new Date(Date.UTC(y, m - 1, 1)));
+  return s.replace(' г.', '');
+}
+
+interface TooltipRow { payload?: { label?: string; cnt?: number } }
 function FunnelTooltip({ active, payload }: { active?: boolean; payload?: TooltipRow[] }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
@@ -15,17 +23,14 @@ function FunnelTooltip({ active, payload }: { active?: boolean; payload?: Toolti
       <div className="chart-tooltip__row">
         <span className="chart-tooltip__value">{row.cnt} сделок</span>
       </div>
-      {!!row.sum_amt && (
-        <div className="chart-tooltip__row">
-          <span className="chart-tooltip__value">{fmtRub(row.sum_amt)}</span>
-        </div>
-      )}
     </div>
   );
 }
 
 export default function RenewalAnalyticsPage() {
   const { data, isLoading } = useRenewalAnalytics();
+  const { data: monthsData } = useRenewalMonths();
+  const months = monthsData?.months || [];
 
   return (
     <div className="renewals-page">
@@ -75,6 +80,43 @@ export default function RenewalAnalyticsPage() {
               </BarChart>
             </ResponsiveContainer>
           </section>
+
+          {months.length > 0 && (
+            <section className="chart-card">
+              <div className="chart-card__head">
+                <h3 className="chart-card__title">Продления по месяцам</h3>
+                <span className="chart-card__hint">
+                  Месяц = когда отработан 4-й урок цикла (оплатившие заранее — по дате оплаты)
+                </span>
+              </div>
+              <div className="renewal-months__scroll">
+                <table className="renewal-months">
+                  <thead>
+                    <tr>
+                      <th>Месяц</th>
+                      <th>Созрело</th>
+                      <th>Продлено</th>
+                      <th>Ушло</th>
+                      <th>В работе</th>
+                      <th>Конверсия</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {months.map((m) => (
+                      <tr key={m.month}>
+                        <td className="renewal-months__month">{fmtMonth(m.month)}</td>
+                        <td>{m.matured}</td>
+                        <td>{m.won}</td>
+                        <td>{m.lost}</td>
+                        <td>{m.in_progress}</td>
+                        <td>{m.conversion != null ? `${m.conversion}%` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>

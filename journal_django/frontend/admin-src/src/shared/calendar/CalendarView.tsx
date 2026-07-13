@@ -79,6 +79,14 @@ export interface CalendarViewProps {
    * teacher не передаёт — регресс исключён (LessonPopup гейтит по role).
    */
   onAction?: (kind: LessonActionKind, occ: Occurrence) => void;
+  /**
+   * Перехват клика по занятию (teacher: контекстное меню «Отметить урок /
+   * Карточка группы / Чат / Подробности» в точке клика). Если передан,
+   * встроенный LessonPopup по клику НЕ открывается — вызывающая сторона
+   * показывает меню и открывает LessonPopup сама (пункт «Подробности»).
+   * Не передан (admin) — прежнее поведение: клик сразу открывает LessonPopup.
+   */
+  onOccurrenceMenu?: (occ: Occurrence, pos: { x: number; y: number }) => void;
   /** Кнопка «Открыть группу» в LessonPopup (см. LessonPopup.onOpenGroup) — используется admin-календарём раздела «Календарь». */
   onOpenGroup?: (occ: Occurrence) => void;
 }
@@ -100,6 +108,7 @@ export function CalendarView({
   onLessonAction,
   role,
   onAction,
+  onOccurrenceMenu,
   onOpenGroup,
 }: CalendarViewProps) {
   const [monday, setMonday] = useState(() => currentMondayMsk());
@@ -135,6 +144,26 @@ export function CalendarView({
   const colorOf = useCallback(
     (occ: Occurrence): string => resolveDirectionColor(occ.color, occ.direction ?? occ.group),
     [],
+  );
+
+  /**
+   * Клик по занятию: с onOccurrenceMenu — контекстное меню вызывающей стороны
+   * в точке клика (Enter с клавиатуры — у нижней кромки блока), иначе прежний
+   * LessonPopup.
+   */
+  const handleSelect = useCallback(
+    (occ: Occurrence, e?: React.MouseEvent | React.KeyboardEvent) => {
+      if (!onOccurrenceMenu) {
+        setSelected(occ);
+        return;
+      }
+      const rect = (e?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect();
+      const me = e && 'clientX' in e ? (e as React.MouseEvent) : undefined;
+      const x = me?.clientX || (rect ? rect.left + rect.width / 2 : 0);
+      const y = me?.clientY || (rect ? rect.bottom : 0);
+      onOccurrenceMenu(occ, { x, y });
+    },
+    [onOccurrenceMenu],
   );
 
   const directionMatch = useCallback((occ: Occurrence) => {
@@ -305,10 +334,10 @@ export function CalendarView({
       ) : (
         <>
           {effectiveView === 'week'
-            ? <WeekGrid monday={monday} occurrences={timedLessons} today={today} onSelect={setSelected} resolveColor={colorOf} />
+            ? <WeekGrid monday={monday} occurrences={timedLessons} today={today} onSelect={handleSelect} resolveColor={colorOf} />
             : effectiveView === 'month'
-            ? <MonthGrid monthAnchor={monthAnchor} lessonsByDate={monthLessonsByDate} today={today} onSelect={setSelected} resolveColor={colorOf} />
-            : <DayList monday={monday} occurrences={lessons} today={today} onSelect={setSelected} resolveColor={colorOf} />}
+            ? <MonthGrid monthAnchor={monthAnchor} lessonsByDate={monthLessonsByDate} today={today} onSelect={handleSelect} resolveColor={colorOf} />
+            : <DayList monday={monday} occurrences={lessons} today={today} onSelect={handleSelect} resolveColor={colorOf} />}
 
           {effectiveView === 'week' && noTimeLessons.length > 0 && (
             <div className="notime-sec">
@@ -322,10 +351,10 @@ export function CalendarView({
                     key={`${occ.group}-${occ.date}-${i}`}
                     className={`lrow${occ.status === 'cancelled' ? ' cancelled' : ''}`}
                     style={{ ['--subject-color' as any]: 'var(--text4)', borderTop: 'none' }}
-                    onClick={() => setSelected(occ)}
+                    onClick={(e) => handleSelect(occ, e)}
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter') setSelected(occ); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSelect(occ, e); }}
                   >
                     <div className="lrow-time" style={{ fontSize: 12, color: 'var(--text4)' }}>—</div>
                     <div style={{ minWidth: 0 }}>

@@ -9,40 +9,63 @@ interface Props extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'onChange'
   options: Option[];
   onChange?: (e: { target: { value: string } }) => void;
   placeholder?: string;
+  /** Показывать поле поиска. По умолчанию — когда вариантов больше порога. */
+  searchable?: boolean;
 }
 
-export function SelectInput({ options, value, onChange, placeholder, disabled, className, ...rest }: Props) {
+const SEARCH_THRESHOLD = 7;
+
+export function SelectInput({ options, value, onChange, placeholder, disabled, className, searchable, ...rest }: Props) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const currentValue = value !== undefined ? String(value) : '';
   const selected = useMemo(() => options.find((o) => String(o.value) === currentValue), [options, currentValue]);
+  const showSearch = searchable ?? options.length > SEARCH_THRESHOLD;
+
+  const filtered = useMemo(() => {
+    if (!showSearch || !query.trim()) return options;
+    const q = query.toLowerCase();
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query, showSearch]);
+
+  const close = () => { setOpen(false); setQuery(''); };
 
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node;
       // Список рендерится в портале (вне ref) — исключаем и его.
-      if (!ref.current?.contains(t) && !popoverRef.current?.contains(t)) setOpen(false);
+      if (!ref.current?.contains(t) && !popoverRef.current?.contains(t)) close();
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
-  // Reset highlight to currently selected when opening
+  // При открытии: сброс поиска, фокус в поле поиска, подсветка на выбранном.
   useEffect(() => {
-    if (open) {
-      const idx = options.findIndex((o) => String(o.value) === currentValue);
-      setHighlight(idx >= 0 ? idx : 0);
-    }
-  }, [open, options, currentValue]);
+    if (!open) return;
+    setQuery('');
+    const idx = options.findIndex((o) => String(o.value) === currentValue);
+    setHighlight(idx >= 0 ? idx : 0);
+    if (showSearch) searchRef.current?.focus();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Держим подсвеченный пункт в зоне видимости при навигации с клавиатуры.
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    (listRef.current.children[highlight] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
+  }, [highlight, open]);
 
   const choose = (opt: Option) => {
     onChange?.({ target: { value: String(opt.value) } });
-    setOpen(false);
+    close();
     triggerRef.current?.focus();
   };
 
@@ -51,16 +74,16 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (!open) { setOpen(true); return; }
-      setHighlight((h) => Math.min(options.length - 1, h + 1));
+      setHighlight((h) => Math.min(filtered.length - 1, h + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlight((h) => Math.max(0, h - 1));
-    } else if (e.key === 'Enter' || e.key === ' ') {
+    } else if (e.key === 'Enter' || (e.key === ' ' && !showSearch)) {
       e.preventDefault();
       if (!open) setOpen(true);
-      else if (options[highlight]) choose(options[highlight]);
+      else if (filtered[highlight]) choose(filtered[highlight]);
     } else if (e.key === 'Escape') {
-      if (open) { e.stopPropagation(); setOpen(false); } // закрываем список, не саму модалку
+      if (open) { e.stopPropagation(); close(); } // закрываем список, не саму модалку
     }
   };
 
@@ -70,7 +93,7 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
         type="button"
         ref={triggerRef}
         className="select-input__trigger"
-        onClick={() => !disabled && setOpen((o) => !o)}
+        onClick={() => !disabled && (open ? close() : setOpen(true))}
         onKeyDown={onKey}
         disabled={disabled}
         aria-haspopup="listbox"
@@ -84,10 +107,31 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
         </svg>
       </button>
       <Floating anchorRef={triggerRef} floatingRef={popoverRef} open={open} className="floating-popover">
-        <ul className="select-input__list" role="listbox">
-          {options.length === 0 ? (
-            <li className="select-input__empty">Нет вариантов</li>
-          ) : options.map((opt, i) => (
+        {showSearch && (
+          <div className="select-input__search">
+            <svg className="select-input__search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              ref={searchRef}
+              type="text"
+              className="select-input__search-field"
+              value={query}
+              placeholder="Поиск..."
+              autoComplete="off"
+              role="combobox"
+              aria-expanded={open}
+              aria-autocomplete="list"
+              onChange={(e) => { setQuery(e.target.value); setHighlight(0); }}
+              onKeyDown={onKey}
+            />
+          </div>
+        )}
+        <ul className="select-input__list" role="listbox" ref={listRef}>
+          {filtered.length === 0 ? (
+            <li className="select-input__empty">{query ? 'Ничего не найдено' : 'Нет вариантов'}</li>
+          ) : filtered.map((opt, i) => (
             <li
               key={`${opt.value}-${i}`}
               role="option"

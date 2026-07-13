@@ -17,7 +17,7 @@ export function MonthGrid({
   /** Дата ('YYYY-MM-DD') → уроки этого дня, уже отфильтрованные по направлению. */
   lessonsByDate: Map<string, Occurrence[]>;
   today: Date;
-  onSelect: (occ: Occurrence) => void;
+  onSelect: (occ: Occurrence, e: React.MouseEvent | React.KeyboardEvent) => void;
   resolveColor: (occ: Occurrence) => string;
 }) {
   const gridStart = mondayOfWeek(monthAnchor);
@@ -56,12 +56,12 @@ export function MonthGrid({
                   {visible.map((occ, i) => (
                     <div
                       key={`${occ.group}-${occ.date}-${occ.time}-${i}`}
-                      className={`month-chip${occ.status === 'overdue' ? ' overdue' : ''}${occ.status === 'cancelled' ? ' cancelled' : ''}`}
+                      className={`month-chip${occ.status === 'overdue' ? ' overdue' : ''}${occ.status === 'done' ? ' done' : ''}${occ.status === 'cancelled' ? ' cancelled' : ''}`}
                       style={{ ['--subject-color' as any]: resolveColor(occ) }}
-                      onClick={() => onSelect(occ)}
+                      onClick={(e) => onSelect(occ, e)}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === 'Enter') onSelect(occ); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') onSelect(occ, e); }}
                       title={occ.status === 'moved' || occ.status === 'cancelled' ? occ.label : undefined}
                     >
                       <span className="month-chip-time">{occ.time ?? '—'}</span>

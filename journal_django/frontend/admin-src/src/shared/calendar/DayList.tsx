@@ -15,7 +15,7 @@ export function DayList({
   monday: Date;
   occurrences: Occurrence[];
   today: Date;
-  onSelect: (occ: Occurrence) => void;
+  onSelect: (occ: Occurrence, e: React.MouseEvent | React.KeyboardEvent) => void;
   resolveColor: (occ: Occurrence) => string;
 }) {
   const byCol: Occurrence[][] = Array.from({ length: 7 }, () => []);
@@ -43,12 +43,12 @@ export function DayList({
               items.map((occ, i) => (
                 <div
                   key={`${occ.group}-${occ.date}-${occ.time}-${i}`}
-                  className={`lrow${occ.status === 'cancelled' ? ' cancelled' : ''}`}
+                  className={`lrow${occ.status === 'done' ? ' done' : ''}${occ.status === 'cancelled' ? ' cancelled' : ''}`}
                   style={{ ['--subject-color' as any]: resolveColor(occ) }}
-                  onClick={() => onSelect(occ)}
+                  onClick={(e) => onSelect(occ, e)}
                   role="button"
                   tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter') onSelect(occ); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onSelect(occ, e); }}
                 >
                   <div className="lrow-time">{occ.time ?? '—'}</div>
                   <div style={{ minWidth: 0 }}>

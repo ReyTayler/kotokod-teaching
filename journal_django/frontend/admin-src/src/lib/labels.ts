@@ -122,6 +122,15 @@ export const CHANGELOG_ENTITY_OPTIONS: { value: string; label: string }[] =
 
 export const RENEWAL_STAGE_LABELS: Record<string, string> = {
   lesson_1: 'Урок 1', lesson_2: 'Урок 2', lesson_3: 'Урок 3', lesson_4: 'Урок 4',
-  awaiting_payment: 'Ждём оплату', thinking: 'Думает',
+  awaiting_payment: 'Ждём оплату', awaiting_renewal: 'Ждём продление', thinking: 'Думает',
   frozen: 'Заморожен', ignoring: 'Игнорит', renewed: 'Продлён', churned: 'Ушёл',
+};
+
+// Причины ухода ученика (диалог закрытия сделки «Ушёл», reason_code сделки).
+export const RENEWAL_LOST_REASON_LABELS: Record<string, string> = {
+  price: 'Не устроила цена',
+  schedule: 'Не подошло расписание',
+  lost_interest: 'Потерял интерес',
+  relocation: 'Переезд',
+  other: 'Другое',
 };

@@ -546,49 +546,154 @@
 .archive-section__count { background: var(--bg3); color: var(--text3); border-radius: 20px; padding: 2px 10px; font-size: 13px; font-weight: 600; }
 .archive-section__empty { padding: 20px; text-align: center; color: var(--text3); font-size: 14px; }
 
-/* ── BALANCE BLOCK ── */
+/* ── BALANCE BLOCK (Финансы) ── */
 .balance-block {
-  background: var(--bg2, var(--surface, #fff));
+  background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 18px 20px;
-  margin: 16px 0;
+  border-radius: var(--r-lg);
+  padding: var(--space-5);
+  margin: var(--space-4) 0;
 }
 .balance-block__head {
   display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 12px;
+  gap: var(--space-3); flex-wrap: wrap;
+  margin-bottom: var(--space-5);
 }
-.balance-block__head h3 { margin: 0; }
-.balance-block__head-actions { display: flex; gap: var(--space-2, 8px); align-items: center; }
-.balance-block__totals {
-  display: flex; gap: 24px; flex-wrap: wrap;
-  padding: 10px 0; border-bottom: 1px solid var(--border);
-  margin-bottom: 12px;
+.balance-block__head h3 {
+  margin: 0; font-size: 16px; font-weight: 700;
+  letter-spacing: -0.01em; color: var(--text);
 }
-.balance-block__directions { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.balance-block__direction-row {
-  display: grid;
-  grid-template-columns: 12px 1fr auto;
-  gap: 12px;
-  align-items: center;
-  padding: 4px 0;
+.balance-block__head-actions { display: flex; gap: var(--space-2); align-items: center; }
+.balance-neg { color: var(--danger); font-weight: 600; }
+
+/* Сводка — два стат-тайла */
+.balance-summary {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3); margin-bottom: var(--space-5);
 }
-.balance-block__direction-name { font-weight: 500; }
-.balance-block__history-head {
-  margin: 14px 0 6px; font-size: 14px;
-  color: var(--text-muted, var(--text3));
-  text-transform: uppercase; letter-spacing: 0.5px;
+@media (max-width: 560px) { .balance-summary { grid-template-columns: 1fr; } }
+.balance-tile {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
 }
-.balance-block__history { list-style: none; padding: 0; margin: 0; }
-.balance-block__history-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 0; border-top: 1px dashed var(--border);
+.balance-tile__label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text3);
 }
-.balance-block__history-row:first-child { border-top: none; }
-.balance-block__history-main { font-size: 14px; }
-.balance-neg { color: var(--danger, #c44); font-weight: 600; }
-.balance-block__history-row.is-refund { color: var(--danger); }
-.balance-block__history-row .refund-badge { font-weight: 600; }
+.balance-tile__value {
+  font-family: var(--font-mono); font-size: 22px; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.01em; color: var(--text);
+}
+.balance-tile__value.is-neg { color: var(--danger); }
+
+/* ── Раскрывающиеся секции (аккордеон) ── */
+.fin-sections { display: flex; flex-direction: column; gap: var(--space-2); }
+.fin-acc {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--bg2);
+}
+.fin-acc.is-open { border-color: var(--border-strong); }
+.fin-acc__trigger {
+  width: 100%;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: none; border: none; cursor: pointer; font: inherit;
+  color: var(--text); text-align: left;
+  transition: background var(--t-fast) var(--ease);
+}
+.fin-acc__trigger:hover { background: var(--bg3); }
+.fin-acc.is-open .fin-acc__trigger { border-bottom: 1px solid var(--border); }
+.fin-acc__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text3);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.fin-acc__trigger:hover .fin-acc__icon { color: var(--accent); border-color: var(--accent); }
+.fin-acc.is-open .fin-acc__icon { color: var(--accent); border-color: var(--accent); }
+/* вертикальная штриха «+» гаснет при раскрытии → остаётся «−» */
+.fin-acc__icon-bar {
+  transform-origin: 8px 8px;
+  transition: transform var(--t-base) var(--ease), opacity var(--t-fast) var(--ease);
+}
+.fin-acc.is-open .fin-acc__icon-bar { transform: scaleY(0); opacity: 0; }
+.fin-acc__title { font-size: 14px; font-weight: 600; flex: 1; }
+.fin-acc__meta {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 20px; padding: 0 7px;
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--text3); background: var(--bg3);
+  border-radius: 999px;
+}
+.fin-acc__body { padding: var(--space-4); }
+
+/* Списки «по направлениям» */
+.fin-dir-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.fin-dir-row {
+  display: grid; grid-template-columns: 10px 1fr auto;
+  align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast) var(--ease);
+}
+.fin-dir-row:hover { background: var(--bg3); }
+.fin-dir-dot { width: 10px; height: 10px; border-radius: 50%; }
+.fin-dir-name { font-size: 14px; font-weight: 500; color: var(--text2); }
+.fin-dir-value {
+  font-family: var(--font-mono); font-size: 14px; font-weight: 600;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.fin-dir-unit { font-family: var(--font-sans); font-size: 12px; font-weight: 500; color: var(--text3); }
+
+/* ── История оплат: таблица ── */
+.fin-history { margin: calc(-1 * var(--space-4)); border: none; border-radius: 0; }
+.fin-history table { min-width: 100%; }
+.fin-history tbody tr { cursor: default; }
+.fin-history th, .fin-history td { padding: 9px var(--space-4); }
+/* Выравнивание заголовков под содержимое ячеек, чтобы значения не «уезжали» */
+.fin-history thead th.col-num { text-align: right; }
+.fin-history thead th.col-center { text-align: center; }
+/* Комментарий забирает всю лишнюю ширину — числовые колонки прижаты к контенту */
+.fin-history th.col-flex, .fin-history td.fin-history__note { width: 100%; }
+.fin-history__date { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; color: var(--text2); }
+.fin-history__num { text-align: right; white-space: nowrap; }
+.fin-history__subs { text-align: center; white-space: nowrap; }
+.fin-history__amount {
+  display: block; font-family: var(--font-mono); font-weight: 600;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.fin-history__sub { display: block; font-size: 11px; color: var(--text4); font-variant-numeric: tabular-nums; }
+.fin-history__count { font-family: var(--font-mono); font-weight: 600; color: var(--text2); }
+.fin-history__author { color: var(--text2); white-space: nowrap; }
+.fin-history__note { color: var(--text3); }
+.fin-history__note span { display: block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-history__action { text-align: right; width: 1%; white-space: nowrap; }
+.fin-history tr.is-refund .fin-history__amount { color: var(--danger); }
+.fin-history .muted { color: var(--text4); }
+
+.fin-tag {
+  display: inline-flex; align-items: center; padding: 2px 9px;
+  border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+}
+.fin-tag--refund { color: var(--danger); background: color-mix(in oklab, var(--danger) 12%, transparent); }
+.fin-tag--prepay { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); }
+
+/* Ghost-кнопка удаления в строке таблицы: краснеет только при наведении */
+.fin-history__action .btn-delete:not(.is-confirming) {
+  width: 30px; height: 30px; padding: 0;
+  background: transparent; border-color: transparent; color: var(--text4);
+}
+.fin-history__action .btn-delete:not(.is-confirming):hover {
+  background: color-mix(in oklab, var(--danger) 12%, transparent);
+  border-color: transparent; color: var(--danger);
+}
 
 .btn-danger {
   padding: 8px 14px; border: 1px solid var(--danger);
@@ -616,21 +721,6 @@
 
 /* ── INLINE EDIT (SubscriptionsPage) ── */
 .inline-edit { display: inline-flex; gap: 8px; align-items: center; }
-
-.balance-block__history-toggle {
-  background: none; border: none; padding: 8px 0; margin: 4px 0;
-  display: flex; align-items: center; gap: 8px;
-  cursor: pointer; font: inherit; color: inherit;
-  font-size: 14px; font-weight: 600;
-}
-.balance-block__history-toggle:hover { color: var(--accent, #7c3aed); }
-.balance-block__chevron {
-  display: inline-block;
-  transition: transform 150ms ease;
-  font-size: 12px;
-  opacity: 0.6;
-}
-.balance-block__chevron.is-open { transform: rotate(90deg); }
 
 /* ── ОПЕРАЦИИ ПЛАНА (GroupPlanActions) — toolbar кнопок над календарём ── */
 .plan-actions__toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); }
@@ -937,4 +1027,7 @@
   color: var(--text4);
   font-variant-numeric: tabular-nums;
 }
+
+/* Матрица посещаемости «Прогресс» переехала в shared/progress/progress.css
+   (общая с teacher SPA — страница группы). */
 

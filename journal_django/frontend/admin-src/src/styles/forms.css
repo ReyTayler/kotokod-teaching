@@ -166,6 +166,32 @@
   transition: transform var(--t-fast) var(--ease);
 }
 .select-input.is-open .select-input__chevron { transform: rotate(180deg); color: var(--accent); }
+/* Поле поиска — липкая шапка выпадающего списка (перекрывает прокручиваемые пункты) */
+.select-input__search {
+  position: sticky;
+  top: -4px; /* компенсируем padding:4px попапа */
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px -4px 4px;
+  padding: 8px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+.select-input__search-icon { flex-shrink: 0; color: var(--text3); }
+.select-input__search-field {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+}
+.select-input__search-field::placeholder { color: var(--text4); }
 .select-input__list {
   margin: 0; padding: 0;
   list-style: none;

@@ -18,4 +18,6 @@
    которая импортирует этот же файл через alias '@shared/shared/calendar/*'. */
 @import '../shared/calendar/calendar.css';
 @import '../shared/calendar/modal.css';
+/* Матрица посещаемости «Прогресс» (GroupProgressView) — общая с teacher SPA. */
+@import '../shared/progress/progress.css';
 @import './overrides.css';

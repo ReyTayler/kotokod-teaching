@@ -245,6 +245,24 @@
   text-decoration-thickness: 1px;
 }
 
+/* Заполненные занятия — визуально погашены: урок уже отмечен, внимания не требует */
+.lrow.done, .lb.done, .month-chip.done {
+  opacity: .55;
+  filter: saturate(.35);
+}
+
+/* Линия текущего времени — только в колонке сегодняшнего дня недельной сетки */
+.cal-now-line {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 2px solid var(--danger);
+  z-index: 3; pointer-events: none;
+}
+.cal-now-dot {
+  position: absolute; left: -4px; top: -5px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger);
+}
+
 /* Метка «перенесён» — компактный ненавязчивый значок на занятии */
 .cal-moved {
   color: var(--info);

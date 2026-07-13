@@ -42,6 +42,14 @@ export interface Occurrence {
   direction: string | null;
   color: string | null; // hex #RRGGBB или null
   isGroup: boolean;
+  /**
+   * Длительность занятия в минутах (groups.lesson_duration_minutes). Teacher
+   * /api/calendar отдаёт всегда; admin-мапинг /plan может не заполнять —
+   * сетка использует фолбэк 60.
+   */
+  durationMinutes?: number | null;
+  /** Ссылка на чат группы (groups.vk_chat) — контекстное меню teacher-календаря. */
+  vkChat?: string | null;
   date: string;         // 'YYYY-MM-DD' — реальная дата занятия
   time: string | null;  // 'HH:MM'
   day: number;           // 0=Вс…6=Сб

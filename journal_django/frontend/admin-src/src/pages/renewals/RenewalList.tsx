@@ -44,14 +44,20 @@ export function RenewalList({ filters, onOpen }: Props) {
       cell: (r) => r.student_name || '—',
     },
     {
-      key: 'direction_name',
-      label: 'Направление',
+      key: 'directions',
+      label: 'Направления',
       sortable: false,
       searchable: false,
       cell: (r) => (
-        <span style={r.direction_color ? { color: r.direction_color } : undefined}>
-          {r.direction_name || '—'}
-        </span>
+        (r.directions || []).length === 0 ? '—' : (
+          <>
+            {(r.directions || []).map((d, i) => (
+              <span key={d.name} style={d.color ? { color: d.color } : undefined}>
+                {i > 0 && ', '}{d.name}
+              </span>
+            ))}
+          </>
+        )
       ),
     },
     {
@@ -59,7 +65,7 @@ export function RenewalList({ filters, onOpen }: Props) {
       label: 'Цикл',
       sortable: SORTABLE_KEYS.has('cycle_no'),
       searchable: false,
-      cell: (r) => `Мес. ${r.cycle_no}`,
+      cell: (r) => `Цикл ${r.cycle_no}`,
     },
     {
       key: 'stage_label',

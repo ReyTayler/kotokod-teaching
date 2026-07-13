@@ -1,5 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
-import { fmtRub, fmtDate } from '../../lib/format';
+import { fmtDate } from '../../lib/format';
 import type { RenewalCard } from '../../lib/renewals';
 
 // Порог «сделка зависла в стадии» — подсвечиваем SLA-бейдж красным.
@@ -14,11 +14,14 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
   return (
     <>
       <div className="renewal-card__student">{card.student_name || '—'}</div>
-      <div
-        className="renewal-card__direction"
-        style={card.direction_color ? { color: card.direction_color } : undefined}
-      >
-        {card.direction_name || '—'} · Мес. {card.cycle_no}
+      <div className="renewal-card__direction">
+        {(card.directions || []).map((d, i) => (
+          <span key={d.name} style={d.color ? { color: d.color } : undefined}>
+            {i > 0 && ', '}{d.name}
+          </span>
+        ))}
+        {(card.directions || []).length === 0 && '—'}
+        {' · Цикл '}{card.cycle_no}
       </div>
       <div className="renewal-card__meta">
         <span
@@ -27,15 +30,17 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
         >
           {card.days_in_stage} дн.
         </span>
+        {card.debt && (
+          <span className="status-badge status-badge--negative" title="Баланс ученика отрицательный">
+            Долг
+          </span>
+        )}
         {card.next_touch_at && (
           <span className="renewal-card__touch">{fmtDate(card.next_touch_at)}</span>
         )}
       </div>
       <div className="renewal-card__footer">
         <span className="renewal-card__assignee">{card.assignee_name || '—'}</span>
-        {card.expected_amount != null && (
-          <span className="renewal-card__amount">{fmtRub(card.expected_amount)}</span>
-        )}
       </div>
     </>
   );
@@ -43,11 +48,18 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
 
 interface Props {
   card: RenewalCard;
+  stageId: number;
   onOpen: (id: number) => void;
 }
 
-export function RenewalCardView({ card, onOpen }: Props) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id });
+export function RenewalCardView({ card, stageId, onOpen }: Props) {
+  // Данные карточки едут вместе с drag'ом — так доска берёт их прямо из события
+  // (event.active.data), а не ищет в кэше. Иначе карточки из «Показать ещё»
+  // (локальный стейт) и из поиска (отдельный кэш) не перетаскивались бы.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: card.id,
+    data: { card, fromStageId: stageId },
+  });
 
   return (
     <div

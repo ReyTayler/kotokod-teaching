@@ -51,6 +51,9 @@ export function usePaymentMutations() {
     qc.invalidateQueries({ queryKey: ['students'] });
     qc.invalidateQueries({ queryKey: ['student-balance'] });
     qc.invalidateQueries({ queryKey: ['directions'] });
+    // Оплата закрывает/переоткрывает сделку продления (сигналы на бэке) —
+    // доска и карточки должны обновиться сразу, не дожидаясь staleTime.
+    qc.invalidateQueries({ queryKey: ['renewals'] });
   };
   return {
     create: useMutation({
