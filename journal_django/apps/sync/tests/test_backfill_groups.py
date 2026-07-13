@@ -73,10 +73,15 @@ def test_run_inserts_group_and_slots(monkeypatch):
             cur.execute("SELECT COUNT(*) FROM group_schedule_slots WHERE group_id = %s", [group_row[0]])
             assert cur.fetchone()[0] == 1
     finally:
-        # group_schedule_slots.group_id FK -> groups.id в тестовой БД DEFERRABLE
-        # INITIALLY DEFERRED и НЕ ON DELETE CASCADE (в отличие от заявленного в
-        # Python-модели on_delete=CASCADE) — удаляем слоты явно, иначе deferred
-        # constraint check упадёт на orphaned-строке после DELETE FROM groups.
+        # group_schedule_slots.group_id FK в тестовой БД создаётся Django-миграцией
+        # apps/groups/migrations/0001_initial.py и физически является DEFERRABLE
+        # INITIALLY DEFERRED БЕЗ ON DELETE CASCADE на уровне БД (models.CASCADE
+        # эмулируется Django ORM в Python, а не DDL-констрейнтом) — поэтому явно
+        # удаляем слоты, иначе deferred constraint check упадёт на orphaned-строке
+        # после DELETE FROM groups. (В боевой БД, поднятой из исходной сырой SQL-
+        # миграции db/migrations/001_initial_schema.sql, у этой же колонки
+        # настоящий ON DELETE CASCADE — тестовая БД строится иначе, через
+        # Django migrate, и потому имеет другую физическую схему constraint'а.)
         with connection.cursor() as cur:
             cur.execute(
                 "DELETE FROM group_schedule_slots WHERE group_id IN "
