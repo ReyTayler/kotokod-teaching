@@ -42,6 +42,16 @@ class GroupMembership(models.Model):
     start_date = models.DateField(null=True, blank=True)
     sheet_row = models.IntegerField(null=True, blank=True)
     active = models.BooleanField(default=True)
+    # Ссылка на membership, из которой ученик был переведён (apps.memberships.services.transfer_membership).
+    # Ставится только сервисом перевода — обычный add_membership её не трогает.
+    transferred_from = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        db_column='transferred_from_id',
+        related_name='transferred_to',
+    )
     # Колонки created_at в таблице group_memberships НЕТ (см. db/migrations/001).
 
     class Meta:
