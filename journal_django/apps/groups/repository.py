@@ -379,6 +379,15 @@ def get_group_progress(group_id: int) -> Optional[dict]:
       False — не был (запись present=false),
       None  — урок не проведён (плановый слот) ИЛИ ученик не входил в состав на тот
               урок (нет записи посещаемости) — не учитывается в held/present/pct.
+
+    transferred_lessons / transferred_from_group_name — если у ученика есть
+    GroupMembership.transferred_from (перевод из другой группы, apps.memberships),
+    transferred_lessons = min(floor(lessons_done в старой группе), slot_count) —
+    столько ведущих пустых ячеек фронт красит статусом «Перевод» (cells не
+    переписываются, разметка — чисто presentational). Направление старой группы
+    не проверяется здесь — инвариант «только внутри направления» гарантирует
+    apps.memberships.repository.transfer_membership на момент перевода. Если
+    transferred_lessons == 0 (в т.ч. floor дал 0), transferred_from_group_name = None.
     """
     import math
 
@@ -401,7 +410,11 @@ def get_group_progress(group_id: int) -> Optional[dict]:
         GroupMembership.objects
         .filter(group_id=group_id, active=True)
         .order_by('student__full_name')
-        .values('student_id', name=F('student__full_name'))
+        .values(
+            'student_id', 'transferred_from_id', name=F('student__full_name'),
+            transferred_from_lessons_done=F('transferred_from__lessons_done'),
+            transferred_from_group_name=F('transferred_from__group__name'),
+        )
     )
 
     # Реальные (проведённые) уроки: слот = ceil(lesson_number), первый на слот.
@@ -469,6 +482,16 @@ def get_group_progress(group_id: int) -> Optional[dict]:
             if is_present:
                 present += 1
             cells.append(is_present)
+        transferred_lessons = 0
+        transferred_from_group_name = None
+        if member['transferred_from_id']:
+            transferred_lessons = min(
+                math.floor(float(member['transferred_from_lessons_done'] or 0)),
+                slot_count,
+            )
+            if transferred_lessons > 0:
+                transferred_from_group_name = member['transferred_from_group_name']
+
         students.append({
             'student_id': sid,
             'name': member['name'],
@@ -476,6 +499,8 @@ def get_group_progress(group_id: int) -> Optional[dict]:
             'held': held,
             'pct': round(present / held * 100) if held else 0,
             'cells': cells,
+            'transferred_lessons': transferred_lessons,
+            'transferred_from_group_name': transferred_from_group_name,
         })
 
     return {

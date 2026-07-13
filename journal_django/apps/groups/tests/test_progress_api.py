@@ -181,3 +181,140 @@ class TestContract:
             if any(t in q['sql'] for t in ('group_memberships', 'lessons', 'lesson_attendance', 'groups'))
         ]
         assert len(data_queries) <= 4  # 3 данные + возможный lookup группы/direction
+
+
+class TestTransferredLessons:
+    """transferred_lessons/transferred_from_group_name в ответе матрицы."""
+
+    def test_transferred_student_gets_capped_count(self, manager_client, progress_group):
+        """
+        Боря переведён из архивной группы того же направления, где отработал
+        5 уроков (direction.total_lessons=8 в фикстуре progress_group) —
+        transferred_lessons должен быть 5 (меньше total_slots=8, не капается).
+        """
+        gid = progress_group['group_id']
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT direction_id, teacher_id FROM groups WHERE id = %s", [gid],
+            )
+            direction_id, teacher_id = cur.fetchone()
+            cur.execute(
+                "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
+                "lesson_duration_minutes,active) VALUES ('__pg_old_g__',%s,%s,false,60,false) "
+                "RETURNING id",
+                [direction_id, teacher_id],
+            )
+            old_group_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                "VALUES (%s,%s,5,false) RETURNING id",
+                [old_group_id, progress_group['borya']],
+            )
+            old_membership_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE group_memberships SET transferred_from_id = %s "
+                "WHERE group_id = %s AND student_id = %s",
+                [old_membership_id, gid, progress_group['borya']],
+            )
+        try:
+            body = manager_client.get(_url(gid)).json()
+            rows = {r['student_id']: r for r in body['students']}
+            borya = rows[progress_group['borya']]
+            assert borya['transferred_lessons'] == 5
+            assert borya['transferred_from_group_name'] == '__pg_old_g__'
+
+            anya = rows[progress_group['anya']]
+            assert anya['transferred_lessons'] == 0
+            assert anya['transferred_from_group_name'] is None
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE group_memberships SET transferred_from_id = NULL "
+                    "WHERE group_id = %s AND student_id = %s",
+                    [gid, progress_group['borya']],
+                )
+                cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [old_group_id])
+                cur.execute('DELETE FROM groups WHERE id = %s', [old_group_id])
+
+    def test_transferred_count_capped_at_total_slots(self, manager_client, progress_group):
+        """
+        Отработано в старой группе (20) больше, чем всего слотов в этой матрице
+        (total_slots=8) — transferred_lessons не может превышать total_slots.
+        """
+        gid = progress_group['group_id']
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT direction_id, teacher_id FROM groups WHERE id = %s", [gid],
+            )
+            direction_id, teacher_id = cur.fetchone()
+            cur.execute(
+                "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
+                "lesson_duration_minutes,active) VALUES ('__pg_old_g2__',%s,%s,false,60,false) "
+                "RETURNING id",
+                [direction_id, teacher_id],
+            )
+            old_group_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                "VALUES (%s,%s,20,false) RETURNING id",
+                [old_group_id, progress_group['anya']],
+            )
+            old_membership_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE group_memberships SET transferred_from_id = %s "
+                "WHERE group_id = %s AND student_id = %s",
+                [old_membership_id, gid, progress_group['anya']],
+            )
+        try:
+            body = manager_client.get(_url(gid)).json()
+            rows = {r['student_id']: r for r in body['students']}
+            assert rows[progress_group['anya']]['transferred_lessons'] == 8
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE group_memberships SET transferred_from_id = NULL "
+                    "WHERE group_id = %s AND student_id = %s",
+                    [gid, progress_group['anya']],
+                )
+                cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [old_group_id])
+                cur.execute('DELETE FROM groups WHERE id = %s', [old_group_id])
+
+    def test_half_lesson_floored(self, manager_client, progress_group):
+        """lessons_done=4.5 в старой группе → transferred_lessons=4 (floor, не round)."""
+        gid = progress_group['group_id']
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT direction_id, teacher_id FROM groups WHERE id = %s", [gid],
+            )
+            direction_id, teacher_id = cur.fetchone()
+            cur.execute(
+                "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
+                "lesson_duration_minutes,active) VALUES ('__pg_old_g3__',%s,%s,false,45,false) "
+                "RETURNING id",
+                [direction_id, teacher_id],
+            )
+            old_group_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                "VALUES (%s,%s,4.5,false) RETURNING id",
+                [old_group_id, progress_group['borya']],
+            )
+            old_membership_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE group_memberships SET transferred_from_id = %s "
+                "WHERE group_id = %s AND student_id = %s",
+                [old_membership_id, gid, progress_group['borya']],
+            )
+        try:
+            body = manager_client.get(_url(gid)).json()
+            rows = {r['student_id']: r for r in body['students']}
+            assert rows[progress_group['borya']]['transferred_lessons'] == 4
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE group_memberships SET transferred_from_id = NULL "
+                    "WHERE group_id = %s AND student_id = %s",
+                    [gid, progress_group['borya']],
+                )
+                cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [old_group_id])
+                cur.execute('DELETE FROM groups WHERE id = %s', [old_group_id])
