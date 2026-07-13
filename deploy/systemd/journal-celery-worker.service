@@ -23,10 +23,12 @@ Requires=redis-server.service
 
 [Service]
 Type=simple
-User=kotokod                                   # ЗАМЕНИТЬ на сервисного пользователя
+# User/Group/WorkingDirectory/EnvironmentFile — заменить под реальные пути.
+# ⚠️ systemd НЕ поддерживает inline-комментарии после значения директивы.
+User=kotokod
 Group=www-data
-WorkingDirectory=/opt/kotokod/journal-backend/journal_django   # ЗАМЕНИТЬ
-EnvironmentFile=/opt/kotokod/journal-backend/.env              # должен содержать REDIS_URL
+WorkingDirectory=/opt/kotokod/journal-backend/journal_django
+EnvironmentFile=/opt/kotokod/journal-backend/.env
 Environment=DJANGO_SETTINGS_MODULE=config.settings.production
 Environment=TZ=Europe/Moscow
 ExecStart=/opt/kotokod/journal-backend/journal_django/.venv/bin/celery \

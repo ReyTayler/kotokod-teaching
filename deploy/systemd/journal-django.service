@@ -16,10 +16,13 @@ After=network.target
 
 [Service]
 Type=notify
-User=kotokod                                   # ЗАМЕНИТЬ на сервисного пользователя
-Group=www-data                                 # группа, в которой nginx читает сокет
-WorkingDirectory=/opt/kotokod/journal-backend/journal_django   # ЗАМЕНИТЬ
-EnvironmentFile=/opt/kotokod/journal-backend/.env              # общий .env с Express
+# User/Group/WorkingDirectory/EnvironmentFile — заменить под реальные пути.
+# ⚠️ systemd НЕ поддерживает inline-комментарии после значения директивы —
+# держать пояснения на отдельной строке (иначе комментарий станет частью пути).
+User=kotokod
+Group=www-data
+WorkingDirectory=/opt/kotokod/journal-backend/journal_django
+EnvironmentFile=/opt/kotokod/journal-backend/.env
 Environment=DJANGO_SETTINGS_MODULE=config.settings.production
 # КРИТИЧНО: teacher /report использует МСК-семантику локального времени сервера.
 # И Node, и Django ДОЛЖНЫ работать в Europe/Moscow (иначе статус урока уезжает).
