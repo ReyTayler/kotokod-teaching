@@ -78,12 +78,15 @@ def _planned_occurrence_dict(
     ln = r['lesson_number']
     return {
         'group': r['group_name'],
+        'groupId': r['group_pk'],
         'groupDisplay': r['group_name'],
         'teacher': teacher,
         'teacherOverride': tnames.get(pl_teacher_id) if is_override else None,
         'direction': r['direction_name'],
         'color': r['direction_color'],
         'isGroup': not r['is_individual'],
+        'durationMinutes': r['lesson_duration_minutes'],
+        'vkChat': r['group_vk_chat'] or None,
         'date': _iso(r['scheduled_date']),
         'time': _hhmm(r['scheduled_time']),
         'day': _report_day(r['scheduled_date']),
