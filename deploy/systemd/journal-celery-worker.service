@@ -1,9 +1,12 @@
-# systemd-юнит — KOTOKOD journal Celery worker (прогрев кэша «Реестра куратора»).
+# systemd-юнит — KOTOKOD journal Celery worker.
 #
-# Введено «понемногу» (спека 2026-07-11). Пока единственная задача — обновление
-# снимка реестра; concurrency=1 достаточно (VPS 2 CPU / 2 ГБ). Требует Redis
+# Введено «понемногу» (спеки 2026-07-11 и 2026-07-13). Задачи: email-OTP входа
+# (очередь interactive), прогревы кэшей реестра и финансового дашборда (default).
+# Один воркер слушает ОБЕ очереди: порядок в -Q даёт приоритет interactive —
+# письмо входа не ждёт за фоновыми задачами. concurrency=2 (VPS 2 CPU / 2 ГБ);
+# --max-tasks-per-child страхует от утечек памяти. Требует Redis
 # (apt install redis-server) и REDIS_URL в .env. Без воркера приложение работает
-# синхронно — воркер лишь ускоряет реестр.
+# синхронно — воркер лишь снимает SMTP/пересчёты с веб-запросов.
 #
 # Установка (Beget VPS, Ubuntu 22.04, БЕЗ Docker):
 #   sudo apt install redis-server
@@ -27,7 +30,9 @@ EnvironmentFile=/opt/kotokod/journal-backend/.env              # должен с
 Environment=DJANGO_SETTINGS_MODULE=config.settings.production
 Environment=TZ=Europe/Moscow
 ExecStart=/opt/kotokod/journal-backend/journal_django/.venv/bin/celery \
-          -A config worker --loglevel=info --concurrency=1
+          -A config worker --loglevel=info \
+          -Q interactive,default \
+          --concurrency=2 --prefetch-multiplier=1 --max-tasks-per-child=200
 
 Restart=on-failure
 RestartSec=5

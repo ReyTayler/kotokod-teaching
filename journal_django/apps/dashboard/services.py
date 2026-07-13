@@ -14,8 +14,11 @@ worked_off_month/deferred_total в getDashboard суммируют точные 
 from __future__ import annotations
 
 import datetime
+import time
 from decimal import Decimal
 from typing import Optional
+
+from django.core.cache import cache
 
 from apps.core.utils.dates import msk_month_range_triple
 from apps.core.utils.decimal import js_number, js_round2, to_decimal
@@ -150,3 +153,97 @@ def get_monthly_finance(years: Optional[list[int]] = None) -> dict:
         by_year[y] = arr
 
     return {'years': req_years, 'available_years': available_years, 'byYear': by_year}
+
+
+# ---------------------------------------------------------------------------
+# Кэш финансового дашборда (Celery-спека 2026-07-13, фаза B).
+#
+# get_dashboard/get_monthly_finance — самый тяжёлый расчёт системы (fifo_inputs
+# читает ВСЕ payments+attendance, FIFO по каждому ученику). Views читают только
+# кэшированные обёртки ниже; расчётные функции выше не меняются (их сверяет
+# golden-diff с Express).
+#
+# Инвалидация — generation-ключ: все ключи включают finance:{gen}:…, сброс =
+# запись нового gen (timestamp), старые ключи умирают по TTL. Работает одинаково
+# на LocMem и Redis, без delete_pattern. Сигналы Payment/Lesson (signals.py)
+# меняют generation после коммита; bulk-правки посещаемости (без сигналов)
+# покрывает короткий TTL. Кэш — оптимизация, не источник правды: любая ошибка
+# кэша → синхронный расчёт (паттерн registry_service).
+# ---------------------------------------------------------------------------
+
+DASHBOARD_TTL = 120   # default-ключ; beat греет каждые 60с → всегда тёплый
+RANGE_TTL = 300       # произвольные диапазоны/годы — реже, живут дольше
+
+_GEN_KEY = 'finance:gen'
+_GEN_TTL = 7 * 24 * 3600   # страховка от вечного ключа; данные живут ≤ RANGE_TTL
+
+
+def _generation() -> int:
+    """Текущая генерация кэша. Промах/мёртвый кэш → свежая (= всегда пересчёт)."""
+    try:
+        gen = cache.get(_GEN_KEY)
+        if gen is None:
+            gen = time.time_ns()
+            cache.set(_GEN_KEY, gen, _GEN_TTL)
+        return int(gen)
+    except Exception:
+        return time.time_ns()
+
+
+def _dashboard_key(from_: Optional[str], to: Optional[str]) -> str:
+    if not (from_ or to):
+        return f'finance:{_generation()}:dashboard:default'
+    return f'finance:{_generation()}:dashboard:{from_ or ""}:{to or ""}'
+
+
+def _monthly_key(years: Optional[list[int]]) -> str:
+    suffix = 'default' if years is None else ','.join(str(y) for y in years)
+    return f'finance:{_generation()}:monthly:{suffix}'
+
+
+def _cached(key: str, ttl: int, compute):
+    """Прочитать из кэша, при промахе — посчитать и положить. Ошибки кэша глотаются."""
+    try:
+        hit = cache.get(key)
+    except Exception:
+        return compute()
+    if hit is not None:
+        return hit
+    value = compute()
+    try:
+        cache.set(key, value, ttl)
+    except Exception:
+        pass
+    return value
+
+
+def get_dashboard_cached(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
+    """Сводка с кэшем. Вызывать ПОСЛЕ валидации дат во view (значения идут в ключ)."""
+    ttl = DASHBOARD_TTL if not (from_ or to) else RANGE_TTL
+    return _cached(_dashboard_key(from_, to), ttl,
+                   lambda: get_dashboard(from_=from_, to=to))
+
+
+def get_monthly_cached(years: Optional[list[int]] = None) -> dict:
+    """Year-over-year с кэшем. Вызывать ПОСЛЕ валидации годов во view."""
+    return _cached(_monthly_key(years), RANGE_TTL,
+                   lambda: get_monthly_finance(years=years))
+
+
+def refresh_dashboard() -> str:
+    """Пересчитать default-сводку и положить в кэш (точка входа Celery-прогрева).
+    Возвращает месяц сводки (для лога воркера)."""
+    data = get_dashboard()
+    try:
+        cache.set(_dashboard_key(None, None), data, DASHBOARD_TTL)
+    except Exception:
+        pass
+    return data['month']
+
+
+def invalidate_finance_cache() -> None:
+    """Сменить генерацию кэша (после мутаций Payment/Lesson — см. signals.py)."""
+    try:
+        cache.set(_GEN_KEY, time.time_ns(), _GEN_TTL)
+    except Exception:
+        pass

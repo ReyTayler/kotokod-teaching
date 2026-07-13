@@ -49,7 +49,7 @@ class DashboardView(APIView):
         to = request.query_params.get('to')
         if (from_ and not _is_valid_iso_date(from_)) or (to and not _is_valid_iso_date(to)):
             return Response({'error': 'invalid_date'}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(services.get_dashboard(from_=from_ or None, to=to or None))
+        return Response(services.get_dashboard_cached(from_=from_ or None, to=to or None))
 
 
 class DashboardMonthlyView(APIView):
@@ -75,4 +75,4 @@ class DashboardMonthlyView(APIView):
                 return Response({'error': 'invalid_year'}, status=status.HTTP_400_BAD_REQUEST)
             year_list = [int(year)]
 
-        return Response(services.get_monthly_finance(years=year_list))
+        return Response(services.get_monthly_cached(years=year_list))

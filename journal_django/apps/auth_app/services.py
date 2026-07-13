@@ -20,8 +20,26 @@ from django.utils import timezone
 
 from apps.accounts import repository as accounts_repo
 from apps.audit.services import log_event
+from apps.auth_app import mailer
 from apps.auth_app import twofa as twofa_module
-from apps.auth_app.mailer import send_otp_email
+
+
+def send_otp_email(to: str, code: str) -> None:
+    """
+    Диспатч OTP-письма (Celery-спека 2026-07-13, фаза A).
+
+    С celery — фоновой задачей (SMTP не блокирует запрос /login; ретраи — в
+    задаче). Без celery (локальный dev) — синхронно через mailer, как раньше.
+    Импорт задач — в рантайме: пакет celery локально может быть не установлен
+    (тот же паттерн, что config/__init__.py). Точка-шов для тестов: API-тесты
+    мокают apps.auth_app.services.send_otp_email.
+    """
+    try:
+        from apps.auth_app.tasks import send_otp_email_task
+    except ImportError:
+        mailer.send_otp_email(to, code)
+        return
+    send_otp_email_task.delay(to, code)
 
 
 # Сообщение об ошибке входа — одинаковое для email/пароль/роли (порт FAIL)

@@ -196,10 +196,22 @@ CELERY_RESULT_BACKEND = REDIS_URL or 'redis://localhost:6379/0'
 CELERY_TIMEZONE = 'Europe/Moscow'
 CELERY_ENABLE_UTC = False
 CELERY_TASK_ALWAYS_EAGER = not REDIS_URL
+# Очереди (спека 2026-07-13, фаза A): один воркер слушает обе
+# (-Q interactive,default, см. deploy/systemd/journal-celery-worker.service).
+# interactive — то, чего косвенно ждёт человек (email-OTP входа);
+# default — прогревы кэша и фоновые/ночные задачи.
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_ROUTES = {
+    'apps.auth_app.tasks.send_otp_email_task': {'queue': 'interactive'},
+}
 CELERY_BEAT_SCHEDULE = {
     'refresh-registry-summary': {
         'task': 'apps.dashboard.tasks.refresh_registry_summary',
         'schedule': 60.0,  # < TTL(120с) → кэш сводки всегда тёплый
+    },
+    'refresh-finance-dashboard': {
+        'task': 'apps.dashboard.tasks.refresh_finance_dashboard',
+        'schedule': 60.0,  # < TTL(120с) → финансовая сводка всегда тёплая
     },
 }
 
