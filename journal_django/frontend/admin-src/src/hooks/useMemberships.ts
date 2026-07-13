@@ -39,5 +39,10 @@ export function useMembershipMutations() {
         api<void>('DELETE', `/api/admin/memberships/${id}`),
       onSuccess: invalidate,
     }),
+    transfer: useMutation({
+      mutationFn: ({ id, to_group_id }: { id: number; to_group_id: number }) =>
+        api<GroupMembership>('POST', `/api/admin/memberships/${id}/transfer`, { to_group_id }),
+      onSuccess: invalidate,
+    }),
   };
 }
