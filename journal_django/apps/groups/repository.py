@@ -363,6 +363,10 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     Обзорная матрица посещаемости группы: слоты уроков (столбцы) × ученики (строки).
 
     Ровно 3 запроса (участники + уроки + посещаемость) без N+1 — считаем на VPS.
+    Исключение: строки с transferred_from_id добавляют +1 запрос на хоп цепочки
+    переводов (cumulative_transferred_lessons, apps.memberships.repository) —
+    переводы редки, намеренно не батчим (YAGNI), см. design doc
+    2026-07-13-transfer-progress-matrix-design.md, раздел «Производительность».
     None если группы нет.
 
     Слот = ceil(lesson_number) (как LessonGrid: half-lesson 0.5 схлопывается в слот,
@@ -401,6 +405,7 @@ def get_group_progress(group_id: int) -> Optional[dict]:
 
     from apps.lessons.models import Lesson, LessonAttendance
     from apps.memberships.models import GroupMembership
+    from apps.memberships.repository import cumulative_transferred_lessons
 
     grp = (
         Group.objects
@@ -420,7 +425,6 @@ def get_group_progress(group_id: int) -> Optional[dict]:
         .order_by('student__full_name')
         .values(
             'student_id', 'transferred_from_id', name=F('student__full_name'),
-            transferred_from_lessons_done=F('transferred_from__lessons_done'),
             transferred_from_group_name=F('transferred_from__group__name'),
         )
     )
@@ -493,10 +497,8 @@ def get_group_progress(group_id: int) -> Optional[dict]:
         transferred_lessons = 0
         transferred_from_group_name = None
         if member['transferred_from_id']:
-            transferred_lessons = min(
-                math.floor(float(member['transferred_from_lessons_done'] or 0)),
-                slot_count,
-            )
+            cumulative = cumulative_transferred_lessons(member['transferred_from_id'])
+            transferred_lessons = min(math.floor(float(cumulative)), slot_count)
             if transferred_lessons > 0:
                 transferred_from_group_name = member['transferred_from_group_name']
 
