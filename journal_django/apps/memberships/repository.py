@@ -10,6 +10,7 @@ POST — UPSERT: повторный вызов с той же парой (group_
 from __future__ import annotations
 
 import datetime as _dt
+from decimal import Decimal
 from typing import Any, Optional
 
 from django.db import transaction
@@ -36,6 +37,45 @@ _MEMBERSHIP_FIELDS = (
 )
 
 
+_MAX_TRANSFER_CHAIN = 20  # защитный лимит — реальные цепочки в разы короче
+
+
+def cumulative_transferred_lessons(transferred_from_id: Optional[int]) -> Decimal:
+    """
+    Сумма lessons_done по всей цепочке переводов, начиная с transferred_from_id
+    (сама текущая membership НЕ включается — только предки).
+
+    Ученика могут перевести несколько раз подряд (А→Б→В→...) — transferred_from
+    каждой membership указывает на непосредственно предыдущую, образуя связный
+    список; функция проходит его назад до конца.
+
+    Защита от цикла: если ученика переводят обратно в группу, где он уже был
+    раньше в этой же цепочке, add_membership-паттерн (ON CONFLICT DO UPDATE)
+    РЕАКТИВИРУЕТ старую membership-строку той же группы и перезаписывает её
+    transferred_from на текущую — из-за этого цепочка технически может
+    зациклиться (А.transferred_from → В → Б → А). `seen`-множество и
+    _MAX_TRANSFER_CHAIN останавливают обход, не давая ему повиснуть; результат
+    в этом редком случае — best-effort сумма до точки повторного визита, не
+    гарантированно полная, но и не бесконечный цикл.
+    """
+    total = Decimal('0')
+    seen: set[int] = set()
+    current_id = transferred_from_id
+    while current_id is not None and current_id not in seen and len(seen) < _MAX_TRANSFER_CHAIN:
+        seen.add(current_id)
+        row = (
+            GroupMembership.objects
+            .filter(id=current_id)
+            .values('lessons_done', 'transferred_from_id')
+            .first()
+        )
+        if row is None:
+            break
+        total += row['lessons_done'] or Decimal('0')
+        current_id = row['transferred_from_id']
+    return total
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -60,12 +100,15 @@ def _membership_row(membership_id: int) -> Optional[dict]:
             GroupMembership.objects.filter(id=membership_id).values(
                 *_MEMBERSHIP_FIELDS,
                 transferred_from_group_name=F('transferred_from__group__name'),
-                transferred_from_lessons_done=F('transferred_from__lessons_done'),
             )
         )
     )
     if row is not None:
         row['remaining'] = balance_for_student(row['student_id'])
+        row['transferred_from_lessons_done'] = (
+            cumulative_transferred_lessons(row['transferred_from_id'])
+            if row['transferred_from_id'] else None
+        )
     return row
 
 
@@ -138,13 +181,16 @@ def list_memberships(
             group_name=F('group__name'),
             student_name=F('student__full_name'),
             transferred_from_group_name=F('transferred_from__group__name'),
-            transferred_from_lessons_done=F('transferred_from__lessons_done'),
         )
     )
     balances = balances_for_students({row['student_id'] for row in rows})
     for row in rows:
         _normalize_dates(row)
         row['remaining'] = balances[row['student_id']]
+        row['transferred_from_lessons_done'] = (
+            cumulative_transferred_lessons(row['transferred_from_id'])
+            if row['transferred_from_id'] else None
+        )
     return rows
 
 

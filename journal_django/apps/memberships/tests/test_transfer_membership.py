@@ -277,3 +277,55 @@ def test_transfer_individual_group_full_409(superadmin_client, seed):
         f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a_individual']}, format='json',
     )
     assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+def test_transfer_chain_sums_lessons_across_multiple_hops(seed):
+    """
+    А(20 уроков, seed['group_a1']) → Б(4 урока, seed['group_a2']) → В (новая группа
+    того же направления). В В: transferred_from_lessons_done = 20+4=24 (сумма
+    по всей цепочке), transferred_from_group_name = имя Б (непосредственный
+    источник, не А).
+    """
+    from apps.groups import repository as groups_repo
+
+    group_a3 = groups_repo.create_group({
+        'name': '__tr_group_a3__', 'direction_id': seed['direction_a'], 'teacher_id': seed['teacher_id'],
+        'is_individual': False, 'lesson_duration_minutes': 90, 'lessons_per_week': 1,
+    })
+    try:
+        m_a = repository.add_membership({
+            'group_id': seed['group_a1'], 'student_id': seed['s1'], 'lessons_done': 20,
+        })
+        m_b = repository.transfer_membership(m_a['id'], seed['group_a2'])
+        repository.update_membership(m_b['id'], {'lessons_done': 4})
+        m_c = repository.transfer_membership(m_b['id'], group_a3['id'])
+
+        assert float(m_c['transferred_from_lessons_done']) == 24.0
+        assert m_c['transferred_from_group_name'] == '__tr_group_a2__'
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [group_a3['id']])
+            cur.execute('DELETE FROM groups WHERE id = %s', [group_a3['id']])
+
+
+@pytest.mark.django_db
+def test_transfer_chain_cycle_does_not_hang(seed):
+    """
+    А→Б→В→А обратно (реактивация исходной membership А) — цепочка технически
+    зацикливается (А.transferred_from → В → Б → А). Функция должна вернуться
+    за конечное время, не бросив исключение и не зависнув.
+    """
+    m_a = repository.add_membership({
+        'group_id': seed['group_a1'], 'student_id': seed['s1'], 'lessons_done': 10,
+    })
+    m_b = repository.transfer_membership(m_a['id'], seed['group_a2'])
+    m_c = repository.transfer_membership(m_b['id'], seed['group_a_individual'])
+    # Назад в А — тот же студент, та же пара (group_a1, s1) реактивируется (id == m_a['id']).
+    m_back = repository.transfer_membership(m_c['id'], seed['group_a1'])
+
+    assert m_back['id'] == m_a['id']
+    # Обход: В(0) → Б(0) → А(10, уже в seen) → стоп. Сумма = 0+0+10 = 10 —
+    # не зависает и не даёт случайное число, цикл детерминированно обрывается
+    # на повторном visite id А.
+    assert float(m_back['transferred_from_lessons_done']) == 10.0
