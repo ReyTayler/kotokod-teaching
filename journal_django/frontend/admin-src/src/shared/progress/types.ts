@@ -21,6 +21,8 @@ export interface ProgressStudent {
   held: number;
   pct: number;
   cells: (boolean | null)[];
+  transferred_lessons: number;
+  transferred_from_group_name: string | null;
 }
 
 export interface GroupProgress {
