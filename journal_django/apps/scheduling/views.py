@@ -30,37 +30,51 @@ from apps.scheduling.serializers import (
 _MAX_WINDOW_DAYS = 92
 
 
+def _parse_window(request: Request) -> tuple[datetime.date, datetime.date] | Response:
+    """
+    Валидирует ?from=&to= (YYYY-MM-DD, to>=from, ширина ≤ _MAX_WINDOW_DAYS).
+    Возвращает (d_from, d_to), либо готовый Response с 400 при ошибке —
+    вызывающая сторона проверяет `isinstance(result, Response)`. Общий код
+    для CalendarView (teacher) и AdminCalendarView (manager/admin/superadmin).
+    """
+    raw_from = request.query_params.get('from')
+    raw_to = request.query_params.get('to')
+    if not raw_from or not raw_to:
+        return Response(
+            {'error': 'Обязательны параметры from и to (YYYY-MM-DD).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        d_from = datetime.date.fromisoformat(raw_from)
+        d_to = datetime.date.fromisoformat(raw_to)
+    except ValueError:
+        return Response(
+            {'error': 'from/to должны быть датами YYYY-MM-DD.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if d_to < d_from:
+        return Response(
+            {'error': 'to не может быть раньше from.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if (d_to - d_from).days > _MAX_WINDOW_DAYS:
+        return Response(
+            {'error': f'Слишком широкое окно (максимум {_MAX_WINDOW_DAYS} дней).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return d_from, d_to
+
+
 class CalendarView(APIView):
     """GET /api/calendar — плановые занятия преподавателя за окно [from, to]."""
 
     permission_classes = [IsTeacher]
 
     def get(self, request: Request) -> Response:
-        raw_from = request.query_params.get('from')
-        raw_to = request.query_params.get('to')
-        if not raw_from or not raw_to:
-            return Response(
-                {'error': 'Обязательны параметры from и to (YYYY-MM-DD).'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            d_from = datetime.date.fromisoformat(raw_from)
-            d_to = datetime.date.fromisoformat(raw_to)
-        except ValueError:
-            return Response(
-                {'error': 'from/to должны быть датами YYYY-MM-DD.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if d_to < d_from:
-            return Response(
-                {'error': 'to не может быть раньше from.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if (d_to - d_from).days > _MAX_WINDOW_DAYS:
-            return Response(
-                {'error': f'Слишком широкое окно (максимум {_MAX_WINDOW_DAYS} дней).'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        window = _parse_window(request)
+        if isinstance(window, Response):
+            return window
+        d_from, d_to = window
 
         result = services.build_calendar(d_from, d_to, teacher_id=request.user.teacher_id)
         return Response(result)
