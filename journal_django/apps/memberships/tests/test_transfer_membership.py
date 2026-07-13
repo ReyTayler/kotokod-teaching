@@ -186,3 +186,94 @@ class TestTransferMembershipRepository:
 
         with pytest.raises(IndividualGroupFull):
             repository.transfer_membership(old['id'], seed['group_a_individual'])
+
+
+# ---------------------------------------------------------------------------
+# API-level
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_transfer_no_cookie_401(anon_client, seed):
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = anon_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a2']}, format='json')
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_transfer_teacher_403(teacher_client, seed):
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = teacher_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a2']}, format='json')
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_transfer_manager_403(manager_client, seed):
+    """Запись в memberships — только superadmin (ReadStaffWriteSuperAdmin), как у POST/PATCH/DELETE."""
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = manager_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a2']}, format='json')
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_transfer_admin_403(admin_client, seed):
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = admin_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a2']}, format='json')
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_transfer_superadmin_200(superadmin_client, seed):
+    old = repository.add_membership({
+        'group_id': seed['group_a1'], 'student_id': seed['s1'], 'lessons_done': 32,
+    })
+    resp = superadmin_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a2']}, format='json')
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data['group_id'] == seed['group_a2']
+    assert data['transferred_from_group_name'] == '__tr_group_a1__'
+    assert float(data['transferred_from_lessons_done']) == 32.0
+
+
+@pytest.mark.django_db
+def test_transfer_different_direction_400(superadmin_client, seed):
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = superadmin_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_b1']}, format='json')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_transfer_target_group_not_found_400(superadmin_client, seed):
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = superadmin_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': 999_999_999}, format='json')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_transfer_same_group_400(superadmin_client, seed):
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = superadmin_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a1']}, format='json')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_transfer_nonexistent_membership_404(superadmin_client, seed):
+    resp = superadmin_client.post(f'{BASE_URL}/999999999/transfer', {'to_group_id': seed['group_a2']}, format='json')
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_transfer_missing_to_group_id_400(superadmin_client, seed):
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+    resp = superadmin_client.post(f"{BASE_URL}/{old['id']}/transfer", {}, format='json')
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_transfer_individual_group_full_409(superadmin_client, seed):
+    repository.add_membership({'group_id': seed['group_a_individual'], 'student_id': seed['s2']})
+    old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
+
+    resp = superadmin_client.post(
+        f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a_individual']}, format='json',
+    )
+    assert resp.status_code == 409

@@ -61,3 +61,9 @@ class MembershipUpdateSerializer(serializers.Serializer):
     lessons_done = serializers.FloatField(min_value=0, required=False)
     start_date = DateStringField(allow_null=True, required=False)
     active = serializers.BooleanField(required=False)
+
+
+class MembershipTransferSerializer(serializers.Serializer):
+    """Вход для POST /api/admin/memberships/:id/transfer."""
+
+    to_group_id = serializers.IntegerField(min_value=1)

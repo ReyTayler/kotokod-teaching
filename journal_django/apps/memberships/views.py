@@ -20,8 +20,17 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import ReadStaffWriteSuperAdmin
 from apps.memberships import services
-from apps.memberships.exceptions import IndividualGroupFull
-from apps.memberships.serializers import MembershipUpdateSerializer, MembershipWriteSerializer
+from apps.memberships.exceptions import (
+    DirectionMismatch,
+    IndividualGroupFull,
+    SameGroupTransfer,
+    TargetGroupUnavailable,
+)
+from apps.memberships.serializers import (
+    MembershipTransferSerializer,
+    MembershipUpdateSerializer,
+    MembershipWriteSerializer,
+)
 
 
 def _parse_int_param(qp, key: str):
@@ -93,3 +102,28 @@ class MembershipDetailView(APIView):
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MembershipTransferView(APIView):
+    """
+    POST /api/admin/memberships/:id/transfer — перевод ученика в другую
+    активную группу того же направления (см. services.transfer_membership).
+    """
+
+    permission_classes = [ReadStaffWriteSuperAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        serializer = MembershipTransferSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            updated = services.transfer_membership(pk, serializer.validated_data['to_group_id'])
+        except IndividualGroupFull as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        except (DirectionMismatch, SameGroupTransfer, TargetGroupUnavailable) as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if updated is None:
+            raise NotFound({'error': 'Not found'})
+
+        return Response(updated)
