@@ -42,6 +42,17 @@ SECURE_REFERRER_POLICY = 'no-referrer'
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS_LIST', default=[])
 
 # ---------------------------------------------------------------------------
+# django-ratelimit — IP source
+# ---------------------------------------------------------------------------
+# gunicorn слушает unix-сокет (см. deploy/gunicorn.conf.py): у такого соединения
+# нет TCP-peer, поэтому REMOTE_ADDR приходит пустым и django-ratelimit падает
+# с ImproperlyConfigured на первом же /api/auth/login. nginx подставляет
+# реальный IP клиента в X-Real-IP (deploy/nginx/journal-kotokod.conf), читаем
+# оттуда. В dev (TCP runserver/local nginx) REMOTE_ADDR и так непустой —
+# настройка нужна только там, где перед Django стоит unix-сокет (прод).
+RATELIMIT_IP_META_KEY = 'HTTP_X_REAL_IP'
+
+# ---------------------------------------------------------------------------
 # CORS — production origins from env
 # ---------------------------------------------------------------------------
 # Читаем ту же переменную, что и Express (server.js: env.CORS_ORIGINS) — один
