@@ -26,11 +26,13 @@ export interface Occurrence {
    */
   id?: number | null;
   /**
-   * groups.id занятия — отдаёт GET /api/admin/calendar (см. services.py
-   * _planned_occurrence_dict). Нужен для кнопки «Открыть группу» в
-   * LessonPopup (onOpenGroup). /api/admin/groups/<id>/plan-мапинг
-   * (useGroupPlanCalendar) его не выставляет — там уже открыта карточка
-   * группы, ссылка не нужна.
+   * groups.id занятия — присутствует в ответе build_calendar() (и
+   * teacher /api/calendar, и admin /api/admin/calendar — см.
+   * services.py _planned_occurrence_dict), но задействовано только
+   * кнопкой «Открыть группу» в LessonPopup (onOpenGroup), которую
+   * передаёт лишь admin-раздел «Календарь». /api/admin/groups/<id>/plan-
+   * мапинг (useGroupPlanCalendar) его не выставляет — там уже открыта
+   * карточка группы, ссылка не нужна.
    */
   groupId?: number | null;
   group: string;
