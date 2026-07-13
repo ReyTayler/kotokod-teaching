@@ -31,3 +31,35 @@ class IndividualGroupFull(Exception):
     ) -> None:
         super().__init__(message or self.default_message)
         self.active_student_id = active_student_id
+
+
+class DirectionMismatch(Exception):
+    """
+    Целевая группа принадлежит другому направлению, чем исходная membership.
+
+    Перевод ученика (apps.memberships.services.transfer_membership) разрешён
+    только между группами одного направления.
+    """
+
+    default_message = 'Перевод разрешён только между группами одного направления.'
+
+    def __init__(self, message: Optional[str] = None) -> None:
+        super().__init__(message or self.default_message)
+
+
+class SameGroupTransfer(Exception):
+    """Целевая группа перевода совпадает с текущей — переводить некуда."""
+
+    default_message = 'Ученик уже состоит в этой группе.'
+
+    def __init__(self, message: Optional[str] = None) -> None:
+        super().__init__(message or self.default_message)
+
+
+class TargetGroupUnavailable(Exception):
+    """Целевая группа перевода не найдена или неактивна (архивная)."""
+
+    default_message = 'Целевая группа не найдена или неактивна.'
+
+    def __init__(self, message: Optional[str] = None) -> None:
+        super().__init__(message or self.default_message)
