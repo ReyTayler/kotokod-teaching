@@ -528,6 +528,60 @@ class TestSubmitLesson:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
 
+    def test_submit_lesson_links_fact_to_planned_lesson(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """
+        submitLesson должен сам привязывать факт к плановой строке (fact_lesson_id +
+        status='done'), иначе занятие остаётся «не проведено» в расписании/календаре,
+        пока кто-то вручную не прогонит backfill_planned_lessons.
+        """
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW()) "
+                'RETURNING id',
+                [group_fixture, teacher_id],
+            )
+            planned_id = cur.fetchone()[0]
+
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.status_code == 200
+            assert resp.json()['success'] is True
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert lesson_id is not None
+            try:
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'SELECT fact_lesson_id, status FROM planned_lessons WHERE id = %s',
+                        [planned_id],
+                    )
+                    fact_lesson_id, status = cur.fetchone()
+                assert fact_lesson_id == lesson_id
+                assert status == 'done'
+            finally:
+                _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture],
+                    )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
+
     def test_transaction_rollback_on_payroll_failure(
         self, monkeypatch,
         teacher_fixture, account_fixture,

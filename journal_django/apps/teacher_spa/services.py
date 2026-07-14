@@ -15,6 +15,7 @@ from typing import Optional
 from django.db import transaction
 
 from apps.accounts.repository import get_by_id_with_teacher
+from apps.scheduling.repository import link_facts
 from apps.teacher_spa import repository
 from apps.teacher_spa.calculator import (
     calculate_payment,
@@ -227,6 +228,10 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
             'record_url': record_url,
             'submitted_by_token': f'acct:{account_id}',
         })
+        # Привязать факт к плановой строке (planned_lessons.fact_lesson_id/status='done'),
+        # иначе занятие остаётся «не проведено» в расписании/календаре до ручного
+        # backfill_planned_lessons. link_facts идемпотентна и батчит только эту группу.
+        link_facts(ids['group_id'])
         repository.increment_counters(present_membership_ids, step)
         repository.insert_attendance(lesson_id, attendance)
         repository.insert_payroll({

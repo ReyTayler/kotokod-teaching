@@ -18,6 +18,8 @@ export function useSubmitLesson() {
       qc.invalidateQueries({ queryKey: ['teacherData'] });
       qc.invalidateQueries({ queryKey: ['allData'] });
       qc.invalidateQueries({ queryKey: ['schedule'] });
+      qc.invalidateQueries({ queryKey: ['calendar'] });
+      qc.invalidateQueries({ queryKey: ['groupProgress'] });
     },
   });
 }
