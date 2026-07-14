@@ -25,17 +25,23 @@ export function useSyncAction(action: SyncAction) {
     queryFn: () => api<SyncStatus>('GET', `/api/admin/sync/status/${taskId}`),
     enabled: taskId != null,
     refetchInterval: (query) => {
+      if (query.state.status === 'error') return false;
       const state = query.state.data?.state;
       return state && TERMINAL_STATES.has(state) ? false : 1500;
     },
   });
 
-  const isPolling = taskId != null && !(statusQuery.data && TERMINAL_STATES.has(statusQuery.data.state));
+  const isPolling =
+    taskId != null &&
+    statusQuery.status !== 'error' &&
+    !(statusQuery.data && TERMINAL_STATES.has(statusQuery.data.state));
 
   return {
     run: (dryRun: boolean) => trigger.mutate(dryRun),
     isTriggering: trigger.isPending,
+    triggerError: trigger.error,
     status: statusQuery.data ?? null,
+    statusError: statusQuery.error,
     isPolling,
   };
 }
