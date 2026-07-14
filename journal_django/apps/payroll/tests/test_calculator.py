@@ -1,15 +1,15 @@
 """
-test_calculator.py — юнит-тесты для apps/teacher_spa/calculator.py.
+test_calculator.py — юнит-тесты для apps/payroll/calculator.py.
 
 Чисто логические тесты, без БД.
 Матрица: half/small/partial/perStudent, present=0, various combos.
-Штраф: тот же день → 0, другой → 40.
+Штраф: тот же день → 0, другой → 40 на присутствовавшего.
 """
 from __future__ import annotations
 
 import pytest
 
-from apps.teacher_spa.calculator import calculate_payment, calculate_penalty
+from apps.payroll.calculator import calculate_payment, calculate_penalty
 
 
 # ---------------------------------------------------------------------------
@@ -72,18 +72,19 @@ class TestCalculatePayment:
 # ---------------------------------------------------------------------------
 
 class TestCalculatePenalty:
-    """Штраф: тот же день → 0, другой → 40."""
+    """Штраф: тот же день → 0, другой → 40 на присутствовавшего ученика."""
 
     def test_same_day_no_penalty(self):
-        assert calculate_penalty('2026-06-10', '2026-06-10') == 0
+        assert calculate_penalty('2026-06-10', '2026-06-10', 3) == 0
 
-    def test_different_day_penalty(self):
-        assert calculate_penalty('2026-06-09', '2026-06-10') == 40
+    def test_different_day_penalty_scales_with_present(self):
+        assert calculate_penalty('2026-06-09', '2026-06-10', 1) == 40
+        assert calculate_penalty('2026-06-09', '2026-06-10', 3) == 120
 
     def test_future_submit_penalty(self):
         # Урок в будущем, но дата не совпадает → штраф
-        assert calculate_penalty('2026-06-11', '2026-06-10') == 40
+        assert calculate_penalty('2026-06-11', '2026-06-10', 2) == 80
 
-    def test_penalty_amount_is_40(self):
-        result = calculate_penalty('2026-01-01', '2026-06-10')
-        assert result == 40
+    def test_penalty_zero_present_no_penalty(self):
+        # 0 присутствовавших → штраф 0 (нечего штрафовать)
+        assert calculate_penalty('2026-01-01', '2026-06-10', 0) == 0

@@ -2,13 +2,13 @@
 """Пересчёт зарплаты из lessons+lesson_attendance (Sheets не трогает). Порт scripts/rebuild-payroll.js.
 
 Переиспользует уже существующий Python-порт calculate_payment
-(apps.teacher_spa.calculator) — второй раз эту логику не пишем.
+(apps.payroll.calculator) — второй раз эту логику не пишем.
 """
 from __future__ import annotations
 
 from django.db import connection
 
-from apps.teacher_spa.calculator import calculate_payment
+from apps.payroll.calculator import calculate_payment
 
 
 def run(dry_run: bool = False) -> dict:

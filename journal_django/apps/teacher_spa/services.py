@@ -17,12 +17,9 @@ from django.db import transaction
 from apps.accounts.repository import get_by_id_with_teacher
 from apps.finances.repository import balances_for_students
 from apps.scheduling.repository import link_facts
+from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.teacher_spa import repository
-from apps.teacher_spa.calculator import (
-    calculate_payment,
-    calculate_penalty,
-    format_msk_date,
-)
+from apps.teacher_spa.calculator import format_msk_date
 
 
 def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
