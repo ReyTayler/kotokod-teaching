@@ -1,7 +1,7 @@
 // journal_django/frontend/admin-src/src/lib/sync.ts
 export type SyncAction =
   | 'teachers' | 'groups' | 'students' | 'lessons' | 'payments' | 'payroll'
-  | 'rebuild-payroll' | 'rebuild-counters' | 'run-all';
+  | 'rebuild-payroll' | 'rebuild-counters' | 'rebuild-planned-lessons' | 'run-all';
 
 export interface SyncActionDef {
   action: SyncAction;
@@ -19,6 +19,11 @@ export const SYNC_ACTIONS: SyncActionDef[] = [
   { action: 'payroll', label: 'Зарплата', group: 'sheets' },
   { action: 'rebuild-payroll', label: 'Зарплата по урокам (пересчёт)', group: 'rebuild' },
   { action: 'rebuild-counters', label: 'Счётчики уроков групп (пересчёт)', group: 'rebuild' },
+  {
+    action: 'rebuild-planned-lessons',
+    label: '⚠️ Плановые уроки — ПОЛНЫЙ пересбор (перезаписывает переносы/отмены/смену препода)',
+    group: 'rebuild',
+  },
 ];
 
 export type SyncTaskState = 'PENDING' | 'STARTED' | 'SUCCESS' | 'FAILURE';
