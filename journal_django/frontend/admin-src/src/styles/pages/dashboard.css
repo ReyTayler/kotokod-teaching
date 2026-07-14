@@ -43,7 +43,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  max-width: 1100px;
+  max-width: none;
 }
 
 .dashboard__head {
@@ -86,6 +86,7 @@
   .dashboard__kpis {
     grid-template-columns: 1fr;
   }
+
   .dashboard {
     padding: var(--space-4);
   }
@@ -274,7 +275,11 @@
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.dash-tab:hover { color: var(--text); }
+
+.dash-tab:hover {
+  color: var(--text);
+}
+
 .dash-tab--active {
   background: var(--bg2);
   color: var(--text);
@@ -289,17 +294,38 @@
   appearance: none;
   transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
-.kpi-card--clickable:hover { border-color: var(--border-strong); }
+
+.kpi-card--clickable:hover {
+  border-color: var(--border-strong);
+}
+
 .kpi-card--active {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
 /* 6 KPI в ряд → 3 → 2 → 1 */
-.dashboard__kpis--6 { grid-template-columns: repeat(6, 1fr); }
-@media (max-width: 1100px) { .dashboard__kpis--6 { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 700px)  { .dashboard__kpis--6 { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 520px)  { .dashboard__kpis--6 { grid-template-columns: 1fr; } }
+.dashboard__kpis--6 {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .dashboard__kpis--6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .dashboard__kpis--6 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard__kpis--6 {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* ============================================================
  *  РЕЕСТР КУРАТОРА
@@ -311,16 +337,29 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
 }
-@media (max-width: 820px) { .reg-grid { grid-template-columns: 1fr; } }
+
+@media (max-width: 820px) {
+  .reg-grid {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* ── Поток дня ── */
-.reg-stream { list-style: none; margin: 0; padding: 0; }
+.reg-stream {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 400px;
+  overflow: auto;
+}
+
 .reg-stream__empty {
   padding: var(--space-5);
   font-size: 13px;
   color: var(--text4);
   text-align: center;
 }
+
 .reg-stream__row {
   display: grid;
   grid-template-columns: auto auto 1fr auto;
@@ -329,7 +368,11 @@
   padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border2);
 }
-.reg-stream__row:last-child { border-bottom: none; }
+
+.reg-stream__row:last-child {
+  border-bottom: none;
+}
+
 .reg-stream__time {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -337,12 +380,14 @@
   font-weight: 600;
   color: var(--text2);
 }
+
 .reg-stream__code {
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
 }
+
 .reg-stream__who {
   font-size: 13px;
   color: var(--text2);
@@ -351,18 +396,34 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.reg-stream__teacher { color: var(--text4); }
+
+.reg-stream__teacher {
+  color: var(--text4);
+}
+
 .reg-stream__status {
   font-size: 11px;
   font-weight: 600;
   color: var(--text3);
   white-space: nowrap;
+  margin-left: auto;
 }
-.reg-stream__status--overdue { color: var(--danger); }
-.reg-stream__status--done { color: var(--success); }
+
+.reg-stream__status--overdue {
+  color: var(--danger);
+}
+
+.reg-stream__status--done {
+  color: var(--success);
+}
 
 /* ── Сигналы менеджеру ── */
-.reg-signals { list-style: none; margin: 0; padding: 0; }
+.reg-signals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 .reg-signal {
   display: flex;
   align-items: center;
@@ -377,9 +438,19 @@
   cursor: pointer;
   transition: background var(--t-fast) var(--ease);
 }
-.reg-signals li:last-child .reg-signal { border-bottom: none; }
-.reg-signal:hover { background: var(--bg3); }
-.reg-signal--active { background: var(--accent-soft); }
+
+.reg-signals li:last-child .reg-signal {
+  border-bottom: none;
+}
+
+.reg-signal:hover {
+  background: var(--bg3);
+}
+
+.reg-signal--active {
+  background: var(--accent-soft);
+}
+
 .reg-signal__count {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -389,11 +460,27 @@
   text-align: center;
   color: var(--text3);
 }
-.reg-signal__count--ending { color: var(--warning); }
-.reg-signal__count--closed { color: var(--danger); }
-.reg-signal__count--idle { color: var(--info); }
-.reg-signal__count--no_plan { color: var(--text3); }
-.reg-signal__label { font-size: 13px; color: var(--text2); }
+
+.reg-signal__count--ending {
+  color: var(--warning);
+}
+
+.reg-signal__count--closed {
+  color: var(--danger);
+}
+
+.reg-signal__count--idle {
+  color: var(--info);
+}
+
+.reg-signal__count--no_plan {
+  color: var(--text3);
+}
+
+.reg-signal__label {
+  font-size: 13px;
+  color: var(--text2);
+}
 
 /* ── Статус-бейдж строки реестра ── */
 .reg-badge {
@@ -405,26 +492,31 @@
   border: 1px solid transparent;
   white-space: nowrap;
 }
+
 .reg-badge--closed {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 }
+
 .reg-badge--ending {
   color: var(--warning);
   background: color-mix(in srgb, var(--warning) 14%, transparent);
   border-color: color-mix(in srgb, var(--warning) 32%, transparent);
 }
+
 .reg-badge--idle {
   color: var(--info);
   background: color-mix(in srgb, var(--info) 12%, transparent);
   border-color: color-mix(in srgb, var(--info) 30%, transparent);
 }
+
 .reg-badge--no_plan {
   color: var(--text3);
   background: var(--bg3);
   border-color: var(--border);
 }
+
 .reg-badge--ok {
   color: var(--success);
   background: color-mix(in srgb, var(--success) 12%, transparent);
@@ -437,10 +529,12 @@
   align-items: center;
   gap: var(--space-2);
 }
+
 .reg-active-filter__label {
   font-size: 12px;
   color: var(--text3);
 }
+
 .reg-chip {
   display: inline-flex;
   align-items: center;
@@ -457,8 +551,15 @@
   cursor: pointer;
   transition: background var(--t-fast) var(--ease);
 }
-.reg-chip:hover { background: var(--accent-soft-h); }
-.reg-chip__x { font-size: 11px; opacity: 0.7; }
+
+.reg-chip:hover {
+  background: var(--accent-soft-h);
+}
+
+.reg-chip__x {
+  font-size: 11px;
+  opacity: 0.7;
+}
 
 /* ── Ячейки таблицы реестра ── */
 .reg-cell-code {
@@ -467,16 +568,29 @@
   font-weight: 600;
   color: var(--text);
 }
-.reg-cell-name { font-weight: 500; color: var(--text); }
+
+.reg-cell-name {
+  font-weight: 500;
+  color: var(--text);
+}
+
 .reg-balance {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--text2);
 }
-.reg-balance--zero { color: var(--danger); }
 
-.reg-progress { display: flex; align-items: center; gap: var(--space-2); }
+.reg-balance--zero {
+  color: var(--danger);
+}
+
+.reg-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .reg-progress__num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -484,6 +598,7 @@
   color: var(--text2);
   min-width: 44px;
 }
+
 .reg-progress__bar {
   flex: 1;
   min-width: 40px;
@@ -492,6 +607,7 @@
   border-radius: 999px;
   overflow: hidden;
 }
+
 .reg-progress__fill {
   display: block;
   height: 100%;
@@ -559,7 +675,11 @@
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
-.finance-charts__add:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+.finance-charts__add:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
 
 /* «CSV» — вторичная кнопка экспорта, прижата вправо */
 .finance-charts__export {
@@ -578,8 +698,17 @@
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.finance-charts__export:hover:not(:disabled) { background: var(--bg3); border-color: var(--border-strong); color: var(--text); }
-.finance-charts__export:disabled { opacity: 0.5; cursor: default; }
+
+.finance-charts__export:hover:not(:disabled) {
+  background: var(--bg3);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.finance-charts__export:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 /* Кастомный native color input — компактный квадрат-свотч */
 .finance-charts__color {
@@ -608,7 +737,11 @@
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.finance-charts__remove:hover { background: var(--danger-soft, var(--bg3)); color: var(--danger); }
+
+.finance-charts__remove:hover {
+  background: var(--danger-soft, var(--bg3));
+  color: var(--danger);
+}
 
 /* Two charts stacked vertically */
 .finance-charts__body {
@@ -650,6 +783,7 @@
   gap: var(--space-3);
   flex-shrink: 0;
 }
+
 .chart-legend__item {
   display: inline-flex;
   align-items: center;
@@ -659,15 +793,26 @@
   font-size: 12px;
   color: var(--text2);
 }
-.chart-legend__item--muted { color: var(--text3); }
+
+.chart-legend__item--muted {
+  color: var(--text3);
+}
+
 .chart-legend__swatch {
   width: 14px;
   height: 0;
   border-top: 2px solid var(--accent);
   border-radius: 1px;
 }
-.chart-legend__swatch--primary { border-top-color: var(--accent); }
-.chart-legend__swatch--muted { border-top: 0; border-bottom: 1.5px dashed var(--text3); }
+
+.chart-legend__swatch--primary {
+  border-top-color: var(--accent);
+}
+
+.chart-legend__swatch--muted {
+  border-top: 0;
+  border-bottom: 1.5px dashed var(--text3);
+}
 
 /* Note next to the year selector */
 .finance-charts__compare-note {
@@ -711,12 +856,14 @@
   gap: var(--space-2);
   margin-top: 2px;
 }
+
 .chart-tooltip__swatch {
   width: 8px;
   height: 8px;
   border-radius: 2px;
   flex-shrink: 0;
 }
+
 .chart-tooltip__year {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -724,4 +871,7 @@
   color: var(--text3);
   min-width: 32px;
 }
-.chart-tooltip__row .chart-tooltip__value { font-size: 13px; }
+
+.chart-tooltip__row .chart-tooltip__value {
+  font-size: 13px;
+}

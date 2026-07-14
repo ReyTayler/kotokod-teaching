@@ -41,7 +41,7 @@ def calculate_payment(total: int, present: int, is_half: bool = False) -> int:
     return PAY_RATES['perStudent'] * present
 
 
-def calculate_penalty(lesson_date: str, submit_date: str) -> int:
+def calculate_penalty(lesson_date: str, submit_date: str, count_students: int) -> int:
     """
     Порт calculatePenalty(lessonDate, submitDate) из calculator.js.
 
@@ -50,7 +50,7 @@ def calculate_penalty(lesson_date: str, submit_date: str) -> int:
     """
     if lesson_date == submit_date:
         return 0
-    return 40
+    return 40 * count_students
 
 
 def format_msk_date() -> str:

@@ -22,10 +22,6 @@ export function TodayStreamCard({ items }: { items: TodayStreamItem[] }) {
             <li key={i} className="reg-stream__row">
               <span className="reg-stream__time">{it.time || '—'}</span>
               <span className="reg-stream__code">{it.group_code}</span>
-              <span className="reg-stream__who">
-                {it.student_names.length ? it.student_names.join(', ') : '—'}
-                {it.teacher_name && <span className="reg-stream__teacher"> · {it.teacher_name}</span>}
-              </span>
               <span className={`reg-stream__status reg-stream__status--${it.status}`}>
                 {STATUS_LABEL[it.status] || it.status}
               </span>

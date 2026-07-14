@@ -183,7 +183,7 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     lesson_num = round(raw) / 10
 
     payment = calculate_payment(total_students, present_count, is_half)
-    penalty = calculate_penalty(date, format_msk_date())
+    penalty = calculate_penalty(date, format_msk_date(), present_count)
 
     # 5. Mapping student_name → {student_id, membership_id}
     stud_rows = repository.resolve_students(ids['group_id'])
