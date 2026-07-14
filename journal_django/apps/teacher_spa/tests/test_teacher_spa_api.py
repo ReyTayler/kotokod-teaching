@@ -662,12 +662,16 @@ class TestSubmitLesson:
         lessons_done,
     ):
         """Ошибка в payroll → полный rollback."""
-        from apps.teacher_spa import repository, services
+        from apps.lessons import repository as lessons_repository
+        from apps.teacher_spa import services
 
         def _boom(*args, **kwargs):
             raise RuntimeError('payroll insert failed')
 
-        monkeypatch.setattr(repository, 'insert_payroll', _boom)
+        # submit_lesson теперь делегирует запись в apps.lessons.services.record_lesson,
+        # которое зовёт apps.lessons.repository.insert_payroll (единое ядро — см.
+        # docs/superpowers/specs/2026-07-14-unify-lesson-recording-design.md).
+        monkeypatch.setattr(lessons_repository, 'insert_payroll', _boom)
 
         with pytest.raises(RuntimeError):
             services.submit_lesson(account_fixture, {

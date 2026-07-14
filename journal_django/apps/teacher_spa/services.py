@@ -1,9 +1,9 @@
 """
 TeacherSpaService — бизнес-логика teacher SPA.
 
-Слой: View → Service (здесь) → Repository (ORM).
-Никакого SQL здесь. Транзакция submit_lesson управляется через
-transaction.atomic; репозиторий выполняет ORM-операции.
+Слой: View → Service (здесь) → Repository (ORM) для резолва входных данных;
+запись самого урока делегируется в apps.lessons.services.record_lesson
+(единое ядро — см. docs/superpowers/specs/2026-07-14-unify-lesson-recording-design.md).
 
 Порт routes/teacher.js + services/teacher-repo.js.
 """
@@ -12,20 +12,11 @@ from __future__ import annotations
 import warnings
 from typing import Optional
 
-from django.db import transaction
-
 from apps.accounts.repository import get_by_id_with_teacher
-from apps.finances.repository import balances_for_students
-from apps.scheduling.repository import link_facts
-from apps.payroll.calculator import calculate_payment, calculate_penalty
+from apps.lessons.exceptions import UnpaidAttendanceBlocked
+from apps.lessons.services import record_lesson
 from apps.teacher_spa import repository
 from apps.teacher_spa.calculator import format_msk_date
-
-
-def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
-    """Пост-коммит-хук: подвинуть авто-стадию «Урок N» раздела «Продления»."""
-    from apps.renewals import engine
-    engine.sync_lesson_stage_safe(student_id, direction_id)
 
 
 def get_current_teacher(account_id: int) -> Optional[str]:
@@ -101,7 +92,11 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     """
     Порт POST /api/submitLesson из routes/teacher.js (lines 38-139).
 
-    Атомарная транзакция: lesson + attendance + payroll + инкремент счётчиков.
+    Резолвит группу/учителя/тип урока/номер урока сам (teacher-специфичная
+    логика — замена/перенос выводятся из planned_lessons, half-lesson из
+    lesson_duration_minutes). Сама запись (Lesson+attendance+счётчики+Payroll+
+    link_facts+балансовая проверка) — apps.lessons.services.record_lesson.
+
     Возвращает:
       {'success': True, 'payment': int, 'penalty': int, 'lessonNumber': float|int}
       {'success': False, 'error': str}   — ошибки без статуса 4xx (как Express)
@@ -163,31 +158,21 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
         return {'_error': 'Занятие этой группы вам не назначено', '_status': 403}
     original_teacher_id = ids['group_owner_id'] if is_substitution else None
 
-    # 4. Расчёты — half-lesson, lesson_number, payment, penalty
+    # 4. lesson_number — done = max(lessonsDone) по студентам группы, или 0 если пусто.
     is_half = ids['lesson_duration_minutes'] == 45
     step = 0.5 if is_half else 1
-
-    total_students = len(students)
-    present_count = sum(1 for s in students if s['present'])
-
-    # done = max(lessonsDone) по студентам группы, или 0 если группа пуста
     group_students = group_data.get('students', [])
     done = max((s.get('lessonsDone') or 0 for s in group_students), default=0)
-
     # lessonNum = Math.round((done + step) * 10) / 10
     # (done + step) * 10 всегда целое (step кратен 0.5), поэтому round — no-op.
     raw = (done + step) * 10
     lesson_num = round(raw) / 10
 
-    payment = calculate_payment(total_students, present_count, is_half)
-    penalty = calculate_penalty(date, format_msk_date(), present_count)
-
-    # 5. Mapping student_name → {student_id, membership_id}
+    # 5. Mapping student_name → student_id (группа знает имена, admin шлёт id напрямую —
+    #    поэтому это остаётся teacher_spa-специфичным шагом, не частью record_lesson).
     stud_rows = repository.resolve_students(ids['group_id'])
     by_name = {r['full_name']: r for r in stud_rows}
 
-    present_membership_ids: list[int] = []
-    present_student_ids: list[int] = []
     attendance: list[dict] = []
     for s in students:
         meta = by_name.get(s['name'])
@@ -199,26 +184,6 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
             )
             continue
         attendance.append({'student_id': meta['student_id'], 'present': bool(s['present'])})
-        if s['present']:
-            present_membership_ids.append(meta['membership_id'])
-            present_student_ids.append(meta['student_id'])
-
-    # 5b. Блокировка отметки присутствия ученикам без оплаченных уроков. Баланс
-    # считается СЕРВЕРОМ в момент отправки (тот же батч-расчёт, что read_all_students) —
-    # клиент remaining не присылает, подделать нечем. Проверка ДО транзакции: при
-    # нарушении урок не создаётся вообще (как остальные ранние бизнес-ошибки выше).
-    if present_student_ids:
-        balances = balances_for_students(present_student_ids)
-        blocked_names = [
-            s['name'] for s in students
-            if s['present'] and by_name.get(s['name'])
-            and balances.get(by_name[s['name']]['student_id'], 0) <= 0
-        ]
-        if blocked_names:
-            return {
-                'success': False,
-                'error': f'У учеников без оплаченных уроков нельзя отметить посещение: {", ".join(blocked_names)}.',
-            }
 
     # 6. subLabel — тип урока. Выводится СЕРВЕРОМ из плана (клиентский lessonType
     #    не принимается): замена — чужая группа (шаг 3); перенос — плановая строка
@@ -230,46 +195,32 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     else:
         sub_label = 'regular'
 
-    # 7. Атомарная транзакция (репозиторий — ORM, транзакция управляется здесь)
-    with transaction.atomic():
-        lesson_id = repository.insert_lesson({
-            'lesson_date': date,
-            'teacher_id': lesson_teacher_id,
-            'group_id': ids['group_id'],
-            'original_teacher_id': original_teacher_id,
-            'lesson_number': lesson_num,
-            'lesson_duration_minutes': ids['lesson_duration_minutes'],
-            'lesson_type': sub_label,
-            'record_url': record_url,
-            'submitted_by_token': f'acct:{account_id}',
-        })
-        # Привязать факт к плановой строке (planned_lessons.fact_lesson_id/status='done'),
-        # иначе занятие остаётся «не проведено» в расписании/календаре до ручного
-        # backfill_planned_lessons. link_facts идемпотентна и батчит только эту группу.
-        link_facts(ids['group_id'])
-        repository.increment_counters(present_membership_ids, step)
-        repository.insert_attendance(lesson_id, attendance)
-        repository.insert_payroll({
-            'lesson_id': lesson_id,
-            'teacher_id': lesson_teacher_id,
-            'total_students': total_students,
-            'present_count': present_count,
-            'payment': payment,
-            'penalty': penalty,
-        })
-
-        # Подвинуть авто-стадию «Урок N» раздела «Продления» по факту посещаемости
-        # (после коммита — сбой этой вторичной CRM-фичи не должен уронить submitLesson).
-        direction_id = ids['direction_id']
-        for sid in present_student_ids:
-            transaction.on_commit(lambda sid=sid: _sync_renewal_stage(sid, direction_id))
+    # 7. Запись — единое ядро (Lesson+attendance+счётчики+Payroll+link_facts+
+    #    балансовая проверка+renewal-sync). Баланс — та же проверка, что и в
+    #    admin SPA (UnpaidAttendanceBlocked), просто завёрнута в контракт teacher SPA.
+    try:
+        result = record_lesson(
+            lesson_date=date,
+            teacher_id=lesson_teacher_id,
+            group_id=ids['group_id'],
+            original_teacher_id=original_teacher_id,
+            lesson_number=lesson_num,
+            lesson_duration_minutes=ids['lesson_duration_minutes'],
+            lesson_type=sub_label,
+            record_url=record_url,
+            submitted_by_token=f'acct:{account_id}',
+            submit_date=format_msk_date(),
+            attendance=attendance,
+        )
+    except UnpaidAttendanceBlocked as e:
+        return {'success': False, 'error': str(e)}
 
     # lessonNumber: если целое → int, иначе float (JS-совместимость)
     lesson_number_out = int(lesson_num) if lesson_num == int(lesson_num) else lesson_num
 
     return {
         'success': True,
-        'payment': payment,
-        'penalty': penalty,
+        'payment': result['payment'],
+        'penalty': result['penalty'],
         'lessonNumber': lesson_number_out,
     }

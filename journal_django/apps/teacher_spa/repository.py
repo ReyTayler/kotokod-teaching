@@ -5,27 +5,26 @@ ORM-порт services/teacher-repo.js (раздел 09):
   - read_all_students  — главный срез данных (data[teacher][group])
   - read_filled_lessons — заполненные уроки за неделю (для report)
   - resolve_ids / resolve_students — разрешение id перед записью урока
-  - insert_lesson / insert_attendance / insert_payroll / increment_counters —
-    запись урока (вызываются внутри transaction.atomic в services.py)
+
+Запись самого урока (insert_lesson/insert_attendance/insert_payroll/
+increment_counters) вынесена в apps.lessons.repository — вызывается через
+apps.lessons.services.record_lesson (единое ядро, см.
+docs/superpowers/specs/2026-07-14-unify-lesson-recording-design.md).
 
 Half-lesson инвариант (step 0.5/1) приходит из services.py.
 """
 from __future__ import annotations
 
 import datetime
-from decimal import Decimal
 from typing import Optional
 
 from django.db.models import F, Min
-from django.db.models.functions import Now
 
 from apps.finances.repository import balances_for_students
 from apps.groups.models import Group
-from apps.lessons.models import Lesson, LessonAttendance
+from apps.lessons.models import Lesson
 from apps.memberships.models import GroupMembership
-from apps.payroll.models import Payroll
 from apps.scheduling.models import PlannedLesson
-from apps.students.models import Student
 from apps.teachers.models import Teacher
 
 
@@ -269,71 +268,4 @@ def resolve_students(group_id: int) -> list[dict]:
         GroupMembership.objects
         .filter(group_id=group_id, active=True)
         .values('student_id', membership_id=F('id'), full_name=F('student__full_name'))
-    )
-
-
-# ---------------------------------------------------------------------------
-# Запись урока (вызываются изнутри transaction.atomic в services.py)
-# ---------------------------------------------------------------------------
-
-def insert_lesson(fields: dict) -> int:
-    """
-    INSERT урока. Возвращает id. submitted_at — DB DEFAULT now() через Now().
-    """
-    obj = Lesson.objects.create(
-        lesson_date=fields['lesson_date'],
-        teacher_id=fields['teacher_id'],
-        group_id=fields['group_id'],
-        original_teacher_id=fields.get('original_teacher_id'),
-        lesson_number=fields['lesson_number'],
-        lesson_duration_minutes=fields['lesson_duration_minutes'],
-        lesson_type=fields['lesson_type'],
-        record_url=fields.get('record_url'),
-        submitted_by_token=fields['submitted_by_token'],
-        submitted_at=Now(),
-    )
-    return obj.pk
-
-
-def increment_counters(membership_ids: list, step) -> None:
-    """UPDATE group_memberships SET lessons_done += step WHERE id IN ids. half-lesson step."""
-    if not membership_ids:
-        return
-    step_dec = Decimal(str(step))   # numeric-арифметика без float-сюрпризов
-    GroupMembership.objects.filter(id__in=membership_ids).update(
-        lessons_done=F('lessons_done') + step_dec,
-    )
-
-
-def insert_attendance(lesson_id: int, attendance: list) -> None:
-    """
-    Вставка посещаемости только для существующих студентов (= JOIN students),
-    ON CONFLICT (lesson_id, student_id) DO NOTHING. No-op если список пуст.
-    """
-    if not attendance:
-        return
-    sids = [a['student_id'] for a in attendance]
-    valid = set(Student.objects.filter(id__in=sids).values_list('id', flat=True))
-    LessonAttendance.objects.bulk_create(
-        [
-            LessonAttendance(
-                lesson_id=lesson_id,
-                student_id=a['student_id'],
-                present=bool(a['present']),
-            )
-            for a in attendance if a['student_id'] in valid
-        ],
-        ignore_conflicts=True,
-    )
-
-
-def insert_payroll(fields: dict) -> None:
-    """INSERT записи payroll."""
-    Payroll.objects.create(
-        lesson_id=fields['lesson_id'],
-        teacher_id=fields['teacher_id'],
-        total_students=fields['total_students'],
-        present_count=fields['present_count'],
-        payment=fields['payment'],
-        penalty=fields['penalty'],
     )
