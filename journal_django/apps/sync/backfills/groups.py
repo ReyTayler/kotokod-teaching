@@ -112,12 +112,21 @@ def run(dry_run: bool = False) -> dict:
                 else:
                     result['updated'] += 1
 
-            cur.execute('DELETE FROM group_schedule_slots WHERE group_id = %s', [group_id])
-            for slot in g['slots']:
-                cur.execute(
-                    'INSERT INTO group_schedule_slots (group_id, day_of_week, start_time) VALUES (%s, %s, %s)',
-                    [group_id, slot['day_of_week'], slot['start_time']],
-                )
-                result['slots_replaced'] += 1
+            cur.execute(
+                'SELECT day_of_week, start_time FROM group_schedule_slots '
+                'WHERE group_id = %s ORDER BY day_of_week, start_time',
+                [group_id],
+            )
+            existing_slots = sorted((r[0], str(r[1])) for r in cur.fetchall())
+            new_slots = sorted((slot['day_of_week'], slot['start_time']) for slot in g['slots'])
+
+            if existing_slots != new_slots:
+                cur.execute('DELETE FROM group_schedule_slots WHERE group_id = %s', [group_id])
+                for slot in g['slots']:
+                    cur.execute(
+                        'INSERT INTO group_schedule_slots (group_id, day_of_week, start_time) VALUES (%s, %s, %s)',
+                        [group_id, slot['day_of_week'], slot['start_time']],
+                    )
+                    result['slots_replaced'] += 1
 
     return result

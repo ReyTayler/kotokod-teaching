@@ -93,6 +93,36 @@ def test_run_inserts_group_and_slots(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_run_twice_skips_unchanged_slots(monkeypatch):
+    direction_name = '__test_sync_direction_g2__'
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO teachers (name) VALUES ('__test_sync_teacher_g2__') RETURNING id")
+        cur.execute(
+            "INSERT INTO directions (name, is_individual) VALUES (%s, false)",
+            [direction_name],
+        )
+
+    rows = [_row('__test_sync_teacher_g2__', '__test_sync_group2__ Пн 18:00', direction=direction_name)]
+    monkeypatch.setattr(groups.sheets_client, 'read_students_range', lambda *a: rows)
+
+    try:
+        first = groups.run(dry_run=False)
+        assert first['slots_replaced'] >= 1
+
+        second = groups.run(dry_run=False)
+        assert second['slots_replaced'] == 0
+    finally:
+        with connection.cursor() as cur:
+            cur.execute(
+                "DELETE FROM group_schedule_slots WHERE group_id IN "
+                "(SELECT id FROM groups WHERE name = '__test_sync_group2__ Пн 18:00')"
+            )
+            cur.execute("DELETE FROM groups WHERE name = '__test_sync_group2__ Пн 18:00'")
+            cur.execute("DELETE FROM teachers WHERE name = '__test_sync_teacher_g2__'")
+            cur.execute("DELETE FROM directions WHERE name = %s", [direction_name])
+
+
+@pytest.mark.django_db
 def test_run_dry_run_does_not_write(monkeypatch):
     rows = [_row('Несуществующий', '__test_sync_group_dry__', direction='Python')]
     monkeypatch.setattr(groups.sheets_client, 'read_students_range', lambda *a: rows)
