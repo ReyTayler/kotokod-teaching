@@ -3,7 +3,6 @@ import { useLessonFull, useLessonMutations } from '../../hooks/useLessons';
 import { useMemberships } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../ui/Toast';
-import { calcPayment } from '../../lib/pricing';
 import { DateInput } from '../form/DateInput';
 import type { Group } from '../../lib/types';
 
@@ -79,9 +78,6 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
       return;
     }
 
-    const payment = calcPayment(totalStudents, presentCount, false);
-    const penalty = 0;
-
     try {
       if (lesson) {
         await muts.update.mutateAsync({
@@ -100,12 +96,11 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
           group_id: group.id,
           teacher_id: group.teacher_id,
           lesson_number: slot,
-          lesson_duration_minutes: 90,
+          lesson_duration_minutes: group.lesson_duration_minutes,
           lesson_type: 'regular',
           record_url: url,
           submitted_by_token: 'admin-imported',
           attendance,
-          payroll: { total_students: totalStudents, present_count: presentCount, payment, penalty },
         });
         toast('Урок создан', 'ok');
       }
