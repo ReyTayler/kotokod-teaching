@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from celery.result import AsyncResult
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,7 +34,7 @@ class SyncRunView(APIView):
         if task_fn is None:
             raise NotFound({'error': f'Unknown sync action: {action}'})
 
-        dry_run = bool(request.data.get('dry_run', False))
+        dry_run = serializers.BooleanField().to_internal_value(request.data.get('dry_run', False))
         async_result = task_fn.delay(dry_run=dry_run)
 
         log_event(

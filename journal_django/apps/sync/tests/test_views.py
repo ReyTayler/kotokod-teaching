@@ -44,6 +44,23 @@ def test_run_and_status_happy_path(superadmin_client, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_run_coerces_string_dry_run_false(superadmin_client, monkeypatch):
+    """dry_run приходит как JSON-строка 'false' (не bool) — raw Python bool('false') дал бы
+    True (непустая строка truthy). DRF BooleanField должен корректно распознать это как False."""
+    captured = {}
+
+    def fake_run(dry_run=False):
+        captured['dry_run'] = dry_run
+        return {'entity': 'teachers', 'read': 0, 'inserted': 0, 'dry_run': dry_run}
+
+    monkeypatch.setattr('apps.sync.backfills.teachers.run', fake_run)
+
+    run_resp = superadmin_client.post('/api/admin/sync/teachers/run', {'dry_run': 'false'}, format='json')
+    assert run_resp.status_code == 202
+    assert captured['dry_run'] is False
+
+
+@pytest.mark.django_db
 def test_status_reports_failure(superadmin_client, monkeypatch):
     def boom(dry_run=False):
         raise RuntimeError('лист не найден')
