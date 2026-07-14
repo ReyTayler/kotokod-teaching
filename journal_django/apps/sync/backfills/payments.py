@@ -62,9 +62,13 @@ def run(dry_run: bool = False) -> dict:
         cur.execute('SELECT id, name, subscription_price FROM directions')
         dir_idx = {norm_name(name): (did, price) for did, name, price in cur.fetchall()}
 
+        # created_by не годится маркером дедупликации: миграция 0006 переписала
+        # created_by='backfill-script' на 'Павлов Илья' для ВСЕХ уже существующих
+        # строк — сверяем содержимое платежа (студент/направление/сумма/дата),
+        # а не автора.
         existing_keys = set()
         cur.execute(
-            "SELECT student_id, direction_id, total_amount, paid_at FROM payments WHERE created_by = 'backfill-script'"
+            "SELECT student_id, direction_id, total_amount, paid_at FROM payments"
         )
         for student_id, direction_id, total_amount, paid_at in cur.fetchall():
             existing_keys.add(f"{student_id}|{direction_id or 'null'}|{total_amount}|{paid_at}")
@@ -111,6 +115,7 @@ def run(dry_run: bool = False) -> dict:
             unit_price = amount
 
             if dir_key in ('архив', ''):
+                subscriptions_count = 1
                 result['archived'] += 1
             else:
                 dir_row = dir_idx.get(dir_key)
@@ -134,6 +139,7 @@ def run(dry_run: bool = False) -> dict:
                 if subscriptions_count is not None
                 else f'{price_final:.2f}'
             )
+            lessons_count = subscriptions_count * 4 if subscriptions_count is not None else None
 
             key = f"{student_id}|{direction_id or 'null'}|{total_final}|{paid_at}"
             if key in existing_keys:
@@ -147,10 +153,10 @@ def run(dry_run: bool = False) -> dict:
             cur.execute(
                 """
                 INSERT INTO payments
-                    (student_id, direction_id, subscriptions_count, unit_price, total_amount, paid_at, note, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'backfill-script')
+                    (student_id, direction_id, subscriptions_count, lessons_count, unit_price, total_amount, paid_at, note, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'backfill-script')
                 """,
-                [student_id, direction_id, subscriptions_count, price_final, total_final, paid_at,
+                [student_id, direction_id, subscriptions_count, lessons_count, price_final, total_final, paid_at,
                  raw_note.strip() or None],
             )
             result['inserted'] += 1
