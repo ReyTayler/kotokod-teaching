@@ -183,9 +183,12 @@ class AttendanceCellView(APIView):
         serializer = AttendanceUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        ok = services.update_attendance_cell(
-            lesson_id, student_id, serializer.validated_data['present']
-        )
+        try:
+            ok = services.update_attendance_cell(
+                lesson_id, student_id, serializer.validated_data['present']
+            )
+        except UnpaidAttendanceBlocked as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response({'ok': True})

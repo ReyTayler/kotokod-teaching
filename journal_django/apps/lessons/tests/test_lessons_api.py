@@ -283,6 +283,39 @@ def test_attendance_toggle_404_missing_lesson(student_fixture):
     assert resp.status_code == 404
 
 
+def test_attendance_toggle_blocked_when_no_paid_balance(
+    group_fixture, teacher_id_fixture, student_fixture,
+):
+    """Ученик без оплаченных уроков (membership без payments) + present:true →
+    400 {'error': ...}, посещаемость не меняется (UnpaidAttendanceBlocked → view)."""
+    with connection.cursor() as cur:
+        cur.execute(
+            'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+            'VALUES (%s, %s, 0, true) RETURNING id',
+            [group_fixture, student_fixture],
+        )
+        membership_id = cur.fetchone()[0]
+    lesson_id = _create_lesson(group_fixture, teacher_id_fixture)
+    try:
+        resp = _client('admin').patch(
+            f'{BASE_URL}/{lesson_id}/attendance/{student_fixture}',
+            {'present': True},
+            format='json',
+        )
+        assert resp.status_code == 400
+        assert 'error' in resp.json()
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT COUNT(*) FROM lesson_attendance WHERE lesson_id = %s AND student_id = %s',
+                [lesson_id, student_fixture],
+            )
+            assert cur.fetchone()[0] == 0
+    finally:
+        _delete_lesson(lesson_id)
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+
+
 # ---------------------------------------------------------------------------
 # N+1
 # ---------------------------------------------------------------------------

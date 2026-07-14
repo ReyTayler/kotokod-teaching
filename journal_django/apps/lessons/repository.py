@@ -27,6 +27,7 @@ from apps.students.models import Student
 
 from .models import Lesson, LessonAttendance
 from apps.payroll.models import Payroll
+from apps.payroll.calculator import calculate_payment
 from apps.memberships.models import GroupMembership
 from apps.scheduling.repository import unlink_fact
 from apps.finances.repository import balances_for_students
@@ -334,9 +335,14 @@ def delete_lesson_full(lesson_id: int) -> bool:
 
 def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bool:
     """
-    Toggle present одной ячейки (UPSERT) + корректировка lessons_done дельтой.
+    Toggle present одной ячейки (UPSERT) + корректировка lessons_done дельтой +
+    пересчёт Payroll.present_count/payment (не penalty — она про своевременность
+    исходной записи урока, не должна меняться от последующей правки посещаемости).
 
-    Дельта: было false/null → true → +step; было true → false → -step.
+    Бросает UnpaidAttendanceBlocked, если переключают В present:true ученика
+    без оплаченных уроков (assert_students_paid) — ДО любых изменений, но
+    ПОСЛЕ проверки существования урока (несуществующий lesson_id → False,
+    как и раньше, а не блокировка по балансу).
     """
     with transaction.atomic():
         ctx = (
@@ -347,6 +353,9 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
         )
         if ctx is None:
             return False
+
+        if present:
+            assert_students_paid([student_id])
 
         prev_present = (
             LessonAttendance.objects
@@ -382,5 +391,23 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
                 id=ctx['group_id']).values_list('direction_id', flat=True).first()
             transaction.on_commit(
                 lambda: _sync_renewal_stage(student_id, direction_id))
+
+        # Пересчёт Payroll: total/present из фактических attendance-строк.
+        # select_for_update() — тот же паттерн, что уже используется в этом проекте
+        # для read-then-recompute-then-write (apps/payments, apps/renewals/engine,
+        # apps/memberships, apps/scheduling) — без него два параллельных PATCH на
+        # разных учеников ОДНОГО урока могут посчитать COUNT до коммита друг друга,
+        # и последний commit тихо затрёт вклад первого (lost update).
+        payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
+        if payroll is not None:
+            total_students = LessonAttendance.objects.filter(lesson_id=lesson_id).count()
+            present_count = LessonAttendance.objects.filter(
+                lesson_id=lesson_id, present=True,
+            ).count()
+            is_half = ctx['lesson_duration_minutes'] == 45
+            payroll.total_students = total_students
+            payroll.present_count = present_count
+            payroll.payment = calculate_payment(total_students, present_count, is_half)
+            payroll.save(update_fields=['total_students', 'present_count', 'payment'])
 
         return True
