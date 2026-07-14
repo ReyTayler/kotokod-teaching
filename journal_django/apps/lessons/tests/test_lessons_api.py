@@ -333,12 +333,6 @@ def test_payroll_visible_only_to_superadmin(
         'lesson_number': 1,
         'lesson_duration_minutes': 60,
         'attendance': [{'student_id': student_fixture, 'present': True}],
-        'payroll': {
-            'total_students': 1,
-            'present_count': 1,
-            'payment': 500,
-            'penalty': 0,
-        },
     }
     created = _client('superadmin').post(BASE_URL, payload, format='json')
     assert created.status_code == 201

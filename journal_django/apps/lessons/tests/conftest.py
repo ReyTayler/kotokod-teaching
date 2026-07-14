@@ -78,7 +78,12 @@ def group_fixture(direction_fixture, teacher_id_fixture):
 
 
 @pytest.fixture
-def membership_fixture(group_fixture, student_fixture):
+def membership_fixture(group_fixture, student_fixture, direction_fixture):
+    """
+    С оплатой на 8 уроков (remaining=8) — иначе create_lesson_full/
+    update_attendance_cell блокируют present:true (нет оплаченных уроков,
+    см. apps.lessons.repository.assert_students_paid).
+    """
     with connection.cursor() as cur:
         cur.execute(
             """
@@ -89,9 +94,20 @@ def membership_fixture(group_fixture, student_fixture):
             [group_fixture, student_fixture],
         )
         membership_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count,
+                                   unit_price, total_amount, paid_at, created_by)
+            VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')
+            RETURNING id
+            """,
+            [student_fixture, direction_fixture],
+        )
+        payment_id = cur.fetchone()[0]
     yield membership_id
     with connection.cursor() as cur:
         cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+        cur.execute('DELETE FROM payments WHERE id = %s', [payment_id])
 
 
 def _lessons_done(group_id: int, student_id: int):

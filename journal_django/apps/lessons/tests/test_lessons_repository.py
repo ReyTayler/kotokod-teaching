@@ -94,7 +94,7 @@ def test_create_lesson_absent_student_no_increment(
 
 
 def test_create_lesson_with_payroll(
-    group_fixture, teacher_id_fixture, student_fixture
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture
 ):
     lesson_id = repository.create_lesson_full({
         'lesson_date': '2026-03-04',
@@ -102,20 +102,14 @@ def test_create_lesson_with_payroll(
         'teacher_id': teacher_id_fixture,
         'lesson_number': 1,
         'lesson_duration_minutes': 60,
-        'payroll': {
-            'total_students': 5,
-            'present_count': 4,
-            'payment': 650,
-            'penalty': 0,
-        },
+        'attendance': [{'student_id': student_fixture, 'present': True}],
     })
     try:
         full = repository.get_lesson_full(lesson_id)
         assert full['payroll'] is not None
-        assert full['payroll']['total_students'] == 5
-        assert full['payroll']['present_count'] == 4
-        # numeric → Decimal с масштабом
-        assert full['payroll']['payment'] == Decimal('650.00')
+        assert full['payroll']['total_students'] == 1
+        assert full['payroll']['present_count'] == 1
+        assert full['payroll']['payment'] == Decimal('500.00')
     finally:
         _delete_lesson(lesson_id)
 
