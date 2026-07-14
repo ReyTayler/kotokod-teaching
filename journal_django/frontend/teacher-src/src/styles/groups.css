@@ -169,6 +169,12 @@
 }
 .lf-student.is-present .lf-student-state { color: var(--success); }
 
+.lf-student.is-blocked {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.lf-student.is-blocked .lf-student-state { color: var(--danger); }
+
 .lf-preview {
   display: flex; flex-direction: column; gap: var(--space-1);
   background: var(--bg3); border-radius: var(--r); padding: var(--space-3) var(--space-4);

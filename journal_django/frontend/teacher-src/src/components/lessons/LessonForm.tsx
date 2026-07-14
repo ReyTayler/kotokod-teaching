@@ -20,6 +20,11 @@ function looksLikeUrl(value: string): boolean {
   }
 }
 
+/** Ученик исчерпал оплаченные уроки (remaining<=0) — отмечать присутствие нельзя (см. submit_lesson на бэке). */
+function isBlocked(s: { remaining: number }): boolean {
+  return s.remaining <= 0;
+}
+
 /**
  * Форма записи проведённого урока (submitLesson). Клиентские расчёты (выплата,
  * номер урока, лимит курса) — только превью; сервер авторитетен и может
@@ -52,7 +57,7 @@ export function LessonForm({
   const [date, setDate] = useState(initialDate ?? todayIso);
   const [recordUrl, setRecordUrl] = useState('');
   const [present, setPresent] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(groupData.students.map((s) => [s.name, true])),
+    Object.fromEntries(groupData.students.map((s) => [s.name, !isBlocked(s)])),
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -68,7 +73,8 @@ export function LessonForm({
   const presentCount = groupData.students.reduce((n, s) => n + (present[s.name] ? 1 : 0), 0);
   const absentCount = total - presentCount;
   const payment = calcPayment(total, presentCount, isHalf);
-  const allPresent = total > 0 && presentCount === total;
+  const eligibleStudents = groupData.students.filter((s) => !isBlocked(s));
+  const allPresent = eligibleStudents.length > 0 && eligibleStudents.every((s) => present[s.name]);
 
   const limitExceeded = limit !== null && Math.ceil(next) > limit;
   const limitMessage = useMemo(() => {
@@ -81,13 +87,14 @@ export function LessonForm({
     return `${prefix} Заполнение заблокировано.`;
   }, [limit, done, step, isHalf]);
 
-  const remaining = groupData.students[0]?.remaining ?? 0;
-  const debtWarning = remaining <= 0;
+  const blockedStudents = groupData.students.filter((s) => isBlocked(s));
   const penaltyWarning = date !== todayIso;
 
   const toggleAll = () => {
     const nextVal = !allPresent;
-    setPresent(Object.fromEntries(groupData.students.map((s) => [s.name, nextVal])));
+    setPresent(Object.fromEntries(
+      groupData.students.map((s) => [s.name, isBlocked(s) ? false : nextVal]),
+    ));
   };
 
   const handleSubmit = () => {
@@ -145,30 +152,45 @@ export function LessonForm({
       <div>
         <div className="lf-students-hdr">
           <span className="t-sec-label">Посещаемость · {total}</span>
-          <button type="button" className="lf-toggle-all" onClick={toggleAll}>
+          <button
+            type="button"
+            className="lf-toggle-all"
+            onClick={toggleAll}
+            disabled={eligibleStudents.length === 0}
+          >
             {allPresent ? 'Снять всех' : 'Отметить всех'}
           </button>
         </div>
         <div className="lf-students">
-          {groupData.students.map((s) => (
-            <button
-              type="button"
-              key={s.name}
-              className={`lf-student${present[s.name] ? ' is-present' : ''}`}
-              onClick={() => setPresent((p) => ({ ...p, [s.name]: !p[s.name] }))}
-              aria-pressed={!!present[s.name]}
-            >
-              <span className="lf-student-name">{s.name}</span>
-              <span className="lf-student-state">{present[s.name] ? 'Пришёл' : 'Не пришёл'}</span>
-            </button>
-          ))}
+          {groupData.students.map((s) => {
+            const blocked = isBlocked(s);
+            return (
+              <button
+                type="button"
+                key={s.name}
+                className={`lf-student${present[s.name] ? ' is-present' : ''}${blocked ? ' is-blocked' : ''}`}
+                onClick={() => {
+                  if (blocked) return;
+                  setPresent((p) => ({ ...p, [s.name]: !p[s.name] }));
+                }}
+                aria-pressed={!!present[s.name]}
+                disabled={blocked}
+                title={blocked ? 'Нет оплаченных уроков — отметить нельзя' : undefined}
+              >
+                <span className="lf-student-name">{s.name}</span>
+                <span className="lf-student-state">
+                  {blocked ? 'Нет оплаты' : present[s.name] ? 'Пришёл' : 'Не пришёл'}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {debtWarning && (
+      {blockedStudents.length > 0 && (
         <div className="lf-warn">
-          Оплаченные уроки закончились (остаток: {remaining}).
-          {groupData.pm ? ` Сообщите менеджеру ${groupData.pm}.` : ' Сообщите менеджеру.'}
+          Нет оплаченных уроков: {blockedStudents.map((s) => s.name).join(', ')}. Отметить их нельзя
+          {groupData.pm ? ` — сообщите менеджеру ${groupData.pm}.` : ' — сообщите менеджеру.'}
         </div>
       )}
 
