@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { ThemeToggle } from './ThemeToggle';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
-import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, type Role } from '../../lib/permissions';
+import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, type Role } from '../../lib/permissions';
 
 export const NAV_ICONS: Record<string, ReactElement> = {
   dashboard: (
@@ -120,6 +120,13 @@ export const NAV_ICONS: Record<string, ReactElement> = {
       <line x1="19" y1="11" x2="22" y2="11"/>
     </svg>
   ),
+  sync: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10"/>
+      <polyline points="1 20 1 14 7 14"/>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+    </svg>
+  ),
 };
 
 export const SECTIONS = [
@@ -221,7 +228,7 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
         ))}
         <div className="nav-sep" />
         <PayButton />
-        {(canSeeAccounts(role) || canSeeAudit(role) || canSeeChangelog(role)) && (
+        {(canSeeAccounts(role) || canSeeAudit(role) || canSeeChangelog(role) || canSeeSync(role)) && (
           <div className="nav-sep" />
         )}
         {canSeeAccounts(role) && (
@@ -246,6 +253,14 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
             className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
           >
             {NAV_ICONS['changelog']} Журнал изменений
+          </NavLink>
+        )}
+        {canSeeSync(role) && (
+          <NavLink
+            to="/admin/sync"
+            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
+          >
+            {NAV_ICONS['sync']} Синхро
           </NavLink>
         )}
       </nav>

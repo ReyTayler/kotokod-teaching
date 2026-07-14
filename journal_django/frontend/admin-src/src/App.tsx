@@ -23,6 +23,7 @@ import DashboardPage from './pages/dashboard/DashboardPage';
 import AuditPage from './pages/audit/AuditPage';
 import AccountsPage from './pages/accounts/AccountsPage';
 import ChangelogListPage from './pages/changelog/ChangelogListPage';
+import SyncPage from './pages/sync/SyncPage';
 import RenewalsPage from './pages/renewals/RenewalsPage';
 import RenewalStagesSettings from './pages/renewals/RenewalStagesSettings';
 
@@ -65,6 +66,7 @@ export function App() {
             <Route path="/admin/audit" element={<RequireRole roles={['superadmin']}><AuditPage /></RequireRole>} />
             <Route path="/admin/accounts" element={<RequireRole roles={['superadmin']}><AccountsPage /></RequireRole>} />
             <Route path="/admin/changelog" element={<RequireRole roles={['manager','admin','superadmin']}><ChangelogListPage /></RequireRole>} />
+            <Route path="/admin/sync" element={<RequireRole roles={['superadmin']}><SyncPage /></RequireRole>} />
 
             <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
           </Route>

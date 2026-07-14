@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { SECTIONS, NAV_ICONS } from './Sidebar';
 import { useAuth } from '../../hooks/useAuth';
-import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, type Role } from '../../lib/permissions';
+import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, type Role } from '../../lib/permissions';
 
 interface Props {
   open: boolean;
@@ -70,6 +70,17 @@ export function MobileNav({ open, onClose }: Props) {
             >
               {NAV_ICONS['changelog']}
               <span>Журнал изменений</span>
+            </NavLink>
+          )}
+          {canSeeSync(role) && (
+            <NavLink
+              to="/admin/sync"
+              className={({ isActive }) => `mobile-nav-item${isActive ? ' active' : ''}`}
+              onClick={onClose}
+              tabIndex={open ? 0 : -1}
+            >
+              {NAV_ICONS['sync']}
+              <span>Синхро</span>
             </NavLink>
           )}
         </div>
