@@ -77,8 +77,9 @@ class TestReadAllStudents:
         assert 'sheetRow' in stu
         # lessonsDone=0 в фикстуре → 0 (JS Number()||0)
         assert stu['lessonsDone'] == 0
-        # remaining — вычисляемый общий баланс ученика (нет оплат/посещений) → 0
-        assert stu['remaining'] == 0
+        # remaining — вычисляемый общий баланс ученика; membership_fixture теперь
+        # включает оплату на 8 уроков (см. conftest.py) → 8
+        assert stu['remaining'] == 8
         # age пустая строка (NULL в БД)
         assert stu['age'] == ''
 

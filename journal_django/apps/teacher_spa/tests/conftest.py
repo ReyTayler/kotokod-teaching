@@ -185,8 +185,11 @@ def student_fixture():
 
 
 @pytest.fixture
-def membership_fixture(group_fixture, student_fixture):
-    """Создаёт membership для group_fixture + student_fixture."""
+def membership_fixture(group_fixture, student_fixture, direction_fixture):
+    """
+    Создаёт membership для group_fixture + student_fixture, с оплатой на 8 уроков
+    (remaining=8) — иначе submitLesson блокирует present:true (нет оплаченных уроков).
+    """
     with connection.cursor() as cur:
         cur.execute(
             """
@@ -197,14 +200,25 @@ def membership_fixture(group_fixture, student_fixture):
             [group_fixture, student_fixture],
         )
         membership_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count,
+                                   unit_price, total_amount, paid_at, created_by)
+            VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')
+            RETURNING id
+            """,
+            [student_fixture, direction_fixture],
+        )
+        payment_id = cur.fetchone()[0]
     yield membership_id
     with connection.cursor() as cur:
         cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+        cur.execute('DELETE FROM payments WHERE id = %s', [payment_id])
 
 
 @pytest.fixture
-def half_membership_fixture(half_group_fixture, student_fixture):
-    """Membership для half_group_fixture."""
+def half_membership_fixture(half_group_fixture, student_fixture, direction_fixture):
+    """Membership для half_group_fixture, с оплатой на 8 уроков (remaining=8)."""
     with connection.cursor() as cur:
         cur.execute(
             """
@@ -215,9 +229,20 @@ def half_membership_fixture(half_group_fixture, student_fixture):
             [half_group_fixture, student_fixture],
         )
         membership_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count,
+                                   unit_price, total_amount, paid_at, created_by)
+            VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')
+            RETURNING id
+            """,
+            [student_fixture, direction_fixture],
+        )
+        payment_id = cur.fetchone()[0]
     yield membership_id
     with connection.cursor() as cur:
         cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+        cur.execute('DELETE FROM payments WHERE id = %s', [payment_id])
 
 
 # ---------------------------------------------------------------------------
