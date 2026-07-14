@@ -29,6 +29,7 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import ReadStaffWriteAdmin
 from apps.lessons import services
+from apps.lessons.exceptions import UnpaidAttendanceBlocked
 from apps.lessons.serializers import (
     AttendanceUpdateSerializer,
     LessonCreateSerializer,
@@ -128,8 +129,12 @@ class LessonListCreateView(APIView):
         serializer = LessonCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        lesson_id = services.create_lesson_full(serializer.validated_data)
-        full = services.get_lesson_full(lesson_id)
+        try:
+            result = services.create_lesson_full(serializer.validated_data)
+        except UnpaidAttendanceBlocked as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        full = services.get_lesson_full(result['lesson_id'])
         return Response(
             _strip_payroll_for_role(full, request.user.role),
             status=status.HTTP_201_CREATED,

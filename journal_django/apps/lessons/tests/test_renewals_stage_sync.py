@@ -1,10 +1,10 @@
 """
 Интеграция lessons → renewals: реальные точки записи посещаемости
-(create_lesson_full, update_attendance_cell, delete_lesson_full) должны
-подвинуть авто-стадию «Урок N» сделки продления через
-transaction.on_commit(engine.sync_lesson_stage_safe(...)).
+(services.create_lesson_full → record_lesson, repository.update_attendance_cell,
+repository.delete_lesson_full) должны подвинуть авто-стадию «Урок N» сделки
+продления через transaction.on_commit(engine.sync_lesson_stage_safe(...)).
 
-Проверяем именно вызов через repository-функции lessons (не сам engine
+Проверяем именно вызов через продовый путь записи lessons (не сам engine
 напрямую — это уже покрыто apps/renewals/tests/test_lesson_progress.py),
 чтобы убедиться, что проводка реально подключена к продовому пути записи.
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from apps.lessons import repository
+from apps.lessons import repository, services
 from apps.renewals import engine
 from apps.renewals.models import RenewalDeal
 
@@ -49,7 +49,7 @@ def test_create_lesson_full_advances_renewal_stage(
     assert deal.stage.key == 'lesson_1'
     try:
         with django_capture_on_commit_callbacks(execute=True):
-            lesson_id = repository.create_lesson_full({
+            result = services.create_lesson_full({
                 'lesson_date': '2026-07-08',
                 'group_id': group_fixture,
                 'teacher_id': teacher_id_fixture,
@@ -57,6 +57,7 @@ def test_create_lesson_full_advances_renewal_stage(
                 'lesson_duration_minutes': 60,
                 'attendance': [{'student_id': student_fixture, 'present': True}],
             })
+        lesson_id = result['lesson_id']
         deal.refresh_from_db()
         assert deal.stage.key == 'lesson_2'
     finally:
@@ -76,14 +77,14 @@ def test_update_attendance_cell_advances_renewal_stage(
 ):
     payment_id = _make_payment(student_fixture, direction_fixture)
     deal = engine.ensure_deal(student_fixture, cycle_no=1)
-    lesson_id = repository.create_lesson_full({
+    lesson_id = services.create_lesson_full({
         'lesson_date': '2026-07-08',
         'group_id': group_fixture,
         'teacher_id': teacher_id_fixture,
         'lesson_number': 1,
         'lesson_duration_minutes': 60,
         'attendance': [{'student_id': student_fixture, 'present': False}],
-    })
+    })['lesson_id']
     deal.refresh_from_db()
     assert deal.stage.key == 'lesson_1'  # не отмечен присутствующим — прогресса нет
     try:
@@ -109,14 +110,14 @@ def test_sync_ignored_when_no_open_deal(
     """Без сделки продления (feature ещё не породила её) — просто no-op, без ошибок."""
     assert not RenewalDeal.objects.filter(student_id=student_fixture).exists()
     with django_capture_on_commit_callbacks(execute=True):
-        lesson_id = repository.create_lesson_full({
+        lesson_id = services.create_lesson_full({
             'lesson_date': '2026-07-08',
             'group_id': group_fixture,
             'teacher_id': teacher_id_fixture,
             'lesson_number': 1,
             'lesson_duration_minutes': 60,
             'attendance': [{'student_id': student_fixture, 'present': True}],
-        })
+        })['lesson_id']
     from django.db import connection
     with connection.cursor() as cur:
         cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])

@@ -188,6 +188,41 @@ def test_post_invalid_body_400(group_fixture, teacher_id_fixture):
     assert resp.status_code == 400
 
 
+def test_post_blocked_when_student_has_no_paid_balance(
+    group_fixture, teacher_id_fixture, student_fixture,
+):
+    """Ученик без оплаченных уроков (membership без payments) + present:true →
+    400 {'error': ...}, урок не создаётся (UnpaidAttendanceBlocked → view)."""
+    with connection.cursor() as cur:
+        cur.execute(
+            'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+            'VALUES (%s, %s, 0, true) RETURNING id',
+            [group_fixture, student_fixture],
+        )
+        membership_id = cur.fetchone()[0]
+    payload = {
+        'lesson_date': '2026-03-28',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+    }
+    try:
+        resp = _client('admin').post(BASE_URL, payload, format='json')
+        assert resp.status_code == 400
+        assert 'error' in resp.json()
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT COUNT(*) FROM lessons WHERE group_id = %s AND lesson_date = %s',
+                [group_fixture, '2026-03-28'],
+            )
+            assert cur.fetchone()[0] == 0
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+
+
 def test_patch_lesson(group_fixture, teacher_id_fixture):
     lesson_id = _create_lesson(group_fixture, teacher_id_fixture)
     try:

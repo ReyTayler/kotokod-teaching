@@ -32,15 +32,6 @@ class AttendanceItemSerializer(serializers.Serializer):
     present = serializers.BooleanField()
 
 
-class PayrollPartSerializer(serializers.Serializer):
-    """Часть расчётного листа при создании урока (payrollPartSchema)."""
-
-    total_students = serializers.IntegerField(min_value=0)
-    present_count = serializers.IntegerField(min_value=0)
-    payment = serializers.FloatField(min_value=0)
-    penalty = serializers.FloatField(min_value=0, required=False)
-
-
 class LessonCreateSerializer(serializers.Serializer):
     """
     Вход для POST /api/admin/lessons (createLessonSchema).
@@ -63,7 +54,6 @@ class LessonCreateSerializer(serializers.Serializer):
     )
     submitted_by_token = serializers.CharField(required=False, trim_whitespace=False)
     attendance = AttendanceItemSerializer(many=True, required=False)
-    payroll = PayrollPartSerializer(required=False)
 
 
 class LessonUpdateSerializer(serializers.Serializer):

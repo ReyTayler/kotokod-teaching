@@ -91,6 +91,66 @@ def assert_students_paid(present_student_ids: list[int]) -> None:
     raise UnpaidAttendanceBlocked(names)
 
 
+def insert_lesson(fields: dict) -> int:
+    """INSERT урока. Возвращает id. submitted_at — DB DEFAULT now() через Now()."""
+    obj = Lesson.objects.create(
+        lesson_date=fields['lesson_date'],
+        teacher_id=fields['teacher_id'],
+        group_id=fields['group_id'],
+        original_teacher_id=fields.get('original_teacher_id'),
+        lesson_number=fields['lesson_number'],
+        lesson_duration_minutes=fields['lesson_duration_minutes'],
+        lesson_type=fields.get('lesson_type') or 'regular',
+        record_url=fields.get('record_url') or None,
+        submitted_by_token=fields.get('submitted_by_token') or 'admin-imported',
+        submitted_at=Now(),
+    )
+    return obj.pk
+
+
+def insert_attendance(lesson_id: int, attendance: list[dict]) -> None:
+    """
+    Вставка посещаемости только для существующих студентов (= JOIN students),
+    ON CONFLICT (lesson_id, student_id) DO NOTHING. No-op если список пуст.
+    """
+    if not attendance:
+        return
+    sids = [a['student_id'] for a in attendance]
+    valid = set(Student.objects.filter(id__in=sids).values_list('id', flat=True))
+    LessonAttendance.objects.bulk_create(
+        [
+            LessonAttendance(
+                lesson_id=lesson_id,
+                student_id=a['student_id'],
+                present=bool(a['present']),
+            )
+            for a in attendance if a['student_id'] in valid
+        ],
+        ignore_conflicts=True,
+    )
+
+
+def increment_lessons_done(group_id: int, student_ids: list[int], step: Decimal) -> None:
+    """UPDATE group_memberships SET lessons_done += step WHERE (group_id, student_id) IN ids."""
+    if not student_ids:
+        return
+    GroupMembership.objects.filter(
+        group_id=group_id, student_id__in=student_ids,
+    ).update(lessons_done=F('lessons_done') + step)
+
+
+def insert_payroll(fields: dict) -> None:
+    """INSERT записи payroll. Вызывается всегда (сервер сам считает payment/penalty)."""
+    Payroll.objects.create(
+        lesson_id=fields['lesson_id'],
+        teacher_id=fields['teacher_id'],
+        total_students=fields['total_students'],
+        present_count=fields['present_count'],
+        payment=fields['payment'],
+        penalty=fields['penalty'],
+    )
+
+
 def _apply_filters(qs, filters: dict[str, Any]):
     """
     Фильтры (дословно из LESSONS_PAGINATION.filters): group_id, teacher_id,
@@ -205,78 +265,6 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
     )
 
     return lesson
-
-
-def create_lesson_full(data: dict) -> int:
-    """
-    Создаёт урок + посещаемость + payroll в одной транзакции. Возвращает id урока.
-
-    half-lesson: step = 0.5 при duration==45, иначе 1.
-    submitted_at — DB DEFAULT now() через Now(). NULLIF(record_url,'') → None.
-    Посещаемость вставляется только для существующих студентов (= JOIN students),
-    ON CONFLICT DO NOTHING (ignore_conflicts).
-    """
-    duration = data.get('lesson_duration_minutes') or 90
-    step = _step(duration)
-
-    with transaction.atomic():
-        lesson = Lesson.objects.create(
-            lesson_date=data['lesson_date'],
-            teacher_id=data['teacher_id'],
-            group_id=data['group_id'],
-            original_teacher_id=data.get('original_teacher_id'),
-            lesson_number=data['lesson_number'],
-            lesson_duration_minutes=duration,
-            lesson_type=data.get('lesson_type') or 'regular',
-            record_url=data.get('record_url') or None,
-            submitted_by_token=data.get('submitted_by_token') or 'admin-imported',
-            submitted_at=Now(),
-        )
-        lesson_id = lesson.pk
-
-        attendance = data.get('attendance') or []
-        present_sids: list[int] = [a['student_id'] for a in attendance if bool(a['present'])]
-        if attendance:
-            sids = [a['student_id'] for a in attendance]
-            valid = set(
-                Student.objects.filter(id__in=sids).values_list('id', flat=True)
-            )
-            LessonAttendance.objects.bulk_create(
-                [
-                    LessonAttendance(
-                        lesson_id=lesson_id,
-                        student_id=a['student_id'],
-                        present=bool(a['present']),
-                    )
-                    for a in attendance if a['student_id'] in valid
-                ],
-                ignore_conflicts=True,   # ON CONFLICT (lesson_id, student_id) DO NOTHING
-            )
-
-        # Инкремент lessons_done у присутствовавших — тот же шаг, что в teacher SPA.
-        if present_sids:
-            GroupMembership.objects.filter(
-                group_id=data['group_id'], student_id__in=present_sids,
-            ).update(lessons_done=F('lessons_done') + step)
-
-            direction_id = Group.objects.filter(
-                id=data['group_id']).values_list('direction_id', flat=True).first()
-            for sid in present_sids:
-                transaction.on_commit(
-                    lambda sid=sid: _sync_renewal_stage(sid, direction_id))
-
-        payroll = data.get('payroll')
-        if payroll:
-            Payroll.objects.create(
-                lesson_id=lesson_id,
-                teacher_id=data['teacher_id'],
-                total_students=payroll.get('total_students') or 0,
-                present_count=payroll.get('present_count') or 0,
-                payment=payroll.get('payment') or 0,
-                penalty=payroll.get('penalty') or 0,
-            )
-
-    return lesson_id
 
 
 def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
