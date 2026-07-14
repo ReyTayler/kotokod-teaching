@@ -314,6 +314,13 @@ class TestSubmitLesson:
                 [gid, student_fixture],
             )
             mid = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+                "unit_price, total_amount, paid_at, created_by) "
+                "VALUES (%s, %s, 1, 4, 1000, 4000, '2026-06-01', 'test') RETURNING id",
+                [student_fixture, did],
+            )
+            pid = cur.fetchone()[0]
         token = f'acct:{account_fixture}'
         try:
             resp = _client('teacher', account_fixture).post('/api/submitLesson', {
@@ -330,6 +337,7 @@ class TestSubmitLesson:
                 _cleanup_lesson(lid)
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM group_memberships WHERE id = %s', [mid])
+                cur.execute('DELETE FROM payments WHERE id = %s', [pid])
                 cur.execute('DELETE FROM groups WHERE id = %s', [gid])
                 cur.execute('DELETE FROM directions WHERE id = %s', [did])
 
@@ -359,6 +367,71 @@ class TestSubmitLesson:
             assert done == 0.0
         finally:
             _cleanup_lesson(lesson_id)
+
+    def test_present_blocked_when_no_paid_balance(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture,
+    ):
+        """
+        Ученик без оплаченных уроков (remaining<=0, membership без payments) +
+        present:true → success:false, урок/attendance/payroll не создаются.
+        """
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+                'VALUES (%s, %s, 0, true) RETURNING id',
+                [group_fixture, student_fixture],
+            )
+            membership_id = cur.fetchone()[0]
+
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body['success'] is False
+            assert '__spa_test_student__' in body['error']
+
+            token = f'acct:{account_fixture}'
+            assert _get_lesson_id(group_fixture, token) is None
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+
+    def test_absent_allowed_without_paid_balance(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture,
+    ):
+        """Тот же неоплаченный ученик, но present:false — урок создаётся нормально."""
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+                'VALUES (%s, %s, 0, true) RETURNING id',
+                [group_fixture, student_fixture],
+            )
+            membership_id = cur.fetchone()[0]
+
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': False}],
+            })
+            assert resp.status_code == 200
+            assert resp.json()['success'] is True
+
+            token = f'acct:{account_fixture}'
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert lesson_id is not None
+            _cleanup_lesson(lesson_id)
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
 
     def test_payment_calculation_small_group(
         self,

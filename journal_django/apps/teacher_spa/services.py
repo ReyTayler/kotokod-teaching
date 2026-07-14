@@ -15,6 +15,7 @@ from typing import Optional
 from django.db import transaction
 
 from apps.accounts.repository import get_by_id_with_teacher
+from apps.finances.repository import balances_for_students
 from apps.scheduling.repository import link_facts
 from apps.teacher_spa import repository
 from apps.teacher_spa.calculator import (
@@ -204,6 +205,23 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
         if s['present']:
             present_membership_ids.append(meta['membership_id'])
             present_student_ids.append(meta['student_id'])
+
+    # 5b. Блокировка отметки присутствия ученикам без оплаченных уроков. Баланс
+    # считается СЕРВЕРОМ в момент отправки (тот же батч-расчёт, что read_all_students) —
+    # клиент remaining не присылает, подделать нечем. Проверка ДО транзакции: при
+    # нарушении урок не создаётся вообще (как остальные ранние бизнес-ошибки выше).
+    if present_student_ids:
+        balances = balances_for_students(present_student_ids)
+        blocked_names = [
+            s['name'] for s in students
+            if s['present'] and by_name.get(s['name'])
+            and balances.get(by_name[s['name']]['student_id'], 0) <= 0
+        ]
+        if blocked_names:
+            return {
+                'success': False,
+                'error': f'У учеников без оплаченных уроков нельзя отметить посещение: {", ".join(blocked_names)}.',
+            }
 
     # 6. subLabel — тип урока. Выводится СЕРВЕРОМ из плана (клиентский lessonType
     #    не принимается): замена — чужая группа (шаг 3); перенос — плановая строка
