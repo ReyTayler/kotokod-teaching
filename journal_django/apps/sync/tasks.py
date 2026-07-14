@@ -10,7 +10,8 @@ from __future__ import annotations
 from celery import shared_task
 
 from apps.sync.backfills import (
-    groups, lessons, payments, payroll, rebuild_counters, rebuild_payroll, run_all, students, teachers,
+    groups, lessons, payments, payroll, rebuild_counters, rebuild_payroll,
+    rebuild_planned_lessons, run_all, students, teachers,
 )
 
 
@@ -52,6 +53,11 @@ def rebuild_payroll_task(dry_run: bool = False) -> dict:
 @shared_task(name='apps.sync.tasks.rebuild_counters_task', time_limit=180)
 def rebuild_counters_task(dry_run: bool = False) -> dict:
     return rebuild_counters.run(dry_run=dry_run)
+
+
+@shared_task(name='apps.sync.tasks.rebuild_planned_lessons_task', time_limit=300)
+def rebuild_planned_lessons_task(dry_run: bool = False) -> dict:
+    return rebuild_planned_lessons.run(dry_run=dry_run)
 
 
 @shared_task(name='apps.sync.tasks.run_all_task', time_limit=600)

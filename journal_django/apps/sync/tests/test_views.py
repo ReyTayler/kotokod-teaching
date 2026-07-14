@@ -61,6 +61,22 @@ def test_run_coerces_string_dry_run_false(superadmin_client, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_run_rebuild_planned_lessons_action_reachable(superadmin_client, monkeypatch):
+    """Проверка, что новое destructive-действие подключено end-to-end через URL
+    (не только на уровне задачи) — см. apps.sync.views.ACTIONS."""
+    monkeypatch.setattr(
+        'apps.sync.backfills.rebuild_planned_lessons.run',
+        lambda dry_run=False: {'entity': 'planned-lessons-rebuild', 'dry_run': dry_run},
+    )
+
+    run_resp = superadmin_client.post(
+        '/api/admin/sync/rebuild-planned-lessons/run', {'dry_run': True}, format='json',
+    )
+    assert run_resp.status_code == 202
+    assert run_resp.data['task_id']
+
+
+@pytest.mark.django_db
 def test_status_reports_failure(superadmin_client, monkeypatch):
     def boom(dry_run=False):
         raise RuntimeError('лист не найден')

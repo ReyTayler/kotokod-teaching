@@ -22,3 +22,13 @@ def test_run_all_task_delegates(monkeypatch):
     )
     result = tasks.run_all_task.run(dry_run=False)
     assert result == {'dry_run': False, 'steps': []}
+
+
+@pytest.mark.django_db
+def test_rebuild_planned_lessons_task_delegates(monkeypatch):
+    monkeypatch.setattr(
+        'apps.sync.backfills.rebuild_planned_lessons.run',
+        lambda dry_run=False: {'entity': 'planned-lessons-rebuild', 'dry_run': dry_run},
+    )
+    result = tasks.rebuild_planned_lessons_task.run(dry_run=True)
+    assert result == {'entity': 'planned-lessons-rebuild', 'dry_run': True}
