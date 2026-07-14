@@ -13,6 +13,7 @@
 @import './pages/changelog.css';
 @import './pages/renewals.css';
 @import './pages/admin-calendar.css';
+@import './pages/sync.css';
 /* Shared презентационный календарь (GroupDetailPage вкладка «Расписание»,
    см. shared/calendar/CalendarView.tsx) — те же классы, что и teacher-src,
    которая импортирует этот же файл через alias '@shared/shared/calendar/*'. */
