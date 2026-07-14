@@ -29,6 +29,8 @@ from .models import Lesson, LessonAttendance
 from apps.payroll.models import Payroll
 from apps.memberships.models import GroupMembership
 from apps.scheduling.repository import unlink_fact
+from apps.finances.repository import balances_for_students
+from .exceptions import UnpaidAttendanceBlocked
 
 
 def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
@@ -66,6 +68,27 @@ _ZERO = Value(Decimal('0'), output_field=DecimalField(max_digits=6, decimal_plac
 def _step(duration_minutes) -> Decimal:
     """half-lesson инвариант: 45 мин → 0.5 урока, иначе 1."""
     return Decimal('0.5') if duration_minutes == 45 else Decimal('1')
+
+
+def assert_students_paid(present_student_ids: list[int]) -> None:
+    """
+    Бросает UnpaidAttendanceBlocked, если у кого-то из перечисленных учеников
+    остаток оплаченных уроков <= 0. Баланс считается СЕРВЕРОМ (батч, тот же
+    расчёт, что read_all_students в teacher_spa) — не принимает клиентский вход.
+    No-op для пустого списка. Общая проверка для create/attendance-toggle путей
+    (apps.lessons.services.record_lesson, apps.lessons.repository.update_attendance_cell).
+    """
+    if not present_student_ids:
+        return
+    balances = balances_for_students(present_student_ids)
+    blocked_ids = [sid for sid in present_student_ids if balances.get(sid, 0) <= 0]
+    if not blocked_ids:
+        return
+    names = list(
+        Student.objects.filter(id__in=blocked_ids)
+        .values_list('full_name', flat=True)
+    )
+    raise UnpaidAttendanceBlocked(names)
 
 
 def _apply_filters(qs, filters: dict[str, Any]):
