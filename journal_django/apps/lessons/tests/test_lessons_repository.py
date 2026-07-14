@@ -206,6 +206,56 @@ def test_delete_lesson_missing_returns_false():
     assert repository.delete_lesson_full(999_999_999) is False
 
 
+def test_delete_lesson_unlinks_planned_lesson(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lessons_done
+):
+    """Удаление урока возвращает связанную плановую строку в 'pending' (не
+    остаётся зависшей 'done' без факта — см. design doc, аудит delete_lesson_full)."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, "
+            "scheduled_time, teacher_id, status, created_at, updated_at) "
+            "VALUES (%s, 1, 1, '2026-03-07', '10:00', %s, 'pending', NOW(), NOW()) "
+            "RETURNING id",
+            [group_fixture, teacher_id_fixture],
+        )
+        planned_id = cur.fetchone()[0]
+
+    lesson_id = repository.create_lesson_full({
+        'lesson_date': '2026-03-07',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+    })
+    try:
+        from apps.scheduling.repository import link_facts
+        link_facts(group_fixture)
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT fact_lesson_id, status FROM planned_lessons WHERE id = %s',
+                [planned_id],
+            )
+            fact_lesson_id, status = cur.fetchone()
+        assert fact_lesson_id == lesson_id
+        assert status == 'done'
+
+        assert repository.delete_lesson_full(lesson_id) is True
+
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT fact_lesson_id, status FROM planned_lessons WHERE id = %s',
+                [planned_id],
+            )
+            fact_lesson_id, status = cur.fetchone()
+        assert fact_lesson_id is None
+        assert status == 'pending'
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
+
+
 # ---------------------------------------------------------------------------
 # update_attendance_cell
 # ---------------------------------------------------------------------------

@@ -433,6 +433,23 @@ def link_facts(group_id: int) -> int:
     return len(to_update)
 
 
+def unlink_fact(lesson_id: int) -> None:
+    """
+    Отвязать плановую строку от удаляемого факта: fact_lesson_id=NULL,
+    status → PENDING. Вызывается ДО удаления Lesson (внутри той же транзакции,
+    из apps.lessons.repository.delete_lesson_full) — без этого шага
+    fact_lesson_id зануляется каскадом (FK SET_NULL), но status остаётся
+    'done', оставляя плановую строку зависшей «проведённой» без факта.
+
+    Read-side (_planned_status) сам пересчитает overdue/pending по
+    scheduled_date/scheduled_time при следующем чтении календаря — здесь
+    достаточно вернуть status в PENDING, конкретное overdue/pending не разделяем.
+    """
+    PlannedLesson.objects.filter(fact_lesson_id=lesson_id).update(
+        fact_lesson_id=None, status=PENDING,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Admin-API операции над planned_lessons (шаг 4). Все write — в transaction.atomic;
 # планировщик дат — чистые функции planner.*; версионирование слота при

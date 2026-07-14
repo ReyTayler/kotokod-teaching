@@ -28,6 +28,7 @@ from apps.students.models import Student
 from .models import Lesson, LessonAttendance
 from apps.payroll.models import Payroll
 from apps.memberships.models import GroupMembership
+from apps.scheduling.repository import unlink_fact
 
 
 def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
@@ -313,6 +314,7 @@ def delete_lesson_full(lesson_id: int) -> bool:
                     transaction.on_commit(
                         lambda sid=sid: _sync_renewal_stage(sid, direction_id))
 
+        unlink_fact(lesson_id)
         Payroll.objects.filter(lesson_id=lesson_id).delete()
         _count, details = Lesson.objects.filter(id=lesson_id).delete()
 
