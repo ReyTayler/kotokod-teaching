@@ -64,3 +64,6 @@ Thumbs.db
 # ── Билд-кэш / локальный стейт тулинга ─────────────────────
 *.tsbuildinfo
 .superpowers/
+
+# ── Изолированные git-worktree для фиче-веток (superpowers) ─
+.worktrees/
