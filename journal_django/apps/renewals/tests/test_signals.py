@@ -43,7 +43,7 @@ def test_payment_orm_create_syncs_stage_without_closing(
                     paid_at='2026-07-08', created_at=Now())
             assert len(callbacks) >= 1
             deal.refresh_from_db()
-            assert deal.stage.key == 'lesson_2'  # баланс положительный → «Урок 2»
+            assert deal.stage.key == 'lesson_1'  # баланс положительный → «Урок 1» (1 урок отработан)
             assert deal.outcome_at is None  # НЕ закрыта
             assert not RenewalDeal.objects.filter(student_id=sid, cycle_no=2).exists()
         finally:
@@ -70,7 +70,7 @@ def test_refund_does_not_touch_deal(django_capture_on_commit_callbacks,
                 paid_at='2026-07-12', created_at=Now())
         deal = RenewalDeal.objects.get(student_id=sid, cycle_no=1)
         assert deal.outcome_at is None
-        assert deal.stage.key == 'lesson_1'  # не сдвинулась
+        assert deal.stage.key == 'no_lesson_yet'  # не сдвинулась
     finally:
         if pay is not None:
             pay.delete()

@@ -46,7 +46,7 @@ def test_create_lesson_full_advances_renewal_stage(
 ):
     payment_id = _make_payment(student_fixture, direction_fixture)
     deal = engine.ensure_deal(student_fixture, cycle_no=1)
-    assert deal.stage.key == 'lesson_1'
+    assert deal.stage.key == 'no_lesson_yet'
     try:
         with django_capture_on_commit_callbacks(execute=True):
             result = services.create_lesson_full({
@@ -59,7 +59,7 @@ def test_create_lesson_full_advances_renewal_stage(
             })
         lesson_id = result['lesson_id']
         deal.refresh_from_db()
-        assert deal.stage.key == 'lesson_2'
+        assert deal.stage.key == 'lesson_1'
     finally:
         from django.db import connection
         with connection.cursor() as cur:
@@ -86,12 +86,12 @@ def test_update_attendance_cell_advances_renewal_stage(
         'attendance': [{'student_id': student_fixture, 'present': False}],
     })['lesson_id']
     deal.refresh_from_db()
-    assert deal.stage.key == 'lesson_1'  # не отмечен присутствующим — прогресса нет
+    assert deal.stage.key == 'no_lesson_yet'  # не отмечен присутствующим — прогресса нет
     try:
         with django_capture_on_commit_callbacks(execute=True):
             repository.update_attendance_cell(lesson_id, student_fixture, True)
         deal.refresh_from_db()
-        assert deal.stage.key == 'lesson_2'
+        assert deal.stage.key == 'lesson_1'
     finally:
         from django.db import connection
         with connection.cursor() as cur:

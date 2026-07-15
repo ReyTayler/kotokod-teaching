@@ -101,7 +101,9 @@ def deal_computed(deal_id: int) -> dict | None:
     # Прогресс от номера цикла сделки (не attended % 4): у сделки цикла N свои
     # уроки (N−1)×4+1 .. N×4, иначе после 4-го урока прогресс «заворачивался».
     into = attended - (data['cycle_no'] - 1) * cycle.LESSONS_PER_CYCLE
-    data['lesson_in_cycle'] = min(max(int(into), 0), cycle.LESSONS_PER_CYCLE - 1) + 1  # 1..4
+    # 1..4, где 1 = «Не было урока цикла» (into<=0), 2..4 = «Урок 1..3» отработаны
+    # (into=1..3). Текст на фронте (RenewalDrawer) разворачивает это в -1 при выводе.
+    data['lesson_in_cycle'] = min(max(int(into), 0), cycle.LESSONS_PER_CYCLE - 1) + 1
     data['cycle_completed'] = into >= cycle.LESSONS_PER_CYCLE
     data['balance'] = balance_for_student(data['student_id'])
     data['debt'] = float(data['balance']) < 0

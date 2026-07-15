@@ -42,16 +42,16 @@ def test_default_pipeline_has_four_lesson_stages():
     pipe = RenewalPipeline.objects.get(is_default=True)
     stages = list(RenewalStage.objects.filter(
         pipeline=pipe, kind='progress', is_auto=True).order_by('sort_order'))
-    assert [s.key for s in stages] == ['lesson_1', 'lesson_2', 'lesson_3', 'lesson_4']
-    assert [s.label for s in stages] == ['Урок 1', 'Урок 2', 'Урок 3', 'Урок 4']
+    assert [s.key for s in stages] == ['no_lesson_yet', 'lesson_1', 'lesson_2', 'lesson_3']
+    assert [s.label for s in stages] == ['Не было урока', 'Урок 1', 'Урок 2', 'Урок 3']
     assert not RenewalStage.objects.filter(pipeline=pipe, key='lesson_progress').exists()
 
 
 @pytest.mark.django_db
-def test_ensure_deal_starts_on_lesson_1(make_student):
+def test_ensure_deal_starts_on_no_lesson_yet(make_student):
     sid = make_student()
     deal = engine.ensure_deal(sid, cycle_no=1)
-    assert deal.stage.key == 'lesson_1'
+    assert deal.stage.key == 'no_lesson_yet'
 
 
 @pytest.mark.django_db
@@ -63,17 +63,17 @@ def test_sync_lesson_stage_advances_with_attendance(make_student, make_direction
     gid = _make_group_with_membership(did, tid, sid)
     try:
         deal = engine.ensure_deal(sid, cycle_no=1)
-        assert deal.stage.key == 'lesson_1'
+        assert deal.stage.key == 'no_lesson_yet'
 
         make_attendance(sid, gid, tid, count=1)
         engine.sync_lesson_stage(sid)
         deal.refresh_from_db()
-        assert deal.stage.key == 'lesson_2'
+        assert deal.stage.key == 'lesson_1'
 
         make_attendance(sid, gid, tid, count=2, start='2026-06-10')
         engine.sync_lesson_stage(sid)
         deal.refresh_from_db()
-        assert deal.stage.key == 'lesson_4'
+        assert deal.stage.key == 'lesson_3'
     finally:
         _cleanup_group(gid, sid)
 
@@ -115,7 +115,7 @@ def test_cycle_complete_moves_to_awaiting_renewal(make_student, make_direction,
         deal.refresh_from_db()
         assert deal.stage.key == 'awaiting_renewal'
         assert deal.due_at is not None
-        assert deal.stage.key != 'lesson_1'  # фикс зацикливания attended % 4
+        assert deal.stage.key != 'no_lesson_yet'  # фикс зацикливания attended % 4
     finally:
         _cleanup_group(gid, sid)
 
@@ -179,10 +179,11 @@ def test_cross_direction_attendance_counts_into_one_history(make_student, make_d
 
 
 @pytest.mark.django_db
-def test_prepaid_cycle2_deal_stays_on_lesson_1(make_student, make_direction,
-                                               make_teacher, make_payment,
-                                               make_attendance):
-    """Сделка цикла 2 при attended=2 (ещё идёт цикл 1) стоит на «Урок 1»."""
+def test_prepaid_cycle2_deal_stays_on_no_lesson_yet(make_student, make_direction,
+                                                     make_teacher, make_payment,
+                                                     make_attendance):
+    """Сделка цикла 2 при attended=2 (ещё идёт цикл 1) стоит на «Не было урока»
+    — это и есть П-7: предоплаченный цикл ещё не начался, а не «отработан 1 урок»."""
     sid, did, tid = make_student(), make_direction(), make_teacher()
     make_payment(sid, did, lessons=8)
     gid = _make_group_with_membership(did, tid, sid)
@@ -191,6 +192,6 @@ def test_prepaid_cycle2_deal_stays_on_lesson_1(make_student, make_direction,
         engine.ensure_deal(sid, cycle_no=2)
         engine.sync_lesson_stage(sid)
         deal = RenewalDeal.objects.get(student_id=sid, cycle_no=2)
-        assert deal.stage.key == 'lesson_1'
+        assert deal.stage.key == 'no_lesson_yet'
     finally:
         _cleanup_group(gid, sid)

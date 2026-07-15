@@ -26,9 +26,9 @@ def test_super_creates_and_deletes(superadmin_client):
 
 @pytest.mark.django_db
 def test_cannot_delete_protected_auto_stage(superadmin_client):
-    """Авто-стадию «Урок N» (is_auto) удалить нельзя → 409."""
+    """Авто-стадию «Не было урока»/«Урок N» (is_auto) удалить нельзя → 409."""
     stages = superadmin_client.get(BASE).json()
-    auto = next(s for s in stages if s['key'] == 'lesson_1')
+    auto = next(s for s in stages if s['key'] == 'no_lesson_yet')
     resp = superadmin_client.delete(f"{BASE}/{auto['id']}")
     assert resp.status_code == 409
     assert resp.json()['error'] == 'protected'
