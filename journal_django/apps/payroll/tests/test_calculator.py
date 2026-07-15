@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from apps.payroll.calculator import calculate_payment, calculate_penalty
+from apps.payroll.calculator import calculate_payment, calculate_penalty, calculate_extra_lesson_payment
 
 
 # ---------------------------------------------------------------------------
@@ -88,3 +88,17 @@ class TestCalculatePenalty:
     def test_penalty_zero_present_no_penalty(self):
         # 0 присутствовавших → штраф 0 (нечего штрафовать)
         assert calculate_penalty('2026-01-01', '2026-06-10', 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# calculate_extra_lesson_payment
+# ---------------------------------------------------------------------------
+
+class TestCalculateExtraLessonPayment:
+    """Доп.урок: строго 200₽ за присутствовавшего, без half/small-group веток."""
+
+    @pytest.mark.parametrize('present,expected', [
+        (0, 0), (1, 200), (2, 400), (3, 600),
+    ])
+    def test_flat_rate_per_present_student(self, present, expected):
+        assert calculate_extra_lesson_payment(present) == expected

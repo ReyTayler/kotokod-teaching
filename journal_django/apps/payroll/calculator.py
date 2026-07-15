@@ -49,3 +49,13 @@ def calculate_penalty(lesson_date: str, submit_date: str, count_students: int) -
     if lesson_date == submit_date:
         return 0
     return 40 * count_students
+
+
+def calculate_extra_lesson_payment(present: int) -> int:
+    """
+    Доп.урок (компенсация пропуска основного занятия): строго 200₽ за каждого
+    присутствовавшего, независимо от длительности доп.урока и общего числа
+    участников — НЕ переиспользует PAY_RATES/calculate_payment (та ветвится по
+    размеру группы/half-lesson, что здесь не применяется, см. design doc).
+    """
+    return PAY_RATES['perStudent'] * present
