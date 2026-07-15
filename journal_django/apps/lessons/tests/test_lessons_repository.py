@@ -450,3 +450,82 @@ def test_list_lessons_invalid_sort_by_falls_back(group_fixture, teacher_id_fixtu
         assert list_result['total'] == 1
     finally:
         _delete_lesson(lesson_id)
+
+
+# ---------------------------------------------------------------------------
+# apply_makeup_attendance / revert_makeup_attendance (доп.уроки)
+# ---------------------------------------------------------------------------
+
+def test_apply_makeup_attendance_flips_present_and_increments_lessons_done(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lessons_done
+):
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-10',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': False}],
+    })
+    lesson_id = result['lesson_id']
+    try:
+        assert lessons_done(group_fixture, student_fixture) == Decimal('0')
+        payroll_before = repository.Payroll.objects.get(lesson_id=lesson_id)
+
+        repository.apply_makeup_attendance(lesson_id, student_fixture)
+
+        att = repository.LessonAttendance.objects.get(lesson_id=lesson_id, student_id=student_fixture)
+        assert att.present is True
+        assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
+        # Payroll исходного урока НЕ пересчитывается доп.уроком.
+        payroll_after = repository.Payroll.objects.get(lesson_id=lesson_id)
+        assert payroll_after.payment == payroll_before.payment
+        assert payroll_after.present_count == payroll_before.present_count
+    finally:
+        _delete_lesson(lesson_id)
+
+
+def test_apply_makeup_attendance_is_noop_if_already_present(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lessons_done
+):
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-11',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+    })
+    lesson_id = result['lesson_id']
+    try:
+        assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
+        repository.apply_makeup_attendance(lesson_id, student_fixture)
+        # Уже present=True — второй инкремент не происходит (идемпотентно).
+        assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
+    finally:
+        _delete_lesson(lesson_id)
+
+
+def test_revert_makeup_attendance_undoes_apply(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lessons_done
+):
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-12',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 45,
+        'attendance': [{'student_id': student_fixture, 'present': False}],
+    })
+    lesson_id = result['lesson_id']
+    try:
+        repository.apply_makeup_attendance(lesson_id, student_fixture)
+        assert lessons_done(group_fixture, student_fixture) == Decimal('0.5')
+
+        repository.revert_makeup_attendance(lesson_id, student_fixture)
+
+        att = repository.LessonAttendance.objects.get(lesson_id=lesson_id, student_id=student_fixture)
+        assert att.present is False
+        assert lessons_done(group_fixture, student_fixture) == Decimal('0')
+    finally:
+        _delete_lesson(lesson_id)

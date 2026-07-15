@@ -411,3 +411,69 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
             payroll.save(update_fields=['total_students', 'present_count', 'payment'])
 
         return True
+
+
+def apply_makeup_attendance(lesson_id: int, student_id: int) -> None:
+    """
+    Ретроактивно отмечает студента присутствовавшим на УЖЕ проведённом уроке —
+    вызывается при фиксации доп.урока, которым компенсируется этот пропуск
+    (apps.extra_lessons.services.record). Инкрементирует lessons_done на шаг
+    ЭТОГО (исходного) урока, но НЕ пересчитывает его Payroll — доп.урок
+    оплачивается преподавателю, который его провёл, отдельной строкой
+    (см. docs/superpowers/specs/2026-07-15-extra-lessons-design.md).
+
+    No-op, если студент уже present=True на этом уроке (идемпотентно — на
+    случай повторного вызова).
+    """
+    with transaction.atomic():
+        ctx = (
+            Lesson.objects
+            .filter(id=lesson_id)
+            .values('group_id', 'lesson_duration_minutes')
+            .first()
+        )
+        if ctx is None:
+            return
+        updated = LessonAttendance.objects.filter(
+            lesson_id=lesson_id, student_id=student_id, present=False,
+        ).update(present=True)
+        if not updated:
+            return
+        step = _step(ctx['lesson_duration_minutes'])
+        GroupMembership.objects.filter(
+            group_id=ctx['group_id'], student_id=student_id,
+        ).update(lessons_done=F('lessons_done') + step)
+        direction_id = Group.objects.filter(
+            id=ctx['group_id']).values_list('direction_id', flat=True).first()
+        transaction.on_commit(lambda: _sync_renewal_stage(student_id, direction_id))
+
+
+def revert_makeup_attendance(lesson_id: int, student_id: int) -> None:
+    """
+    Откат apply_makeup_attendance — вызывается при удалении доп.урока
+    (apps.extra_lessons.services.delete_fact), которым был компенсирован
+    пропуск: возвращает present=False и списывает lessons_done обратно.
+
+    No-op, если студент уже present=False на этом уроке.
+    """
+    with transaction.atomic():
+        ctx = (
+            Lesson.objects
+            .filter(id=lesson_id)
+            .values('group_id', 'lesson_duration_minutes')
+            .first()
+        )
+        if ctx is None:
+            return
+        updated = LessonAttendance.objects.filter(
+            lesson_id=lesson_id, student_id=student_id, present=True,
+        ).update(present=False)
+        if not updated:
+            return
+        step = _step(ctx['lesson_duration_minutes'])
+        GroupMembership.objects.filter(
+            group_id=ctx['group_id'], student_id=student_id,
+        ).update(lessons_done=Greatest(F('lessons_done') - step, _ZERO))
+        direction_id = Group.objects.filter(
+            id=ctx['group_id']).values_list('direction_id', flat=True).first()
+        transaction.on_commit(lambda: _sync_renewal_stage(student_id, direction_id))
