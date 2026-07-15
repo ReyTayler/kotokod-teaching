@@ -102,7 +102,7 @@ def next_open_cycle_no(student_id: int, min_cycle_no: int) -> int:
 
 
 def _auto_stages(pipeline: RenewalPipeline) -> dict[str, RenewalStage]:
-    """Все авто-стадии воронки по key (Урок 1..4 + awaiting_payment + awaiting_renewal)."""
+    """Все авто-стадии воронки по key (Не было урока, Урок 1..3 + awaiting_payment + awaiting_renewal)."""
     return {s.key: s for s in RenewalStage.objects.filter(pipeline=pipeline, is_auto=True)}
 
 
@@ -133,7 +133,7 @@ def sync_lesson_stage(student_id: int) -> None:
     Держит открытую сделку ученика на правильной авто-стадии по посещаемости
     и балансу (вызывается после записи/правки посещаемости урока и по оплатам).
 
-    Двигает ТОЛЬКО между авто-стадиями (Урок 1–4, Ждём оплату, Ждём продление):
+    Двигает ТОЛЬКО между авто-стадиями (Не было урока, Урок 1–3, Ждём оплату, Ждём продление):
     если менеджер вручную увёл сделку в «Думает»/«Заморожен»/… или она закрыта —
     движок её не трогает.
     """
