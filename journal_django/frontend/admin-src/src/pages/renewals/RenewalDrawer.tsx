@@ -180,7 +180,9 @@ export function RenewalDrawer({ id, onClose }: Props) {
                       Цикл отработан{deal.due_at ? ` ${fmtDate(deal.due_at)}` : ''} — пора продлевать
                     </span>
                   )
-                  : <span>Урок {deal.lesson_in_cycle} из 4</span>
+                  : deal.lesson_in_cycle === 1
+                    ? <span>Не было уроков цикла</span>
+                    : <span>Отработано {deal.lesson_in_cycle - 1} из 4</span>
               )}
               {deal.debt && (
                 <span className="status-badge status-badge--negative" title="Баланс ученика отрицательный">
