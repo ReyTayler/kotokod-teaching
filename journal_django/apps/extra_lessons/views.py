@@ -74,7 +74,7 @@ class ExtraLessonListCreateView(APIView):
         except MissedLessonNotFound as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except DuplicateAssignment as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(result, status=status.HTTP_201_CREATED)
 
 

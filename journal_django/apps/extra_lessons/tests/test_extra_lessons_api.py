@@ -153,6 +153,22 @@ def test_create_invalid_body_400(admin_client):
     assert resp.status_code == 400
 
 
+def test_create_duplicate_assignment_409(
+    admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+):
+    """Test creating a duplicate assignment (same missed_lesson + student) returns 409."""
+    payload = _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture)
+
+    # Create first assignment
+    resp1 = admin_client.post(ADMIN_URL, payload, format='json')
+    assert resp1.status_code == 201
+
+    # Attempt to create duplicate assignment for same student against same missed_lesson
+    resp2 = admin_client.post(ADMIN_URL, payload, format='json')
+    assert resp2.status_code == 409
+    assert 'error' in resp2.data
+
+
 # ---------------------------------------------------------------------------
 # Admin: list / detail
 # ---------------------------------------------------------------------------
@@ -231,6 +247,49 @@ def test_delete_conflict_when_not_done(
     ).data
     resp = admin_client.delete(f'{ADMIN_URL}/{created["id"]}')
     assert resp.status_code == 409
+
+
+def test_delete_happy_path_when_done(
+    admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
+):
+    """Test DELETE on a done assignment returns 204 and cleans up fact_lesson."""
+    # Create assignment
+    created = admin_client.post(
+        ADMIN_URL,
+        _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
+        format='json',
+    ).data
+    assignment_id = created['id']
+
+    # Record the assignment (creates fact_lesson, sets status to done)
+    owner_client = teacher_client_for(teacher_fixture, '__el_delete_test__@test.local')
+    record_resp = owner_client.post(
+        f'{TEACHER_URL}/{assignment_id}/record',
+        {
+            'attendance': [{'student_id': student_fixture, 'present': True}],
+            'record_url': None,
+        },
+        format='json',
+    )
+    assert record_resp.status_code == 200
+    fact_lesson_id = record_resp.data['lesson_id']
+
+    try:
+        # DELETE the assignment (should delete the fact_lesson)
+        resp = admin_client.delete(f'{ADMIN_URL}/{assignment_id}')
+        assert resp.status_code == 204
+
+        # Verify the assignment still exists but status is back to scheduled
+        get_resp = admin_client.get(f'{ADMIN_URL}/{assignment_id}')
+        assert get_resp.status_code == 200
+        assert get_resp.data['status'] == 'scheduled'
+        assert get_resp.data['fact_lesson_id'] is None
+    finally:
+        # Cleanup: delete lesson if it still exists
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [fact_lesson_id])
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [fact_lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [fact_lesson_id])
 
 
 # ---------------------------------------------------------------------------
