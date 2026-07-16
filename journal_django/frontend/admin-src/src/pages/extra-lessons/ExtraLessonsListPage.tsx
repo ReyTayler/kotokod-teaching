@@ -1,4 +1,4 @@
-import { useDeferredValue } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useExtraLessons, useExtraLessonMutations } from '../../hooks/useExtraLessons';
 import { useApiError } from '../../hooks/useApiError';
@@ -25,6 +25,9 @@ export default function ExtraLessonsListPage() {
   const muts = useExtraLessonMutations();
   const showError = useApiError();
   const { toast } = useToast();
+  // Отмена (scheduled) — сразу; удаление факта (done) — разрушительно (откатывает
+  // Payroll/посещаемость исходного урока), поэтому по клику подтверждения.
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
 
   const rows: ExtraLessonAssignment[] = data?.rows || [];
   const total = data?.total || 0;
@@ -34,6 +37,18 @@ export default function ExtraLessonsListPage() {
       await muts.cancel.mutateAsync(id);
       toast('Доп.урок отменён', 'ok');
     } catch (err) { showError(err); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (confirmingDeleteId !== id) {
+      setConfirmingDeleteId(id);
+      return;
+    }
+    try {
+      await muts.remove.mutateAsync(id);
+      toast('Факт доп.урока удалён, назначение возвращено в «Запланирован»', 'ok');
+    } catch (err) { showError(err); }
+    setConfirmingDeleteId(null);
   };
 
   const columns: Column<ExtraLessonAssignment>[] = [
@@ -47,11 +62,28 @@ export default function ExtraLessonsListPage() {
     { key: 'status', label: 'Статус', sortable: true, searchable: false, cell: (r) => STATUS_LABELS[r.status] || r.status },
     {
       key: 'actions', label: '', sortable: false, searchable: false,
-      cell: (r) => r.status === 'scheduled' ? (
-        <button type="button" className="btn-secondary" onClick={() => { void handleCancel(r.id); }}>
-          Отменить
-        </button>
-      ) : null,
+      cell: (r) => {
+        if (r.status === 'scheduled') {
+          return (
+            <button type="button" className="btn-secondary" onClick={() => { void handleCancel(r.id); }}>
+              Отменить
+            </button>
+          );
+        }
+        if (r.status === 'done') {
+          const confirming = confirmingDeleteId === r.id;
+          return (
+            <button
+              type="button"
+              className={`btn-delete${confirming ? ' is-confirming' : ''}`}
+              onClick={() => { void handleDelete(r.id); }}
+            >
+              {confirming ? 'Точно удалить?' : 'Удалить'}
+            </button>
+          );
+        }
+        return null;
+      },
     },
   ];
 
