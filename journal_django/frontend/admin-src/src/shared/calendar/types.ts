@@ -57,6 +57,14 @@ export interface Occurrence {
   lessonNumber: number | null;
   isHalf: boolean;
   isExtra: boolean;
+  /**
+   * Присутствует только для карточек ExtraLessonAssignment (доп.урок за
+   * пропуск конкретного основного урока, apps.extra_lessons) — отличать от
+   * isExtra (групповое доп.занятие вне курса, apps.scheduling.PlannedLesson).
+   * CalendarView красит такие карточки фиксированным красным (не по
+   * направлению); OccurrenceMenu подставляет «Провести доп.урок».
+   */
+  extraLessonId?: number | null;
   status: OccStatus;
   label: string;         // готовая подпись (напр. «Перенесён на 10.06»)
   movedFrom: string | null; // 'YYYY-MM-DD'

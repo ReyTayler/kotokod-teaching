@@ -97,6 +97,10 @@ def fifo_inputs() -> dict:
     cons_rows = (
         LessonAttendance.objects
         .filter(present=True)
+        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
+        # компенсируемый урок уже учтён через ретроактивную отметку исходного
+        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
+        .exclude(lesson__lesson_type='extra')
         .annotate(units=_attended_units_case())
         .order_by('student_id', 'lesson__lesson_date', 'lesson_id')
         .values(
@@ -192,6 +196,10 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
 
     attended = (
         LessonAttendance.objects.filter(student_id__in=ids, present=True)
+        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
+        # компенсируемый урок уже учтён через ретроактивную отметку исходного
+        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
+        .exclude(lesson__lesson_type='extra')
         .values('student_id')
         .annotate(s=Coalesce(Sum(_attended_units_case()), _ZERO))
     )
@@ -251,6 +259,10 @@ def student_fifo_remaining(student_id: int) -> dict:
 
     cons_rows = (
         LessonAttendance.objects.filter(student_id=student_id, present=True)
+        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
+        # компенсируемый урок уже учтён через ретроактивную отметку исходного
+        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
+        .exclude(lesson__lesson_type='extra')
         .annotate(units=_attended_units_case())
         .order_by('lesson__lesson_date', 'lesson_id')
         .values('units', lesson_date=F('lesson__lesson_date'))
@@ -302,6 +314,10 @@ def attended_by_direction_rows(student_id: int) -> list[dict]:
     attended = (
         LessonAttendance.objects
         .filter(student_id=student_id, present=True)
+        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
+        # компенсируемый урок уже учтён через ретроактивную отметку исходного
+        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
+        .exclude(lesson__lesson_type='extra')
         .values(did=F('lesson__group__direction_id'))
         .annotate(attended=Sum(_attended_units_case()))
     )

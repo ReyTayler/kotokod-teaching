@@ -41,6 +41,8 @@ TRACKED: dict[str, TrackedModel] = {
     'lessons.Lesson':                 TrackedModel('lesson', True, 40),
     'lessons.LessonAttendance':       TrackedModel('attendance', True, 50,
                                                    identity=('lesson_id', 'student_id')),
+    'extra_lessons.ExtraLessonAssignment':  TrackedModel('extra_lesson_assignment', True, 45),
+    'extra_lessons.ExtraLessonParticipant': TrackedModel('extra_lesson_participant', True, 46),
     'payments.Payment':               TrackedModel('payment', True, 50),
     'payroll.Payroll':                TrackedModel('payroll', True, 50),
     # renewals: справочники воронки → сделки → активность (лог, не откатываем)

@@ -45,6 +45,44 @@ def _add_lesson_attendance(created, group_id, teacher_id, student_id, date, dura
     return lid
 
 
+def _add_missed_lesson(created, group_id, teacher_id, student_id, date, duration=60):
+    """Обычный урок (lesson_type='regular') с present=False — пропуск, ещё не
+    компенсированный доп.уроком."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+            "lesson_duration_minutes, lesson_type, submitted_by_token) "
+            "VALUES (%s,%s,%s,1,%s,'regular','test') RETURNING id",
+            [group_id, teacher_id, date, duration],
+        )
+        lid = cur.fetchone()[0]
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s,%s,false)',
+            [lid, student_id],
+        )
+    created['lessons'].append(lid)
+    return lid
+
+
+def _add_extra_lesson_with_attendance(created, group_id, teacher_id, student_id, date, duration=60):
+    """Факт доп.урока (lesson_type='extra') со своей LessonAttendance(present=True) —
+    как создаёт apps.extra_lessons.services.record()."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+            "lesson_duration_minutes, lesson_type, submitted_by_token) "
+            "VALUES (%s,%s,%s,1,%s,'extra','test') RETURNING id",
+            [group_id, teacher_id, date, duration],
+        )
+        lid = cur.fetchone()[0]
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s,%s,true)',
+            [lid, student_id],
+        )
+    created['lessons'].append(lid)
+    return lid
+
+
 def test_total_balance_is_int_when_whole(student_fixture, direction_fixture, graph_cleanup):
     # 1 подписка ×4 = 4 куплено, 0 посещений → total_balance 4 (int).
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000)
@@ -209,3 +247,45 @@ def test_get_student_balance_exposes_remaining_value(student_fixture, direction_
     assert 'remaining_value' in result
     assert result['remaining_value'] == 4000
     assert result['remaining_value'] == _js_number(student_fifo_remaining(student_fixture)['remaining_value'])
+
+
+def test_extra_lesson_does_not_double_count_balance(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
+):
+    """
+    Регрессия (code review, доп.уроки): apps.extra_lessons.services.record()
+    создаёт ДВЕ LessonAttendance(present=True) на один компенсируемый пропуск —
+    одну на новом Lesson(lesson_type='extra') (для зарплаты преподавателя),
+    другую ретроактивно на ИСХОДНОМ уроке (apply_makeup_attendance). Баланс
+    обязан списать РОВНО ОДИН урок (исходный), а не два — иначе один пропуск
+    списывался бы дважды.
+    """
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000)  # 4 куплено
+    assert repository.balance_for_student(student_fixture) == 4
+
+    missed_lid = _add_missed_lesson(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-05', duration=60
+    )
+    # Пропуск ещё не компенсирован (present=False) — баланс не тронут.
+    assert repository.balance_for_student(student_fixture) == 4
+
+    # Симулируем services.record(): факт доп.урока со своей present=True…
+    _add_extra_lesson_with_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-10', duration=60
+    )
+    # …и ретроактивная отметка исходного урока (та же функция, что вызывает record()).
+    from apps.lessons.repository import apply_makeup_attendance
+    apply_makeup_attendance(missed_lid, student_fixture)
+
+    # Ровно ОДИН урок списан (4 - 1 = 3), НЕ два (4 - 2 = 2).
+    assert repository.balance_for_student(student_fixture) == 3
+    assert repository.balances_for_students([student_fixture])[student_fixture] == 3
+
+    # attended_by_direction_rows / fifo_inputs — тот же инвариант в остальных
+    # 2 местах, где считается "отработано".
+    attended_rows = repository.attended_by_direction_rows(student_fixture)
+    assert attended_rows[0]['attended_lessons'] == 1
+
+    fifo_data = repository.fifo_inputs()
+    key = str(student_fixture)
+    assert fifo_data['consumed_by_key'][key] == 1

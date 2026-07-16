@@ -14,9 +14,11 @@ planned_lessons в teardown ДО того, как sched_setup удалит гр�
 from __future__ import annotations
 
 import pytest
+from django.contrib.auth.hashers import make_password
 from django.db import connection
 
 from apps.scheduling import repository
+from apps.scheduling.tests.conftest import _jwt_client
 
 pytestmark = pytest.mark.django_db
 
@@ -49,6 +51,24 @@ def planned_setup(sched_setup):
             'DELETE FROM planned_lessons WHERE group_id IN (%s, %s)',
             [sched_setup['group_a'], sched_setup['group_b']],
         )
+
+
+@pytest.fixture
+def client_b(planned_setup):
+    """JWT-клиент для аккаунта, привязанного к teacher_b (sched_setup даёт только
+    client_a) — нужен для теста скоупа доп.уроков (Task 10, merge в /api/calendar)."""
+    pw = make_password('testpass_sched_b')
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO accounts (email,password,role,teacher_id,is_active,is_staff,is_superuser,"
+            "first_name,last_name,token_version,date_joined) "
+            "VALUES ('__sched_b__@t.local',%s,'teacher',%s,true,false,false,'','',0,NOW()) RETURNING id",
+            [pw, planned_setup['teacher_b']],
+        )
+        account_b = cur.fetchone()[0]
+    yield _jwt_client(account_b)
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM accounts WHERE id = %s', [account_b])
 
 
 class TestAuth:
@@ -237,3 +257,96 @@ class TestCalendar:
         body = planned_setup['client_a'].get('/api/calendar' + WIN).json()
         reasons = {u['group']: u['reason'] for u in body['unscheduled']}
         assert reasons.get('__sched_group_A__') == 'not_generated'
+
+
+class TestExtraLessonMerge:
+    """Task 10: назначения apps.extra_lessons сливаются в /api/calendar как
+    occurrence-карточки, дискриминированные полем extraLessonId, в календаре
+    ПОЛУЧАТЕЛЯ доп.урока (assignment.teacher_id), а не исходного учителя."""
+
+    def test_calendar_includes_extra_lesson_assignment(self, planned_setup, client_b):
+        from apps.extra_lessons import services as extra_services
+        from apps.lessons import services as lessons_services
+
+        group_a, teacher_a, teacher_b, direction_id = (
+            planned_setup['group_a'], planned_setup['teacher_a'],
+            planned_setup['teacher_b'], planned_setup['direction_id'],
+        )
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO students (full_name, enrollment_status) "
+                "VALUES ('__sched_extra_student__', 'enrolled') RETURNING id",
+            )
+            student_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                "VALUES (%s, %s, 0, true) RETURNING id",
+                [group_a, student_id],
+            )
+            membership_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+                "unit_price, total_amount, paid_at, created_by) "
+                "VALUES (%s, %s, 2, 8, 1000, 8000, '2099-04-01', 'test') RETURNING id",
+                [student_id, direction_id],
+            )
+            payment_id = cur.fetchone()[0]
+
+        # Даты нарочно в будущем (2099) — статус доп.урока вычисляется на чтении
+        # от РЕАЛЬНОГО текущего времени (msk_now), а не от условного "today" из
+        # системного промпта; иначе на этой машине (реальные часы > 2026-05) карточка
+        # читалась бы как overdue, а не pending.
+        fact = lessons_services.create_lesson_full({
+            'lesson_date': '2099-05-01', 'group_id': group_a,
+            'teacher_id': teacher_a, 'lesson_number': 1,
+            'lesson_duration_minutes': 60,
+            'attendance': [{'student_id': student_id, 'present': False}],
+        })
+        assignment = extra_services.create_assignment({
+            'missed_lesson_id': fact['lesson_id'], 'teacher_id': teacher_b,
+            'student_ids': [student_id], 'scheduled_date': '2099-05-03',
+            'scheduled_time': '16:00', 'duration_minutes': 30,
+        }, request=None)
+
+        try:
+            resp = client_b.get('/api/calendar?from=2099-05-01&to=2099-05-07')
+            assert resp.status_code == 200
+            body = resp.json()
+            extra_occs = [
+                o for o in body['occurrences'] if o.get('extraLessonId') == assignment['id']
+            ]
+            assert len(extra_occs) == 1
+            occ = extra_occs[0]
+            assert occ['date'] == '2099-05-03'
+            assert occ['time'] == '16:00'
+            assert occ['status'] == 'pending'
+            assert occ['durationMinutes'] == 30
+            assert occ['isExtra'] is False
+            assert occ['teacher'] == '__sched_B__'
+            assert occ['students'] == [{'name': '__sched_extra_student__'}]
+
+            # Не попадает в календарь ИСХОДНОГО учителя (teacher_a) — доп.урок
+            # скоупится по получателю (assignment.teacher_id), не по группе.
+            body_a = planned_setup['client_a'].get(
+                '/api/calendar?from=2099-05-01&to=2099-05-07',
+            ).json()
+            assert not any(
+                o.get('extraLessonId') == assignment['id'] for o in body_a['occurrences']
+            )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    'DELETE FROM extra_lesson_participants WHERE assignment_id = %s',
+                    [assignment['id']],
+                )
+                cur.execute(
+                    'DELETE FROM extra_lesson_assignments WHERE id = %s', [assignment['id']],
+                )
+                # payroll/lesson_attendance пропущенного урока (fact) — снести ДО того,
+                # как sched_setup teardown снесёт саму строку lessons (FK), и ДО
+                # удаления student_id ниже (lesson_attendance.student_id FK).
+                cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [fact['lesson_id']])
+                cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [fact['lesson_id']])
+                cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+                cur.execute('DELETE FROM payments WHERE id = %s', [payment_id])
+                cur.execute('DELETE FROM students WHERE id = %s', [student_id])

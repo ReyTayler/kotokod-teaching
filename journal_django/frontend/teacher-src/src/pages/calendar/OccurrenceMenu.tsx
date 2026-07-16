@@ -77,13 +77,15 @@ export function OccurrenceMenu({
           title={isFuture ? 'Занятие ещё не наступило' : undefined}
           onClick={onSubmitLesson}
         >
-          Отметить урок
+          {occ.extraLessonId != null ? 'Провести доп.урок' : 'Отметить урок'}
           {isFuture && <span className="occ-menu-item-hint">доступно в день урока</span>}
         </button>
       )}
-      <button type="button" className="occ-menu-item" role="menuitem" onClick={onOpenGroup}>
-        Открыть карточку группы
-      </button>
+      {occ.extraLessonId == null && (
+        <button type="button" className="occ-menu-item" role="menuitem" onClick={onOpenGroup}>
+          Открыть карточку группы
+        </button>
+      )}
       <button
         type="button"
         className="occ-menu-item"

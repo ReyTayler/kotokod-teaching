@@ -6,6 +6,7 @@ import { CalendarView } from '@shared/shared/calendar/CalendarView';
 import { LessonPopup } from '@shared/shared/calendar/LessonPopup';
 import { Modal } from '../../components/ui/Modal';
 import { LessonForm } from '../../components/lessons/LessonForm';
+import { ExtraLessonRecordModal } from '../../components/lessons/ExtraLessonRecordModal';
 import { OccurrenceMenu } from './OccurrenceMenu';
 import { currentMondayMsk, addDays, isoDate } from '../../lib/dates';
 import type { GroupData, Occurrence } from '../../lib/types';
@@ -44,7 +45,7 @@ export default function CalendarPage() {
   const [marking, setMarking] = useState<Occurrence | null>(null);
 
   const mine = useTeacherData();
-  const needAll = !!marking && !(mine.data?.data ?? {})[marking.group];
+  const needAll = !!marking && marking.extraLessonId == null && !(mine.data?.data ?? {})[marking.group];
   const all = useAllData(needAll);
 
   /** GroupData по имени: свои группы из /api/getData, чужие (замена) — из /api/getAllData. */
@@ -97,21 +98,25 @@ export default function CalendarPage() {
         <LessonPopup lesson={details} onClose={() => setDetails(null)} role="teacher" />
       )}
 
-      {marking && (markingData ? (
-        <LessonForm
-          group={marking.group}
-          groupData={markingData}
-          initialDate={marking.date}
-          isSubstitution={!!marking.teacherOverride}
-          onClose={() => setMarking(null)}
-        />
-      ) : (
-        <Modal title={marking.group} subtitle="Запись урока" onClose={() => setMarking(null)}>
-          {all.isError
-            ? <div className="cal-error">Не удалось загрузить данные группы. Попробуйте ещё раз.</div>
-            : <div className="cal-empty">Загружаем данные группы…</div>}
-        </Modal>
-      ))}
+      {marking && (
+        marking.extraLessonId != null ? (
+          <ExtraLessonRecordModal assignmentId={marking.extraLessonId} onClose={() => setMarking(null)} />
+        ) : (markingData ? (
+          <LessonForm
+            group={marking.group}
+            groupData={markingData}
+            initialDate={marking.date}
+            isSubstitution={!!marking.teacherOverride}
+            onClose={() => setMarking(null)}
+          />
+        ) : (
+          <Modal title={marking.group} subtitle="Запись урока" onClose={() => setMarking(null)}>
+            {all.isError
+              ? <div className="cal-error">Не удалось загрузить данные группы. Попробуйте ещё раз.</div>
+              : <div className="cal-empty">Загружаем данные группы…</div>}
+          </Modal>
+        ))
+      )}
     </>
   );
 }

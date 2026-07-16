@@ -4,6 +4,7 @@ import { useMemberships } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../ui/Toast';
 import { DateInput } from '../form/DateInput';
+import { AssignExtraLessonModal } from './AssignExtraLessonModal';
 import type { Group } from '../../lib/types';
 
 interface Props {
@@ -27,6 +28,7 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
   const [url, setUrl] = useState('');
   const [present, setPresent] = useState<Record<number, boolean>>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [assigningExtra, setAssigningExtra] = useState(false);
 
   useEffect(() => {
     if (lesson) {
@@ -163,6 +165,15 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
             onClick={() => { void handleDelete(); }}
           >{confirmingDelete ? 'Точно удалить?' : 'Удалить урок'}</button>
         )}
+        {lesson && Object.values(present).some((p) => !p) && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setAssigningExtra(true)}
+          >
+            Назначить доп.урок
+          </button>
+        )}
         <button
           type="button"
           className="btn-save"
@@ -171,6 +182,16 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
           disabled={muts.create.isPending || muts.update.isPending || muts.toggleAttendance.isPending || muts.remove.isPending}
         >{lesson ? 'Сохранить' : 'Создать урок'}</button>
       </div>
+      {assigningExtra && lesson && (
+        <AssignExtraLessonModal
+          missedLessonId={lesson.id}
+          candidates={members
+            .filter((m) => !present[m.student_id])
+            .map((m) => ({ student_id: m.student_id, student_name: m.student_name || `#${m.student_id}` }))}
+          defaultTeacherId={lesson.teacher_id}
+          onClose={() => setAssigningExtra(false)}
+        />
+      )}
     </div>
   );
 }

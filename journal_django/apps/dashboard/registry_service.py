@@ -96,10 +96,18 @@ def classify(balance, last_date, next_date, today: datetime.date) -> dict:
 # ---------------------------------------------------------------------------
 
 def _attended_units_subquery():
-    """Σ отработанных уроков (half-lesson: 45→0.5) по посещениям ученика."""
+    """
+    Σ отработанных уроков (half-lesson: 45→0.5) по посещениям ученика.
+
+    Доп.уроки (lesson_type='extra') исключены: компенсируемый пропуск уже
+    учтён через ретроактивную отметку исходного занятия
+    (apps.lessons.repository.apply_makeup_attendance) — иначе один пропуск
+    списался бы дважды (см. apps/finances/repository.py, тот же инвариант).
+    """
     return Subquery(
         LessonAttendance.objects
         .filter(student_id=OuterRef('pk'), present=True)
+        .exclude(lesson__lesson_type='extra')
         .values('student_id')
         .annotate(u=Coalesce(Sum(Case(
             When(lesson__lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
@@ -136,6 +144,14 @@ def _membership_sum_subquery(field: str):
 
 
 def _last_lesson_subquery():
+    """
+    Дата последнего посещённого занятия (для idle-флага).
+
+    Намеренно БЕЗ exclude(lesson_type='extra'), в отличие от
+    _attended_units_subquery: доп.урок — реальное присутствие ученика, его
+    дата корректно двигает «последнее занятие» вперёд. Исключается из баланса
+    (там задвоение), но не из активности/engagement-сигнала.
+    """
     return Subquery(
         LessonAttendance.objects
         .filter(student_id=OuterRef('pk'), present=True)
