@@ -30,6 +30,7 @@ export function useExtraLesson(id: number | null) {
     queryKey: ['extra-lesson', id],
     queryFn: () => api<ExtraLessonDetail>('GET', `/api/extra-lessons/${id}`),
     enabled: id != null,
+    staleTime: 30_000,
   });
 }
 

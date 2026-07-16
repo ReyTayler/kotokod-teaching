@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { ApiError } from '@shared/lib/api';
 import { useToast } from '@shared/components/ui/Toast';
@@ -30,10 +30,14 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
   const [present, setPresent] = useState<Record<number, boolean>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!data) return;
+  // Guard against re-seeding attendance toggles on background refetch of the same assignment.
+  // Track the last assignmentId for which we initialized present state, so we only seed once.
+  const initializedForIdRef = useRef<number | null>(null);
+
+  if (data && initializedForIdRef.current !== assignmentId) {
     setPresent(Object.fromEntries(data.participants.map((p) => [p.student_id, true])));
-  }, [data]);
+    initializedForIdRef.current = assignmentId;
+  }
 
   if (isLoading || !data) {
     return (
