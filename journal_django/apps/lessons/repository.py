@@ -443,8 +443,8 @@ def apply_makeup_attendance(lesson_id: int, student_id: int) -> None:
         # Тихий no-op, если у студента вообще нет строки attendance на этом
         # уроке (а не только если present уже True) — намеренно: в отличие от
         # update_attendance_cell здесь нет UPSERT/INSERT-ветки, вызывающий
-        # (apps.extra_lessons.services.create_assignment) обязан звать эту
-        # функцию только для студентов с уже существующей absent-строкой.
+        # (apps.extra_lessons.services.record) обязан звать эту функцию
+        # только для студентов с уже существующей absent-строкой.
         updated = LessonAttendance.objects.filter(
             lesson_id=lesson_id, student_id=student_id, present=False,
         ).update(present=True)
