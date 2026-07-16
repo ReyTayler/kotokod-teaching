@@ -147,3 +147,73 @@ def test_collect_monthly_report_multiple_price_tiers_within_month(
 
     assert row.unit_prices_month == [Decimal('500.00'), Decimal('450.00')]
     assert row.worked_off_month == Decimal('1450.00')  # 2*500 + 1*450
+
+
+def test_collect_monthly_report_extra_lesson_counted_in_makeup_month(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """
+    Регрессия (решение пользователя 2026-07-16): пропуск в одном месяце,
+    скомпенсированный доп.уроком в ДРУГОМ месяце, должен относить и
+    «посещено», и «отработано» к месяцу ФАКТИЧЕСКОГО проведения доп.урока —
+    не к месяцу исходного пропуска, и не задваивать посещаемость.
+    """
+    from apps.extra_lessons import services as extra_services
+    from apps.extra_lessons.models import ExtraLessonAssignment
+    from apps.extra_lessons.repository import get_assignment_full
+
+    class _FakeRequest:
+        META = {}
+        user = None
+
+    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
+
+    # Пропуск в июне — пока не компенсирован.
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+            "lesson_duration_minutes, lesson_type, submitted_by_token) "
+            "VALUES (%s,%s,'2026-06-05',1,60,'regular','test') RETURNING id",
+            [group_fixture, teacher_id_fixture],
+        )
+        missed_lid = cur.fetchone()[0]
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s,%s,false)',
+            [missed_lid, student_fixture],
+        )
+    graph_cleanup['lessons'].append(missed_lid)
+
+    created = extra_services.create_assignment(
+        {
+            'missed_lesson_id': missed_lid, 'teacher_id': teacher_id_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-07-10',
+            'scheduled_time': '15:00', 'duration_minutes': 45,
+        },
+        _FakeRequest(),
+    )
+    try:
+        extra_services.record(
+            created['id'], teacher_id=teacher_id_fixture,
+            attendance=[{'student_id': student_fixture, 'present': True}],
+            record_url=None, submitted_by_token='test', submit_date='2026-07-10',
+            request=_FakeRequest(),
+        )
+
+        june_row = next(
+            r for r in collect_monthly_report('2026-06') if r.student_id == student_fixture
+        )
+        july_row = next(
+            r for r in collect_monthly_report('2026-07') if r.student_id == student_fixture
+        )
+
+        # Июнь (месяц пропуска) — ничего не отработано и не посещено.
+        assert june_row.attended_lessons == 0
+        assert june_row.worked_off_month == Decimal('0')
+        # Июль (месяц доп.урока) — ровно 1 урок посещён и отработан, без задвоения.
+        assert july_row.attended_lessons == 1
+        assert july_row.worked_off_month == Decimal('500.00')
+    finally:
+        full = get_assignment_full(created['id'])
+        if full and full['status'] == 'done':
+            extra_services.delete_fact(created['id'], _FakeRequest())
+        ExtraLessonAssignment.objects.filter(id=created['id']).delete()

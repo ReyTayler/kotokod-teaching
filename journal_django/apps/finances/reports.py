@@ -2,10 +2,17 @@
 Сборка данных бухгалтерского отчёта за месяц + запись в Excel.
 
 Переиспользует существующие сервисы финансов — не дублирует правила
-half-lesson (apps.finances.repository._attended_units_case) и FIFO-остаток
-аванса (apps.finances.repository.fifo_inputs + apps.finances.fifo.compute_fifo,
-тот же батч-паттерн, что apps/dashboard/services.py::get_dashboard использует
-для deferred_total — один проход по всем ученикам, без запроса в цикле).
+half-lesson и FIFO-остаток аванса (apps.finances.repository.fifo_inputs +
+apps.finances.fifo.compute_fifo, тот же батч-паттерн, что
+apps/dashboard/services.py::get_dashboard использует для deferred_total —
+один проход по всем ученикам, без запроса в цикле).
+
+«Посещено уроков за месяц» тоже выводится из inp['cons_by_key']
+(fifo_inputs()), а не отдельным запросом к LessonAttendance: так «посещено»
+и «отработано» относятся к одному и тому же месяцу для одного и того же
+события, включая доп.уроки (компенсированный пропуск учитывается в месяце
+ФАКТИЧЕСКОГО проведения доп.урока, не в месяце исходного пропуска — см.
+apps.finances.repository._makeup_completion_dates).
 
 См. docs/superpowers/specs/2026-07-15-accounting-monthly-report-design.md
 """
@@ -16,16 +23,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from django.db.models import Sum
-from django.db.models.functions import Coalesce
-
 from apps.core.utils.dates import msk_month_range
 from apps.core.utils.decimal import js_number
 from apps.finances.fifo import compute_fifo
-from apps.finances.repository import (
-    _ZERO, _attended_units_case, _date_str, balances_for_students, fifo_inputs,
-)
-from apps.lessons.models import LessonAttendance
+from apps.finances.repository import _date_str, balances_for_students, fifo_inputs
 from apps.payments.models import Payment
 from apps.students.models import Student
 
@@ -68,14 +69,6 @@ def collect_monthly_report(month: str) -> list[MonthlyReportRow]:
     )
     student_ids = [s['id'] for s in students]
 
-    attended_rows = (
-        LessonAttendance.objects
-        .filter(present=True, lesson__lesson_date__gte=month_start, lesson__lesson_date__lte=month_end)
-        .values('student_id')
-        .annotate(units=Coalesce(Sum(_attended_units_case()), _ZERO))
-    )
-    attended_by_student = {r['student_id']: r['units'] for r in attended_rows}
-
     payment_rows = (
         Payment.objects
         .filter(kind='purchase', paid_at__gte=month_start, paid_at__lte=month_end)
@@ -94,6 +87,7 @@ def collect_monthly_report(month: str) -> list[MonthlyReportRow]:
     remaining_value_by_student: dict[int, Decimal] = {}
     worked_off_month_by_student: dict[int, Decimal] = {}
     unit_prices_month_by_student: dict[int, list[Decimal]] = {}
+    attended_by_student: dict[int, Decimal] = {}
     for key in inp['keys']:
         fifo = compute_fifo(
             inp['lots_by_key'].get(key, []), inp['cons_by_key'].get(key, []),
@@ -103,6 +97,24 @@ def collect_monthly_report(month: str) -> list[MonthlyReportRow]:
         remaining_value_by_student[sid] = fifo['remaining_value']
         worked_off_month_by_student[sid] = fifo['worked_off_month']
         unit_prices_month_by_student[sid] = fifo['worked_off_unit_prices_month']
+
+        # «Посещено уроков за месяц» — из ТЕХ ЖЕ consumption-записей, что и
+        # «отработано» (inp['cons_by_key'], уже построены fifo_inputs() с
+        # исключением lesson_type='extra' и с подменой даты на дату ФАКТИЧЕСКОГО
+        # доп.урока для компенсированных пропусков — см. _makeup_completion_dates).
+        # Так «посещено» и «отработано» в отчёте всегда относятся к одному и тому
+        # же месяцу для одного и того же события, без задвоения по доп.уроку.
+        attended = Decimal('0')
+        for c in inp['cons_by_key'].get(key, []):
+            if c.get('refund'):
+                continue
+            # Инклюзивная граница [month_start, month_end] — семантически то же
+            # окно, что compute_fifo(..., month_start, month_end_exclusive) выше
+            # (month_end_exclusive = month_end + 1 день), просто без открытого
+            # интервала: обе стороны должны двигаться синхронно при правке.
+            if month_start <= c['date'] <= month_end:
+                attended += c['units']
+        attended_by_student[sid] = attended
 
     rows: list[MonthlyReportRow] = []
     for s in students:
