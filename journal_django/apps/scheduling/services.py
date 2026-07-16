@@ -11,6 +11,7 @@ import datetime
 from apps.audit.services import log_event
 from apps.core.utils.dates import MSK, msk_now
 from apps.extra_lessons import repository as extra_lessons_repository
+from apps.extra_lessons.models import CANCELLED as EXTRA_CANCELLED, DONE as EXTRA_DONE
 from apps.scheduling import repository
 from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING
 
@@ -104,10 +105,18 @@ def _planned_occurrence_dict(
 
 
 def _extra_lesson_status(status_value: str, scheduled_date, scheduled_time, now_msk) -> str:
-    """Статус карточки доп.урока → тот же алфавит OccStatus, что и у planned_lessons."""
-    if status_value == 'done':
+    """
+    Статус карточки доп.урока → тот же алфавит OccStatus, что и у planned_lessons.
+
+    status_value — значение ExtraLessonAssignment.status (свой словарь
+    scheduled/done/cancelled из apps.extra_lessons.models), сравниваем с его
+    константами EXTRA_DONE/EXTRA_CANCELLED, а не с DONE/CANCELLED (те —
+    OccStatus для ВЫХОДА этой функции, из apps.scheduling.occurrences;
+    строки совпадают случайно, это разные словари).
+    """
+    if status_value == EXTRA_DONE:
         return DONE
-    if status_value == 'cancelled':
+    if status_value == EXTRA_CANCELLED:
         return CANCELLED
     occ_dt = datetime.datetime.combine(scheduled_date, scheduled_time, tzinfo=MSK)
     return OVERDUE if now_msk >= occ_dt else PENDING
@@ -127,6 +136,11 @@ def _extra_lesson_occurrence_dict(r: dict, now_msk: datetime.datetime) -> dict:
         'teacherOverride': None,
         'direction': None,
         'color': None,
+        # У planned occurrence isGroup — свойство группы (not is_individual);
+        # здесь, за неимением группового контекста в самой карточке доп.урока,
+        # это счётчик участников ЭТОГО назначения — осознанное отличие:
+        # фронт всё равно узнаёт карточку доп.урока по extraLessonId (красный
+        # цвет, своё меню), isGroup для неё чисто косметический сигнал.
         'isGroup': len(r['student_names']) > 1,
         'durationMinutes': r['duration_minutes'],
         'vkChat': None,
