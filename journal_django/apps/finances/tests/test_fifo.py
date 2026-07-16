@@ -153,6 +153,41 @@ def test_worked_off_by_direction_absent_key_is_ignored():
     assert r['worked_off_by_direction'] == {}
 
 
+def test_worked_off_unit_prices_month_single_lot():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    cons = _lessons(2, '2026-06-10')
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_unit_prices_month'] == [_D('500.00')]
+
+
+def test_worked_off_unit_prices_month_two_lots_crossed_within_month():
+    # Партия A (500) на 3 урока заканчивается внутри месяца, продолжение — партия B (450).
+    lots = [
+        {'lessons': 3, 'price_per_lesson': _D(500)},
+        {'lessons': 4, 'price_per_lesson': _D(450)},
+    ]
+    cons = _lessons(5, '2026-06-10')
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_unit_prices_month'] == [_D('500.00'), _D('450.00')]
+
+
+def test_worked_off_unit_prices_month_excludes_outside_month():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    cons = _lessons(2, '2026-05-10')  # ДО месяца [MS, ME)
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_unit_prices_month'] == []
+
+
+def test_worked_off_unit_prices_month_excludes_refund_and_over_consumption():
+    lots = [{'lessons': 2, 'price_per_lesson': _D(500)}]
+    cons = _lessons(4, '2026-06-10') + [  # 2 реальных + 2 сверх лимита (без партии)
+        {'units': 1, 'date': '2026-06-15', 'refund': True},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    # Только цена реально списанной партии; ни возврат, ни перерасход не добавляют цену.
+    assert r['worked_off_unit_prices_month'] == [_D('500.00')]
+
+
 def test_refund_consumption_zeroes_remaining_without_revenue():
     from decimal import Decimal
     from apps.finances.fifo import compute_fifo

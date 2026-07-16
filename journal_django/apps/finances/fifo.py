@@ -23,7 +23,11 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
 
 Возврат (Decimal, округлены до копеек):
   worked_off_total, worked_off_month, remaining_value, over_consumed_lessons,
-  worked_off_by_month: { 'YYYY-MM': Decimal }, worked_off_by_direction: { direction_id: Decimal }.
+  worked_off_by_month: { 'YYYY-MM': Decimal }, worked_off_by_direction: { direction_id: Decimal },
+  worked_off_unit_prices_month: [Decimal, ...] — цены за 1 урок партий, реально
+  затронутых списаниями внутри [month_start, month_end); порядок = порядок FIFO
+  (партии гасятся монотонно, поэтому цена не повторяется дважды не подряд);
+  возвраты и списания сверх остатка (over_consumed) цену не добавляют.
 """
 from __future__ import annotations
 
@@ -55,6 +59,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     over_consumed_lessons = _ZERO
     by_month: dict[str, Decimal] = {}
     by_direction: dict = {}
+    unit_prices_month: list[Decimal] = []
 
     for c in consumptions:
         need = to_decimal(c['units'])
@@ -79,6 +84,9 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                     by_direction[direction_id] = by_direction.get(direction_id, _ZERO) + value
                 if in_month:
                     worked_off_month += value
+                    price = to_decimal(lots[lot_idx]['price_per_lesson'])
+                    if not unit_prices_month or unit_prices_month[-1] != price:
+                        unit_prices_month.append(price)
             lot_remaining -= take
             need -= take
         if need > 0 and not is_refund:
@@ -97,4 +105,5 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         'over_consumed_lessons': round_kopecks(over_consumed_lessons),
         'worked_off_by_month': {k: round_kopecks(v) for k, v in by_month.items()},
         'worked_off_by_direction': {k: round_kopecks(v) for k, v in by_direction.items()},
+        'worked_off_unit_prices_month': [round_kopecks(p) for p in unit_prices_month],
     }
