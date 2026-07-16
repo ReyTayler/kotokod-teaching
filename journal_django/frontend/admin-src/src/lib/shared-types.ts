@@ -148,6 +148,29 @@ export interface LessonFull extends Lesson {
   payroll: PayrollEntry | null;
 }
 
+// ===== Extra lessons (доп. уроки) =====
+
+export interface ExtraLessonParticipant {
+  student_id: number;
+  student_name: string;
+}
+
+export interface ExtraLessonAssignment {
+  id: ID;
+  teacher_id: ID;
+  teacher_name: string;
+  missed_lesson_id: ID;
+  missed_lesson_group_id: ID;
+  missed_lesson_group_name: string;
+  missed_lesson_date: string;
+  scheduled_date: string;
+  scheduled_time: string;
+  duration_minutes: number;
+  status: 'scheduled' | 'done' | 'cancelled';
+  fact_lesson_id: ID | null;
+  participants: ExtraLessonParticipant[];
+}
+
 // ===== Payroll =====
 export interface PayrollEntry {
   id: ID;
