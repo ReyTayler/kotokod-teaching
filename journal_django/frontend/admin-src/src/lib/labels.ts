@@ -76,6 +76,10 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'lesson.update':                 'Правка урока',
   'lesson.delete':                 'Удаление урока',
   'lesson.attendance_update':      'Правка посещаемости',
+  'extra_lesson.create':           'Назначение доп.урока',
+  'extra_lesson.cancel':           'Отмена доп.урока',
+  'extra_lesson.delete':           'Удаление доп.урока',
+  'extra_lesson.record':           'Проведение доп.урока',
   'payroll.update':                'Правка начисления',
   'settings.update':               'Настройки',
   'account.create':                'Новая учётка',
@@ -112,6 +116,8 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
   attendance:     'Посещаемость',
   payment:        'Оплата',
   payroll:        'Начисление',
+  extra_lesson_assignment:  'Доп.урок (назначение)',
+  extra_lesson_participant: 'Доп.урок (участник)',
 };
 
 export const CHANGELOG_ENTITY_OPTIONS: { value: string; label: string }[] =
