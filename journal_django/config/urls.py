@@ -32,6 +32,8 @@ urlpatterns = [
     path('api/admin/lessons', include('apps.lessons.urls')),
     # Phase 7 — payroll
     path('api/admin/payroll', include('apps.payroll.urls')),
+    # Доп.уроки (компенсация пропусков) — admin CRUD
+    path('api/admin/extra-lessons', include('apps.extra_lessons.urls')),
     # Phase 8 — dashboard (FIFO read-model)
     path('api/admin/dashboard', include('apps.dashboard.urls')),
     # Реестр куратора — операционный список активных учеников (вкладка дашборда)
@@ -48,6 +50,8 @@ urlpatterns = [
     path('api', include('apps.teacher_spa.urls')),
     # Планирование занятий — календарь плановых occurrences (/api/calendar, role=teacher)
     path('api', include('apps.scheduling.urls')),
+    # Доп.уроки — фиксация проведения преподавателем (/api/extra-lessons, role=teacher)
+    path('api/extra-lessons', include('apps.extra_lessons.teacher_urls')),
 ]
 
 # ---------------------------------------------------------------------------
