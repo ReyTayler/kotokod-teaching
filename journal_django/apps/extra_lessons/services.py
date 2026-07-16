@@ -129,8 +129,17 @@ def record(
         return None
     if full['teacher_id'] != teacher_id:
         raise NotTeachersAssignment('Это назначение принадлежит другому преподавателю.')
+    # Быстрая проверка без блокировки — не гейтит запись, только 404/403.
+    # Авторитетная проверка статуса — под select_for_update() ниже, в atomic().
     if full['status'] != SCHEDULED:
         raise ValueError('Доп.урок уже проведён или отменён.')
+
+    # Дефенс-в-глубину: считаем присутствовавших только среди РЕАЛЬНЫХ
+    # участников назначения — сериализатор (задача позже) даёт настоящую
+    # 400-валидацию для внешнего вызывающего, здесь же просто отбрасываем
+    # записи посторонних student_id молча.
+    participant_ids = set(repository.participant_student_ids(assignment_id))
+    attendance = [a for a in attendance if a['student_id'] in participant_ids]
 
     present_count = sum(1 for a in attendance if a['present'])
     payment = calculate_extra_lesson_payment(present_count)
@@ -139,16 +148,27 @@ def record(
     )
 
     with transaction.atomic():
+        # Авторитетная проверка статуса под блокировкой строки — гонка двух
+        # параллельных record() иначе создала бы два Lesson-факта/Payroll
+        # (см. lock_assignment_for_record).
+        locked = repository.lock_assignment_for_record(assignment_id)
+        if locked is None:
+            return None
+        if locked['teacher_id'] != teacher_id:
+            raise NotTeachersAssignment('Это назначение принадлежит другому преподавателю.')
+        if locked['status'] != SCHEDULED:
+            raise ValueError('Доп.урок уже проведён или отменён.')
+
         lesson_id = lessons_repository.insert_lesson({
-            'lesson_date': full['scheduled_date'].isoformat(),
+            'lesson_date': locked['scheduled_date'].isoformat(),
             'teacher_id': teacher_id,
-            'group_id': full['missed_lesson_group_id'],
+            'group_id': locked['missed_lesson_group_id'],
             'original_teacher_id': None,
             # lesson_number наследуется от пропущенного урока — доп.урок
             # компенсирует именно ЭТУ позицию курса, показываем это в списке
             # уроков (lesson_type='extra' отличает его от исходного).
-            'lesson_number': Lesson.objects.get(id=full['missed_lesson_id']).lesson_number,
-            'lesson_duration_minutes': full['duration_minutes'],
+            'lesson_number': Lesson.objects.get(id=locked['missed_lesson_id']).lesson_number,
+            'lesson_duration_minutes': locked['duration_minutes'],
             'lesson_type': 'extra',
             'record_url': record_url,
             'submitted_by_token': submitted_by_token,
@@ -164,7 +184,7 @@ def record(
         })
         for a in attendance:
             if a['present']:
-                lessons_repository.apply_makeup_attendance(full['missed_lesson_id'], a['student_id'])
+                lessons_repository.apply_makeup_attendance(locked['missed_lesson_id'], a['student_id'])
         repository.mark_done(assignment_id, fact_lesson_id=lesson_id)
 
     log_event(

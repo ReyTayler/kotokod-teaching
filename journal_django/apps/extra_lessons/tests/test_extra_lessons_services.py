@@ -147,6 +147,95 @@ def test_record_rejects_wrong_teacher(teacher_fixture, other_teacher_fixture, mi
         )
 
 
+def test_record_second_call_on_same_assignment_raises_value_error(
+    teacher_fixture, missed_lesson_fixture, student_fixture,
+):
+    """
+    Регрессия (code review, race condition): после успешного record() назначение
+    в статусе done — повторный вызов record() на том же assignment_id обязан
+    упасть ValueError'ом. Проверяет именно авторитетную проверку статуса под
+    select_for_update() внутри atomic() (repository.lock_assignment_for_record),
+    а не только неблокирующую предпроверку до atomic() — иначе гонка двух
+    параллельных record() создала бы два Lesson-факта + Payroll (задвоенная
+    зарплата), а второй mark_done() молча перезаписал бы fact_lesson_id первого.
+    """
+    created = services.create_assignment(
+        {
+            'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-05',
+            'scheduled_time': '15:00', 'duration_minutes': 45,
+        },
+        _FakeRequest(),
+    )
+    result = services.record(
+        created['id'], teacher_id=teacher_fixture,
+        attendance=[{'student_id': student_fixture, 'present': True}],
+        record_url=None, submitted_by_token='acct:1', submit_date='2026-04-05',
+        request=_FakeRequest(),
+    )
+    try:
+        with pytest.raises(ValueError):
+            services.record(
+                created['id'], teacher_id=teacher_fixture,
+                attendance=[{'student_id': student_fixture, 'present': True}],
+                record_url=None, submitted_by_token='acct:2', submit_date='2026-04-05',
+                request=_FakeRequest(),
+            )
+    finally:
+        _cleanup_fact(result['lesson_id'])
+
+
+def test_record_ignores_attendance_for_non_participants(
+    teacher_fixture, missed_lesson_fixture, student_fixture,
+):
+    """
+    Регрессия (code review, defense-in-depth): record() обязан игнорировать
+    attendance-записи для student_id, которые НЕ являются реальными участниками
+    этого назначения (repository.participant_student_ids), иначе посторонний
+    студент получил бы ретроактивную отметку/зарплату за чужой доп.урок.
+    """
+    created = services.create_assignment(
+        {
+            'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-05',
+            'scheduled_time': '15:00', 'duration_minutes': 45,
+        },
+        _FakeRequest(),
+    )
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO students (full_name, enrollment_status) "
+            "VALUES ('__el_bogus_student__', 'enrolled') RETURNING id"
+        )
+        bogus_student_id = cur.fetchone()[0]
+    try:
+        result = services.record(
+            created['id'], teacher_id=teacher_fixture,
+            attendance=[
+                {'student_id': student_fixture, 'present': True},
+                {'student_id': bogus_student_id, 'present': True},
+            ],
+            record_url=None, submitted_by_token='acct:1', submit_date='2026-04-05',
+            request=_FakeRequest(),
+        )
+        try:
+            fact = Lesson.objects.get(id=result['lesson_id'])
+            payroll = Payroll.objects.get(lesson_id=fact.id)
+            # Только 1 реальный участник учтён — бы было total_students=2,
+            # present_count=2, payment=400, если бы фильтр не сработал.
+            assert payroll.total_students == 1
+            assert payroll.present_count == 1
+            assert result['payment'] == 200
+            assert not LessonAttendance.objects.filter(
+                lesson_id=fact.id, student_id=bogus_student_id,
+            ).exists()
+        finally:
+            _cleanup_fact(result['lesson_id'])
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM students WHERE id = %s', [bogus_student_id])
+
+
 def test_delete_fact_reverts_makeup_attendance(
     group_fixture, teacher_fixture, missed_lesson_fixture, student_fixture, lessons_done,
 ):

@@ -78,6 +78,32 @@ def participant_student_ids(assignment_id: int) -> list[int]:
     )
 
 
+def lock_assignment_for_record(assignment_id: int) -> Optional[dict]:
+    """
+    Блокирует строку назначения (SELECT ... FOR UPDATE) и возвращает поля,
+    нужные services.record() для фиксации доп.урока. Вызывается ВНУТРИ
+    transaction.atomic(), непосредственно перед мутациями — авторитетная
+    проверка status == SCHEDULED (см. cancel_assignment — тот же паттерн).
+
+    Без этого два параллельных record() на одно назначение оба прошли бы
+    неблокирующую проверку status в services.record() до atomic() и создали
+    бы два Lesson-факта + Payroll (задвоенная зарплата), а mark_done() второго
+    молча перезаписал бы fact_lesson_id первого (осиротевший факт).
+    """
+    row = (
+        ExtraLessonAssignment.objects
+        .select_for_update()
+        .filter(id=assignment_id)
+        .values(
+            'id', 'status', 'teacher_id', 'missed_lesson_id',
+            'scheduled_date', 'duration_minutes',
+            missed_lesson_group_id=F('missed_lesson__group_id'),
+        )
+        .first()
+    )
+    return row
+
+
 def has_active_assignment(missed_lesson_id: int, student_id: int) -> bool:
     """Есть ли уже НЕотменённое назначение доп.урока за этот пропуск у этого
     студента — не даём задвоить компенсацию одного пропуска."""
