@@ -134,6 +134,10 @@ export { DAY_MS };
 /** Нейтральный цвет для уроков без направления. */
 export const NO_DIRECTION_COLOR = 'var(--text3)';
 
+/** Насыщенный красный для карточек доп.урока (ExtraLessonAssignment) — фиксирован,
+ * НЕ выводится из направления/группы (в отличие от resolveDirectionColor). */
+export const EXTRA_LESSON_COLOR = '#d32f2f';
+
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 /**

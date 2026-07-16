@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { resolveDirectionColor, NO_DIRECTION_COLOR } from './lib';
+import { resolveDirectionColor, NO_DIRECTION_COLOR, EXTRA_LESSON_COLOR } from './lib';
 import type { Occurrence, UnscheduledGroup, UnscheduledReason } from './types';
 import {
   currentMondayMsk, todayMsk, addWeeks, isoDate, sameDay, weekRangeLabel,
@@ -140,9 +140,16 @@ export function CalendarView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onVisibleRangeChange стабилизирует вызывающая сторона (useCallback/инлайн-сеттер); включать её в deps даст лишний ререндер-луп при инлайн-функции.
   }, [windowFrom, windowTo]);
 
-  /** Цвет — прямо из occurrence (direction/color с сервера), клиентская карта направлений не нужна. */
+  /**
+   * Цвет — прямо из occurrence (direction/color с сервера), клиентская карта
+   * направлений не нужна. Карточки доп.урока (extraLessonId != null) красим
+   * фиксированным насыщенным красным — не по направлению.
+   */
   const colorOf = useCallback(
-    (occ: Occurrence): string => resolveDirectionColor(occ.color, occ.direction ?? occ.group),
+    (occ: Occurrence): string =>
+      occ.extraLessonId != null
+        ? EXTRA_LESSON_COLOR
+        : resolveDirectionColor(occ.color, occ.direction ?? occ.group),
     [],
   );
 
