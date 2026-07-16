@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Avatar } from '../../components/Avatar';
 import { EntityLink } from '../../components/EntityLink';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
@@ -147,6 +148,7 @@ export function RenewalDrawer({ id, onClose }: Props) {
           <>
             <header className="renewal-drawer__head">
               <div className="renewal-drawer__title">
+                <Avatar name={deal.student_name || '—'} size={32} />
                 <EntityLink section="students" id={deal.student_id} text={deal.student_name} />
               </div>
               <button
@@ -246,7 +248,7 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
                 <button
                   type="button"
-                  className="btn-secondary renewal-drawer__pay-btn"
+                  className="btn-primary renewal-drawer__pay-btn"
                   onClick={() => openPayment({ studentId: deal.student_id })}
                 >
                   Внести оплату
