@@ -424,6 +424,12 @@ def apply_makeup_attendance(lesson_id: int, student_id: int) -> None:
 
     No-op, если студент уже present=True на этом уроке (идемпотентно — на
     случай повторного вызова).
+
+    Намеренно НЕ вызывает assert_students_paid (в отличие от
+    update_attendance_cell): доп.урок компенсирует пропуск, за который студент
+    УЖЕ заплатил — блокировка по балансу здесь была бы ошибкой. Если нужна
+    своя проверка (например, на достаточность доп.-урочного баланса), она —
+    забота вызывающего (apps.extra_lessons.services.record), не этой функции.
     """
     with transaction.atomic():
         ctx = (
@@ -434,6 +440,11 @@ def apply_makeup_attendance(lesson_id: int, student_id: int) -> None:
         )
         if ctx is None:
             return
+        # Тихий no-op, если у студента вообще нет строки attendance на этом
+        # уроке (а не только если present уже True) — намеренно: в отличие от
+        # update_attendance_cell здесь нет UPSERT/INSERT-ветки, вызывающий
+        # (apps.extra_lessons.services.create_assignment) обязан звать эту
+        # функцию только для студентов с уже существующей absent-строкой.
         updated = LessonAttendance.objects.filter(
             lesson_id=lesson_id, student_id=student_id, present=False,
         ).update(present=True)
