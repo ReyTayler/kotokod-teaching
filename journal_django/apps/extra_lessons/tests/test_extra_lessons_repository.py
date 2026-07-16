@@ -89,3 +89,28 @@ def test_has_active_assignment_for_student(teacher_fixture, missed_lesson_fixtur
         scheduled_time=datetime.time(15, 0), duration_minutes=45,
     )
     assert repository.has_active_assignment(missed_lesson_fixture, student_fixture) is True
+
+
+def test_has_active_assignment_returns_true_when_marked_done(teacher_fixture, missed_lesson_fixture, student_fixture):
+    """After marking assignment as done, has_active_assignment should still return True
+    (a completed makeup lesson blocks duplicate assignments for the same missed lesson)."""
+    assignment_id = repository.create_assignment(
+        missed_lesson_id=missed_lesson_fixture, teacher_id=teacher_fixture,
+        student_ids=[student_fixture], scheduled_date=datetime.date(2026, 4, 5),
+        scheduled_time=datetime.time(15, 0), duration_minutes=45,
+    )
+    repository.mark_done(assignment_id, fact_lesson_id=missed_lesson_fixture)
+    assert repository.has_active_assignment(missed_lesson_fixture, student_fixture) is True
+
+
+def test_has_active_assignment_returns_false_after_cancel(teacher_fixture, missed_lesson_fixture, student_fixture):
+    """After cancelling assignment, has_active_assignment should return False
+    (a cancelled assignment does not block re-assignment)."""
+    assignment_id = repository.create_assignment(
+        missed_lesson_id=missed_lesson_fixture, teacher_id=teacher_fixture,
+        student_ids=[student_fixture], scheduled_date=datetime.date(2026, 4, 5),
+        scheduled_time=datetime.time(15, 0), duration_minutes=45,
+    )
+    assert repository.has_active_assignment(missed_lesson_fixture, student_fixture) is True
+    repository.cancel_assignment(assignment_id)
+    assert repository.has_active_assignment(missed_lesson_fixture, student_fixture) is False
