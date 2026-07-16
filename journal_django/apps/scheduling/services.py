@@ -10,6 +10,7 @@ import datetime
 
 from apps.audit.services import log_event
 from apps.core.utils.dates import MSK, msk_now
+from apps.extra_lessons import repository as extra_lessons_repository
 from apps.scheduling import repository
 from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING
 
@@ -102,6 +103,49 @@ def _planned_occurrence_dict(
     }
 
 
+def _extra_lesson_status(status_value: str, scheduled_date, scheduled_time, now_msk) -> str:
+    """Статус карточки доп.урока → тот же алфавит OccStatus, что и у planned_lessons."""
+    if status_value == 'done':
+        return DONE
+    if status_value == 'cancelled':
+        return CANCELLED
+    occ_dt = datetime.datetime.combine(scheduled_date, scheduled_time, tzinfo=MSK)
+    return OVERDUE if now_msk >= occ_dt else PENDING
+
+
+def _extra_lesson_occurrence_dict(r: dict, now_msk: datetime.datetime) -> dict:
+    """Строка extra_lessons.assignments_in_window → dict календаря (occurrence-
+    форма). extraLessonId — дискриминатор для фронта (WeekGrid красит красным,
+    OccurrenceMenu подставляет «Провести доп.урок» вместо «Отметить урок»)."""
+    status = _extra_lesson_status(r['status'], r['scheduled_date'], r['scheduled_time'], now_msk)
+    label = f"Доп.урок · {r['missed_lesson_group_name']}"
+    return {
+        'group': label,
+        'groupId': None,
+        'groupDisplay': label,
+        'teacher': r['teacher_name'],
+        'teacherOverride': None,
+        'direction': None,
+        'color': None,
+        'isGroup': len(r['student_names']) > 1,
+        'durationMinutes': r['duration_minutes'],
+        'vkChat': None,
+        'date': _iso(r['scheduled_date']),
+        'time': _hhmm(r['scheduled_time']),
+        'day': _report_day(r['scheduled_date']),
+        'seq': None,
+        'lessonNumber': None,
+        'isHalf': False,
+        'isExtra': False,
+        'extraLessonId': r['id'],
+        'status': status,
+        'label': _planned_label(status),
+        'movedFrom': None,
+        'movedTo': None,
+        'students': [{'name': n} for n in r['student_names']],
+    }
+
+
 def build_calendar(
     window_from: datetime.date,
     window_to: datetime.date,
@@ -137,6 +181,9 @@ def build_calendar(
     for r in rows:
         g_students = [{'name': n} for n in students.get(r['group_pk'], [])]
         occurrences.append(_planned_occurrence_dict(r, g_students, tnames, now))
+
+    for r in extra_lessons_repository.assignments_in_window(teacher_id, window_from, window_to):
+        occurrences.append(_extra_lesson_occurrence_dict(r, now))
 
     occurrences.sort(key=lambda x: (x['date'], x['time'] or ''))
     return {
