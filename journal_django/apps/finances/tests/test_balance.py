@@ -289,3 +289,59 @@ def test_extra_lesson_does_not_double_count_balance(
     fifo_data = repository.fifo_inputs()
     key = str(student_fixture)
     assert fifo_data['consumed_by_key'][key] == 1
+
+
+def test_worked_off_month_uses_extra_lesson_completion_date(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
+):
+    """
+    Регрессия (решение пользователя 2026-07-16): если доп.урок проведён в МЕСЯЦЕ,
+    отличном от месяца пропущенного урока, «отработанные» деньги должны относиться
+    к месяцу ФАКТИЧЕСКОГО проведения доп.урока (когда преподаватель реально
+    отработал и получил за это зарплату), а не к месяцу исходного пропуска.
+    """
+    from apps.extra_lessons import services as extra_services
+    from apps.extra_lessons.models import ExtraLessonAssignment
+    from apps.extra_lessons.repository import get_assignment_full
+    from apps.finances.fifo import compute_fifo
+
+    class _FakeRequest:
+        META = {}
+        user = None
+
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, '2026-06-01')  # 4 куплено, 500р/урок
+
+    missed_lid = _add_missed_lesson(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-05', duration=60
+    )
+
+    created = extra_services.create_assignment(
+        {
+            'missed_lesson_id': missed_lid, 'teacher_id': teacher_id_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-07-10',
+            'scheduled_time': '15:00', 'duration_minutes': 45,
+        },
+        _FakeRequest(),
+    )
+    try:
+        extra_services.record(
+            created['id'], teacher_id=teacher_id_fixture,
+            attendance=[{'student_id': student_fixture, 'present': True}],
+            record_url=None, submitted_by_token='test', submit_date='2026-07-10',
+            request=_FakeRequest(),
+        )
+
+        inp = repository.fifo_inputs()
+        key = str(student_fixture)
+        fifo = compute_fifo(
+            inp['lots_by_key'].get(key, []), inp['cons_by_key'].get(key, []),
+            '0001-01-01', '9999-12-31',
+        )
+        # Отработано относится к июлю (доп.урок), НЕ к июню (месяц пропуска).
+        assert fifo['worked_off_by_month'].get('2026-07') == 500
+        assert '2026-06' not in fifo['worked_off_by_month']
+    finally:
+        full = get_assignment_full(created['id'])
+        if full and full['status'] == 'done':
+            extra_services.delete_fact(created['id'], _FakeRequest())
+        ExtraLessonAssignment.objects.filter(id=created['id']).delete()

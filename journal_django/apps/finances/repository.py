@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import datetime
 from decimal import Decimal
-from typing import Iterable
+from typing import Iterable, Optional
 
 from django.db.models import Case, DecimalField, F, Sum, Value, When
 from django.db.models.functions import Coalesce
@@ -60,6 +60,36 @@ def _attended_units_case():
         default=Value(Decimal('1')),
         output_field=_DEC,
     )
+
+
+def _makeup_completion_dates(
+    student_ids: Optional[Iterable[int]] = None,
+) -> dict[tuple[int, int], datetime.date]:
+    """
+    (missed_lesson_id, student_id) → дата ФАКТИЧЕСКОГО проведения доп.урока,
+    которым скомпенсирован этот пропуск (apps.extra_lessons, status='done').
+
+    Используется, чтобы «отработанные» деньги относились к месяцу, в котором
+    доп.урок реально проведён, а не к месяцу исходного пропущенного занятия —
+    иначе компенсация, проведённая в другом месяце, задним числом уезжала бы
+    в месяц пропуска в помесячных финансовых отчётах (решение пользователя
+    2026-07-16). Единицы (half-lesson) по-прежнему считаются от ИСХОДНОГО
+    урока (_attended_units_case) — меняется только дата для месячной разбивки.
+    """
+    from apps.extra_lessons.models import ExtraLessonParticipant
+
+    qs = ExtraLessonParticipant.objects.filter(assignment__status='done')
+    if student_ids is not None:
+        qs = qs.filter(student_id__in=list(student_ids))
+    rows = qs.values(
+        'student_id',
+        missed_lesson_id=F('assignment__missed_lesson_id'),
+        completion_date=F('assignment__fact_lesson__lesson_date'),
+    )
+    return {
+        (r['missed_lesson_id'], r['student_id']): r['completion_date']
+        for r in rows if r['completion_date'] is not None
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -104,11 +134,12 @@ def fifo_inputs() -> dict:
         .annotate(units=_attended_units_case())
         .order_by('student_id', 'lesson__lesson_date', 'lesson_id')
         .values(
-            'student_id', 'units',
+            'student_id', 'units', 'lesson_id',
             direction_id=F('lesson__group__direction_id'),
             lesson_date=F('lesson__lesson_date'),
         )
     )
+    makeup_dates = _makeup_completion_dates()
 
     lots_by_key: dict[str, list] = {}
     purchased_by_key: dict[str, int] = {}
@@ -139,9 +170,12 @@ def fifo_inputs() -> dict:
     for r in cons_rows:
         key = str(r['student_id'])
         units = to_decimal(r['units'])
+        # Компенсированный пропуск — дата ДОП.урока (когда реально отработано),
+        # не дата исходного пропущенного занятия (см. _makeup_completion_dates).
+        date = makeup_dates.get((r['lesson_id'], r['student_id']), r['lesson_date'])
         cons_by_key.setdefault(key, []).append({
             'units': units,
-            'date': _date_str(r['lesson_date']),
+            'date': _date_str(date),
             'direction_id': r['direction_id'],
         })
         consumed_by_key[key] = consumed_by_key.get(key, Decimal('0')) + units
@@ -265,10 +299,19 @@ def student_fifo_remaining(student_id: int) -> dict:
         .exclude(lesson__lesson_type='extra')
         .annotate(units=_attended_units_case())
         .order_by('lesson__lesson_date', 'lesson_id')
-        .values('units', lesson_date=F('lesson__lesson_date'))
+        .values('units', 'lesson_id', lesson_date=F('lesson__lesson_date'))
     )
-    cons = [{'units': to_decimal(r['units']), 'date': _date_str(r['lesson_date']),
-             'direction_id': None} for r in cons_rows]
+    makeup_dates = _makeup_completion_dates(student_ids=[student_id])
+    cons = [
+        {
+            'units': to_decimal(r['units']),
+            # Компенсированный пропуск — дата ДОП.урока, не исходного занятия
+            # (см. _makeup_completion_dates).
+            'date': _date_str(makeup_dates.get((r['lesson_id'], student_id), r['lesson_date'])),
+            'direction_id': None,
+        }
+        for r in cons_rows
+    ]
     cons.extend(refund_cons)
     cons.sort(key=lambda c: (c['date'], 1 if c.get('refund') else 0))
 
