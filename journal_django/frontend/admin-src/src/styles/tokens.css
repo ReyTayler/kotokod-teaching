@@ -143,11 +143,11 @@
   --text3:     #64748b;   /* muted */
   --text4:     #94a3b8;   /* faint */
 
-  /* Single accent — cyan-blue (KOTOKOD logo identity) */
-  --accent:        #0c9bc7;
-  --accent-hover:  #0a7fa5;
-  --accent-soft:   rgba(12, 155, 199, 0.10);
-  --accent-soft-h: rgba(12, 155, 199, 0.16);
+  /* Single accent — indigo, unified with teacher SPA brand (#4F59F9) */
+  --accent:        #4F59F9;
+  --accent-hover:  #3d46e0;
+  --accent-soft:   rgba(79, 89, 249, 0.10);
+  --accent-soft-h: rgba(79, 89, 249, 0.16);
 
   /* Semantic — for meaning only, never decoration */
   --success: #16a34a;
@@ -177,6 +177,7 @@
   --shadow-popover: 0 4px 12px rgba(15, 23, 42, 0.08),
                     0 1px 3px  rgba(15, 23, 42, 0.04);
   --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.06);
   /* Затемняющая подложка модалок/оверлеев */
   --overlay: rgba(15, 23, 42, 0.45);
 
@@ -210,10 +211,10 @@
   --text3:     #8b99b3;
   --text4:     #6a7793;
 
-  --accent:        #3fd2ee;
-  --accent-hover:  #6fe0f6;
-  --accent-soft:   rgba(63, 210, 238, 0.12);
-  --accent-soft-h: rgba(63, 210, 238, 0.20);
+  --accent:        #50DCFE;
+  --accent-hover:  #7ae4fe;
+  --accent-soft:   rgba(80, 220, 254, 0.12);
+  --accent-soft-h: rgba(80, 220, 254, 0.20);
 
   --success: #34d399;
   --warning: #fbbf24;
@@ -225,6 +226,7 @@
   --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.4),
                     0 1px 4px  rgba(0, 0, 0, 0.2);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.28);
   --overlay: rgba(0, 0, 0, 0.6);
 }
 /* Dark theme: boost font-weight on small label-like text so contrast compensates for size */

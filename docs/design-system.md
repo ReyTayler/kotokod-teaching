@@ -1,6 +1,6 @@
 # Design System (admin SPA)
 
-Personality: **Linear × Stripe** (precision + sophistication). Cool slate palette, teal accent (`#0d9488` — KOTOKOD identity).
+Personality: **Linear × Stripe** (precision + sophistication). Cool slate palette, indigo accent (`#4F59F9` — KOTOKOD identity, unified with teacher SPA).
 
 Единственный источник токенов: `web/admin/src/styles/tokens.css`
 
@@ -12,7 +12,7 @@ Radius:   --r-sm/--r/--r-lg      (6/8/12px)
 Surfaces: --bg2/--bg3/--bg4
 Borders:  --border/--border2/--border-strong  (semi-transparent rgba)
 Text:     --text/--text2/--text3/--text4      (4-level contrast)
-Accent:   --accent/--accent-hover/--accent-soft
+Accent:   --accent/--accent-hover/--accent-soft  (#4F59F9 — см. tokens.css)
 Status:   --success/--warning/--danger/--info
 Shadows:  --shadow-modal/--shadow-popover
 Fonts:    --font-sans (Inter), --font-display (Steppe), --font-mono (JetBrains Mono)
