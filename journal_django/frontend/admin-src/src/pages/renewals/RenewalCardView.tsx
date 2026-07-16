@@ -1,4 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
+import { Avatar } from '../../components/Avatar';
 import { fmtDate } from '../../lib/format';
 import type { RenewalCard } from '../../lib/renewals';
 
@@ -13,7 +14,12 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
   const overdue = card.days_in_stage > SLA_OVERDUE_DAYS;
   return (
     <>
-      <div className="renewal-card__student">{card.student_name || '—'}</div>
+      <div className="renewal-card__top">
+        <span title={card.assignee_name || 'Не назначен'}>
+          <Avatar name={card.assignee_name || '—'} size={28} />
+        </span>
+        <div className="renewal-card__student">{card.student_name || '—'}</div>
+      </div>
       <div className="renewal-card__direction">
         {(card.directions || []).map((d, i) => (
           <span key={d.name} style={d.color ? { color: d.color } : undefined}>
@@ -38,9 +44,6 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
         {card.next_touch_at && (
           <span className="renewal-card__touch">{fmtDate(card.next_touch_at)}</span>
         )}
-      </div>
-      <div className="renewal-card__footer">
-        <span className="renewal-card__assignee">{card.assignee_name || '—'}</span>
       </div>
     </>
   );
