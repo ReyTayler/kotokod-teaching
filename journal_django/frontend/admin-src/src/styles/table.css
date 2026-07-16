@@ -51,7 +51,7 @@ tbody tr:hover { background: var(--bg3); }
   font-family: 'Steppe', 'Manrope', 'Inter', system-ui, sans-serif;
 }
 .col-filter::placeholder { color: var(--text4); }
-.col-filter:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(12,155,199,.08); }
+.col-filter:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 8%, transparent); }
 .col-filter--select { cursor: pointer; appearance: none; padding-right: 18px; background-image: linear-gradient(45deg, transparent 50%, var(--text3) 50%), linear-gradient(135deg, var(--text3) 50%, transparent 50%); background-position: calc(100% - 9px) 50%, calc(100% - 5px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
 [data-theme="dark"] .thead-filters th { background: #232a3a !important; border-bottom-color: #303d55 !important; }
 [data-theme="dark"] .col-filter-cell { background: #232a3a !important; }

@@ -289,7 +289,7 @@
 
 /* ── MONO BADGE ── */
 .mono-badge { font-family: 'JetBrains Mono', monospace; font-size: 14px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
-.mono-badge--active { color: var(--accent); background: rgba(12,155,199,.08); }
+.mono-badge--active { color: var(--accent); background: color-mix(in oklab, var(--accent) 8%, transparent); }
 .mono-badge--inactive { color: var(--text3); background: rgba(71,85,105,.15); }
 
 /* ── PILL ── */

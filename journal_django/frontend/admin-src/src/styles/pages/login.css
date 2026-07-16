@@ -5,6 +5,6 @@
 .admin-login__row { display: flex; flex-direction: column; gap: 6px; }
 .admin-login__row label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); }
 .admin-login__row input { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 10px 13px; font-size: 15px; color: var(--text); outline: none; transition: border-color .15s, box-shadow .15s; width: 100%; }
-.admin-login__row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(12,155,199,.08); }
+.admin-login__row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 8%, transparent); }
 .admin-login__submit { background: var(--accent); border: none; border-radius: 8px; padding: 11px; font-size: 16px; font-weight: 700; color: #fff; cursor: pointer; transition: opacity .15s; font-family: 'Steppe', 'Manrope', 'Inter', system-ui, sans-serif; }
 .admin-login__submit:hover { opacity: .88; }

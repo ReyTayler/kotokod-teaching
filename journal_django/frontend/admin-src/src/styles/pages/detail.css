@@ -6,8 +6,8 @@
 .detail-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
 .detail-title h2 { font-size: 22px; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
 .detail-sub { font-size: 14px; color: var(--text3); }
-.edit-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; background: rgba(12,155,199,.08); border: 1px solid rgba(12,155,199,.2); border-radius: var(--r-sm); font-size: 14px; font-weight: 600; color: var(--accent); cursor: pointer; transition: background .15s; white-space: nowrap; font-family: 'Steppe', 'Manrope', 'Inter', system-ui, sans-serif; }
-.edit-btn:hover { background: rgba(12,155,199,.15); }
+.edit-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; background: color-mix(in oklab, var(--accent) 8%, transparent); border: 1px solid color-mix(in oklab, var(--accent) 20%, transparent); border-radius: var(--r-sm); font-size: 14px; font-weight: 600; color: var(--accent); cursor: pointer; transition: background .15s; white-space: nowrap; font-family: 'Steppe', 'Manrope', 'Inter', system-ui, sans-serif; }
+.edit-btn:hover { background: color-mix(in oklab, var(--accent) 15%, transparent); }
 .delete-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; background: rgba(220,38,38,.07); border: 1px solid rgba(220,38,38,.18); border-radius: var(--r-sm); font-size: 14px; font-weight: 600; color: var(--red); cursor: pointer; transition: background .15s; white-space: nowrap; font-family: 'Steppe', 'Manrope', 'Inter', system-ui, sans-serif; }
 .delete-btn:hover { background: rgba(220,38,38,.13); }
 .delete-btn.is-confirming { background: rgba(220,38,38,.18); }
@@ -134,13 +134,13 @@
 
 /* ── LINKED CARDS ── */
 .link-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px; cursor: pointer; margin-bottom: 8px; transition: border-color .15s, background .15s; }
-.link-card:hover { border-color: rgba(12,155,199,.25); background: var(--bg4); }
+.link-card:hover { border-color: color-mix(in oklab, var(--accent) 25%, transparent); background: var(--bg4); }
 .link-card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
 .link-card-title { font-weight: 700; color: var(--text); margin-bottom: 4px; font-size: 16px; }
 .link-card-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .link-card-meta-pill { font-size: 13px; font-weight: 600; color: var(--text3); background: var(--bg4); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
 .student-row-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; cursor: pointer; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; transition: border-color .15s, background .15s; }
-.student-row-card:hover { border-color: rgba(12,155,199,.25); background: var(--bg4); }
+.student-row-card:hover { border-color: color-mix(in oklab, var(--accent) 25%, transparent); background: var(--bg4); }
 
 /* ── TEACHER CARD ── */
 .teacher-info-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px; display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }

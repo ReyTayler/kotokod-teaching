@@ -96,7 +96,7 @@
 .field label { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text3); }
 .field input, .field select, .field textarea { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 13px; font-size: 15px; color: var(--text); outline: none; transition: border-color .15s, box-shadow .15s; font-family: inherit; width: 100%; }
 .field input::placeholder, .field textarea::placeholder { color: var(--text4); }
-.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(12,155,199,.08); }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 8%, transparent); }
 .field select { cursor: pointer; }
 .field select option { background: var(--bg2); }
 .field textarea { resize: vertical; min-height: 70px; }
@@ -111,7 +111,7 @@
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
 .toggle-slider { position: absolute; inset: 0; border-radius: 20px; background: #cbd5e1; cursor: pointer; transition: background .2s; }
 .toggle-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: #ffffff; transition: transform .2s, background .2s; }
-.toggle-switch input:checked+.toggle-slider { background: rgba(12,155,199,.25); }
+.toggle-switch input:checked+.toggle-slider { background: color-mix(in oklab, var(--accent) 25%, transparent); }
 .toggle-switch input:checked+.toggle-slider::before { transform: translateX(16px); background: var(--accent); }
 /* modal-footer defined in ── MODAL ── block above */
 

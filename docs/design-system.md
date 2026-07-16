@@ -2,7 +2,7 @@
 
 Personality: **Linear × Stripe** (precision + sophistication). Cool slate palette, indigo accent (`#4F59F9` — KOTOKOD identity, unified with teacher SPA).
 
-Единственный источник токенов: `web/admin/src/styles/tokens.css`
+Единственный источник токенов: `journal_django/frontend/admin-src/src/styles/tokens.css`
 
 ## Токены
 

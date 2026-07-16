@@ -182,16 +182,16 @@
 .burger-btn {
   position: fixed; left: 20px; bottom: 20px; z-index: 900;
   width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
-  background: rgba(12,155,199,0.7); color: #ffffff;
+  background: color-mix(in oklab, var(--accent) 70%, transparent); color: #ffffff;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 6px 20px rgba(12,155,199,0.28), 0 2px 6px rgba(0,0,0,0.12);
+  box-shadow: 0 6px 20px color-mix(in oklab, var(--accent) 28%, transparent), 0 2px 6px rgba(0,0,0,0.12);
   backdrop-filter: blur(10px);
   transition: background .15s, transform .15s, box-shadow .15s;
 }
-.burger-btn:hover { background: rgba(12,155,199,0.95); transform: translateY(-2px); box-shadow: 0 10px 24px rgba(12,155,199,0.35), 0 2px 6px rgba(0,0,0,0.12); }
+.burger-btn:hover { background: color-mix(in oklab, var(--accent) 95%, transparent); transform: translateY(-2px); box-shadow: 0 10px 24px color-mix(in oklab, var(--accent) 35%, transparent), 0 2px 6px rgba(0,0,0,0.12); }
 .burger-btn:active { transform: translateY(0); }
-[data-theme="dark"] .burger-btn { background: rgba(12,155,199,0.65); }
-[data-theme="dark"] .burger-btn:hover { background: rgba(12,155,199,0.9); }
+[data-theme="dark"] .burger-btn { background: color-mix(in oklab, var(--accent) 65%, transparent); }
+[data-theme="dark"] .burger-btn:hover { background: color-mix(in oklab, var(--accent) 90%, transparent); }
 
 .mobile-nav-overlay {
   position: fixed; inset: 0; z-index: 950;
@@ -230,7 +230,7 @@
 }
 .mobile-nav-item:hover { background: rgba(0,0,0,0.04); color: var(--text); }
 .mobile-nav-item.active {
-  background: rgba(12,155,199,0.1);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
   color: var(--accent);
   font-weight: 700;
 }
