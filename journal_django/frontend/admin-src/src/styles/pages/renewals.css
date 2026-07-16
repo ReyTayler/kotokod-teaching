@@ -257,8 +257,10 @@
 }
 
 .renewal-col__stats {
-  font-size: 12px;
-  color: var(--text3);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -277,7 +279,7 @@
   font-size: 12px;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-lg);
   color: var(--text);
 }
 
@@ -355,7 +357,9 @@
   gap: var(--space-1);
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-top: 3px solid var(--accent);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
   padding: var(--space-3);
   cursor: grab;
   touch-action: none;
@@ -364,6 +368,7 @@
 
 .renewal-card:hover {
   border-color: var(--border-strong);
+  box-shadow: var(--shadow-popover);
 }
 
 /* Карточка-источник во время драга — тускнеет на месте, сам «полёт» рисует
@@ -381,10 +386,20 @@
   box-shadow: var(--shadow-popover);
 }
 
+.renewal-card__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .renewal-card__student {
   font-weight: 600;
   font-size: 13px;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .renewal-card__direction {
@@ -404,14 +419,11 @@
   color: var(--text3);
 }
 
-.renewal-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
-  font-size: 12px;
-  color: var(--text3);
+/* Пилюли вместо прямоугольных бейджей — только в этом разделе (страницы со
+   списками/таблицами используют .status-badge без изменений). */
+.renewal-card .status-badge,
+.renewal-drawer .status-badge {
+  border-radius: 999px;
 }
 
 /* ============================================================
@@ -453,6 +465,9 @@
 }
 
 .renewal-drawer__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 700;
@@ -517,6 +532,7 @@
 
 .renewal-drawer__pay-btn {
   align-self: flex-start;
+  border-radius: var(--r-lg);
 }
 
 .renewal-drawer__comment-input {
