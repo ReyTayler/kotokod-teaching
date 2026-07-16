@@ -144,6 +144,14 @@ def _membership_sum_subquery(field: str):
 
 
 def _last_lesson_subquery():
+    """
+    Дата последнего посещённого занятия (для idle-флага).
+
+    Намеренно БЕЗ exclude(lesson_type='extra'), в отличие от
+    _attended_units_subquery: доп.урок — реальное присутствие ученика, его
+    дата корректно двигает «последнее занятие» вперёд. Исключается из баланса
+    (там задвоение), но не из активности/engagement-сигнала.
+    """
     return Subquery(
         LessonAttendance.objects
         .filter(student_id=OuterRef('pk'), present=True)
