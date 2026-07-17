@@ -282,3 +282,39 @@ def extra(
         status=PENDING,
         is_extra=True,
     )
+
+
+def relay_from_date(
+    tail: list[PlannedRow],
+    *,
+    resume_date: datetime.date,
+    slots: list[Slot],
+    duration_minutes: int,
+) -> list[PlannedRow]:
+    """Переложить хвост курсовых строк (ordered by seq) на новые даты, разворачивая
+    слот от resume_date включительно. i-я строка → i-е слот-занятие. seq/lesson_number
+    сохраняются; moved_from_date обнуляется (разовые переносы схлопываются); исходный
+    status сохраняется (НЕ принудительно PENDING — вызывающий обязан передавать только
+    pending/overdue строки, DONE тут не фильтруются, см. инвариант модуля).
+
+    total для _walk считается ТОЧНО как len(ordered)*step (Decimal, без округления) —
+    _walk сравнивает num накопительно как Decimal и останавливается строго при
+    num > total, так что при total=N*step он выдаёт РОВНО N occurrences независимо
+    от полу-урочного шага (0.5) — буфер/обрезка не нужны. Пустой хвост / нет слотов →
+    [] / без сдвига."""
+    if not tail or not slots:
+        return [replace(r) for r in tail]
+    ordered = sorted(tail, key=lambda r: (r.seq if r.seq is not None else 0))
+    step = _step_for(duration_minutes)
+    total = Decimal(len(ordered)) * step
+    occ = _walk(resume_date, slots, step, total,
+                _far_future(resume_date, len(ordered), step))
+    out: list[PlannedRow] = []
+    for r, o in zip(ordered, occ):
+        out.append(replace(
+            r,
+            scheduled_date=o.date,
+            scheduled_time=o.time,
+            moved_from_date=None,
+        ))
+    return out
