@@ -1016,6 +1016,86 @@ def rebuild_group_plan(
     return {'written': len(rows), 'reason': reason}
 
 
+def freeze_individual_group(
+    group_id: int,
+    *,
+    frozen_from: datetime.date,
+    resume_date: datetime.date,
+) -> None:
+    """Заморозка индивид-группы (одна транзакция):
+
+    (а) extra/маркеры (seq IS NULL) в статусе pending/overdue с scheduled_date >=
+        frozen_from → status=CANCELLED (доп.занятия/переносы в окне отменяются);
+    (б) курсовые pending/overdue строки (seq задан) с scheduled_date >= frozen_from —
+        «хвост» — перекладываются от resume_date по текущему открытому слоту
+        (planner.relay_from_date), moved_from_date схлопывается.
+
+    Проведённые (done) и всё до frozen_from — неподвижны. Слот берётся тот же, что
+    у группы (slots_by_group); нет ОТКРЫТОГО слота (effective_to закрыт у всех) →
+    хвост не двигаем (нельзя развернуть — неизвестен день недели/время). Тогда шаг
+    (а) уже закоммичен, а (б) пропущен: намеренный частичный коммит в одной
+    транзакции, не оплошность — extra в окне отменены, курсовые остаются на месте."""
+    now = msk_now()
+    with transaction.atomic():
+        # (а) отменяем extra/маркеры в окне
+        PlannedLesson.objects.filter(
+            group_id=group_id, seq__isnull=True,
+            status__in=_MUTABLE_STATUSES, scheduled_date__gte=frozen_from,
+        ).update(status=CANCELLED, updated_at=now)
+
+        # (б) перекладываем курсовой хвост
+        tail = list(
+            PlannedLesson.objects
+            .select_for_update()
+            .filter(group_id=group_id, seq__isnull=False,
+                    status__in=_MUTABLE_STATUSES, scheduled_date__gte=frozen_from)
+            .order_by('seq')
+        )
+        if not tail:
+            return
+        g = (Group.objects.filter(id=group_id)
+             .values('lesson_duration_minutes').first())
+        if g is None:
+            return
+        slots = slots_by_group([group_id]).get(group_id, [])
+        open_slots = [s for s in slots if s.effective_to is None]
+        if not open_slots:
+            return
+        by_seq = {p.seq: p for p in tail}
+        relaid = planner.relay_from_date(
+            [_row_from_model(p) for p in tail],
+            resume_date=resume_date,
+            slots=open_slots,
+            duration_minutes=g['lesson_duration_minutes'],
+        )
+        to_update = []
+        for cr in relaid:
+            p = by_seq[cr.seq]
+            p.scheduled_date = cr.scheduled_date
+            p.scheduled_time = cr.scheduled_time
+            p.moved_from_date = None
+            p.updated_at = now
+            to_update.append(p)
+        PlannedLesson.objects.bulk_update(
+            to_update, ['scheduled_date', 'scheduled_time', 'moved_from_date', 'updated_at'])
+
+
+def resume_individual_group(
+    group_id: int,
+    *,
+    actual_resume_date: datetime.date,
+    frozen_from: datetime.date,
+) -> None:
+    """Досрочный/плановый выход: заново переложить курсовой хвост (pending/overdue,
+    scheduled_date >= frozen_from) от actual_resume_date. Идемпотентно с
+    freeze_individual_group — та же перекладка хвоста, только другая стартовая дата.
+    frozen_from здесь — НЕ новая заморозка, а лишь нижняя граница окна перекладки:
+    ею отбираются строки «в окне» (двигаем) против нетронутого прошлого до неё.
+    Отменённые в окне extra НЕ восстанавливаем (осознанно: доп.занятия разовые)."""
+    freeze_individual_group(
+        group_id, frozen_from=frozen_from, resume_date=actual_resume_date)
+
+
 def rebuild_from_facts(group_id: int) -> dict | None:
     """Single-group обёртка rebuild_group_plan (сама читает группу/слоты/факты).
 
