@@ -55,9 +55,11 @@ def indiv_group():
 def test_freeze_relays_tail_and_cancels_extra(indiv_group):
     gid = indiv_group['group']
     # Заморозка с 2026-07-08 до 2026-08-05 (среда). Окно: seq2,3,4 + extra 07-10.
-    sched_repo.freeze_individual_group(
+    relaid = sched_repo.freeze_individual_group(
         gid, frozen_from=datetime.date(2026, 7, 8),
         resume_date=datetime.date(2026, 8, 5))
+    # Реально переложены 3 курсовые строки (seq2,3,4) — положительный счётчик.
+    assert relaid == 3
 
     rows = {r.seq: r for r in PlannedLesson.objects.filter(
         group_id=gid, seq__isnull=False).order_by('seq')}
@@ -77,9 +79,11 @@ def test_freeze_relays_tail_and_cancels_extra(indiv_group):
 def test_freeze_keeps_done_rows(indiv_group):
     gid = indiv_group['group']
     PlannedLesson.objects.filter(group_id=gid, seq=2).update(status=DONE)
-    sched_repo.freeze_individual_group(
+    # Окно: seq2 (done, неподвижна), seq3, seq4 → переложены 2 строки.
+    relaid = sched_repo.freeze_individual_group(
         gid, frozen_from=datetime.date(2026, 7, 8),
         resume_date=datetime.date(2026, 8, 5))
+    assert relaid == 2
     done = PlannedLesson.objects.get(group_id=gid, seq=2)
     assert done.status == DONE
     assert done.scheduled_date == datetime.date(2026, 7, 8)  # не тронут
@@ -90,9 +94,11 @@ def test_resume_relays_tail_from_actual_resume_date(indiv_group):
     """resume_individual_group — та же перекладка хвоста, только именем аргумента
     actual_resume_date вместо resume_date; frozen_from — та же нижняя граница окна."""
     gid = indiv_group['group']
-    sched_repo.resume_individual_group(
+    relaid = sched_repo.resume_individual_group(
         gid, actual_resume_date=datetime.date(2026, 8, 5),
         frozen_from=datetime.date(2026, 7, 8))
+    # Переложены 3 курсовые строки — сигнал «группа участвовала в разморозке».
+    assert relaid == 3
 
     rows = {r.seq: r for r in PlannedLesson.objects.filter(
         group_id=gid, seq__isnull=False).order_by('seq')}
@@ -113,9 +119,11 @@ def test_freeze_cancels_extra_but_skips_relay_when_no_open_slot(indiv_group):
     GroupScheduleSlot.objects.filter(group_id=gid).update(
         effective_to=datetime.date(2026, 7, 5))  # закрываем единственный слот
 
-    sched_repo.freeze_individual_group(
+    # Хвост в окне есть, но открытого слота нет → перекладки не было → 0.
+    relaid = sched_repo.freeze_individual_group(
         gid, frozen_from=datetime.date(2026, 7, 8),
         resume_date=datetime.date(2026, 8, 5))
+    assert relaid == 0
 
     # extra всё равно отменён
     extra = PlannedLesson.objects.get(group_id=gid, seq__isnull=True,
@@ -136,9 +144,11 @@ def test_freeze_cancels_extra_when_no_tail_to_relay(indiv_group):
     gid = indiv_group['group']
     PlannedLesson.objects.filter(group_id=gid, seq__isnull=False).update(status=DONE)
 
-    sched_repo.freeze_individual_group(
+    # Весь хвост done → перекладывать нечего → 0 (но extra всё равно отменён).
+    relaid = sched_repo.freeze_individual_group(
         gid, frozen_from=datetime.date(2026, 7, 8),
         resume_date=datetime.date(2026, 8, 5))
+    assert relaid == 0
 
     extra = PlannedLesson.objects.get(group_id=gid, seq__isnull=True,
                                       scheduled_date=datetime.date(2026, 7, 10))

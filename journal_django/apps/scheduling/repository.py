@@ -13,7 +13,7 @@ from collections import defaultdict
 from django.db import transaction
 from django.db.models import F, Min
 
-from apps.core.utils.dates import msk_now
+from apps.core.utils.dates import msk_now, msk_today
 from apps.groups.models import GroupScheduleSlot
 from apps.groups.models import Group
 from apps.lessons.models import Lesson
@@ -847,6 +847,25 @@ def cancel_lesson(
     return get_plan(group_id)
 
 
+def cancel_future_planned(group_id: int) -> int:
+    """Отменить будущие непроведённые плановые строки группы (без перегенерации):
+    pending/overdue с scheduled_date >= сегодня (MSK) → status=cancelled.
+
+    Используется при отказе/отчислении ученика индив-группы: персональный план
+    больше не нужен, но прошлое (done/просроченные до сегодня) не трогаем.
+    Возвращает число отменённых строк."""
+    now = msk_now()
+    return (
+        PlannedLesson.objects
+        .filter(
+            group_id=group_id,
+            status__in=_MUTABLE_STATUSES,
+            scheduled_date__gte=msk_today(),
+        )
+        .update(status=CANCELLED, updated_at=now)
+    )
+
+
 def add_extra(
     group_id: int,
     *,
@@ -1021,7 +1040,7 @@ def freeze_individual_group(
     *,
     frozen_from: datetime.date,
     resume_date: datetime.date,
-) -> None:
+) -> int:
     """Заморозка индивид-группы (одна транзакция):
 
     (а) extra/маркеры (seq IS NULL) в статусе pending/overdue с scheduled_date >=
@@ -1034,7 +1053,15 @@ def freeze_individual_group(
     у группы (slots_by_group); нет ОТКРЫТОГО слота (effective_to закрыт у всех) →
     хвост не двигаем (нельзя развернуть — неизвестен день недели/время). Тогда шаг
     (а) уже закоммичен, а (б) пропущен: намеренный частичный коммит в одной
-    транзакции, не оплошность — extra в окне отменены, курсовые остаются на месте."""
+    транзакции, не оплошность — extra в окне отменены, курсовые остаются на месте.
+
+    Возвращает число ПЕРЕЛОЖЕННЫХ курсовых строк (>=1 → у группы реально был
+    хвост в окне и он переехал; 0 → перекладывать было нечего: нет хвоста / нет
+    группы / нет открытого слота). Отмена extra (шаг «а») в счётчик НЕ входит.
+    Этот счётчик — сигнал «группа действительно участвовала в этой заморозке»,
+    по которому resume_student решает, реактивировать ли членство (см.
+    apps/students/services.resume_student): давно-завершённый курс хвоста в окне
+    не имеет → 0 → его членство не воскрешаем."""
     now = msk_now()
     with transaction.atomic():
         # (а) отменяем extra/маркеры в окне
@@ -1052,15 +1079,15 @@ def freeze_individual_group(
             .order_by('seq')
         )
         if not tail:
-            return
+            return 0
         g = (Group.objects.filter(id=group_id)
              .values('lesson_duration_minutes').first())
         if g is None:
-            return
+            return 0
         slots = slots_by_group([group_id]).get(group_id, [])
         open_slots = [s for s in slots if s.effective_to is None]
         if not open_slots:
-            return
+            return 0
         by_seq = {p.seq: p for p in tail}
         relaid = planner.relay_from_date(
             [_row_from_model(p) for p in tail],
@@ -1078,6 +1105,7 @@ def freeze_individual_group(
             to_update.append(p)
         PlannedLesson.objects.bulk_update(
             to_update, ['scheduled_date', 'scheduled_time', 'moved_from_date', 'updated_at'])
+        return len(to_update)
 
 
 def resume_individual_group(
@@ -1085,14 +1113,18 @@ def resume_individual_group(
     *,
     actual_resume_date: datetime.date,
     frozen_from: datetime.date,
-) -> None:
+) -> int:
     """Досрочный/плановый выход: заново переложить курсовой хвост (pending/overdue,
     scheduled_date >= frozen_from) от actual_resume_date. Идемпотентно с
     freeze_individual_group — та же перекладка хвоста, только другая стартовая дата.
     frozen_from здесь — НЕ новая заморозка, а лишь нижняя граница окна перекладки:
     ею отбираются строки «в окне» (двигаем) против нетронутого прошлого до неё.
-    Отменённые в окне extra НЕ восстанавливаем (осознанно: доп.занятия разовые)."""
-    freeze_individual_group(
+    Отменённые в окне extra НЕ восстанавливаем (осознанно: доп.занятия разовые).
+
+    Возвращает число переложенных курсовых строк (см. freeze_individual_group):
+    вызывающий (resume_student) реактивирует членство ТОЛЬКО если тут >0 —
+    иначе группа в этой заморозке не участвовала (давно-завершённый курс)."""
+    return freeze_individual_group(
         group_id, frozen_from=frozen_from, resume_date=actual_resume_date)
 
 

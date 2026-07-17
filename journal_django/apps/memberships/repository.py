@@ -276,6 +276,40 @@ def remove_membership(membership_id: int) -> bool:
     return updated > 0
 
 
+def reactivate_memberships(membership_ids) -> int:
+    """Массовая реактивация членств по списку id: active=true, с проверкой
+    инварианта «≤1 активного membership в индив-группе» на каждую. Возвращает
+    число реально реактивированных строк.
+
+    Вызывается при выходе из заморозки (resume_student). Конфликт РЕАЛЕН: пока
+    членство ученика лежало неактивным (active=false), в ту же индив-группу
+    легально мог зайти другой ученик (add_membership/transfer_membership прошли
+    бы проверку — активных членств в группе было 0). При разморозке реактивация
+    без проверки создала бы ДВА активных членства — тихое нарушение инварианта.
+
+    Поэтому проверяем ёмкость через тот же _assert_individual_capacity, что и
+    add/update/transfer (row-lock на строку группы внутри transaction.atomic).
+    При конфликте бросаем IndividualGroupFull — вызывающий resume_student сам
+    @transaction.atomic, поэтому исключение откатит ВСЮ разморозку целиком
+    (перекладку расписания, стадию сделки, частичные реактивации), а не оставит
+    систему в полу-размороженном состоянии. Конфликт слота должен разрулить
+    человек, прежде чем ученик сможет корректно разморозиться."""
+    ids = list(membership_ids)
+    if not ids:
+        return 0
+    count = 0
+    with transaction.atomic():
+        for mid in ids:
+            m = GroupMembership.objects.select_for_update().filter(id=mid).first()
+            if m is None:
+                continue
+            # exclude_membership_id=mid: саму реактивируемую строку из подсчёта
+            # «чужих активных» исключаем (она сейчас active=false и станет true).
+            _assert_individual_capacity(m.group_id, exclude_membership_id=mid)
+            count += GroupMembership.objects.filter(id=mid).update(active=True)
+    return count
+
+
 def transfer_membership(membership_id: int, to_group_id: int) -> Optional[dict]:
     """
     Атомарный перевод активного membership в другую группу ТОГО ЖЕ направления.
