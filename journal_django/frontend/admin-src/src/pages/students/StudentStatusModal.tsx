@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
 import { SelectInput } from '../../components/form/SelectInput';
@@ -17,6 +17,18 @@ export interface StatusModalMembership {
   group_name: string;
   is_individual: boolean;
 }
+
+// Ответ POST .../status/preview: плоский словарь membership_id (строкой, т.к.
+// ключи JSON-объекта всегда строки) → результат дран-превью сдвига расписания.
+type FreezePreviewEntry = {
+  lesson_on_frozen_from: boolean;
+  first_lesson_after_resume: string | null;
+};
+type FreezePreviewResponse = Record<string, FreezePreviewEntry>;
+
+// Сколько ждать после последнего изменения дат/чекбоксов, прежде чем дёрнуть
+// превью — не гоняем запрос на каждое нажатие клавиши/чекбокс.
+const PREVIEW_DEBOUNCE_MS = 450;
 
 interface Props {
   studentId: number;
@@ -48,6 +60,11 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
   const [frozenUntil, setFrozenUntil] = useState('');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [dateError, setDateError] = useState<string | undefined>();
+  // Дата frozen_from, для которой админ уже подтвердил совпадение урока с
+  // датой заморозки в диалоге-предупреждении. Сбрасывается при любом изменении
+  // frozen_from — старое подтверждение не должно молча «прилипать» к новой дате.
+  const [coincidenceConfirmedFor, setCoincidenceConfirmedFor] = useState<string | null>(null);
+  const [showCoincidenceConfirm, setShowCoincidenceConfirm] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -56,11 +73,19 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
       setFrozenUntil('');
       setSelectedIds(memberships.map((m) => m.id));
       setDateError(undefined);
+      setCoincidenceConfirmedFor(null);
+      setShowCoincidenceConfirm(false);
     }
     // memberships пересобирается на каждом рендере родителя — сравнивать нет смысла,
     // достаточно синхронизации по факту открытия модалки.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialStatus]);
+
+  // Смена даты начала заморозки обнуляет ранее полученное подтверждение
+  // совпадения — иначе смена даты «задним числом» проскочит без вопроса.
+  useEffect(() => {
+    setCoincidenceConfirmedFor(null);
+  }, [frozenFrom]);
 
   const needsDates = status === 'frozen';
   const needsMemberships = status === 'frozen' || status === 'declined' || status === 'not_enrolled';
@@ -78,6 +103,57 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
 
   const showIndividualNote = status === 'frozen'
     && individualMemberships.some((m) => selectedIds.includes(m.id));
+
+  // Выбранные индив-членства — единственные, для которых дран-превью
+  // расписания вообще имеет смысл (у групповых расписание не сдвигается).
+  const selectedIndividualIds = useMemo(
+    () => individualMemberships
+      .filter((m) => selectedIds.includes(m.id))
+      .map((m) => m.id)
+      .sort((a, b) => a - b),
+    [individualMemberships, selectedIds],
+  );
+  const selectedIndividualIdsKey = selectedIndividualIds.join(',');
+
+  // Дебаунс входных данных превью — не дёргаем сервер на каждое нажатие
+  // клавиши в поле даты или переключение чекбокса.
+  const [previewInput, setPreviewInput] = useState({
+    from: frozenFrom, until: frozenUntil, idsKey: selectedIndividualIdsKey,
+  });
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setPreviewInput({ from: frozenFrom, until: frozenUntil, idsKey: selectedIndividualIdsKey });
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [frozenFrom, frozenUntil, selectedIndividualIdsKey]);
+
+  const previewEnabled = open && status === 'frozen'
+    && !!previewInput.from && !!previewInput.until && previewInput.from <= previewInput.until
+    && previewInput.idsKey.length > 0;
+
+  const previewQuery = useQuery({
+    queryKey: ['student-freeze-preview', studentId, previewInput.from, previewInput.until, previewInput.idsKey],
+    queryFn: () => api<FreezePreviewResponse>('POST', `/api/admin/students/${studentId}/status/preview`, {
+      frozen_from: previewInput.from,
+      frozen_until: previewInput.until,
+      membership_ids: previewInput.idsKey.split(',').map(Number),
+    }),
+    enabled: previewEnabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  // Индив-членства из выбранных, у которых на дату frozen_from стоит урок —
+  // требуют явного подтверждения перед сохранением (урок будет отменён).
+  const coincidentMemberships = useMemo(() => {
+    if (status !== 'frozen' || !previewQuery.data) return [];
+    return individualMemberships.filter(
+      (m) => selectedIds.includes(m.id) && previewQuery.data?.[String(m.id)]?.lesson_on_frozen_from,
+    );
+  }, [status, previewQuery.data, individualMemberships, selectedIds]);
+
+  const hasUnconfirmedCoincidence = coincidentMemberships.length > 0
+    && coincidenceConfirmedFor !== frozenFrom;
 
   const mutation = useMutation({
     mutationFn: () => api<Student>('POST', `/api/admin/students/${studentId}/status`, {
@@ -116,6 +192,16 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
         return;
       }
     }
+    if (hasUnconfirmedCoincidence) {
+      setShowCoincidenceConfirm(true);
+      return;
+    }
+    mutation.mutate();
+  };
+
+  const confirmCoincidenceAndSubmit = () => {
+    setCoincidenceConfirmedFor(frozenFrom);
+    setShowCoincidenceConfirm(false);
     mutation.mutate();
   };
 
@@ -127,7 +213,14 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
     ? ENROLLMENT_STATUS_OPTIONS.filter((o) => o.value !== 'enrolled')
     : ENROLLMENT_STATUS_OPTIONS;
 
+  const coincidenceMessage = coincidentMemberships.length === 1
+    ? `На ${fmtDate(frozenFrom)} стоит урок в группе «${coincidentMemberships[0].group_name}». `
+      + 'Заморозка точно с этой даты (урок будет отменён)?'
+    : `На ${fmtDate(frozenFrom)} стоит урок в группах: ${coincidentMemberships.map((m) => m.group_name).join(', ')}. `
+      + 'Заморозка точно с этой даты (уроки будут отменены)?';
+
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => !o && onClose()} title="Изменить статус ученика">
       <div className="status-form">
         <Field label="Новый статус">
@@ -156,14 +249,32 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
             {individualMemberships.length > 0 && (
               <div className="status-form__subgroup">
                 <div className="status-form__subgroup-label">Индивидуальные</div>
-                {individualMemberships.map((m) => (
-                  <Checkbox
-                    key={m.id}
-                    label={m.group_name}
-                    checked={selectedIds.includes(m.id)}
-                    onChange={() => toggleMembership(m.id)}
-                  />
-                ))}
+                {individualMemberships.map((m) => {
+                  const selected = selectedIds.includes(m.id);
+                  const preview = previewQuery.data?.[String(m.id)];
+                  return (
+                    <div key={m.id}>
+                      <Checkbox
+                        label={m.group_name}
+                        checked={selected}
+                        onChange={() => toggleMembership(m.id)}
+                      />
+                      {status === 'frozen' && selected && (
+                        <div className="status-form__membership-preview">
+                          {preview
+                            ? (preview.first_lesson_after_resume
+                              ? `Первый урок после разморозки: ${fmtDate(preview.first_lesson_after_resume)}`
+                              : 'Нет запланированных уроков в этом периоде')
+                            : previewQuery.isFetching
+                              ? 'Проверяем расписание…'
+                              : (previewQuery.isError && previewEnabled
+                                ? 'Не удалось проверить расписание — совпадение с уроком не проверено'
+                                : null)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {groupMemberships.length > 0 && (
@@ -206,5 +317,31 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
         </div>
       </div>
     </Dialog>
+
+    {showCoincidenceConfirm && (
+      <Dialog
+        open={showCoincidenceConfirm}
+        onOpenChange={(o) => { if (!o) setShowCoincidenceConfirm(false); }}
+        title="Урок в день начала заморозки"
+      >
+        <div className="status-form">
+          <p className="status-form__hint">{coincidenceMessage}</p>
+          <div className="status-form__footer">
+            <button type="button" className="btn-cancel" onClick={() => setShowCoincidenceConfirm(false)}>
+              Изменить дату
+            </button>
+            <button
+              type="button"
+              className="btn-save"
+              onClick={confirmCoincidenceAndSubmit}
+              disabled={mutation.isPending}
+            >
+              Да, продолжить
+            </button>
+          </div>
+        </div>
+      </Dialog>
+    )}
+    </>
   );
 }
