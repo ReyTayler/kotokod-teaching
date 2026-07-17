@@ -4,7 +4,9 @@
 Admin (IsManagerOrAdmin, менеджер/админ/суперадмин — явное требование фичи,
 не общий ReadStaffWriteAdmin раздела lessons):
   GET  /api/admin/extra-lessons             → список {rows,total,page,page_size}
-  POST /api/admin/extra-lessons             → 201 (назначение)
+  POST /api/admin/extra-lessons             → 201 | 400 (нет такого урока, ИЛИ
+                                               кто-то не был отмечен отсутствующим
+                                               на нём, ИЛИ у кого-то balance<=0)
   GET  /api/admin/extra-lessons/:id         → 200 | 404
   DELETE /api/admin/extra-lessons/:id       → 204 | 404 | 409 (не done)
   POST /api/admin/extra-lessons/:id/cancel  → 200 | 404 | 409 (не scheduled)
@@ -12,7 +14,9 @@ Admin (IsManagerOrAdmin, менеджер/админ/суперадмин — я
 Teacher (IsTeacher, скоуп — своё назначение):
   GET  /api/extra-lessons/:id         → 200 | 404 (чужое = 404, не 403 — не
                                          раскрываем существование чужих назначений)
-  POST /api/extra-lessons/:id/record  → 200 | 404 | 403 (чужое) | 409 (не scheduled)
+  POST /api/extra-lessons/:id/record  → 200 | 404 | 403 (чужое) | 409 (не
+                                         scheduled) | 400 (у кого-то из
+                                         отмеченных present balance<=0)
 """
 from __future__ import annotations
 
@@ -26,11 +30,12 @@ from apps.core.permissions import IsManagerOrAdmin, IsTeacher
 from apps.core.utils.dates import msk_today
 from apps.extra_lessons import repository, services
 from apps.extra_lessons.exceptions import (
-    DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment,
+    DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
 )
 from apps.extra_lessons.serializers import (
     ExtraLessonCreateSerializer, ExtraLessonRecordSerializer,
 )
+from apps.lessons.exceptions import UnpaidAttendanceBlocked
 
 _DEFAULT_PAGE_SIZE = 50
 _MAX_PAGE_SIZE = 500
@@ -71,7 +76,7 @@ class ExtraLessonListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         try:
             result = services.create_assignment(serializer.validated_data, request)
-        except MissedLessonNotFound as e:
+        except (MissedLessonNotFound, StudentNotAbsent, UnpaidAttendanceBlocked) as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except DuplicateAssignment as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
@@ -139,6 +144,8 @@ class TeacherExtraLessonRecordView(APIView):
             )
         except NotTeachersAssignment as e:
             return Response({'error': str(e)}, status=status.HTTP_403_FORBIDDEN)
+        except UnpaidAttendanceBlocked as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if result is None:

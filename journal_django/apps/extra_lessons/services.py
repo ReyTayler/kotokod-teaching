@@ -13,7 +13,7 @@ from django.db import transaction
 from apps.audit.services import log_event
 from apps.extra_lessons import repository
 from apps.extra_lessons.exceptions import (
-    DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment,
+    DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
 )
 from apps.extra_lessons.models import DONE, SCHEDULED
 from apps.lessons import repository as lessons_repository
@@ -44,14 +44,31 @@ def create_assignment(data: dict, request) -> dict:
     """
     Создаёт назначение доп.урока. Валидация:
       - missed_lesson_id обязан существовать (иначе MissedLessonNotFound)
+      - каждый student_id обязан быть реально отмечен present=false на
+        missed_lesson_id (иначе StudentNotAbsent) — доп.урок компенсирует
+        только настоящий пропуск, не присутствовавшего/постороннего ученика
       - ни у одного из student_ids не должно быть уже активного назначения
         за этот же пропуск (иначе DuplicateAssignment)
+      - ни у одного из student_ids не должно быть balance <= 0 (иначе
+        UnpaidAttendanceBlocked, apps.lessons.exceptions) — доп.урок не должен
+        компенсировать пропуск ученику, у которого на МОМЕНТ назначения уже
+        нет оплаченных уроков (если баланс к моменту назначения уже исчерпан
+        другими посещениями, компенсация задним числом создала бы
+        неоплаченный урок).
     """
     missed_lesson_id = data['missed_lesson_id']
     if not Lesson.objects.filter(id=missed_lesson_id).exists():
         raise MissedLessonNotFound(f'Урок #{missed_lesson_id} не найден.')
 
     student_ids = data['student_ids']
+
+    not_absent = repository.students_not_absent(missed_lesson_id, student_ids)
+    if not_absent:
+        names = list(
+            Student.objects.filter(id__in=not_absent).values_list('full_name', flat=True)
+        )
+        raise StudentNotAbsent(names)
+
     duplicates = [
         sid for sid in student_ids
         if repository.has_active_assignment(missed_lesson_id, sid)
@@ -61,6 +78,8 @@ def create_assignment(data: dict, request) -> dict:
             Student.objects.filter(id__in=duplicates).values_list('full_name', flat=True)
         )
         raise DuplicateAssignment(names)
+
+    lessons_repository.assert_students_paid(student_ids)
 
     assignment_id = repository.create_assignment(
         missed_lesson_id=missed_lesson_id,
@@ -123,6 +142,11 @@ def record(
 
     None → назначения нет (view → 404). NotTeachersAssignment → чужое
     назначение (view → 403). ValueError → уже done/cancelled (view → 409).
+    UnpaidAttendanceBlocked (apps.lessons.exceptions) → у кого-то из
+    present-участников balance <= 0 НА МОМЕНТ проведения (view → 400) —
+    проверяется заново здесь, а не только при create_assignment, потому что
+    между назначением и фактическим проведением баланс мог измениться
+    (ученик израсходовал остаток другими уроками, оплата аннулирована и т.п.).
     """
     full = repository.get_assignment_full(assignment_id)
     if full is None:
@@ -141,7 +165,10 @@ def record(
     participant_ids = set(repository.participant_student_ids(assignment_id))
     attendance = [a for a in attendance if a['student_id'] in participant_ids]
 
-    present_count = sum(1 for a in attendance if a['present'])
+    present_student_ids = [a['student_id'] for a in attendance if a['present']]
+    lessons_repository.assert_students_paid(present_student_ids)
+
+    present_count = len(present_student_ids)
     payment = calculate_extra_lesson_payment(present_count)
     penalty = calculate_penalty(
         full['scheduled_date'].isoformat(), submit_date, present_count,
@@ -209,14 +236,24 @@ def delete_fact(assignment_id: int, request) -> bool:
     if full['status'] != DONE:
         raise ValueError('Удалить факт можно только у проведённого доп.урока.')
 
-    fact_lesson_id = full['fact_lesson_id']
     with transaction.atomic():
+        # Авторитетная проверка статуса под блокировкой строки — гонка двух
+        # параллельных delete_fact() иначе оба прошли бы неблокирующую проверку
+        # выше и оба попытались бы удалить один и тот же fact_lesson (см.
+        # lock_assignment_for_delete).
+        locked = repository.lock_assignment_for_delete(assignment_id)
+        if locked is None:
+            return False
+        if locked['status'] != DONE:
+            raise ValueError('Удалить факт можно только у проведённого доп.урока.')
+
+        fact_lesson_id = locked['fact_lesson_id']
         present_ids = list(
             Lesson.objects.get(id=fact_lesson_id).attendance
             .filter(present=True).values_list('student_id', flat=True)
         )
         for sid in present_ids:
-            lessons_repository.revert_makeup_attendance(full['missed_lesson_id'], sid)
+            lessons_repository.revert_makeup_attendance(locked['missed_lesson_id'], sid)
         Payroll.objects.filter(lesson_id=fact_lesson_id).delete()
         Lesson.objects.filter(id=fact_lesson_id).delete()
         repository.reset_to_scheduled(assignment_id)

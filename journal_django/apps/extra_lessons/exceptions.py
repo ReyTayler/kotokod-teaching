@@ -19,3 +19,19 @@ class DuplicateAssignment(Exception):
 
 class NotTeachersAssignment(Exception):
     """Преподаватель пытается провести/посмотреть чужое назначение."""
+
+
+class StudentNotAbsent(Exception):
+    """
+    Ученику назначают доп.урок за пропуск, на котором он НЕ был отмечен
+    отсутствующим (present=true или вообще не участник missed_lesson) — доп.урок
+    компенсирует только реальное отсутствие, иначе преподавателю платится
+    зарплата за компенсацию несуществующего пропуска.
+    """
+
+    def __init__(self, student_names: list[str]) -> None:
+        self.student_names = student_names
+        names = ', '.join(student_names)
+        super().__init__(
+            f'Эти ученики не были отмечены отсутствующими на пропущенном уроке: {names}.'
+        )

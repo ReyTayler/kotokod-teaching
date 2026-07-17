@@ -81,6 +81,32 @@ def test_participant_student_ids(teacher_fixture, missed_lesson_fixture, student
     assert repository.participant_student_ids(assignment_id) == [student_fixture]
 
 
+def test_students_not_absent_excludes_present_and_non_participants(
+    missed_lesson_fixture, student_fixture,
+):
+    """student_fixture отмечен present=false на missed_lesson_fixture — не в
+    результате. Посторонний id (не участник урока вовсе) — в результате."""
+    assert repository.students_not_absent(missed_lesson_fixture, [student_fixture]) == []
+    assert repository.students_not_absent(
+        missed_lesson_fixture, [student_fixture, 999_999_999],
+    ) == [999_999_999]
+
+
+def test_lock_assignment_for_delete_returns_locked_fields(
+    teacher_fixture, missed_lesson_fixture, student_fixture,
+):
+    assignment_id = repository.create_assignment(
+        missed_lesson_id=missed_lesson_fixture, teacher_id=teacher_fixture,
+        student_ids=[student_fixture], scheduled_date=datetime.date(2026, 4, 5),
+        scheduled_time=datetime.time(15, 0), duration_minutes=45,
+    )
+    repository.mark_done(assignment_id, fact_lesson_id=missed_lesson_fixture)
+    locked = repository.lock_assignment_for_delete(assignment_id)
+    assert locked['status'] == DONE
+    assert locked['missed_lesson_id'] == missed_lesson_fixture
+    assert locked['fact_lesson_id'] == missed_lesson_fixture
+
+
 def test_has_active_assignment_for_student(teacher_fixture, missed_lesson_fixture, student_fixture):
     assert repository.has_active_assignment(missed_lesson_fixture, student_fixture) is False
     repository.create_assignment(

@@ -140,6 +140,74 @@ def missed_lesson_fixture(group_fixture, teacher_fixture, student_fixture, membe
         cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
 
 
+@pytest.fixture
+def unpaid_student_fixture():
+    """Ученик БЕЗ оплаты (balance=0) — для тестов UnpaidAttendanceBlocked
+    в extra_lessons (запрет создавать/проводить доп.урок без баланса)."""
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO students (full_name, enrollment_status)
+            VALUES ('__el_test_unpaid_student__', 'enrolled') RETURNING id
+            """,
+        )
+        student_id = cur.fetchone()[0]
+    yield student_id
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM students WHERE id = %s', [student_id])
+
+
+@pytest.fixture
+def unpaid_membership_fixture(group_fixture, unpaid_student_fixture):
+    """Как membership_fixture, но БЕЗ оплаты — членство есть, payments нет."""
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+            VALUES (%s, %s, 0, true) RETURNING id
+            """,
+            [group_fixture, unpaid_student_fixture],
+        )
+        membership_id = cur.fetchone()[0]
+    yield membership_id
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+
+
+@pytest.fixture
+def missed_lesson_unpaid_fixture(
+    group_fixture, teacher_fixture, unpaid_student_fixture, unpaid_membership_fixture,
+):
+    """Уже проведённый урок группы, на котором unpaid_student_fixture (без
+    оплаты) отсутствовал — источник для тестов UnpaidAttendanceBlocked."""
+    from apps.lessons import services as lessons_services
+
+    result = lessons_services.create_lesson_full({
+        'lesson_date': '2026-04-02',
+        'group_id': group_fixture,
+        'teacher_id': teacher_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': unpaid_student_fixture, 'present': False}],
+    })
+    lesson_id = result['lesson_id']
+    yield lesson_id
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM extra_lesson_participants
+            WHERE assignment_id IN (
+                SELECT id FROM extra_lesson_assignments WHERE missed_lesson_id = %s
+            )
+            """,
+            [lesson_id],
+        )
+        cur.execute('DELETE FROM extra_lesson_assignments WHERE missed_lesson_id = %s', [lesson_id])
+        cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
+        cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+        cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+
+
 def _lessons_done(group_id: int, student_id: int):
     with connection.cursor() as cur:
         cur.execute(

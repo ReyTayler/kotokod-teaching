@@ -16,6 +16,7 @@ from apps.extra_lessons.models import (
     CANCELLED, DONE, SCHEDULED,
     ExtraLessonAssignment, ExtraLessonParticipant,
 )
+from apps.lessons.models import LessonAttendance
 
 
 def create_assignment(
@@ -99,6 +100,40 @@ def lock_assignment_for_record(assignment_id: int) -> Optional[dict]:
             'scheduled_date', 'duration_minutes',
             missed_lesson_group_id=F('missed_lesson__group_id'),
         )
+        .first()
+    )
+    return row
+
+
+def students_not_absent(missed_lesson_id: int, student_ids: list[int]) -> list[int]:
+    """
+    Среди student_ids возвращает тех, кто НЕ отмечен present=false на
+    missed_lesson_id (присутствовал на самом деле, либо вообще не участник
+    этого урока) — доп.урок компенсирует только реальное отсутствие, см.
+    apps.extra_lessons.services.create_assignment/exceptions.StudentNotAbsent.
+    """
+    absent_ids = set(
+        LessonAttendance.objects
+        .filter(lesson_id=missed_lesson_id, student_id__in=student_ids, present=False)
+        .values_list('student_id', flat=True)
+    )
+    return [sid for sid in student_ids if sid not in absent_ids]
+
+
+def lock_assignment_for_delete(assignment_id: int) -> Optional[dict]:
+    """
+    Блокирует строку назначения (SELECT ... FOR UPDATE) внутри atomic() —
+    авторитетная проверка status == DONE перед откатом факта, тот же паттерн,
+    что lock_assignment_for_record. Без этого два параллельных delete_fact()
+    оба прошли бы неблокирующую проверку статуса до atomic() и оба попытались
+    бы откатить/удалить один и тот же fact_lesson — второй упал бы
+    Lesson.DoesNotExist вместо чистого 404/409.
+    """
+    row = (
+        ExtraLessonAssignment.objects
+        .select_for_update()
+        .filter(id=assignment_id)
+        .values('id', 'status', 'missed_lesson_id', 'fact_lesson_id')
         .first()
     )
     return row

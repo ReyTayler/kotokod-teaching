@@ -153,6 +153,45 @@ def test_create_invalid_body_400(admin_client):
     assert resp.status_code == 400
 
 
+def test_create_blocked_when_student_was_not_absent(
+    admin_client, teacher_fixture, missed_lesson_fixture,
+):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO students (full_name, enrollment_status) "
+            "VALUES ('__el_api_present_student__', 'enrolled') RETURNING id"
+        )
+        present_student_id = cur.fetchone()[0]
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s, %s, true)',
+            [missed_lesson_fixture, present_student_id],
+        )
+    try:
+        resp = admin_client.post(
+            ADMIN_URL,
+            _create_payload(missed_lesson_fixture, teacher_fixture, present_student_id),
+            format='json',
+        )
+        assert resp.status_code == 400
+        assert 'error' in resp.data
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE student_id = %s', [present_student_id])
+            cur.execute('DELETE FROM students WHERE id = %s', [present_student_id])
+
+
+def test_create_blocked_when_student_has_no_paid_balance(
+    admin_client, teacher_fixture, missed_lesson_unpaid_fixture, unpaid_student_fixture,
+):
+    resp = admin_client.post(
+        ADMIN_URL,
+        _create_payload(missed_lesson_unpaid_fixture, teacher_fixture, unpaid_student_fixture),
+        format='json',
+    )
+    assert resp.status_code == 400
+    assert 'error' in resp.data
+
+
 def test_create_duplicate_assignment_409(
     admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
 ):
@@ -424,6 +463,26 @@ def test_record_conflict_when_already_done(
             cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [fact_lesson_id])
             cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [fact_lesson_id])
             cur.execute('DELETE FROM lessons WHERE id = %s', [fact_lesson_id])
+
+
+def test_record_blocked_when_student_balance_dropped(
+    admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
+):
+    created = admin_client.post(
+        ADMIN_URL,
+        _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
+        format='json',
+    ).data
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM payments WHERE student_id = %s', [student_fixture])
+    owner_client = teacher_client_for(teacher_fixture, '__el_unpaid_record__@test.local')
+    resp = owner_client.post(
+        f'{TEACHER_URL}/{created["id"]}/record',
+        {'attendance': [{'student_id': student_fixture, 'present': True}], 'record_url': None},
+        format='json',
+    )
+    assert resp.status_code == 400
+    assert 'error' in resp.data
 
 
 def test_record_invalid_body_400(teacher_client):
