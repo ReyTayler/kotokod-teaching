@@ -120,6 +120,12 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
   };
 
   const statusLabel = ENROLLMENT_STATUS_OPTIONS.find((o) => o.value === status)?.label || status;
+  // Прямой frozen→enrolled запрещён бэком (ValueError, 400) — выход из заморозки
+  // только через отдельную кнопку «Разморозить». Если этот модал открыт для уже
+  // замороженного ученика (initialStatus==='frozen'), не предлагаем тупиковый вариант.
+  const statusOptions = initialStatus === 'frozen'
+    ? ENROLLMENT_STATUS_OPTIONS.filter((o) => o.value !== 'enrolled')
+    : ENROLLMENT_STATUS_OPTIONS;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()} title="Изменить статус ученика">
@@ -128,7 +134,7 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
           <SelectInput
             value={status}
             onChange={(e) => setStatus(e.target.value as EnrollmentStatus)}
-            options={ENROLLMENT_STATUS_OPTIONS}
+            options={statusOptions}
           />
         </Field>
         <div className="status-form__hint">{STATUS_HELP[status]}</div>
