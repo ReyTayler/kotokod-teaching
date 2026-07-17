@@ -128,6 +128,36 @@ def test_decline_group_student(group_student):
 
 
 @pytest.mark.django_db
+def test_not_enrolled_group_student_leaves_deal_untouched(group_student):
+    """not_enrolled делит ветку с declined (отмена будущего плана + деактивация
+    членств), но, в отличие от declined, НЕ трогает сделку продления: это маркер
+    «сейчас нет активной группы», а не отток. Если кто-то по ошибке расширит гейт
+    `if new_status == 'declined':` на not_enrolled (или начнёт звать decline_deal
+    безусловно) — сделка уедет в 'lost' и тест упадёт."""
+    sid = group_student['student']
+    # Слепок сделки ДО вызова: стадия и outcome_at должны остаться нетронутыми.
+    deal_before = RenewalDeal.objects.get(student_id=sid)
+    stage_id_before = deal_before.stage_id
+    stage_key_before = deal_before.stage.key
+    assert deal_before.outcome_at is None  # свежая открытая сделка
+
+    services.change_student_status(
+        sid, 'not_enrolled', membership_ids=[group_student['membership']], actor=None)
+
+    s = Student.objects.get(id=sid)
+    assert s.enrollment_status == 'not_enrolled'
+    assert s.frozen_from is None and s.frozen_until is None
+    # Членство деактивировано так же, как при declined.
+    assert GroupMembership.objects.get(id=group_student['membership']).active is False
+
+    # КЛЮЧЕВОЕ: сделка НЕ тронута — та же стадия, outcome_at по-прежнему None.
+    deal_after = RenewalDeal.objects.get(student_id=sid)
+    assert deal_after.stage_id == stage_id_before
+    assert deal_after.stage.key == stage_key_before
+    assert deal_after.outcome_at is None
+
+
+@pytest.mark.django_db
 def test_resume_student_reenrolls(group_student):
     sid = group_student['student']
     services.change_student_status(
