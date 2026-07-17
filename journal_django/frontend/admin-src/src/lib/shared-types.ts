@@ -93,7 +93,8 @@ export interface Student {
   age: number | null;
   pm: string | null;
   enrollment_status: EnrollmentStatus;
-  frozen_until_month: number | null; // 1..12
+  frozen_from: string | null;
+  frozen_until: string | null;
   created_at: string;
 }
 
