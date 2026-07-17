@@ -1035,6 +1035,58 @@ def rebuild_group_plan(
     return {'written': len(rows), 'reason': reason}
 
 
+def preview_freeze(
+    group_id: int,
+    *,
+    frozen_from: datetime.date,
+    frozen_until: datetime.date,
+) -> dict:
+    """Дран-предпросмотр заморозки индивид-группы — НЕ пишет в БД, только читает.
+    Возвращает {'lesson_on_frozen_from': bool, 'first_lesson_after_resume': date|None}.
+
+    lesson_on_frozen_from — есть ли курсовой pending/overdue урок ровно на дату
+    frozen_from (для предупреждения «на эту дату стоит урок»).
+    first_lesson_after_resume — какой будет первая дата хвоста после перекладки
+    от frozen_until (тот же planner.relay_from_date, что использует
+    freeze_individual_group, только результат не сохраняется).
+
+    Зеркалит выборку хвоста и перекладку freeze_individual_group ровно, но
+    read-only: без select_for_update / bulk_update / транзакции (ничего не пишем).
+    Нет открытого слота или пустой хвост → first_lesson_after_resume=None (как и в
+    freeze_individual_group хвост в этих случаях не двигается)."""
+    lesson_on_frozen_from = PlannedLesson.objects.filter(
+        group_id=group_id, seq__isnull=False, status__in=_MUTABLE_STATUSES,
+        scheduled_date=frozen_from,
+    ).exists()
+
+    tail = list(
+        PlannedLesson.objects
+        .filter(group_id=group_id, seq__isnull=False,
+                status__in=_MUTABLE_STATUSES, scheduled_date__gte=frozen_from)
+        .order_by('seq')
+    )
+    first_lesson_after_resume = None
+    if tail:
+        g = (Group.objects.filter(id=group_id)
+             .values('lesson_duration_minutes').first())
+        slots = slots_by_group([group_id]).get(group_id, [])
+        open_slots = [s for s in slots if s.effective_to is None]
+        if g is not None and open_slots:
+            relaid = planner.relay_from_date(
+                [_row_from_model(p) for p in tail],
+                resume_date=frozen_until,
+                slots=open_slots,
+                duration_minutes=g['lesson_duration_minutes'],
+            )
+            if relaid:
+                first_lesson_after_resume = relaid[0].scheduled_date
+
+    return {
+        'lesson_on_frozen_from': lesson_on_frozen_from,
+        'first_lesson_after_resume': first_lesson_after_resume,
+    }
+
+
 def freeze_individual_group(
     group_id: int,
     *,

@@ -30,6 +30,7 @@ from apps.students.serializers import (
     StudentCommentWriteSerializer,
 )
 from apps.students.serializers import (
+    StudentFreezePreviewSerializer,
     StudentResumeSerializer,
     StudentStatusSerializer,
     StudentUpdateSerializer,
@@ -259,6 +260,33 @@ class StudentStatusView(APIView):
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(services.get_student(pk))
+
+
+class StudentFreezePreviewView(APIView):
+    """POST /api/admin/students/:id/status/preview — дран-превью заморозки (read-only).
+
+    Для каждого ИНДИВ-членства из membership_ids считает без записи в БД:
+    lesson_on_frozen_from (на дату frozen_from стоит урок?) и
+    first_lesson_after_resume (первая дата хвоста после перекладки от frozen_until).
+    Групповые membership_ids молча исключаются (у групп расписание не сдвигается).
+
+    Возвращает плоский словарь {membership_id: {...}} (ключи станут строками в JSON —
+    фронт ищет по id). Существование ученика НЕ проверяем: это stateless-вычисление,
+    скоуп задаётся самими membership_ids, а не статусом/наличием ученика; путь под
+    /students/:id — лишь для единообразия с /status и /resume."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        ser = StudentFreezePreviewSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        result = services.preview_freeze_schedule(
+            data['membership_ids'],
+            frozen_from=data['frozen_from'],
+            frozen_until=data['frozen_until'],
+        )
+        return Response(result)
 
 
 class StudentResumeView(APIView):

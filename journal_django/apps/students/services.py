@@ -216,6 +216,30 @@ def resume_student(student_id: int, *, actual_resume_date, actor=None) -> bool:
     return True
 
 
+def preview_freeze_schedule(membership_ids: list[int], *, frozen_from, frozen_until) -> dict:
+    """Для каждого индив-членства из membership_ids — дран-превью сдвига расписания
+    (apps.scheduling.repository.preview_freeze). Групповые membership_ids игнорируются
+    (превью только для индивидуальных — у групповых расписание не сдвигается).
+
+    active=True — та же область, что и у реальной заморозки (_affected_memberships
+    тоже берёт только активные): неактивное членство заморозка вообще не тронет,
+    так что превью не должно предсказывать сдвиг для того, чего не произойдёт.
+
+    Read-only: ничего не пишет в БД. Ключ результата — id членства; значение —
+    {'lesson_on_frozen_from': bool, 'first_lesson_after_resume': date|None}."""
+    from apps.memberships.models import GroupMembership
+    from apps.scheduling import repository as sched_repo
+
+    result = {}
+    memberships = (GroupMembership.objects
+                   .filter(id__in=membership_ids, group__is_individual=True, active=True)
+                   .values('id', 'group_id'))
+    for m in memberships:
+        result[m['id']] = sched_repo.preview_freeze(
+            m['group_id'], frozen_from=frozen_from, frozen_until=frozen_until)
+    return result
+
+
 def _actor_id(actor) -> Optional[int]:
     """Account.id из actor (request.user) или None."""
     return getattr(actor, 'id', None)
