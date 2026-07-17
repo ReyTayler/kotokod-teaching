@@ -10,6 +10,8 @@ StudentUpdateSerializer — ввод для PATCH (updateStudentSchema, все �
 """
 from __future__ import annotations
 
+from datetime import date
+
 from rest_framework import serializers
 
 from apps.core.fields import DateStringField
@@ -137,3 +139,30 @@ class StudentCommentWriteSerializer(serializers.Serializer):
         if not stripped:
             raise serializers.ValidationError('body must not be blank')
         return stripped
+
+
+class StudentStatusSerializer(serializers.Serializer):
+    """Ввод POST /students/:id/status. frozen ⟺ обе даты; membership_ids опц."""
+    status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES)
+    frozen_from = DateStringField(required=False, allow_null=True)
+    frozen_until = DateStringField(required=False, allow_null=True)
+    membership_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, allow_empty=True)
+
+    def validate(self, data: dict) -> dict:
+        if data['status'] == 'frozen':
+            if not data.get('frozen_from') or not data.get('frozen_until'):
+                raise serializers.ValidationError(
+                    'frozen requires frozen_from and frozen_until')
+            if date.fromisoformat(data['frozen_from']) > date.fromisoformat(data['frozen_until']):
+                raise serializers.ValidationError('frozen_from must be <= frozen_until')
+        else:
+            if data.get('frozen_from') or data.get('frozen_until'):
+                raise serializers.ValidationError(
+                    'frozen_from/frozen_until only allowed for frozen status')
+        return data
+
+
+class StudentResumeSerializer(serializers.Serializer):
+    """Ввод POST /students/:id/resume."""
+    actual_resume_date = DateStringField()

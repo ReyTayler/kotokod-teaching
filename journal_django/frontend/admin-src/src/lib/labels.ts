@@ -63,6 +63,8 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'student.create':                'Новый ученик',
   'student.update':                'Правка ученика',
   'student.delete':                'Ученик в архив',
+  'student.status':                'Смена статуса ученика',
+  'student.resume':                'Выход из заморозки',
   'discount.create':               'Новая скидка',
   'discount.update':               'Правка скидки',
   'discount.delete':               'Скидка в архив',

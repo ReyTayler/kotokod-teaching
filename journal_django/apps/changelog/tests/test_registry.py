@@ -40,6 +40,8 @@ def test_operation_from_url():
     assert labels.resolve_operation('POST', '/api/admin/groups/5/plan/12/reschedule') == 'plan.reschedule'
     assert labels.resolve_operation('POST', '/api/submitLesson') == 'lesson.submit'
     assert labels.resolve_operation('DELETE', '/api/admin/payments/9') == 'payment.delete'
+    assert labels.resolve_operation('POST', '/api/admin/students/7/status') == 'student.status'
+    assert labels.resolve_operation('POST', '/api/admin/students/7/resume') == 'student.resume'
     assert labels.resolve_operation('GET', '/api/admin/groups') == 'other'
 
 

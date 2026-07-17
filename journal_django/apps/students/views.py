@@ -29,7 +29,12 @@ from apps.students.serializers import (
     StudentCommentSerializer,
     StudentCommentWriteSerializer,
 )
-from apps.students.serializers import StudentUpdateSerializer, StudentWriteSerializer
+from apps.students.serializers import (
+    StudentResumeSerializer,
+    StudentStatusSerializer,
+    StudentUpdateSerializer,
+    StudentWriteSerializer,
+)
 
 # Допустимые значения sort_by (whitelist)
 ORDERING_FIELDS = [
@@ -227,3 +232,46 @@ class StudentRefundView(APIView):
         if result.get('error') == 'nothing_to_refund':
             return Response({'error': 'nothing_to_refund'}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result, status=status.HTTP_201_CREATED)
+
+
+class StudentStatusView(APIView):
+    """POST /api/admin/students/:id/status — смена статуса с каскадом. 404 если нет.
+
+    400 при frozen→enrolled напрямую (services.change_student_status бросает
+    ValueError — используйте /resume для выхода из заморозки)."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        ser = StudentStatusSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        try:
+            ok = services.change_student_status(
+                pk, data['status'],
+                frozen_from=data.get('frozen_from'),
+                frozen_until=data.get('frozen_until'),
+                membership_ids=data.get('membership_ids'),
+                actor=request.user,
+            )
+        except ValueError as exc:
+            raise ValidationError({'error': str(exc)})
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response(services.get_student(pk))
+
+
+class StudentResumeView(APIView):
+    """POST /api/admin/students/:id/resume — выход из заморозки. 404 если нет/не заморожен."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        ser = StudentResumeSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ok = services.resume_student(
+            pk, actual_resume_date=ser.validated_data['actual_resume_date'],
+            actor=request.user)
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response(services.get_student(pk))
