@@ -23,3 +23,20 @@ class UnpaidAttendanceBlocked(Exception):
         super().__init__(
             f'У учеников без оплаченных уроков нельзя отметить посещение: {names}.'
         )
+
+
+class SystemLessonProtected(Exception):
+    """
+    Попытка изменить/удалить системный урок (lesson_type='extra'/'burned') через
+    общий CRUD /api/admin/lessons. Такие уроки — факты доп.урока/сгорания,
+    ими владеет раздел «Доп.уроки» (apps.extra_lessons); менять/удалять их можно
+    только откатом оттуда, не общим списком уроков.
+    """
+
+    def __init__(self, lesson_type: str) -> None:
+        self.lesson_type = lesson_type
+        label = 'сгоревший урок' if lesson_type == 'burned' else 'доп.урок'
+        super().__init__(
+            f'Это системный {label} — изменить или удалить его можно только '
+            f'через раздел «Доп.уроки», не через общий список уроков.'
+        )

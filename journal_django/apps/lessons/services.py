@@ -17,8 +17,25 @@ from django.db import transaction
 
 from apps.groups.models import Group
 from apps.lessons import repository
+from apps.lessons.exceptions import SystemLessonProtected
+from apps.lessons.models import Lesson
 from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.scheduling.repository import link_facts
+
+# Подтипы уроков, которыми владеет apps.extra_lessons (факты доп.урока/сгорания).
+# Общий CRUD /api/admin/lessons их не трогает — только откат из раздела «Доп.уроки».
+# 'burned' появится в Фазе 2; включён заранее (таких строк ещё нет — безвредно).
+_SYSTEM_LESSON_TYPES = ('extra', 'burned')
+
+
+def _assert_not_system_lesson(lesson_id: int) -> None:
+    """Бросает SystemLessonProtected, если урок — системный (extra/burned).
+    No-op для несуществующего урока (тип None) — тогда работает обычный путь 404."""
+    lesson_type = (
+        Lesson.objects.filter(id=lesson_id).values_list('lesson_type', flat=True).first()
+    )
+    if lesson_type in _SYSTEM_LESSON_TYPES:
+        raise SystemLessonProtected(lesson_type)
 
 
 def _step(duration_minutes) -> Decimal:
@@ -155,6 +172,7 @@ def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
 
 
 def delete_lesson_full(lesson_id: int) -> bool:
+    _assert_not_system_lesson(lesson_id)
     return repository.delete_lesson_full(lesson_id)
 
 

@@ -415,3 +415,49 @@ def test_payroll_visible_only_to_superadmin(
         assert all('payment' not in r and 'penalty' not in r for r in rows_admin)
     finally:
         _delete_lesson(lesson_id)
+
+
+def _make_extra_lesson() -> tuple[int, int, int, int]:
+    """teacher+direction+group + Lesson(lesson_type='extra'). → (lesson_id, group_id, teacher_id, direction_id)."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO teachers (name) VALUES ('__les_extra_t__') RETURNING id")
+        tid = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO directions (name, is_individual, active) "
+            "VALUES ('__les_extra_d__', false, true) RETURNING id")
+        did = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active) "
+            "VALUES ('__les_extra_g__', %s, %s, false, 60, true) RETURNING id", [did, tid])
+        gid = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+            "lesson_duration_minutes, lesson_type, submitted_by_token) "
+            "VALUES (%s,%s,'2026-04-01',1,60,'extra','__les_extra__') RETURNING id", [gid, tid])
+        lid = cur.fetchone()[0]
+    return lid, gid, tid, did
+
+
+def _cleanup_extra(lid: int, gid: int, tid: int, did: int) -> None:
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lid])
+        cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lid])
+        cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
+        cur.execute('DELETE FROM groups WHERE id = %s', [gid])
+        cur.execute('DELETE FROM directions WHERE id = %s', [did])
+        cur.execute('DELETE FROM teachers WHERE id = %s', [tid])
+
+
+def test_delete_extra_lesson_blocked_409():
+    """Факт доп.урока (lesson_type='extra') нельзя удалить через общий CRUD → 409, урок цел."""
+    lid, gid, tid, did = _make_extra_lesson()
+    try:
+        resp = _client('admin').delete(f'{BASE_URL}/{lid}')
+        assert resp.status_code == 409
+        assert 'error' in resp.json()
+        with connection.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM lessons WHERE id = %s', [lid])
+            assert cur.fetchone()[0] == 1
+    finally:
+        _cleanup_extra(lid, gid, tid, did)

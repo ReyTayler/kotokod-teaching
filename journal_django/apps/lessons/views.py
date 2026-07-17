@@ -29,7 +29,7 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import ReadStaffWriteAdmin
 from apps.lessons import services
-from apps.lessons.exceptions import UnpaidAttendanceBlocked
+from apps.lessons.exceptions import SystemLessonProtected, UnpaidAttendanceBlocked
 from apps.lessons.serializers import (
     AttendanceUpdateSerializer,
     LessonCreateSerializer,
@@ -166,7 +166,10 @@ class LessonDetailView(APIView):
         return Response(updated)
 
     def delete(self, request: Request, pk: int) -> Response:
-        ok = services.delete_lesson_full(pk)
+        try:
+            ok = services.delete_lesson_full(pk)
+        except SystemLessonProtected as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)
