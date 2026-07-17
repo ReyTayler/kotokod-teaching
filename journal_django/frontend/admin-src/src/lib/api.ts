@@ -8,6 +8,22 @@ export class ApiError extends Error {
   }
 }
 
+// custom_exception_handler на бэке всегда заворачивает ValidationError как
+// {error: 'Validation failed', details: {...}} — реальное человеко-читаемое
+// сообщение (см. например StudentStatusSerializer.validate, где ValueError
+// заворачивается в ValidationError({'error': str(exc)})) лежит внутри
+// `details` под одним из полевых ключей. Без этой распаковки пользователь
+// увидит только общее «Validation failed».
+export function extractErrorDetail(details: unknown): string | undefined {
+  if (!details || typeof details !== 'object') return undefined;
+  const d = details as Record<string, unknown>;
+  for (const key of ['error', 'non_field_errors', 'status', 'frozen_from', 'frozen_until']) {
+    const v = d[key];
+    if (Array.isArray(v) && v.length > 0) return String(v[0]);
+  }
+  return undefined;
+}
+
 // Методы, не требующие CSRF-токена (RFC 7231 safe methods).
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
 

@@ -1045,3 +1045,31 @@
 /* Матрица посещаемости «Прогресс» переехала в shared/progress/progress.css
    (общая с teacher SPA — страница группы). */
 
+/* ── STUDENT STATUS MODAL / RESUME DIALOG ── */
+.status-form { display: flex; flex-direction: column; gap: 16px; }
+.status-form__hint { font-size: 13px; color: var(--text3); line-height: 1.5; }
+.status-form__warn {
+  font-size: 13px;
+  color: var(--amber);
+  background: color-mix(in oklab, var(--amber) 8%, transparent);
+  border: 1px solid color-mix(in oklab, var(--amber) 25%, transparent);
+  border-radius: var(--r);
+  padding: 10px 14px;
+}
+.status-form__group { display: flex; flex-direction: column; gap: 10px; }
+.status-form__group-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--text3);
+}
+.status-form__subgroup { display: flex; flex-direction: column; gap: 6px; }
+.status-form__subgroup-label { font-size: 12px; font-weight: 600; color: var(--text4); }
+.status-form__summary { font-size: 14px; color: var(--text2); padding: 4px 0; }
+.status-form__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+

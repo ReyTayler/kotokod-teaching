@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, Navigate, useSearchParams } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useStudent } from '../../hooks/useStudents';
 import { useGroupsAll } from '../../hooks/useGroups';
 import { useDirections } from '../../hooks/useDirections';
+import { useMemberships } from '../../hooks/useMemberships';
+import { useApiError } from '../../hooks/useApiError';
 import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
 import { StatusBadge } from '../../components/StatusBadge';
 import { MembershipsBlock } from '../../components/memberships/MembershipsBlock';
@@ -10,7 +13,12 @@ import { TransferMembershipModal } from '../../components/memberships/TransferMe
 import { DirTag } from '../../components/ui/DirTag';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
+import { Dialog } from '../../components/ui/Dialog';
+import { DateInput } from '../../components/form/DateInput';
+import { Field } from '../../components/form/Field';
+import { useToast } from '../../components/ui/Toast';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
+import { api, ApiError, extractErrorDetail } from '../../lib/api';
 import { fmtDate, fmtDateTime } from '../../lib/format';
 import type { GroupMembership, Student } from '../../lib/types';
 import StudentFormModal from './StudentFormModal';
@@ -19,6 +27,56 @@ import StudentKpiRow from './StudentKpiRow';
 import { StudentBalanceBlock } from './StudentBalanceBlock';
 import StudentCommentsBlock from './StudentCommentsBlock';
 import { useLatestStudentComment } from '../../hooks/useStudentComments';
+import { StudentStatusModal } from './StudentStatusModal';
+
+// ── Мини-диалог разморозки: POST /students/:id/resume, отдельно от общей
+// смены статуса (там действует запрет frozen→enrolled напрямую). ──
+function StudentResumeDialog({ student, onClose }: { student: Student; onClose: () => void }) {
+  const qc = useQueryClient();
+  const showError = useApiError();
+  const { toast } = useToast();
+  const [date, setDate] = useState(student.frozen_until || '');
+
+  const mutation = useMutation({
+    mutationFn: () => api<Student>('POST', `/api/admin/students/${student.id}/resume`, {
+      actual_resume_date: date,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['students'] });
+      qc.invalidateQueries({ queryKey: ['memberships'] });
+      toast('Ученик разморожен', 'ok');
+      onClose();
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? extractErrorDetail(err.details) : undefined;
+      showError(detail ? new Error(detail) : err, 'Не удалось разморозить');
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title="Разморозить ученика">
+      <div className="status-form">
+        <Field label="Дата фактического возврата">
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <div className="status-form__hint">
+          Индивидуальные занятия перекладываются от этой даты, статус вернётся в «Учится».
+        </div>
+        <div className="status-form__footer">
+          <button type="button" className="btn-cancel" onClick={onClose}>Отмена</button>
+          <button
+            type="button"
+            className="btn-save"
+            onClick={() => mutation.mutate()}
+            disabled={!date || mutation.isPending}
+          >
+            Разморозить
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
 
 const STUDENT_TABS = ['learning', 'finance', 'comments'] as const;
 type StudentTab = (typeof STUDENT_TABS)[number];
@@ -35,10 +93,24 @@ export default function StudentDetailPage() {
   const { data: groups = [] } = useGroupsAll(true);
   const { data: directions = [] } = useDirections(true);
   const { data: lastComment } = useLatestStudentComment(id);
+  const { data: activeMemberships = [] } = useMemberships({ student_id: id });
   const [editing, setEditing] = useState(false);
   const [transferMembership, setTransferMembership] = useState<GroupMembership | null>(null);
+  const [changingStatus, setChangingStatus] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const { open: openPaymentModal } = usePaymentModal();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Мемберства ученика + is_individual группы (не приходит в GroupMembership,
+  // берём из уже загруженного списка групп) — прокидывается в StudentStatusModal.
+  const statusMemberships = useMemo(
+    () => activeMemberships.map((m) => ({
+      id: Number(m.id),
+      group_name: m.group_name || `#${m.group_id}`,
+      is_individual: groups.find((g) => g.id === m.group_id)?.is_individual ?? false,
+    })),
+    [activeMemberships, groups],
+  );
 
   const rawTab = searchParams.get('tab');
   const activeTab: StudentTab = isStudentTab(rawTab) ? rawTab : DEFAULT_TAB;
@@ -94,6 +166,14 @@ export default function StudentDetailPage() {
             </svg>
             Редактировать
           </button>
+          <button type="button" className="edit-btn" onClick={() => setChangingStatus(true)}>
+            Изменить статус
+          </button>
+          {student.enrollment_status === 'frozen' && (
+            <button type="button" className="edit-btn" onClick={() => setResuming(true)}>
+              Разморозить
+            </button>
+          )}
         </div>
       </div>
       <div className="student-hero__pills">
@@ -233,6 +313,18 @@ export default function StudentDetailPage() {
           />
         );
       })()}
+      {changingStatus && (
+        <StudentStatusModal
+          studentId={student.id}
+          open={changingStatus}
+          onClose={() => setChangingStatus(false)}
+          memberships={statusMemberships}
+          initialStatus={student.enrollment_status}
+        />
+      )}
+      {resuming && (
+        <StudentResumeDialog student={student} onClose={() => setResuming(false)} />
+      )}
     </>
   );
 }
