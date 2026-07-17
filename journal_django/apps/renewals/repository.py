@@ -262,7 +262,13 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
                    {DIRECTIONS_AGG_SQL} AS directions,
                    d.cycle_no,
                    d.next_touch_at, d.due_at, a.full_name AS assignee_name,
-                   EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage
+                   EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage,
+                   COALESCE((
+                       SELECT SUM(CASE WHEN l.lesson_duration_minutes = 45
+                                       THEN 0.5 ELSE 1 END)
+                       FROM lesson_attendance la
+                       JOIN lessons l ON l.id = la.lesson_id
+                       WHERE la.student_id = d.student_id AND la.present = true), 0) AS attended
             FROM renewal_deal d
             JOIN students s ON s.id = d.student_id
             LEFT JOIN accounts a ON a.id = d.assignee_id
@@ -271,7 +277,15 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
             LIMIT %s OFFSET %s
         """, base_params + [stage_id, limit, offset])
         cols = [c[0] for c in cur.description]
-        return _annotate_debt([dict(zip(cols, r)) for r in cur.fetchall()])
+        cards = [dict(zip(cols, r)) for r in cur.fetchall()]
+    # cycle_completed нужен фронту, чтобы во время drag'а скрыть зону
+    # «Продлён» для сделок с незавершённым циклом (move всё равно ответит
+    # 409, но так карточку туда даже не пытаются бросить, см. move_deal).
+    for c in cards:
+        attended = float(c.pop('attended') or 0)
+        into = attended - (c['cycle_no'] - 1) * cycle.LESSONS_PER_CYCLE
+        c['cycle_completed'] = into >= cycle.LESSONS_PER_CYCLE
+    return _annotate_debt(cards)
 
 
 def _annotate_debt(cards: list[dict]) -> list[dict]:

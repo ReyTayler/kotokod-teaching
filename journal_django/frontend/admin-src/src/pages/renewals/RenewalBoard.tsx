@@ -174,7 +174,12 @@ export function RenewalBoard({ filters, onOpen }: Props) {
       </div>
       {activeCard && (
         <div className="renewal-close-zones">
-          <CloseZone id="close-won" label="✓ Продлён" tone="won" />
+          {/* Пока цикл (4 урока) не завершён — «Продлён» вручную недоступен
+              (move всё равно ответит 409, см. transitions.py), поэтому зону
+              для такой сделки не показываем вовсе — нечего бросать мимо. */}
+          {activeCard.cycle_completed && (
+            <CloseZone id="close-won" label="✓ Продлён" tone="won" />
+          )}
           <CloseZone id="close-lost" label="✕ Ушёл" tone="lost" />
         </div>
       )}

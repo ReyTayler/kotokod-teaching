@@ -127,8 +127,45 @@ def test_board_card_has_ids_and_debt(manager_client, make_student, make_directio
         # направления ученика — справочный список активных membership
         assert [d['name'] for d in card['directions']] == ['__renew_card_dir__']
         assert card['debt'] is False  # оплат и посещений нет — баланс ровно 0, долга нет
+        # 0 уроков цикла — цикл не завершён (нужно фронту, чтобы скрыть
+        # зону «Продлён» при drag'е, см. RenewalBoard.tsx)
+        assert card['cycle_completed'] is False
     finally:
         with connection.cursor() as cur:
+            cur.execute('DELETE FROM renewal_activity WHERE deal_id IN '
+                        '(SELECT id FROM renewal_deal WHERE student_id = %s)', [sid])
+            cur.execute('DELETE FROM renewal_deal WHERE student_id = %s', [sid])
+            cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [gid])
+            cur.execute('DELETE FROM groups WHERE id = %s', [gid])
+
+
+@pytest.mark.django_db
+def test_board_card_cycle_completed_true_after_4_lessons(
+        manager_client, make_student, make_direction, make_teacher, make_attendance):
+    """Как только 4 урока цикла отработаны — карточка несёт cycle_completed=True."""
+    from django.db import connection
+    sid, did, tid = make_student(), make_direction('__renew_card_dir2__'), make_teacher()
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
+                    "VALUES ('__bc_group2__', %s, %s, false, true, now()) RETURNING id", [did, tid])
+        gid = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s,%s,0,true)", [gid, sid])
+    try:
+        from apps.renewals.models import RenewalDeal
+        engine.ensure_deal(sid, cycle_no=1)
+        make_attendance(sid, gid, tid, count=4)
+        deal = RenewalDeal.objects.get(student_id=sid)
+        engine.sync_lesson_stage(sid)
+        resp = manager_client.get(f'{BASE}?view=board')
+        cards = [c for col in resp.json()['columns'] for c in col['cards'] if c['id'] == deal.id]
+        assert cards, 'карточка сделки не попала на доску'
+        assert cards[0]['cycle_completed'] is True
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id IN '
+                        '(SELECT id FROM lessons WHERE group_id = %s)', [gid])
+            cur.execute('DELETE FROM lessons WHERE group_id = %s', [gid])
             cur.execute('DELETE FROM renewal_activity WHERE deal_id IN '
                         '(SELECT id FROM renewal_deal WHERE student_id = %s)', [sid])
             cur.execute('DELETE FROM renewal_deal WHERE student_id = %s', [sid])

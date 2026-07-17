@@ -34,6 +34,8 @@ export interface RenewalCard {
   days_in_stage: number;
   /** Баланс ученика < 0 — красный бейдж «Долг». */
   debt: boolean;
+  /** Отработаны ли все 4 урока текущего цикла — пока false, «Продлён» недоступен. */
+  cycle_completed: boolean;
 }
 
 export interface RenewalColumn {
