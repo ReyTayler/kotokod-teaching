@@ -154,8 +154,15 @@ class StudentStatusSerializer(serializers.Serializer):
             if not data.get('frozen_from') or not data.get('frozen_until'):
                 raise serializers.ValidationError(
                     'frozen requires frozen_from and frozen_until')
-            if date.fromisoformat(data['frozen_from']) > date.fromisoformat(data['frozen_until']):
+            d_from = date.fromisoformat(data['frozen_from'])
+            d_until = date.fromisoformat(data['frozen_until'])
+            if d_from > d_until:
                 raise serializers.ValidationError('frozen_from must be <= frozen_until')
+            # Возвращаем date-объекты (не строки): их получает services.change_student_status
+            # → planner.relay_from_date, где идёт date-арифметика (start + timedelta);
+            # строка + timedelta → TypeError (500). Ср. StudentFreezePreviewSerializer.
+            data['frozen_from'] = d_from
+            data['frozen_until'] = d_until
         else:
             if data.get('frozen_from') or data.get('frozen_until'):
                 raise serializers.ValidationError(
