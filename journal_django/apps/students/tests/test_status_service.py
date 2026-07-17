@@ -286,6 +286,86 @@ def test_resume_reactivates_only_genuinely_frozen_indiv_group(indiv_student):
 
 
 @pytest.mark.django_db
+def test_resume_leaves_active_never_frozen_indiv_group_untouched(indiv_student):
+    """Заморозка выбранного подмножества членств (wizard, per-membership чекбоксы):
+    у ученика ДВА активных индив-курса, замораживают ТОЛЬКО один (membership_ids).
+    Второй остаётся active=True — его расписание идёт своим чередом. resume_student
+    НЕ должен трогать этот второй курс: он никогда не был заморожен (заморозка всегда
+    деактивирует то, что трогает → active=True = не участвовал ни в какой заморозке).
+
+    Без фильтра active=False resume_individual_group отменил бы легальный будущий
+    extra в окне (шаг «а») и переложил бы курсовой хвост (шаг «б») ни в чём не
+    повинного, параллельно идущего курса — реальная порча расписания. Red/green:
+    без active=False этот тест падает, с ним — проходит."""
+    from apps.scheduling.models import PlannedLesson
+
+    sid = indiv_student['student']
+    frozen_mid = indiv_student['membership']  # курс A — его и замораживаем
+    ff = datetime.date(2026, 7, 8)            # frozen_from заморозки курса A
+
+    # Курс B — ВТОРОЙ активный индив-курс того же ученика (открытый слот ср 18:00),
+    # который НЕ замораживают. У него есть будущий extra (seq NULL) и курсовой хвост
+    # внутри окна заморозки A — оба должны остаться нетронутыми.
+    b = {}
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at) "
+            "VALUES ('__ist_B_indiv__', %s, %s, true, 60, 1, DATE '2026-07-01', true, NOW()) "
+            "RETURNING id",
+            [indiv_student['dir'], indiv_student['teacher']])
+        b['group'] = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_schedule_slots (group_id, day_of_week, start_time, effective_from) "
+            "VALUES (%s, 3, TIME '18:00', DATE '2000-01-01')", [b['group']])
+        # АКТИВНОЕ членство — курс B идёт нормально, его не замораживали.
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, active) "
+            "VALUES (%s, %s, true) RETURNING id", [b['group'], sid])
+        b['membership'] = cur.fetchone()[0]
+        # Будущий EXTRA (seq NULL + lesson_number NULL, CHECK seq_number_together)
+        # ВНУТРИ окна (>= frozen_from) — при баге отменяется (шаг «а»).
+        cur.execute(
+            "INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, "
+            "scheduled_time, teacher_id, status, created_at, updated_at) "
+            "VALUES (%s, NULL, NULL, %s, '18:00', %s, 'pending', NOW(), NOW()) RETURNING id",
+            [b['group'], datetime.date(2026, 7, 10), indiv_student['teacher']])
+        b['extra'] = cur.fetchone()[0]
+        # Курсовой хвост (seq задан, pending, >= frozen_from) — при баге переезжает (шаг «б»).
+        for seq, d in [(1, '2026-07-15'), (2, '2026-07-22')]:
+            cur.execute(
+                "INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, "
+                "scheduled_time, teacher_id, status, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, '18:00', %s, 'pending', NOW(), NOW()) RETURNING id",
+                [b['group'], seq, seq, d, indiv_student['teacher']])
+            b[f'tail{seq}'] = cur.fetchone()[0]
+
+    try:
+        # Замораживаем ТОЛЬКО курс A (по membership_ids). Курс B не трогаем.
+        services.change_student_status(
+            sid, 'frozen', frozen_from=ff, frozen_until=datetime.date(2026, 8, 5),
+            membership_ids=[frozen_mid], actor=None)
+        # Курс B не участвовал в заморозке — членство осталось активным.
+        assert GroupMembership.objects.get(id=b['membership']).active is True
+
+        services.resume_student(sid, actual_resume_date=datetime.date(2026, 8, 5), actor=None)
+
+        # Членство B всё ещё активно — его никто не должен был деактивировать/касаться.
+        assert GroupMembership.objects.get(id=b['membership']).active is True
+        # Будущий extra курса B НЕ отменён (при баге стал бы CANCELLED шагом «а»).
+        assert PlannedLesson.objects.get(id=b['extra']).status == 'pending'
+        # Курсовой хвост B на исходных датах (при баге переехал бы от 2026-08-05).
+        assert PlannedLesson.objects.get(id=b['tail1']).scheduled_date == datetime.date(2026, 7, 15)
+        assert PlannedLesson.objects.get(id=b['tail2']).scheduled_date == datetime.date(2026, 7, 22)
+    finally:
+        with connection.cursor() as cur:
+            cur.execute("DELETE FROM planned_lessons WHERE group_id=%s", [b['group']])
+            cur.execute("DELETE FROM group_memberships WHERE id=%s", [b['membership']])
+            cur.execute("DELETE FROM group_schedule_slots WHERE group_id=%s", [b['group']])
+            cur.execute("DELETE FROM groups WHERE id=%s", [b['group']])
+
+
+@pytest.mark.django_db
 def test_resume_conflict_on_taken_indiv_slot_rolls_back_everything(indiv_student):
     """Если за время заморозки в ту же индив-группу легально зашёл ДРУГОЙ ученик
     (active=true, пока членство замороженного было active=false — add_membership
