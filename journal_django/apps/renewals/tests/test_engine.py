@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from apps.renewals import engine, repository
 from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalStage
@@ -7,9 +9,14 @@ def _close_as_won(deal_id):
     """
     Продовый путь ручного закрытия «Продлён» — engine больше не закрывает
     сделки сам (см. signals.py), единственный путь — repository.move_deal.
+    Move→won разрешён только когда цикл отработан (решение пользователя
+    2026-07-17, см. test_api_write.py::test_move_to_won_before_cycle_completed_409) —
+    здесь это не тестируем (тесты этого файла — про респавн/reopen), поэтому
+    мокаем cycle_completed вместо реальной посещаемости на 4 урока.
     """
     won_id = RenewalStage.objects.get(pipeline__is_default=True, kind='won').id
-    return repository.move_deal(deal_id, won_id, None, author_id=None)
+    with patch('apps.renewals.engine.cycle_completed', return_value=True):
+        return repository.move_deal(deal_id, won_id, None, author_id=None)
 
 
 @pytest.mark.django_db

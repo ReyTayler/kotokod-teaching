@@ -130,14 +130,23 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
   const stageLabel = deal?.stage_label || (deal ? RENEWAL_STAGE_LABELS[deal.stage_key] : undefined);
   const isClosed = deal?.outcome_at != null;
-  // Прогресс-стадии («Не было урока», «Урок 1–3») двигает только движок по
-  // событиям — вручную выбрать их как новую стадию нельзя (бэк ответит 409).
-  // Исключение — текущая стадия сделки: если она прогрессная, показываем её
-  // в списке как есть (иначе выбранное значение SelectInput не найдёт себя
-  // среди опций), но других progress-стадий среди вариантов не будет.
+  // Правила ручных переходов (решение пользователя 2026-07-17), бэк проверяет
+  // то же самое (move → 409), но фронт не должен предлагать заведомо
+  // запрещённый выбор:
+  //  - на progress-стадию («Не было урока»/«Урок 1–3») вручную нельзя никогда
+  //    — двигает только движок. Исключение — текущая стадия сделки: если она
+  //    прогрессная, показываем её как есть (иначе SelectInput не найдёт
+  //    выбранное значение среди опций), других progress-стадий в списке нет;
+  //  - пока цикл (4 урока) не завершён — вручную можно только «Ушёл» и
+  //    авто-decision-стадии («Ждём оплату»/«Ждём продление», не «ручные»);
+  //    ручные decision-стадии («Думает» и т.п.) и «Продлён» — только после
+  //    завершения цикла.
+  const cycleDone = !!deal?.cycle_completed;
   const openStages = (stages || []).filter(
-    (s) => s.kind === 'decision' || (s.kind === 'progress' && s.id === deal?.stage_id));
-  const closeStages = (stages || []).filter((s) => s.kind === 'won' || s.kind === 'lost');
+    (s) => (s.kind === 'decision' && (s.is_auto || cycleDone))
+      || (s.kind === 'progress' && s.id === deal?.stage_id));
+  const closeStages = (stages || []).filter(
+    (s) => s.kind === 'lost' || (s.kind === 'won' && cycleDone));
 
   return (
     <div className="renewal-drawer-overlay" onClick={onClose}>

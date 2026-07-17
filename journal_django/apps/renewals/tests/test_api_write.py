@@ -34,27 +34,64 @@ def test_move_from_terminal_409(admin_client, make_student, make_direction):
 @pytest.mark.django_db
 def test_move_onto_progress_stage_409(admin_client, make_student, make_direction):
     """Прогресс-стадии («Не было урока»/«Урок N») двигает только движок по
-    событиям — ручной move на них запрещён, даже суперадмином."""
+    событиям — ручной move на них запрещён, даже суперадмином. Проверяем
+    и с progress-стадии, и с decision (awaiting_payment — единственная
+    decision-стадия, реально достижимая вручную до завершения цикла)."""
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, cycle_no=1)
-    admin_client.post(f'{BASE}/{deal.id}/move',
-                      {'to_stage_id': _stage_id('thinking')}, format='json')
     resp = admin_client.post(f'{BASE}/{deal.id}/move',
                              {'to_stage_id': _stage_id('lesson_1')}, format='json')
     assert resp.status_code == 409
 
+    admin_client.post(f'{BASE}/{deal.id}/move',
+                      {'to_stage_id': _stage_id('awaiting_payment')}, format='json')
+    resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                             {'to_stage_id': _stage_id('lesson_2')}, format='json')
+    assert resp.status_code == 409
+
 
 @pytest.mark.django_db
-def test_move_off_progress_stage_still_allowed(admin_client, make_student, make_direction):
-    """А увести сделку С прогресс-стадии вручную (например, сразу
-    заморозить свежесозданную) — по-прежнему можно."""
+def test_move_off_progress_stage_to_lost_allowed(admin_client, make_student, make_direction):
+    """Увести сделку С прогресс-стадии вручную в «Ушёл» — можно всегда,
+    даже свежесозданную (цикл не завершён)."""
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, cycle_no=1)
     assert deal.stage.key == 'no_lesson_yet'
     resp = admin_client.post(f'{BASE}/{deal.id}/move',
-                             {'to_stage_id': _stage_id('thinking')}, format='json')
+                             {'to_stage_id': _stage_id('churned')}, format='json')
     assert resp.status_code == 200
-    assert resp.json()['stage_key'] == 'thinking'
+    assert resp.json()['stage_key'] == 'churned'
+
+
+@pytest.mark.django_db
+def test_move_off_progress_stage_to_manual_decision_409(admin_client, make_student, make_direction):
+    """А вот в РУЧНУЮ decision-стадию («Думает» и т.п.) со свежесозданной
+    (цикл не завершён) сделки перевести нельзя — 409 (решение пользователя
+    2026-07-17). Авто-decision-стадия («Ждём оплату») — не «ручная»,
+    достижима в любой момент, см. test_move_to_decision."""
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                             {'to_stage_id': _stage_id('thinking')}, format='json')
+    assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+def test_move_to_won_before_cycle_completed_409(admin_client, make_student, make_direction):
+    """Нельзя вручную закрыть сделку как «Продлён», пока цикл (4 урока)
+    не отработан — ни с progress-стадии, ни с «Ждём оплату» (решение
+    пользователя 2026-07-17)."""
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                             {'to_stage_id': _stage_id('renewed')}, format='json')
+    assert resp.status_code == 409
+
+    admin_client.post(f'{BASE}/{deal.id}/move',
+                      {'to_stage_id': _stage_id('awaiting_payment')}, format='json')
+    resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                             {'to_stage_id': _stage_id('renewed')}, format='json')
+    assert resp.status_code == 409
 
 
 @pytest.mark.django_db
@@ -72,12 +109,17 @@ def test_move_to_won_respawns_next_cycle(admin_client, make_student, make_direct
     """
     Ручное продление (drag/диалог → won) — единственный путь закрытия сделки
     (оплата больше не закрывает её сама, см. signals.py): ставит outcome_at и
-    спавнит открытую сделку следующего цикла.
+    спавнит открытую сделку следующего цикла. Move→won разрешён только когда
+    цикл отработан (см. test_move_to_won_before_cycle_completed_409) — здесь
+    это не тестируем, поэтому мокаем cycle_completed, а не городим реальную
+    посещаемость (группа/членство/4 урока) ради несвязанной проверки респавна.
     """
+    from unittest.mock import patch
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, cycle_no=1)
-    resp = admin_client.post(f'{BASE}/{deal.id}/move',
-                             {'to_stage_id': _stage_id('renewed')}, format='json')
+    with patch('apps.renewals.engine.cycle_completed', return_value=True):
+        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                                 {'to_stage_id': _stage_id('renewed')}, format='json')
     assert resp.status_code == 200
     body = resp.json()
     assert body['stage_key'] == 'renewed'
@@ -91,6 +133,7 @@ def test_move_to_won_respawns_next_cycle(admin_client, make_student, make_direct
 def test_move_to_won_skips_taken_closed_cycle(admin_client, make_student, make_direction):
     """Если цикл N+1 уже занят закрытой сделкой (после reopen/возврата),
     респавн перешагивает его — открытая сделка не теряется."""
+    from unittest.mock import patch
     from django.utils import timezone
     from apps.renewals.models import RenewalDeal, RenewalPipeline
     sid, did = make_student(), make_direction()
@@ -100,8 +143,9 @@ def test_move_to_won_skips_taken_closed_cycle(admin_client, make_student, make_d
     RenewalDeal.objects.create(student_id=sid, cycle_no=2, pipeline=pipe,
                                stage=lost, outcome_at=timezone.now())
 
-    resp = admin_client.post(f'{BASE}/{deal.id}/move',
-                             {'to_stage_id': _stage_id('renewed')}, format='json')
+    with patch('apps.renewals.engine.cycle_completed', return_value=True):
+        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                                 {'to_stage_id': _stage_id('renewed')}, format='json')
     assert resp.status_code == 200
     assert RenewalDeal.objects.filter(
         student_id=sid, cycle_no=3, outcome_at__isnull=True).exists()

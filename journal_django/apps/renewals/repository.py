@@ -115,6 +115,7 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
     """Переместить сделку в стадию, записать активность, синхронизировать outcome/enrollment."""
     from django.db import transaction
     from django.utils import timezone
+    from apps.renewals import engine
     from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalStage
     from apps.renewals.transitions import assert_allowed, InvalidTransition
 
@@ -126,7 +127,8 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         if to_stage is None:
             raise InvalidTransition('Стадия не принадлежит воронке сделки')
         from_stage = deal.stage
-        assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind)
+        assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind,
+                       to_is_auto=to_stage.is_auto, cycle_completed=engine.cycle_completed(deal))
 
         deal.stage = to_stage
         deal.stage_entered_at = timezone.now()
@@ -143,7 +145,6 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         # signals.py). Спавним следующий цикл, перешагивая занятые закрытые
         # номера (переоткрытия/возвраты могли оставить «дыру»).
         if to_stage.kind == 'won':
-            from apps.renewals import engine
             next_cycle = engine.next_open_cycle_no(deal.student_id, deal.cycle_no + 1)
             engine.ensure_deal(deal.student_id, next_cycle, assignee_id=deal.assignee_id)
     return deal_computed(deal_id)

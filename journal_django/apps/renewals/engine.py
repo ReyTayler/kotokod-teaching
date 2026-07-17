@@ -64,6 +64,20 @@ def _attended_total(student_id: int) -> float:
         return float(cur.fetchone()[0] or 0)
 
 
+def cycle_completed(deal: RenewalDeal) -> bool:
+    """
+    Отработаны ли все 4 урока ТЕКУЩЕГО цикла сделки — по факту посещаемости,
+    независимо от того, на какой стадии она сейчас сидит (прогресс-стадия
+    или «Ждём оплату» — обе бывают ДО завершения цикла, «Ждём оплату» просто
+    когда деньги кончились раньше). Ворота для ручных переходов
+    (repository.move_deal): пока цикл не завершён, вручную можно поставить
+    только «Ушёл» — решение пользователя 2026-07-17.
+    """
+    attended = _attended_total(deal.student_id)
+    into = attended - (deal.cycle_no - 1) * cycle.LESSONS_PER_CYCLE
+    return into >= cycle.LESSONS_PER_CYCLE
+
+
 @transaction.atomic
 def ensure_deal(student_id: int, cycle_no: int,
                 assignee_id: Optional[int] = None) -> RenewalDeal:
