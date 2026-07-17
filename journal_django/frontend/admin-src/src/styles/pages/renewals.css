@@ -254,6 +254,22 @@
   font-weight: 700;
   font-size: 13px;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Пометка на колонке прогресс-стадии — сюда нельзя перетащить карточку
+   вручную, двигает только движок. */
+.renewal-col__auto-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
 }
 
 .renewal-col__stats {

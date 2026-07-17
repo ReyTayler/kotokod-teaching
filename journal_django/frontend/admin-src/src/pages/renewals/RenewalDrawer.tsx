@@ -130,7 +130,13 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
   const stageLabel = deal?.stage_label || (deal ? RENEWAL_STAGE_LABELS[deal.stage_key] : undefined);
   const isClosed = deal?.outcome_at != null;
-  const openStages = (stages || []).filter((s) => s.kind === 'progress' || s.kind === 'decision');
+  // Прогресс-стадии («Не было урока», «Урок 1–3») двигает только движок по
+  // событиям — вручную выбрать их как новую стадию нельзя (бэк ответит 409).
+  // Исключение — текущая стадия сделки: если она прогрессная, показываем её
+  // в списке как есть (иначе выбранное значение SelectInput не найдёт себя
+  // среди опций), но других progress-стадий среди вариантов не будет.
+  const openStages = (stages || []).filter(
+    (s) => s.kind === 'decision' || (s.kind === 'progress' && s.id === deal?.stage_id));
   const closeStages = (stages || []).filter((s) => s.kind === 'won' || s.kind === 'lost');
 
   return (

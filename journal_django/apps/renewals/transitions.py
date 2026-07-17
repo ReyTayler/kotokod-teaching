@@ -12,7 +12,13 @@ _TERMINAL = {'won', 'lost'}
 def is_allowed(*, from_kind: str, to_kind: str) -> bool:
     if from_kind in _TERMINAL:
         return False
-    return to_kind in {'progress', 'decision', 'won', 'lost'}
+    if to_kind == 'progress':
+        # Прогресс-стадии («Не было урока», «Урок 1–3») двигает только движок
+        # по событиям посещаемости/оплаты — вручную поставить сделку на
+        # конкретный урок цикла нельзя (решение пользователя 2026-07-17).
+        # Уйти С прогресс-стадии вручную (в decision/won/lost) по-прежнему можно.
+        return False
+    return to_kind in {'decision', 'won', 'lost'}
 
 
 def assert_allowed(*, from_kind: str, to_kind: str) -> None:

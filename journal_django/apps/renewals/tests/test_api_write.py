@@ -32,6 +32,32 @@ def test_move_from_terminal_409(admin_client, make_student, make_direction):
 
 
 @pytest.mark.django_db
+def test_move_onto_progress_stage_409(admin_client, make_student, make_direction):
+    """Прогресс-стадии («Не было урока»/«Урок N») двигает только движок по
+    событиям — ручной move на них запрещён, даже суперадмином."""
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    admin_client.post(f'{BASE}/{deal.id}/move',
+                      {'to_stage_id': _stage_id('thinking')}, format='json')
+    resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                             {'to_stage_id': _stage_id('lesson_1')}, format='json')
+    assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+def test_move_off_progress_stage_still_allowed(admin_client, make_student, make_direction):
+    """А увести сделку С прогресс-стадии вручную (например, сразу
+    заморозить свежесозданную) — по-прежнему можно."""
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    assert deal.stage.key == 'no_lesson_yet'
+    resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                             {'to_stage_id': _stage_id('thinking')}, format='json')
+    assert resp.status_code == 200
+    assert resp.json()['stage_key'] == 'thinking'
+
+
+@pytest.mark.django_db
 def test_move_to_stage_outside_pipeline_409(admin_client, make_student, make_direction):
     """to_stage_id, которого нет в воронке сделки → InvalidTransition → 409, не 500."""
     sid, did = make_student(), make_direction()

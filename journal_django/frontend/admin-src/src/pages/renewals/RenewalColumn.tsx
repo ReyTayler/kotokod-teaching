@@ -13,7 +13,13 @@ interface Props {
 }
 
 export function RenewalColumn({ col, filters, onOpen }: Props) {
-  const { setNodeRef, isOver } = useDroppable({ id: col.stage_id });
+  // Прогресс-стадии («Не было урока», «Урок 1–3») двигает только движок по
+  // событиям посещаемости/оплаты — вручную перетащить карточку СЮДА нельзя
+  // (droppable отключён), бэк на move в такую стадию тоже ответит 409.
+  // Забрать карточку ИЗ такой колонки (заморозить, отметить ушедшим) можно —
+  // здесь не ограничено, драг карточки из колонки не завязан на useDroppable.
+  const isAutoOnly = col.kind === 'progress';
+  const { setNodeRef, isOver } = useDroppable({ id: col.stage_id, disabled: isAutoOnly });
   const showError = useApiError();
 
   // Поиск по имени ученика в этой колонке. deferred — как в списках (не гоним
@@ -69,7 +75,14 @@ export function RenewalColumn({ col, filters, onOpen }: Props) {
       style={col.color ? { borderTopColor: col.color } : undefined}
     >
       <div className="renewal-col__head">
-        <span className="renewal-col__label">{col.label}</span>
+        <span className="renewal-col__label">
+          {col.label}
+          {isAutoOnly && (
+            <span className="renewal-col__auto-badge" title="Двигает только система по событиям — вручную перенести сделку сюда нельзя">
+              авто
+            </span>
+          )}
+        </span>
         <span className="renewal-col__stats">{count}</span>
       </div>
 
