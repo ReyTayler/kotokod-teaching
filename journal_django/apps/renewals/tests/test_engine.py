@@ -9,11 +9,17 @@ def _close_as_won(deal_id):
     """
     Продовый путь ручного закрытия «Продлён» — engine больше не закрывает
     сделки сам (см. signals.py), единственный путь — repository.move_deal.
-    Move→won разрешён только когда цикл отработан (решение пользователя
-    2026-07-17, см. test_api_write.py::test_move_to_won_before_cycle_completed_409) —
-    здесь это не тестируем (тесты этого файла — про респавн/reopen), поэтому
-    мокаем cycle_completed вместо реальной посещаемости на 4 урока.
+    Move→won разрешён только с РУЧНОЙ decision-стадии и когда цикл отработан
+    (решение пользователя 2026-07-17, см. test_api_write.py::
+    test_move_to_won_before_cycle_completed_409). Свежая сделка стоит на авто-
+    стадии, откуда руками уйти нельзя (from_is_auto) — поэтому сперва ставим её
+    на ручную «Думает» напрямую через ORM (реальный путь «Продлён» идёт именно
+    с ручной decision-стадии), а cycle_completed мокаем вместо реальной
+    посещаемости на 4 урока (тесты этого файла — про респавн/reopen).
     """
+    deal = RenewalDeal.objects.get(id=deal_id)
+    deal.stage = RenewalStage.objects.get(pipeline=deal.pipeline, key='thinking')
+    deal.save(update_fields=['stage'])
     won_id = RenewalStage.objects.get(pipeline__is_default=True, kind='won').id
     with patch('apps.renewals.engine.cycle_completed', return_value=True):
         return repository.move_deal(deal_id, won_id, None, author_id=None)

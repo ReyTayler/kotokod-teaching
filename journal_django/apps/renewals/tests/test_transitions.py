@@ -1,59 +1,45 @@
-import pytest
-from apps.renewals import transitions
-from apps.renewals.transitions import InvalidTransition
+"""Правило переходов: НИ ОДНА авто-стадия не достижима и не покидается руками —
+их двигает только движок. Ручные decision→decision/won/lost — при завершённом цикле."""
+from apps.renewals.transitions import is_allowed
 
 
-def test_terminal_stages_are_frozen():
-    assert transitions.is_allowed(from_kind='won', to_kind='decision') is False
-    assert transitions.is_allowed(from_kind='lost', to_kind='progress') is False
+def test_cannot_move_onto_any_auto_stage():
+    # decision-авто (Ждём оплату/Ждём продление/Заморожен) — руками нельзя
+    assert not is_allowed(from_kind='decision', to_kind='decision',
+                          to_is_auto=True, cycle_completed=True)
+    # progress-авто — тоже нельзя
+    assert not is_allowed(from_kind='decision', to_kind='progress',
+                          to_is_auto=True, cycle_completed=True)
 
 
-def test_assert_raises():
-    with pytest.raises(InvalidTransition):
-        transitions.assert_allowed(from_kind='won', to_kind='decision')
+def test_cannot_move_off_auto_stage_even_to_lost():
+    # с авто-стадии (напр. Урок 1) руками никуда, включая Ушёл
+    assert not is_allowed(from_kind='progress', from_is_auto=True,
+                          to_kind='lost', to_is_auto=False, cycle_completed=True)
 
 
-def test_cannot_manually_move_onto_progress_stage():
-    """Прогресс-стадии («Не было урока»/«Урок N») двигает только движок —
-    вручную выставить сделку на конкретный урок цикла нельзя ни с decision,
-    ни с другой progress-стадии, независимо от cycle_completed."""
-    assert transitions.is_allowed(from_kind='decision', to_kind='progress', cycle_completed=True) is False
-    assert transitions.is_allowed(from_kind='decision', to_kind='progress', cycle_completed=False) is False
-    assert transitions.is_allowed(from_kind='progress', to_kind='progress', cycle_completed=False) is False
-    with pytest.raises(InvalidTransition):
-        transitions.assert_allowed(from_kind='decision', to_kind='progress')
+def test_manual_decision_to_lost_allowed_anytime():
+    assert is_allowed(from_kind='decision', from_is_auto=False,
+                      to_kind='lost', to_is_auto=False, cycle_completed=False)
 
 
-def test_auto_decision_stage_reachable_anytime():
-    """«Ждём оплату»/«Ждём продление» (kind='decision', is_auto=True) —
-    не «ручная» стадия: вручную встать на неё можно в любой момент, даже
-    если цикл ещё не завершён (например, «Ждём оплату» до 4-го урока)."""
-    assert transitions.is_allowed(
-        from_kind='progress', to_kind='decision', to_is_auto=True, cycle_completed=False) is True
-    assert transitions.is_allowed(
-        from_kind='decision', to_kind='decision', to_is_auto=True, cycle_completed=False) is True
+def test_manual_decision_to_decision_needs_completed_cycle():
+    assert not is_allowed(from_kind='decision', from_is_auto=False,
+                          to_kind='decision', to_is_auto=False, cycle_completed=False)
+    assert is_allowed(from_kind='decision', from_is_auto=False,
+                      to_kind='decision', to_is_auto=False, cycle_completed=True)
 
 
-def test_cycle_not_completed_blocks_manual_decision_and_won():
-    """Пока цикл не завершён — на РУЧНУЮ decision-стадию («Думает» и т.п.,
-    is_auto=False) и в «Продлён» нельзя, независимо от того, откуда уходим
-    (progress-стадия или «Ждём оплату» с ещё не отработанными 4 уроками).
-    «Ушёл» разрешён всегда (решение пользователя 2026-07-17)."""
-    for from_kind in ('progress', 'decision'):
-        assert transitions.is_allowed(
-            from_kind=from_kind, to_kind='lost', cycle_completed=False) is True
-        assert transitions.is_allowed(
-            from_kind=from_kind, to_kind='won', cycle_completed=False) is False
-        assert transitions.is_allowed(
-            from_kind=from_kind, to_kind='decision', to_is_auto=False, cycle_completed=False) is False
-    with pytest.raises(InvalidTransition):
-        transitions.assert_allowed(from_kind='decision', to_kind='won', cycle_completed=False)
+def test_manual_decision_to_won_needs_completed_cycle():
+    # «Продлён» из ручной decision-стадии — тоже под гейтом cycle_completed,
+    # не только decision→decision (test_api_write.py проверяет это end-to-end
+    # с авто-стадии, где срабатывает from_is_auto раньше — здесь закрываем
+    # ветку decision→won напрямую, минуя auto-lockout).
+    assert not is_allowed(from_kind='decision', from_is_auto=False,
+                          to_kind='won', cycle_completed=False)
+    assert is_allowed(from_kind='decision', from_is_auto=False,
+                      to_kind='won', cycle_completed=True)
 
 
-def test_cycle_completed_normal_rules_apply():
-    """Как только цикл завершён — обычные правила: ручная decision-стадия,
-    won, lost — все разрешены."""
-    assert transitions.is_allowed(
-        from_kind='decision', to_kind='decision', to_is_auto=False, cycle_completed=True) is True
-    assert transitions.is_allowed(from_kind='decision', to_kind='won', cycle_completed=True) is True
-    assert transitions.is_allowed(from_kind='decision', to_kind='lost', cycle_completed=True) is True
+def test_from_terminal_never_allowed():
+    assert not is_allowed(from_kind='won', to_kind='decision', cycle_completed=True)

@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from django.db import connection
 
-from apps.renewals import engine, repository
+from apps.renewals import engine
 from apps.renewals.models import RenewalDeal, RenewalPipeline, RenewalStage
 
 
@@ -85,9 +85,10 @@ def test_sync_lesson_stage_does_not_override_manual_decision(make_student, make_
                                                              make_attendance):
     """
     Ручные (не is_auto) стадии движок не трогает — «Думает» остаётся.
-    Move→ручная decision-стадия разрешён только после завершения цикла
-    (решение пользователя 2026-07-17) — поэтому сперва отрабатываем цикл
-    целиком, и только потом переводим сделку в «Думает».
+    После завершения цикла сделка стоит на авто-стадии «Ждём продление», уйти
+    с которой руками нельзя (from_is_auto, решение пользователя 2026-07-17),
+    поэтому ручную «Думает» ставим напрямую через ORM и проверяем, что
+    последующий sync её не перебивает.
     """
     sid, did, tid = make_student(), make_direction(), make_teacher()
     make_payment(sid, did, lessons=8)
@@ -97,7 +98,8 @@ def test_sync_lesson_stage_does_not_override_manual_decision(make_student, make_
         make_attendance(sid, gid, tid, count=4)
         engine.sync_lesson_stage(sid)
         thinking = RenewalStage.objects.get(pipeline=deal.pipeline, key='thinking')
-        repository.move_deal(deal.id, thinking.id, None, author_id=None)
+        deal.stage = thinking
+        deal.save(update_fields=['stage'])
 
         make_attendance(sid, gid, tid, count=3, start='2026-06-10')
         engine.sync_lesson_stage(sid)

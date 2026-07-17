@@ -128,7 +128,8 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
             raise InvalidTransition('Стадия не принадлежит воронке сделки')
         from_stage = deal.stage
         assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind,
-                       to_is_auto=to_stage.is_auto, cycle_completed=engine.cycle_completed(deal))
+                       from_is_auto=from_stage.is_auto, to_is_auto=to_stage.is_auto,
+                       cycle_completed=engine.cycle_completed(deal))
 
         deal.stage = to_stage
         deal.stage_entered_at = timezone.now()
