@@ -39,6 +39,8 @@ class Student(models.Model):
     pm = models.TextField(null=True, blank=True)
     enrollment_status = models.TextField(default='enrolled')
     frozen_until_month = models.IntegerField(null=True, blank=True)
+    frozen_from = models.DateField(null=True, blank=True)
+    frozen_until = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField()
 
     class Meta:
