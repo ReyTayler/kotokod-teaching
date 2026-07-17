@@ -26,3 +26,11 @@ def test_awaiting_renewal_stage_seeded():
     ap = RenewalStage.objects.get(pipeline=pipe, key='awaiting_payment')
     assert ar.is_auto and ap.is_auto and ar.kind == 'decision'
     assert ar.sort_order == ap.sort_order + 1
+
+
+@pytest.mark.django_db
+def test_frozen_stage_is_auto():
+    pipe = RenewalPipeline.objects.get(is_default=True)
+    frozen = RenewalStage.objects.get(pipeline=pipe, key='frozen')
+    assert frozen.is_auto is True
+    assert frozen.kind == 'decision'
