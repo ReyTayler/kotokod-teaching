@@ -88,6 +88,9 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['students'] });
       qc.invalidateQueries({ queryKey: ['memberships'] });
+      // frozen/declined каскадом двигают сделку продления (engine.freeze_deal/
+      // decline_deal) — без этого канбан-доска не отразит перенос карточки.
+      qc.invalidateQueries({ queryKey: ['renewals'] });
       toast('Статус изменён', 'ok');
       onClose();
     },

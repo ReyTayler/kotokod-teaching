@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
@@ -7,10 +7,15 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRenewalBoard, useRenewalMutations } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useApiError } from '../../hooks/useApiError';
+import { useMemberships } from '../../hooks/useMemberships';
+import { useGroupsAll } from '../../hooks/useGroups';
+import { useToast } from '../../components/ui/Toast';
 import { RenewalColumn } from './RenewalColumn';
 import { RenewalCardContent } from './RenewalCardView';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
+import { StudentStatusModal } from '../students/StudentStatusModal';
 import type { RenewalBoard as RenewalBoardData, RenewalCard, RenewalFilters } from '../../lib/renewals';
+import type { EnrollmentStatus } from '../../lib/types';
 
 interface Props {
   filters: RenewalFilters;
@@ -39,12 +44,42 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   const { data: stages } = useRenewalStages();
   const { move, comment } = useRenewalMutations();
   const showError = useApiError();
+  const { toast } = useToast();
 
   // Карточка, которую сейчас тащат — рендерится отдельно в DragOverlay (портал
   // в document.body), чтобы не обрезаться overflow колонки и не уезжать под неё.
   const [activeCard, setActiveCard] = useState<RenewalCard | null>(null);
   // Сделка, ожидающая подтверждения закрытия в диалоге (drop на зону закрытия).
   const [closeTarget, setCloseTarget] = useState<CloseDialogTarget | null>(null);
+  // Ученик, для которого дроп на «Заморожен»/«Ушёл» открыл смену статуса —
+  // сделка переедет в нужную стадию сама, каскадом (engine.freeze_deal/decline_deal).
+  const [statusModalStudent, setStatusModalStudent] = useState<
+    { id: number; initialStatus: EnrollmentStatus } | null
+  >(null);
+
+  // Мемберства ученика, на которого сейчас бросили карточку — тот же паттерн,
+  // что и в StudentDetailPage. Хуки вызываются безусловно (правила хуков);
+  // без выбранного ученика useMemberships отключён (enabled: !!student_id).
+  const { data: groupsAll = [] } = useGroupsAll(true);
+  const { data: statusRawMemberships = [], isSuccess: statusMembershipsReady, isError: statusMembershipsFailed } =
+    useMemberships({ student_id: statusModalStudent?.id });
+  const statusMemberships = useMemo(
+    () => statusRawMemberships.map((m) => ({
+      id: Number(m.id),
+      group_name: m.group_name || `#${m.group_id}`,
+      is_individual: groupsAll.find((g) => g.id === m.group_id)?.is_individual ?? false,
+    })),
+    [statusRawMemberships, groupsAll],
+  );
+
+  // Если запрос членств для брошенной карточки упал — не оставляем менеджера
+  // с молчаливым «дроп в никуда»: закрываем ожидание и показываем тост.
+  useEffect(() => {
+    if (statusMembershipsFailed && statusModalStudent) {
+      toast('Не удалось загрузить членства ученика — попробуйте ещё раз', 'error');
+      setStatusModalStudent(null);
+    }
+  }, [statusMembershipsFailed, statusModalStudent, toast]);
 
   // Терминальные стадии больше не колонки — их id нужны только для move при закрытии.
   const wonStage = (stages || []).find((s) => s.kind === 'won');
@@ -76,16 +111,27 @@ export function RenewalBoard({ filters, onOpen }: Props) {
     if (!over) return;
     const dealId = Number(active.id);
 
-    // Бросили в зону закрытия — НЕ закрываем молча, открываем диалог
-    // (причина для «Ушёл», выбор «оплата/без оплаты» для «Продлён»).
-    if (over.id === 'close-won' || over.id === 'close-lost') {
+    // Зона «Ушёл» — терминальная стадия 'churned' (kind='lost') не показана
+    // колонкой на доске (board() её исключает), это единственный способ на
+    // неё «бросить». Смену стадии сделки здесь больше не делаем сами — она
+    // произойдёт каскадом внутри смены статуса ученика (engine.decline_deal),
+    // поэтому вместо RenewalCloseDialog открываем StudentStatusModal.
+    if (over.id === 'close-lost') {
+      const card = dragCard(event);
+      if (card) setStatusModalStudent({ id: card.student_id, initialStatus: 'declined' });
+      return;
+    }
+
+    // Зона «Продлён» — по-прежнему ручное решение менеджера с диалогом
+    // (оплата сама по себе не закрывает сделку, см. RenewalCloseDialog).
+    if (over.id === 'close-won') {
       const card = dragCard(event);
       if (card) {
         setCloseTarget({
           dealId,
           studentId: card.student_id,
           studentName: card.student_name,
-          mode: over.id === 'close-won' ? 'won' : 'lost',
+          mode: 'won',
         });
       }
       return;
@@ -94,6 +140,22 @@ export function RenewalBoard({ filters, onOpen }: Props) {
     const toStageId = Number(over.id);
     const fromStageId = dragFromStage(event);
     if (fromStageId === toStageId) return; // бросили в тот же столбец — не трогаем
+
+    // Авто-стадии двигает только движок (transitions.is_allowed блокирует
+    // ручной вход) — колонка «Урок 1–4» вообще не droppable (RenewalColumn),
+    // но «Ждём оплату»/«Ждём продление»/«Заморожен» технически droppable.
+    // 'frozen' — особый случай: каскад через смену статуса ученика, поэтому
+    // открываем модалку вместо тихого no-op/ошибки 409.
+    const targetStage = (stages || []).find((s) => s.id === toStageId);
+    if (targetStage?.is_auto) {
+      if (targetStage.key === 'frozen') {
+        const card = dragCard(event);
+        if (card) setStatusModalStudent({ id: card.student_id, initialStatus: 'frozen' });
+      } else {
+        toast('Эта стадия управляется системой', 'info');
+      }
+      return;
+    }
 
     const prev = qc.getQueryData<RenewalBoardData>(queryKey);
     const movedCard = dragCard(event);
@@ -196,6 +258,15 @@ export function RenewalBoard({ filters, onOpen }: Props) {
           pending={move.isPending}
           onClose={() => setCloseTarget(null)}
           onConfirm={handleCloseConfirm}
+        />
+      )}
+      {statusModalStudent && statusMembershipsReady && (
+        <StudentStatusModal
+          studentId={statusModalStudent.id}
+          open
+          onClose={() => setStatusModalStudent(null)}
+          memberships={statusMemberships}
+          initialStatus={statusModalStudent.initialStatus}
         />
       )}
     </DndContext>
