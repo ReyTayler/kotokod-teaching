@@ -148,9 +148,8 @@ def create_student(data: dict) -> dict:
         age=data.get('age') if data.get('age') is not None else None,
         pm=data.get('pm') or None,
         enrollment_status=data.get('enrollment_status') or 'enrolled',
-        frozen_until_month=(
-            data.get('frozen_until_month') if data.get('frozen_until_month') is not None else None
-        ),
+        frozen_from=data.get('frozen_from') or None,
+        frozen_until=data.get('frozen_until') or None,
         created_at=Now(),
     )
     return dictrow(Student.objects.filter(pk=obj.pk).values())
@@ -160,9 +159,9 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
     """
     Обновляет ученика (PATCH через COALESCE, дословно из students.js).
 
-    frozen_until_month — НЕ COALESCE-поле: перезаписывается ВСЕГДА (включая NULL-сброс).
-    В JS updateStudent всегда передаёт frozen_until_month ?? null; отсутствие ключа
-    эквивалентно None.
+    frozen_from/frozen_until — НЕ COALESCE-поля: перезаписываются ВСЕГДА (включая
+    NULL-сброс). Отсутствие ключа эквивалентно None, чтобы смена статуса на
+    не-frozen гарантированно занулила даты.
     """
     obj = Student.objects.filter(id=student_id).first()
     if obj is None:
@@ -196,17 +195,19 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
         obj.pm = data['pm']
     if data.get('enrollment_status'):
         obj.enrollment_status = data['enrollment_status']
-    # frozen_until_month — всегда (absent/present-None → None, present-value → value)
-    obj.frozen_until_month = data.get('frozen_until_month')
+    # frozen_from/frozen_until — всегда перезаписываем (absent → None-сброс),
+    # чтобы смена статуса на не-frozen гарантированно занулила даты.
+    obj.frozen_from = data.get('frozen_from') or None
+    obj.frozen_until = data.get('frozen_until') or None
 
     obj.save()
     return dictrow(Student.objects.filter(id=student_id).values())
 
 
 def soft_delete_student(student_id: int) -> bool:
-    """Мягкое удаление: enrollment_status='not_enrolled', frozen_until_month=NULL."""
+    """Мягкое удаление: enrollment_status='not_enrolled', frozen_from/until=NULL."""
     updated = Student.objects.filter(id=student_id).update(
-        enrollment_status='not_enrolled', frozen_until_month=None,
+        enrollment_status='not_enrolled', frozen_from=None, frozen_until=None,
     )
     return updated > 0
 

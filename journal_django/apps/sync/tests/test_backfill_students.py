@@ -45,13 +45,19 @@ def test_extract_students_no_membership_without_teacher():
 
 def test_map_enrollment_yes():
     assert students.map_enrollment_from_sheets('Да', True) == {
-        'enrollment_status': 'enrolled', 'frozen_until_month': None,
+        'enrollment_status': 'enrolled', 'frozen_from': None, 'frozen_until': None,
     }
 
 
 def test_map_enrollment_frozen_with_month():
+    # Лист держит только месяц окончания заморозки → инференс дат (месяц=январь).
     result = students.map_enrollment_from_sheets('нет январь', True)
-    assert result == {'enrollment_status': 'frozen', 'frozen_until_month': 1}
+    assert result['enrollment_status'] == 'frozen'
+    assert result['frozen_until'] is not None
+    assert result['frozen_until'].month == 1
+    assert result['frozen_from'] is not None
+    # Инвариант frozen_from <= frozen_until (CHECK на модели).
+    assert result['frozen_from'] <= result['frozen_until']
 
 
 def test_map_enrollment_declined():

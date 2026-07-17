@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from django.db import connection
 
+from apps.core.utils.dates import msk_now
+from apps.students.migrations._frozen_backfill_util import (
+    clamp_frozen_from,
+    infer_frozen_until,
+)
 from apps.sync import sheets_client
 from apps.sync.backfills.dates import parse_start_date
 from apps.sync.backfills.rows import cell, parse_float, parse_int
@@ -13,26 +18,36 @@ MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май'
 
 
 def map_enrollment_from_sheets(raw, has_membership: bool) -> dict:
+    """Статус зачисления из ячейки листа → {enrollment_status, frozen_from, frozen_until}.
+
+    В листе хранится только месяц окончания заморозки (год/дату начала лист не
+    держит). Конвертируем тем же инференсом, что и миграция 0010: frozen_until —
+    1-е число ближайшего наступления месяца, frozen_from — best-effort = сегодня
+    по МСК, склампленный до frozen_until (инвариант frozen_from <= frozen_until).
+    """
     s = str(raw or '').strip().lower()
-    fallback = (
-        {'enrollment_status': 'enrolled', 'frozen_until_month': None}
-        if has_membership
-        else {'enrollment_status': 'not_enrolled', 'frozen_until_month': None}
-    )
+    fallback_status = 'enrolled' if has_membership else 'not_enrolled'
+    fallback = {'enrollment_status': fallback_status, 'frozen_from': None, 'frozen_until': None}
 
     if not s:
         return fallback
     if s == 'да':
-        return {'enrollment_status': 'enrolled', 'frozen_until_month': None}
+        return {'enrollment_status': 'enrolled', 'frozen_from': None, 'frozen_until': None}
     if s == 'нет':
-        return {'enrollment_status': 'not_enrolled', 'frozen_until_month': None}
+        return {'enrollment_status': 'not_enrolled', 'frozen_from': None, 'frozen_until': None}
     if 'отказ' in s:
-        return {'enrollment_status': 'declined', 'frozen_until_month': None}
+        return {'enrollment_status': 'declined', 'frozen_from': None, 'frozen_until': None}
 
     rest = s[3:].strip() if s.startswith('нет') else s
     for idx, month in enumerate(MONTHS):
         if rest.startswith(month):
-            return {'enrollment_status': 'frozen', 'frozen_until_month': idx + 1}
+            today = msk_now().date()
+            until = infer_frozen_until(idx + 1, today)
+            return {
+                'enrollment_status': 'frozen',
+                'frozen_from': clamp_frozen_from(today, until),
+                'frozen_until': until,
+            }
     return fallback
 
 
@@ -63,7 +78,8 @@ def extract_students_and_memberships(rows: list[list]) -> dict:
                 'parent1_name': cell(row, 5) or None,
                 'first_purchase_date': parse_start_date(cell(row, 8)),
                 'enrollment_status': enroll['enrollment_status'],
-                'frozen_until_month': enroll['frozen_until_month'],
+                'frozen_from': enroll['frozen_from'],
+                'frozen_until': enroll['frozen_until'],
             }
 
         if has_membership:
@@ -103,9 +119,11 @@ def run(dry_run: bool = False) -> dict:
                 """
                 INSERT INTO students
                     (full_name, age, pm, birth_date, parent1_phone, platform_id,
-                     parent1_name, first_purchase_date, enrollment_status, frozen_until_month)
+                     parent1_name, first_purchase_date, enrollment_status,
+                     frozen_from, frozen_until)
                 VALUES (%(full_name)s, %(age)s, %(pm)s, %(birth_date)s, %(phone)s,
-                        %(platform)s, %(parent)s, %(first_purchase)s, %(status)s, %(frozen)s)
+                        %(platform)s, %(parent)s, %(first_purchase)s, %(status)s,
+                        %(frozen_from)s, %(frozen_until)s)
                 ON CONFLICT (full_name) DO UPDATE SET
                     age                 = EXCLUDED.age,
                     pm                  = EXCLUDED.pm,
@@ -115,7 +133,8 @@ def run(dry_run: bool = False) -> dict:
                     parent1_name        = EXCLUDED.parent1_name,
                     first_purchase_date = EXCLUDED.first_purchase_date,
                     enrollment_status   = EXCLUDED.enrollment_status,
-                    frozen_until_month  = EXCLUDED.frozen_until_month
+                    frozen_from         = EXCLUDED.frozen_from,
+                    frozen_until        = EXCLUDED.frozen_until
                 WHERE students.age IS DISTINCT FROM EXCLUDED.age
                    OR students.pm  IS DISTINCT FROM EXCLUDED.pm
                    OR students.birth_date          IS DISTINCT FROM EXCLUDED.birth_date
@@ -124,7 +143,8 @@ def run(dry_run: bool = False) -> dict:
                    OR students.parent1_name        IS DISTINCT FROM EXCLUDED.parent1_name
                    OR students.first_purchase_date IS DISTINCT FROM EXCLUDED.first_purchase_date
                    OR students.enrollment_status   IS DISTINCT FROM EXCLUDED.enrollment_status
-                   OR students.frozen_until_month  IS DISTINCT FROM EXCLUDED.frozen_until_month
+                   OR students.frozen_from         IS DISTINCT FROM EXCLUDED.frozen_from
+                   OR students.frozen_until        IS DISTINCT FROM EXCLUDED.frozen_until
                 RETURNING (xmax = 0) AS inserted
                 """,
                 {
@@ -132,7 +152,7 @@ def run(dry_run: bool = False) -> dict:
                     'birth_date': s['birth_date'], 'phone': s['parent1_phone'],
                     'platform': s['platform_id'], 'parent': s['parent1_name'],
                     'first_purchase': s['first_purchase_date'], 'status': s['enrollment_status'],
-                    'frozen': s['frozen_until_month'],
+                    'frozen_from': s['frozen_from'], 'frozen_until': s['frozen_until'],
                 },
             )
             row = cur.fetchone()

@@ -24,7 +24,7 @@ Cookie:
   - GET /:id/balance → 200 с {paid_by_direction, attended_by_direction, total_balance, total_paid_amount, payments}
   - POST → 201, ученик создан в БД
   - POST без full_name → 400
-  - POST с frozen без frozen_until_month → 400
+  - POST с frozen без frozen_from/frozen_until → 400
   - PATCH → 200
   - PATCH /999999999 → 404
   - DELETE → 204, enrollment_status='not_enrolled'
@@ -321,23 +321,24 @@ def test_create_invalid_bitrix24_link_returns_400(admin_client):
 
 
 @pytest.mark.django_db
-def test_create_frozen_without_month_returns_400(admin_client):
-    """frozen status requires frozen_until_month — бизнес-правило."""
+def test_create_frozen_without_dates_returns_400(admin_client):
+    """frozen status requires frozen_from and frozen_until — бизнес-правило."""
     payload = _student_payload(
         full_name='__test_post_frozen_bad__',
         enrollment_status='frozen',
-        # frozen_until_month отсутствует
+        # frozen_from/frozen_until отсутствуют
     )
     resp = admin_client.post(BASE_URL, payload, format='json')
     assert resp.status_code == 400
 
 
 @pytest.mark.django_db
-def test_create_frozen_with_month_returns_201(admin_client):
+def test_create_frozen_with_dates_returns_201(admin_client):
     payload = _student_payload(
         full_name='__test_post_frozen_ok__',
         enrollment_status='frozen',
-        frozen_until_month=4,
+        frozen_from='2026-02-01',
+        frozen_until='2026-04-01',
     )
     resp = admin_client.post(BASE_URL, payload, format='json')
     if resp.status_code == 201:

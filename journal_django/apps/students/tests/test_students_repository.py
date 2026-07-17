@@ -9,12 +9,14 @@ Unit/integration тесты для StudentsRepository.
   - list_students: фильтры, сортировка
   - get_student: существующий/несуществующий
   - create_student: RETURNING * работает, поля заполнены
-  - update_student: COALESCE обновление, frozen_until_month может стать NULL
-  - soft_delete_student: статус 'not_enrolled', frozen_until_month=NULL, повторный → False
+  - update_student: COALESCE обновление, frozen_from/frozen_until могут стать NULL
+  - soft_delete_student: статус 'not_enrolled', frozen_from/until=NULL, повторный → False
   - student_stats: форма ответа (keys: student_id, directions, groups, overall)
   - get_student_balance: форма ответа (keys: paid_by_direction, attended_by_direction, total_balance, total_paid_amount, payments)
 """
 from __future__ import annotations
+
+import datetime
 
 import pytest
 from django.db import connection
@@ -48,7 +50,8 @@ def _make_student_data(**overrides) -> dict:
         'age': None,
         'pm': None,
         'enrollment_status': 'enrolled',
-        'frozen_until_month': None,
+        'frozen_from': None,
+        'frozen_until': None,
         **overrides,
     }
 
@@ -213,16 +216,18 @@ class TestCreateStudent:
         finally:
             _cleanup_student(student['id'])
 
-    def test_create_frozen_with_month(self):
+    def test_create_frozen_with_dates(self):
         data = _make_student_data(
             full_name='__test_create_frozen__',
             enrollment_status='frozen',
-            frozen_until_month=3,
+            frozen_from='2026-02-01',
+            frozen_until='2026-04-01',
         )
         student = repository.create_student(data)
         try:
             assert student['enrollment_status'] == 'frozen'
-            assert student['frozen_until_month'] == 3
+            assert student['frozen_from'] == datetime.date(2026, 2, 1)
+            assert student['frozen_until'] == datetime.date(2026, 4, 1)
         finally:
             _cleanup_student(student['id'])
 
@@ -263,28 +268,29 @@ class TestUpdateStudent:
         finally:
             _cleanup_student(sid)
 
-    def test_update_frozen_until_month_to_none(self):
+    def test_update_frozen_dates_to_none(self):
         """
-        frozen_until_month сбрасывается в NULL вместе со сменой статуса.
+        frozen_from/frozen_until сбрасываются в NULL вместе со сменой статуса.
 
-        БД-CHECK: (enrollment_status = 'frozen') = (frozen_until_month IS NOT NULL).
-        Нельзя обнулить месяц, не убрав статус 'frozen' одновременно.
-        JS updateStudent тоже передаёт оба поля при разморозке.
+        БД-CHECK: (enrollment_status = 'frozen') = (обе даты NOT NULL).
+        Нельзя обнулить даты, не убрав статус 'frozen' одновременно.
         """
         data = _make_student_data(
             full_name='__test_upd_frozen__',
             enrollment_status='frozen',
-            frozen_until_month=5,
+            frozen_from='2026-03-01',
+            frozen_until='2026-05-01',
         )
         student = repository.create_student(data)
         sid = student['id']
         try:
-            # Сброс: передаём и enrollment_status и frozen_until_month=None
+            # Сброс: передаём enrollment_status; даты отсутствуют → None-сброс
             updated = repository.update_student(
                 sid,
-                {'enrollment_status': 'enrolled', 'frozen_until_month': None},
+                {'enrollment_status': 'enrolled'},
             )
-            assert updated['frozen_until_month'] is None
+            assert updated['frozen_from'] is None
+            assert updated['frozen_until'] is None
             assert updated['enrollment_status'] == 'enrolled'
         finally:
             _cleanup_student(sid)
@@ -329,19 +335,21 @@ class TestSoftDeleteStudent:
         finally:
             _cleanup_student(sid)
 
-    def test_soft_delete_clears_frozen_until_month(self):
-        """soft_delete сбрасывает frozen_until_month в NULL."""
+    def test_soft_delete_clears_frozen_dates(self):
+        """soft_delete сбрасывает frozen_from/frozen_until в NULL."""
         data = _make_student_data(
             full_name='__test_softdel_frozen__',
             enrollment_status='frozen',
-            frozen_until_month=6,
+            frozen_from='2026-06-01',
+            frozen_until='2026-08-01',
         )
         student = repository.create_student(data)
         sid = student['id']
         try:
             repository.soft_delete_student(sid)
             fetched = repository.get_student(sid)
-            assert fetched['frozen_until_month'] is None
+            assert fetched['frozen_from'] is None
+            assert fetched['frozen_until'] is None
         finally:
             _cleanup_student(sid)
 

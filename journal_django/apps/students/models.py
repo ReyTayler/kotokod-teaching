@@ -38,7 +38,6 @@ class Student(models.Model):
     age = models.IntegerField(null=True, blank=True)
     pm = models.TextField(null=True, blank=True)
     enrollment_status = models.TextField(default='enrolled')
-    frozen_until_month = models.IntegerField(null=True, blank=True)
     frozen_from = models.DateField(null=True, blank=True)
     frozen_until = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField()
@@ -52,15 +51,23 @@ class Student(models.Model):
                 condition=models.Q(enrollment_status__in=[
                     'enrolled', 'not_enrolled', 'frozen', 'declined']),
             ),
+            # frozen ⟺ обе даты заданы; иначе обе NULL.
             models.CheckConstraint(
-                name='students_frozen_until_month_check',
-                condition=models.Q(frozen_until_month__gte=1) & models.Q(frozen_until_month__lte=12),
+                name='students_frozen_dates_presence_check',
+                condition=(
+                    (models.Q(enrollment_status='frozen')
+                     & models.Q(frozen_from__isnull=False)
+                     & models.Q(frozen_until__isnull=False))
+                    | (~models.Q(enrollment_status='frozen')
+                       & models.Q(frozen_from__isnull=True)
+                       & models.Q(frozen_until__isnull=True))
+                ),
             ),
             models.CheckConstraint(
-                name='students_check',
+                name='students_frozen_dates_order_check',
                 condition=(
-                    (models.Q(enrollment_status='frozen') & models.Q(frozen_until_month__isnull=False))
-                    | (~models.Q(enrollment_status='frozen') & models.Q(frozen_until_month__isnull=True))
+                    models.Q(frozen_from__isnull=True)
+                    | models.Q(frozen_until__gte=models.F('frozen_from'))
                 ),
             ),
         ]
