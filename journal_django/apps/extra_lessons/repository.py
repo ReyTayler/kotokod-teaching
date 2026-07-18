@@ -1,163 +1,70 @@
-"""
-ExtraLessonsRepository — единственное место ORM-доступа раздела extra_lessons.
-
-Батч-запросы без N+1 (assignments_in_window собирает все имена одним
-IN-запросом на список назначений — используется календарём, Task 10).
-"""
+"""ExtraLessonsRepository — единственное место ORM-доступа раздела (пер-ученик AbsenceResolution)."""
 from __future__ import annotations
 
-import datetime
 from typing import Optional
 
 from django.db import transaction
 from django.db.models import F
 
-from apps.extra_lessons.models import (
-    CANCELLED, DONE, SCHEDULED,
-    ExtraLessonAssignment, ExtraLessonParticipant,
-)
+from apps.extra_lessons.models import CANCELLED, DONE, SCHEDULED, AbsenceResolution
 from apps.lessons.models import LessonAttendance
 
 
-def create_assignment(
-    *,
-    missed_lesson_id: int,
-    teacher_id: int,
-    student_ids: list[int],
-    scheduled_date: datetime.date,
-    scheduled_time: datetime.time,
-    duration_minutes: int,
-) -> int:
-    """Создаёт назначение (status=scheduled) + участников. Возвращает id."""
+def create_resolutions(*, missed_lesson_id, assigned_teacher_id, student_ids,
+                       scheduled_date, scheduled_time, duration_minutes) -> list[int]:
+    """N независимых резолюций (по одной на ученика), status=scheduled. Возвращает их id."""
+    objs = [AbsenceResolution(
+        missed_lesson_id=missed_lesson_id, student_id=sid, assigned_teacher_id=assigned_teacher_id,
+        scheduled_date=scheduled_date, scheduled_time=scheduled_time,
+        duration_minutes=duration_minutes, status=SCHEDULED,
+    ) for sid in student_ids]
+    AbsenceResolution.objects.bulk_create(objs)
+    return [o.id for o in objs]
+
+
+def _full_values(qs):
+    return qs.values(
+        'id', 'missed_lesson_id', 'student_id', 'assigned_teacher_id', 'scheduled_date',
+        'scheduled_time', 'duration_minutes', 'status', 'fact_lesson_id',
+        student_name=F('student__full_name'),
+        teacher_name=F('assigned_teacher__name'),
+        missed_lesson_group_id=F('missed_lesson__group_id'),
+        missed_lesson_group_name=F('missed_lesson__group__name'),
+        missed_lesson_date=F('missed_lesson__lesson_date'))
+
+
+def get_resolution_full(resolution_id) -> Optional[dict]:
+    return _full_values(AbsenceResolution.objects.filter(id=resolution_id)).first()
+
+
+def lock_for_record(resolution_id) -> Optional[dict]:
+    """SELECT ... FOR UPDATE внутри atomic() — авторитетная проверка статуса перед записью."""
+    return (AbsenceResolution.objects.select_for_update().filter(id=resolution_id)
+            .values('id', 'status', 'assigned_teacher_id', 'missed_lesson_id', 'student_id',
+                    'scheduled_date', 'duration_minutes',
+                    missed_lesson_group_id=F('missed_lesson__group_id')).first())
+
+
+def lock_for_delete(resolution_id) -> Optional[dict]:
+    return (AbsenceResolution.objects.select_for_update().filter(id=resolution_id)
+            .values('id', 'status', 'missed_lesson_id', 'student_id', 'fact_lesson_id').first())
+
+
+def has_active_resolution(missed_lesson_id, student_id) -> bool:
+    return (AbsenceResolution.objects.filter(missed_lesson_id=missed_lesson_id, student_id=student_id)
+            .exclude(status=CANCELLED).exists())
+
+
+def students_not_absent(missed_lesson_id, student_ids) -> list[int]:
+    absent = set(LessonAttendance.objects.filter(
+        lesson_id=missed_lesson_id, student_id__in=student_ids, present=False
+    ).values_list('student_id', flat=True))
+    return [sid for sid in student_ids if sid not in absent]
+
+
+def cancel(resolution_id) -> None:
     with transaction.atomic():
-        obj = ExtraLessonAssignment.objects.create(
-            missed_lesson_id=missed_lesson_id,
-            teacher_id=teacher_id,
-            scheduled_date=scheduled_date,
-            scheduled_time=scheduled_time,
-            duration_minutes=duration_minutes,
-            status=SCHEDULED,
-        )
-        ExtraLessonParticipant.objects.bulk_create([
-            ExtraLessonParticipant(assignment_id=obj.id, student_id=sid)
-            for sid in student_ids
-        ])
-    return obj.id
-
-
-def get_assignment_full(assignment_id: int) -> Optional[dict]:
-    """Назначение + участники (id+имя) + метаданные пропущенного урока/учителя."""
-    row = (
-        ExtraLessonAssignment.objects
-        .filter(id=assignment_id)
-        .values(
-            'id', 'teacher_id', 'missed_lesson_id', 'scheduled_date', 'scheduled_time',
-            'duration_minutes', 'status', 'fact_lesson_id',
-            teacher_name=F('teacher__name'),
-            missed_lesson_group_id=F('missed_lesson__group_id'),
-            missed_lesson_group_name=F('missed_lesson__group__name'),
-            missed_lesson_date=F('missed_lesson__lesson_date'),
-        )
-        .first()
-    )
-    if row is None:
-        return None
-    row['participants'] = list(
-        ExtraLessonParticipant.objects
-        .filter(assignment_id=assignment_id)
-        .order_by('student__full_name')
-        .values('student_id', student_name=F('student__full_name'))
-    )
-    return row
-
-
-def participant_student_ids(assignment_id: int) -> list[int]:
-    return list(
-        ExtraLessonParticipant.objects
-        .filter(assignment_id=assignment_id)
-        .values_list('student_id', flat=True)
-    )
-
-
-def lock_assignment_for_record(assignment_id: int) -> Optional[dict]:
-    """
-    Блокирует строку назначения (SELECT ... FOR UPDATE) и возвращает поля,
-    нужные services.record() для фиксации доп.урока. Вызывается ВНУТРИ
-    transaction.atomic(), непосредственно перед мутациями — авторитетная
-    проверка status == SCHEDULED (см. cancel_assignment — тот же паттерн).
-
-    Без этого два параллельных record() на одно назначение оба прошли бы
-    неблокирующую проверку status в services.record() до atomic() и создали
-    бы два Lesson-факта + Payroll (задвоенная зарплата), а mark_done() второго
-    молча перезаписал бы fact_lesson_id первого (осиротевший факт).
-    """
-    row = (
-        ExtraLessonAssignment.objects
-        .select_for_update()
-        .filter(id=assignment_id)
-        .values(
-            'id', 'status', 'teacher_id', 'missed_lesson_id',
-            'scheduled_date', 'duration_minutes',
-            missed_lesson_group_id=F('missed_lesson__group_id'),
-        )
-        .first()
-    )
-    return row
-
-
-def students_not_absent(missed_lesson_id: int, student_ids: list[int]) -> list[int]:
-    """
-    Среди student_ids возвращает тех, кто НЕ отмечен present=false на
-    missed_lesson_id (присутствовал на самом деле, либо вообще не участник
-    этого урока) — доп.урок компенсирует только реальное отсутствие, см.
-    apps.extra_lessons.services.create_assignment/exceptions.StudentNotAbsent.
-    """
-    absent_ids = set(
-        LessonAttendance.objects
-        .filter(lesson_id=missed_lesson_id, student_id__in=student_ids, present=False)
-        .values_list('student_id', flat=True)
-    )
-    return [sid for sid in student_ids if sid not in absent_ids]
-
-
-def lock_assignment_for_delete(assignment_id: int) -> Optional[dict]:
-    """
-    Блокирует строку назначения (SELECT ... FOR UPDATE) внутри atomic() —
-    авторитетная проверка status == DONE перед откатом факта, тот же паттерн,
-    что lock_assignment_for_record. Без этого два параллельных delete_fact()
-    оба прошли бы неблокирующую проверку статуса до atomic() и оба попытались
-    бы откатить/удалить один и тот же fact_lesson — второй упал бы
-    Lesson.DoesNotExist вместо чистого 404/409.
-    """
-    row = (
-        ExtraLessonAssignment.objects
-        .select_for_update()
-        .filter(id=assignment_id)
-        .values('id', 'status', 'missed_lesson_id', 'fact_lesson_id')
-        .first()
-    )
-    return row
-
-
-def has_active_assignment(missed_lesson_id: int, student_id: int) -> bool:
-    """Есть ли уже НЕотменённое назначение доп.урока за этот пропуск у этого
-    студента — не даём задвоить компенсацию одного пропуска."""
-    return (
-        ExtraLessonParticipant.objects
-        .filter(
-            student_id=student_id,
-            assignment__missed_lesson_id=missed_lesson_id,
-        )
-        .exclude(assignment__status=CANCELLED)
-        .exists()
-    )
-
-
-def cancel_assignment(assignment_id: int) -> None:
-    """status → cancelled. ValueError, если не 'scheduled' (404 обрабатывает
-    вызывающий сервис отдельно — до этого вызова)."""
-    with transaction.atomic():
-        obj = ExtraLessonAssignment.objects.select_for_update().filter(id=assignment_id).first()
+        obj = AbsenceResolution.objects.select_for_update().filter(id=resolution_id).first()
         if obj is None:
             return
         if obj.status != SCHEDULED:
@@ -166,103 +73,43 @@ def cancel_assignment(assignment_id: int) -> None:
         obj.save(update_fields=['status'])
 
 
-def mark_done(assignment_id: int, *, fact_lesson_id: int) -> None:
-    ExtraLessonAssignment.objects.filter(id=assignment_id).update(
-        status=DONE, fact_lesson_id=fact_lesson_id,
-    )
+def mark_done(resolution_id, *, fact_lesson_id) -> None:
+    AbsenceResolution.objects.filter(id=resolution_id).update(status=DONE, fact_lesson_id=fact_lesson_id)
 
 
-def reset_to_scheduled(assignment_id: int) -> None:
-    """Откат mark_done (удаление факта доп.урока) — см. services.delete_fact."""
-    ExtraLessonAssignment.objects.filter(id=assignment_id).update(
-        status=SCHEDULED, fact_lesson_id=None,
-    )
+def reset_to_scheduled(resolution_id) -> None:
+    AbsenceResolution.objects.filter(id=resolution_id).update(status=SCHEDULED, fact_lesson_id=None)
 
 
-def list_assignments(
-    page: int = 1,
-    page_size: int = 50,
-    sort_by: str = 'scheduled_date',
-    sort_dir: str = 'desc',
-    filters: Optional[dict] = None,
-) -> dict:
-    """Пагинированный список назначений. Контракт: {rows, total, page, page_size}."""
-    if filters is None:
-        filters = {}
-    sortable = {
-        'scheduled_date': 'scheduled_date',
-        'status': 'status',
-        'teacher_name': 'teacher__name',
-    }
-    sort_field = sortable.get(sort_by) or sortable['scheduled_date']
-    order_prefix = '' if sort_dir == 'asc' else '-'
-
-    qs = ExtraLessonAssignment.objects.all()
-    status_filter = filters.get('status')
-    if status_filter not in (None, ''):
-        qs = qs.filter(status=status_filter)
-    teacher_id = filters.get('teacher_id')
-    if teacher_id not in (None, ''):
-        qs = qs.filter(teacher_id=int(teacher_id))
-
+def list_resolutions(page=1, page_size=50, sort_by='scheduled_date', sort_dir='desc', filters=None) -> dict:
+    filters = filters or {}
+    sortable = {'scheduled_date': 'scheduled_date', 'status': 'status',
+                'teacher_name': 'assigned_teacher__name', 'student_name': 'student__full_name'}
+    order = ('' if sort_dir == 'asc' else '-') + sortable.get(sort_by, 'scheduled_date')
+    qs = AbsenceResolution.objects.all()
+    if filters.get('status'):
+        qs = qs.filter(status=filters['status'])
+    if filters.get('teacher_id'):
+        qs = qs.filter(assigned_teacher_id=int(filters['teacher_id']))
     total = qs.count()
     offset = max(0, (page - 1) * page_size)
-    ordered = qs.order_by(f'{order_prefix}{sort_field}', '-id')
-    rows = list(
-        ordered[offset:offset + page_size].values(
-            'id', 'teacher_id', 'missed_lesson_id', 'scheduled_date', 'scheduled_time',
-            'duration_minutes', 'status', 'fact_lesson_id',
-            teacher_name=F('teacher__name'),
-            missed_lesson_group_name=F('missed_lesson__group__name'),
-            missed_lesson_date=F('missed_lesson__lesson_date'),
-        )
-    )
-    if rows:
-        ids = [r['id'] for r in rows]
-        names_by_assignment: dict[int, list[dict]] = {}
-        for aid, sid, name in (
-            ExtraLessonParticipant.objects
-            .filter(assignment_id__in=ids)
-            .order_by('student__full_name')
-            .values_list('assignment_id', 'student_id', 'student__full_name')
-        ):
-            names_by_assignment.setdefault(aid, []).append(
-                {'student_id': sid, 'student_name': name}
-            )
-        for r in rows:
-            r['participants'] = names_by_assignment.get(r['id'], [])
-
+    rows = list(_full_values(qs.order_by(order, '-id')[offset:offset + page_size]))
     return {'rows': rows, 'total': total, 'page': page, 'page_size': page_size}
 
 
-def assignments_in_window(
-    teacher_id: int, window_from: datetime.date, window_to: datetime.date,
-) -> list[dict]:
-    """Назначения ОДНОГО преподавателя за окно — источник календаря (Task 10)."""
+def assignments_in_window(teacher_id, window_from, window_to) -> list[dict]:
+    """Резолюции ОДНОГО преподавателя за окно — источник teacher-календаря.
+    Каждая резолюция = одна карточка (пер-ученик), поэтому student_names — список
+    из одного имени (форму сохраняем для совместимости с scheduling-консьюмером)."""
     rows = list(
-        ExtraLessonAssignment.objects
-        .filter(
-            teacher_id=teacher_id,
-            scheduled_date__gte=window_from,
-            scheduled_date__lte=window_to,
-        )
-        .values(
-            'id', 'scheduled_date', 'scheduled_time', 'duration_minutes', 'status',
-            teacher_name=F('teacher__name'),
-            missed_lesson_group_name=F('missed_lesson__group__name'),
-        )
-    )
-    if not rows:
-        return []
-    ids = [r['id'] for r in rows]
-    names_by_assignment: dict[int, list[str]] = {}
-    for aid, name in (
-        ExtraLessonParticipant.objects
-        .filter(assignment_id__in=ids)
-        .order_by('student__full_name')
-        .values_list('assignment_id', 'student__full_name')
-    ):
-        names_by_assignment.setdefault(aid, []).append(name)
+        AbsenceResolution.objects
+        .filter(assigned_teacher_id=teacher_id,
+                scheduled_date__gte=window_from, scheduled_date__lte=window_to)
+        .values('id', 'scheduled_date', 'scheduled_time', 'duration_minutes', 'status',
+                teacher_name=F('assigned_teacher__name'),
+                missed_lesson_group_name=F('missed_lesson__group__name'),
+                _student_name=F('student__full_name')))
     for r in rows:
-        r['student_names'] = names_by_assignment.get(r['id'], [])
+        name = r.pop('_student_name')
+        r['student_names'] = [name] if name else []
     return rows
