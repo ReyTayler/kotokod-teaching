@@ -313,10 +313,13 @@ def test_reassign_after_cancel_is_allowed(
     ).count() == 1
 
 
-def test_record_creates_fact_and_applies_makeup_attendance(
+def test_record_consumes_from_extra_keeps_original_absent(
     group_fixture, teacher_fixture, other_teacher_fixture, missed_lesson_fixture,
     student_fixture, lessons_done, resolution_cleanup,
 ):
+    """Новая модель компенсации: потребление идёт от САМОГО факта доп.урока
+    (present=true), а ИСХОДНЫЙ пропущенный урок остаётся present=false навсегда.
+    lessons_done всё равно двигается на вес исходного урока (60мин → 1)."""
     created = services.create_assignment(
         {
             'missed_lesson_id': missed_lesson_fixture, 'teacher_id': other_teacher_fixture,
@@ -344,13 +347,19 @@ def test_record_creates_fact_and_applies_makeup_attendance(
         fact = Lesson.objects.get(id=result['lesson_id'])
         assert fact.lesson_type == 'extra'
         assert fact.teacher_id == other_teacher_fixture
+        # Факт доп.урока несёт длительность ИСХОДНОГО урока (60), не резолюции (45).
+        assert fact.lesson_duration_minutes == 60
         assert Payroll.objects.get(lesson_id=fact.id).payment == 200
 
         assert repository.get_resolution_full(rid)['status'] == MAKEUP_DONE
 
-        # Ретроактивная отметка на исходном (пропущенном) уроке.
+        # Потребление — на самом факте доп.урока (present=true)…
+        fact_att = LessonAttendance.objects.get(lesson_id=fact.id, student_id=student_fixture)
+        assert fact_att.present is True
+        # …а ИСХОДНЫЙ пропущенный урок остаётся present=false (не флипается).
         att = LessonAttendance.objects.get(lesson_id=missed_lesson_fixture, student_id=student_fixture)
-        assert att.present is True
+        assert att.present is False
+        # lessons_done двигается на вес исходного урока (60мин → 1 полный урок).
         assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
     finally:
         # Резолюцию (fact_lesson FK) сносим ДО факт-урока, иначе DB-level FK.
@@ -418,10 +427,13 @@ def test_record_second_call_on_same_assignment_raises_value_error(
         _cleanup_fact(result['lesson_id'])
 
 
-def test_delete_fact_reverts_makeup_attendance(
+def test_delete_fact_reverses_consumption(
     group_fixture, teacher_fixture, missed_lesson_fixture, student_fixture, lessons_done,
     resolution_cleanup,
 ):
+    """Откат факта доп.урока симметрично списывает lessons_done обратно (на вес
+    факта) и удаляет Lesson+Payroll. Исходный пропуск всё время present=false —
+    новая модель компенсации, ретроактивной отметки исходного урока нет."""
     created = services.create_assignment(
         {
             'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
@@ -437,12 +449,18 @@ def test_delete_fact_reverts_makeup_attendance(
         request=_FakeRequest(),
     )
     assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
+    # Исходный пропущенный урок остался present=false (потребление — на факте).
+    orig = LessonAttendance.objects.get(lesson_id=missed_lesson_fixture, student_id=student_fixture)
+    assert orig.present is False
 
     ok = services.delete_fact(rid, _FakeRequest())
     assert ok is True
     assert lessons_done(group_fixture, student_fixture) == Decimal('0')
     assert not Lesson.objects.filter(id=result['lesson_id']).exists()
     assert not Payroll.objects.filter(lesson_id=result['lesson_id']).exists()
+    # Исходный урок по-прежнему present=false.
+    orig = LessonAttendance.objects.get(lesson_id=missed_lesson_fixture, student_id=student_fixture)
+    assert orig.present is False
 
     full = repository.get_resolution_full(rid)
     assert full['status'] == PENDING

@@ -99,15 +99,14 @@ def _attended_units_subquery():
     """
     Σ отработанных уроков (half-lesson: 45→0.5) по посещениям ученика.
 
-    Доп.уроки (lesson_type='extra') исключены: компенсируемый пропуск уже
-    учтён через ретроактивную отметку исходного занятия
-    (apps.lessons.repository.apply_makeup_attendance) — иначе один пропуск
-    списался бы дважды (см. apps/finances/repository.py, тот же инвариант).
+    Факт доп.урока (lesson_type='extra') учитывается: в новой модели компенсации
+    исходный пропуск остаётся present=false, а потребление идёт от самого факта
+    доп.урока (его вес = длительность исходного урока), поэтому один пропуск
+    списывается ровно один раз (см. apps/finances/repository.py, тот же инвариант).
     """
     return Subquery(
         LessonAttendance.objects
         .filter(student_id=OuterRef('pk'), present=True)
-        .exclude(lesson__lesson_type='extra')
         .values('student_id')
         .annotate(u=Coalesce(Sum(Case(
             When(lesson__lesson_duration_minutes=45, then=Value(Decimal('0.5'))),

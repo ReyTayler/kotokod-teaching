@@ -208,18 +208,28 @@ def test_prepaid_cycle2_deal_stays_on_no_lesson_yet(make_student, make_direction
 
 
 @pytest.mark.django_db
-def test_attended_total_excludes_extra_lessons(make_student, make_direction, make_teacher, make_attendance):
+def test_attended_total_makeup_does_not_double_count(make_student, make_direction, make_teacher):
     """
-    Регрессия 2026-07-18: доп.урок (lesson_type='extra') НЕ должен задваивать
-    прогресс сделки. _attended_total обязан считать его 0 (потребление идёт от
-    исходного урока, extra исключён — как в финансах), значит при 1 обычном
-    посещённом уроке + 1 extra итог = 1.0, а не 2.0.
+    Регрессия (модель потребления 1c): доп.урок НЕ должен задваивать прогресс
+    сделки. Компенсируемый пропуск остаётся present=false (0), а сам доп.урок
+    (lesson_type='extra', present=true) даёт ровно 1 → _attended_total = 1.0, а
+    не 2.0. (До 1c анти-двойной-учёт держался исключением extra; теперь — тем,
+    что исходный урок навсегда present=false, а потребление несёт extra-факт.)
     """
     sid, did, tid = make_student(), make_direction(), make_teacher()
     gid = _make_group_with_membership(did, tid, sid, name='__extra_dc_group__')
     try:
-        make_attendance(sid, gid, tid, count=1)  # 1 обычный урок, present=true
         with connection.cursor() as cur:
+            # Исходный пропуск: обычный урок, present=false (0).
+            cur.execute(
+                "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+                "lesson_duration_minutes, lesson_type, submitted_by_token) "
+                "VALUES (%s,%s,'2026-06-01',1,60,'regular','__dc_miss__') RETURNING id", [gid, tid])
+            miss_lid = cur.fetchone()[0]
+            cur.execute(
+                'INSERT INTO lesson_attendance (lesson_id, student_id, present) '
+                'VALUES (%s,%s,false)', [miss_lid, sid])
+            # Доп.урок: extra, present=true (1) — единственный источник потребления.
             cur.execute(
                 "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
                 "lesson_duration_minutes, lesson_type, submitted_by_token) "
@@ -232,7 +242,7 @@ def test_attended_total_excludes_extra_lessons(make_student, make_direction, mak
             assert engine._attended_total(sid) == 1.0
         finally:
             with connection.cursor() as cur:
-                cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [extra_lid])
-                cur.execute('DELETE FROM lessons WHERE id = %s', [extra_lid])
+                cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = ANY(%s)', [[miss_lid, extra_lid]])
+                cur.execute('DELETE FROM lessons WHERE id = ANY(%s)', [[miss_lid, extra_lid]])
     finally:
         _cleanup_group(gid, sid)

@@ -127,10 +127,11 @@ def fifo_inputs() -> dict:
     cons_rows = (
         LessonAttendance.objects
         .filter(present=True)
-        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
-        # компенсируемый урок уже учтён через ретроактивную отметку исходного
-        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
-        .exclude(lesson__lesson_type='extra')
+        # доп.урок (lesson_type='extra') ТЕПЕРЬ учитывается в потреблении: в новой
+        # модели компенсации исходный пропуск остаётся present=false навсегда, а
+        # потребление идёт от самого факта доп.урока (его вес = длительность
+        # исходного урока) в дату его проведения. Один пропуск списывается ровно
+        # один раз — уже не через ретроактивную отметку исходного занятия.
         .annotate(units=_attended_units_case())
         .order_by('student_id', 'lesson__lesson_date', 'lesson_id')
         .values(
@@ -139,7 +140,6 @@ def fifo_inputs() -> dict:
             lesson_date=F('lesson__lesson_date'),
         )
     )
-    makeup_dates = _makeup_completion_dates()
 
     lots_by_key: dict[str, list] = {}
     purchased_by_key: dict[str, int] = {}
@@ -171,13 +171,12 @@ def fifo_inputs() -> dict:
         key = str(r['student_id'])
         units = to_decimal(r['units'])
         # Приоритет даты для месячной атрибуции денег:
-        # 1) makeup_dates — компенсированный пропуск: дата ДОП.урока;
-        # 2) burned_at — ретроактивная ручная отметка (update_attendance_cell):
+        # 1) burned_at — ретроактивная ручная отметка (update_attendance_cell):
         #    дата самой правки, не дата исходного урока (см. update_attendance_cell);
-        # 3) lesson_date — обычная посещаемость, проставленная при подаче урока.
-        date = makeup_dates.get(
-            (r['lesson_id'], r['student_id']), r['burned_at'] or r['lesson_date'],
-        )
+        # 2) lesson_date — обычная посещаемость, проставленная при подаче урока
+        #    (для факта доп.урока это дата его проведения — потребление относится
+        #    к месяцу доп.урока естественно, без отдельного ремаппинга).
+        date = r['burned_at'] or r['lesson_date']
         cons_by_key.setdefault(key, []).append({
             'units': units,
             'date': _date_str(date),
@@ -235,10 +234,9 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
 
     attended = (
         LessonAttendance.objects.filter(student_id__in=ids, present=True)
-        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
-        # компенсируемый урок уже учтён через ретроактивную отметку исходного
-        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
-        .exclude(lesson__lesson_type='extra')
+        # доп.урок (lesson_type='extra') учитывается в потреблении: исходный
+        # пропуск остаётся present=false, потребление идёт от факта доп.урока.
+        # Один пропуск списывается ровно один раз (новая модель компенсации).
         .values('student_id')
         .annotate(s=Coalesce(Sum(_attended_units_case()), _ZERO))
     )
@@ -251,20 +249,19 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
 def attended_units_total(student_id: int) -> Decimal:
     """
     Суммарно «отработано» уроков учеником за всю историю (present=true), в тех же
-    единицах (half-lesson 45мин=0.5) и с тем же исключением lesson_type='extra',
-    что и потребление баланса (fifo_inputs/balances_for_students): компенсируемый
-    пропуск уже учтён через ретроактивную отметку исходного урока, а сам extra —
-    нет, иначе один пропуск считался бы дважды.
+    единицах (half-lesson 45мин=0.5), что и потребление баланса
+    (fifo_inputs/balances_for_students). Факт доп.урока (lesson_type='extra')
+    учитывается: исходный пропуск остаётся present=false, потребление идёт от
+    самого доп.урока (его вес = длительность исходного урока), поэтому один
+    пропуск считается ровно один раз.
 
     ЕДИНЫЙ источник правды «отработано» — вызывается и балансом finances, и движком
     продлений (apps.renewals.engine._attended_total), чтобы «отработано» в отчёте и
-    прогресс сделки в «Продлениях» никогда не разошлись (до этого продления считали
-    present=true БЕЗ исключения extra → доп.урок задваивал прогресс).
+    прогресс сделки в «Продлениях» никогда не разошлись.
     """
     row = (
         LessonAttendance.objects
         .filter(student_id=student_id, present=True)
-        .exclude(lesson__lesson_type='extra')
         .aggregate(s=Coalesce(Sum(_attended_units_case()), _ZERO))
     )
     return row['s']
@@ -320,22 +317,19 @@ def student_fifo_remaining(student_id: int) -> dict:
 
     cons_rows = (
         LessonAttendance.objects.filter(student_id=student_id, present=True)
-        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
-        # компенсируемый урок уже учтён через ретроактивную отметку исходного
-        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
-        .exclude(lesson__lesson_type='extra')
+        # доп.урок (lesson_type='extra') учитывается в потреблении: исходный
+        # пропуск остаётся present=false, потребление идёт от факта доп.урока.
+        # Один пропуск списывается ровно один раз (новая модель компенсации).
         .annotate(units=_attended_units_case())
         .order_by('lesson__lesson_date', 'lesson_id')
         .values('units', 'lesson_id', 'burned_at', lesson_date=F('lesson__lesson_date'))
     )
-    makeup_dates = _makeup_completion_dates(student_ids=[student_id])
     cons = [
         {
             'units': to_decimal(r['units']),
-            # Приоритет даты — см. fifo_inputs(): makeup_dates > burned_at > lesson_date.
-            'date': _date_str(makeup_dates.get(
-                (r['lesson_id'], student_id), r['burned_at'] or r['lesson_date'],
-            )),
+            # Приоритет даты — см. fifo_inputs(): burned_at > lesson_date
+            # (для факта доп.урока lesson_date = дата его проведения).
+            'date': _date_str(r['burned_at'] or r['lesson_date']),
             'direction_id': None,
         }
         for r in cons_rows
@@ -385,10 +379,8 @@ def attended_by_direction_rows(student_id: int) -> list[dict]:
     attended = (
         LessonAttendance.objects
         .filter(student_id=student_id, present=True)
-        # доп.уроки (lesson_type='extra') не учитываются в потреблении баланса —
-        # компенсируемый урок уже учтён через ретроактивную отметку исходного
-        # занятия (apply_makeup_attendance); иначе один пропуск списался бы дважды.
-        .exclude(lesson__lesson_type='extra')
+        # доп.урок (lesson_type='extra') учитывается: исходный пропуск остаётся
+        # present=false, потребление идёт от факта доп.урока (новая модель).
         .values(did=F('lesson__group__direction_id'))
         .annotate(attended=Sum(_attended_units_case()))
     )

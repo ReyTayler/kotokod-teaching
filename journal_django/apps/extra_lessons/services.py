@@ -6,6 +6,7 @@ apps.lessons.services.record_lesson); repository — чистые ORM-опера
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 from typing import Optional
 
 from django.db import IntegrityError, transaction
@@ -38,6 +39,11 @@ def _to_date(value: str) -> datetime.date:
 def _to_time(value: str) -> datetime.time:
     parts = [int(x) for x in value.split(':')]
     return datetime.time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
+
+
+def _step(duration_minutes) -> Decimal:
+    """half-lesson инвариант: 45 мин → 0.5 урока, иначе 1 (как apps.lessons)."""
+    return Decimal('0.5') if duration_minutes == 45 else Decimal('1')
 
 
 def create_assignment(data: dict, request) -> dict:
@@ -167,12 +173,15 @@ def record(
 ) -> Optional[dict]:
     """
     Фиксация проведения доп.урока для ОДНОЙ резолюции (один ученик). Атомарно:
-      1. Lesson(lesson_type='extra') — group/lesson_number унаследованы от
-         пропущенного урока, teacher/duration — от резолюции.
+      1. Lesson(lesson_type='extra') — group/lesson_number/длительность унаследованы
+         от ПРОПУЩЕННОГО урока (длительность = вес потребления исходного занятия),
+         teacher — от резолюции.
       2. LessonAttendance ученика этой резолюции (present, как отметил учитель).
       3. Payroll — payment=200×present (calculate_extra_lesson_payment),
          penalty — та же формула просрочки, что у обычных уроков.
-      4. Если present — apply_makeup_attendance на ИСХОДНОМ уроке.
+      4. Если present — инкремент group_memberships.lessons_done в группе
+         пропуска на вес исходного урока. Потребление баланса идёт от САМОГО факта
+         доп.урока (present=true), а ИСХОДНЫЙ пропуск остаётся present=false.
       5. AbsenceResolution → status=makeup_done, fact_lesson=новый Lesson.
 
     None → резолюции нет (view → 404). NotTeachersAssignment → чужая резолюция
@@ -214,6 +223,7 @@ def record(
         if locked['status'] != MAKEUP_SCHEDULED:
             raise ValueError('Доп.урок можно провести только из статуса «назначен».')
 
+        missed_lesson = Lesson.objects.get(id=locked['missed_lesson_id'])
         lesson_id = lessons_repository.insert_lesson({
             'lesson_date': locked['scheduled_date'].isoformat(),
             'teacher_id': teacher_id,
@@ -222,8 +232,11 @@ def record(
             # lesson_number наследуется от пропущенного урока — доп.урок
             # компенсирует именно ЭТУ позицию курса, показываем это в списке
             # уроков (lesson_type='extra' отличает его от исходного).
-            'lesson_number': Lesson.objects.get(id=locked['missed_lesson_id']).lesson_number,
-            'lesson_duration_minutes': locked['duration_minutes'],
+            'lesson_number': missed_lesson.lesson_number,
+            # Длительность = длительность ИСХОДНОГО пропущенного урока (не
+            # duration_minutes резолюции): вес потребления факта доп.урока обязан
+            # совпасть с весом компенсируемого занятия (half-lesson: 45→0.5).
+            'lesson_duration_minutes': missed_lesson.lesson_duration_minutes,
             'lesson_type': 'extra',
             'record_url': record_url,
             'submitted_by_token': submitted_by_token,
@@ -240,8 +253,13 @@ def record(
             'penalty': penalty,
         })
         if present:
-            lessons_repository.apply_makeup_attendance(
-                locked['missed_lesson_id'], locked['student_id'],
+            # Потребление идёт от самого факта доп.урока (present=true, длительность
+            # исходного урока). Исходный пропуск остаётся present=false навсегда —
+            # ретроактивная отметка исходного занятия больше не делается. Двигаем
+            # lessons_done группы пропуска на вес исходного урока (как record_lesson).
+            step = _step(missed_lesson.lesson_duration_minutes)
+            lessons_repository.increment_lessons_done(
+                locked['missed_lesson_group_id'], [locked['student_id']], step,
             )
         repository.mark_makeup_done(resolution_id, fact_lesson_id=lesson_id)
 
@@ -256,10 +274,11 @@ def record(
 
 def delete_fact(resolution_id: int, request) -> bool:
     """
-    Откатывает проведённый доп.урок: возвращает исходному уроку прежнюю
-    посещаемость/lessons_done, удаляет Payroll+Lesson доп.урока, возвращает
-    резолюцию в status=pending. ValueError → резолюция не в статусе makeup_done
-    (view → 409). False → резолюции нет (view → 404).
+    Откатывает проведённый доп.урок: списывает lessons_done обратно на вес факта
+    доп.урока, удаляет Payroll+Lesson доп.урока, возвращает резолюцию в
+    status=pending. Исходный пропуск и так остался present=false — трогать его не
+    нужно. ValueError → резолюция не в статусе makeup_done (view → 409).
+    False → резолюции нет (view → 404).
     """
     full = repository.get_resolution_full(resolution_id)
     if full is None:
@@ -279,12 +298,16 @@ def delete_fact(resolution_id: int, request) -> bool:
             raise ValueError('Удалить факт можно только у проведённого доп.урока.')
 
         fact_lesson_id = locked['fact_lesson_id']
+        fact = Lesson.objects.get(id=fact_lesson_id)
         present_ids = list(
-            Lesson.objects.get(id=fact_lesson_id).attendance
-            .filter(present=True).values_list('student_id', flat=True)
+            fact.attendance.filter(present=True).values_list('student_id', flat=True)
         )
-        for sid in present_ids:
-            lessons_repository.revert_makeup_attendance(locked['missed_lesson_id'], sid)
+        # Списываем lessons_done обратно на вес факта доп.урока (он несёт
+        # длительность исходного урока, поэтому _step корректен). Симметрично
+        # инкременту в record(); исходный пропуск present=false не трогаем.
+        if present_ids:
+            step = _step(fact.lesson_duration_minutes)
+            lessons_repository.decrement_lessons_done(fact.group_id, present_ids, step)
         Payroll.objects.filter(lesson_id=fact_lesson_id).delete()
         Lesson.objects.filter(id=fact_lesson_id).delete()
         repository.back_to_pending(resolution_id)

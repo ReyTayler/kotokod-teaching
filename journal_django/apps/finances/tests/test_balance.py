@@ -253,31 +253,29 @@ def test_extra_lesson_does_not_double_count_balance(
     group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
 ):
     """
-    Регрессия (code review, доп.уроки): apps.extra_lessons.services.record()
-    создаёт ДВЕ LessonAttendance(present=True) на один компенсируемый пропуск —
-    одну на новом Lesson(lesson_type='extra') (для зарплаты преподавателя),
-    другую ретроактивно на ИСХОДНОМ уроке (apply_makeup_attendance). Баланс
-    обязан списать РОВНО ОДИН урок (исходный), а не два — иначе один пропуск
-    списывался бы дважды.
+    Регрессия (доп.уроки, модель потребления 1c): потребление идёт от ФАКТА
+    доп.урока (Lesson lesson_type='extra', present=True), а ИСХОДНЫЙ пропуск
+    остаётся present=False навсегда. Списывается РОВНО ОДИН урок (extra), а не
+    два: исходный не даёт потребления (present=False), extra даёт ровно 1.
+    (До 1c было наоборот — исходный флипался в present=True, а extra исключался;
+    числа те же, но теперь источник — сам факт доп.урока.)
     """
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000)  # 4 куплено
     assert repository.balance_for_student(student_fixture) == 4
 
-    missed_lid = _add_missed_lesson(
+    _add_missed_lesson(
         graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-05', duration=60
     )
     # Пропуск ещё не компенсирован (present=False) — баланс не тронут.
     assert repository.balance_for_student(student_fixture) == 4
 
-    # Симулируем services.record(): факт доп.урока со своей present=True…
+    # Факт доп.урока (present=True) — ЕДИНСТВЕННЫЙ источник потребления. Исходный
+    # урок НЕ флипаем (модель 1c: он остаётся present=False).
     _add_extra_lesson_with_attendance(
         graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-10', duration=60
     )
-    # …и ретроактивная отметка исходного урока (та же функция, что вызывает record()).
-    from apps.lessons.repository import apply_makeup_attendance
-    apply_makeup_attendance(missed_lid, student_fixture)
 
-    # Ровно ОДИН урок списан (4 - 1 = 3), НЕ два (4 - 2 = 2).
+    # Ровно ОДИН урок списан (4 - 1 = 3): extra даёт 1, исходный present=False даёт 0.
     assert repository.balance_for_student(student_fixture) == 3
     assert repository.balances_for_students([student_fixture])[student_fixture] == 3
 

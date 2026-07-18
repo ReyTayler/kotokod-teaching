@@ -118,18 +118,19 @@ def _add_lesson(graph, *, lesson_date, lesson_type, present, lesson_number=1, du
     return lesson_id
 
 
-def test_attended_units_excludes_extra_lesson_from_balance(graph):
+def test_extra_lesson_counts_once_in_dashboard_balance(graph):
+    """Модель 1c: потребление от факта доп.урока (extra, present=true); исходный
+    пропуск остаётся present=false. Списывается ровно 1 (extra), не два."""
     _add_payment(graph, 4, 8000)  # 4 куплено
 
-    missed_id = _add_lesson(graph, lesson_date='2026-06-05', lesson_type='regular', present=False)
+    _add_lesson(graph, lesson_date='2026-06-05', lesson_type='regular', present=False)
     today = datetime.date(2026, 6, 15)
     row = svc.base_students_qs(today).get(pk=graph['student_id'])
     assert row.balance == 4  # пропуск ещё не компенсирован
 
-    # Доп.урок: своя present=True строка (для зарплаты) + ретроактивная отметка исходного.
+    # Доп.урок: своя present=True строка — ЕДИНСТВЕННЫЙ источник потребления
+    # (исходный урок не флипаем, модель 1c).
     _add_lesson(graph, lesson_date='2026-06-10', lesson_type='extra', present=True)
-    from apps.lessons.repository import apply_makeup_attendance
-    apply_makeup_attendance(missed_id, graph['student_id'])
 
     row = svc.base_students_qs(today).get(pk=graph['student_id'])
-    assert row.balance == 3  # ровно один урок списан, не два
+    assert row.balance == 3  # ровно один урок списан (extra), не два

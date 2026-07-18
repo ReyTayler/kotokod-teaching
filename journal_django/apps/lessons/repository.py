@@ -141,6 +141,18 @@ def increment_lessons_done(group_id: int, student_ids: list[int], step: Decimal)
     ).update(lessons_done=F('lessons_done') + step)
 
 
+def decrement_lessons_done(group_id: int, student_ids: list[int], step: Decimal) -> None:
+    """UPDATE group_memberships SET lessons_done = GREATEST(lessons_done - step, 0)
+    WHERE (group_id, student_id) IN ids. Обратная к increment_lessons_done —
+    откат потребления при удалении факта (apps.extra_lessons.services.delete_fact);
+    тот же GREATEST(...,0)-паттерн, что в delete_lesson_full."""
+    if not student_ids:
+        return
+    GroupMembership.objects.filter(
+        group_id=group_id, student_id__in=student_ids,
+    ).update(lessons_done=Greatest(F('lessons_done') - step, _ZERO))
+
+
 def insert_payroll(fields: dict) -> None:
     """INSERT записи payroll. Вызывается всегда (сервер сам считает payment/penalty)."""
     Payroll.objects.create(
