@@ -32,6 +32,7 @@ export default function ExtraLessonsListPage() {
   // откатывает Payroll/посещаемость исходного урока), поэтому по подтверждению.
   const [assigning, setAssigning] = useState<AbsenceResolution | null>(null);
   const [confirmingRollbackId, setConfirmingRollbackId] = useState<number | null>(null);
+  const [confirmingBurnId, setConfirmingBurnId] = useState<number | null>(null);
 
   const rows: AbsenceResolution[] = data?.rows || [];
   const total = data?.total || 0;
@@ -49,10 +50,24 @@ export default function ExtraLessonsListPage() {
       return;
     }
     try {
+      // remove = DELETE /extra-lessons/:id — на бэке (1c-2) откатывает и
+      // проведённый доп.урок (makeup_done), и сгорание (burned).
       await muts.remove.mutateAsync(id);
-      toast('Факт доп.урока удалён, пропуск снова ждёт решения', 'ok');
+      toast('Факт удалён, пропуск снова ждёт решения', 'ok');
     } catch (err) { showError(err); }
     setConfirmingRollbackId(null);
+  };
+
+  const handleBurn = async (id: number) => {
+    if (confirmingBurnId !== id) {
+      setConfirmingBurnId(id);
+      return;
+    }
+    try {
+      await muts.burn.mutateAsync(id);
+      toast('Пропуск сожжён, урок списан с баланса', 'ok');
+    } catch (err) { showError(err); }
+    setConfirmingBurnId(null);
   };
 
   const columns: Column<AbsenceResolution>[] = [
@@ -65,10 +80,20 @@ export default function ExtraLessonsListPage() {
       key: 'actions', label: '', sortable: false, searchable: false,
       cell: (r) => {
         if (r.status === 'pending') {
+          const burning = confirmingBurnId === r.id;
           return (
-            <button type="button" className="btn-primary" onClick={() => setAssigning(r)}>
-              Назначить доп.урок
-            </button>
+            <div className="table-actions">
+              <button type="button" className="btn-primary" onClick={() => setAssigning(r)}>
+                Назначить доп.урок
+              </button>
+              <button
+                type="button"
+                className={`btn-delete${burning ? ' is-confirming' : ''}`}
+                onClick={() => { void handleBurn(r.id); }}
+              >
+                {burning ? 'Точно сжечь?' : 'Сжечь'}
+              </button>
+            </div>
           );
         }
         if (r.status === 'makeup_scheduled') {
@@ -87,6 +112,18 @@ export default function ExtraLessonsListPage() {
               onClick={() => { void handleRollback(r.id); }}
             >
               {confirming ? 'Точно откатить?' : 'Откатить'}
+            </button>
+          );
+        }
+        if (r.status === 'burned') {
+          const confirming = confirmingRollbackId === r.id;
+          return (
+            <button
+              type="button"
+              className={`btn-delete${confirming ? ' is-confirming' : ''}`}
+              onClick={() => { void handleRollback(r.id); }}
+            >
+              {confirming ? 'Точно откатить?' : 'Откат сгорания'}
             </button>
           );
         }

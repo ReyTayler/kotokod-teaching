@@ -4,14 +4,7 @@ import { useMemberships } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../ui/Toast';
 import { DateInput } from '../form/DateInput';
-import { Dialog } from '../ui/Dialog';
-import { AssignExtraLessonModal } from './AssignExtraLessonModal';
-import { fmtDate } from '../../lib/format';
 import type { Group } from '../../lib/types';
-
-function currentMonthLabel(): string {
-  return new Date().toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', month: 'long', year: 'numeric' });
-}
 
 interface Props {
   group: Group;
@@ -33,14 +26,7 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
   const [date, setDate] = useState('');
   const [url, setUrl] = useState('');
   const [present, setPresent] = useState<Record<number, boolean>>({});
-  // Посещаемость, СОХРАНЁННАЯ на сервере (снимок при открытии редактора) — по
-  // ней отличаем «переключили в этой сессии» от «уже было так». Нужна, чтобы
-  // понять, является ли клик по карточке именно сгоранием урока задним числом
-  // (см. burnConfirm ниже), а не обычной правкой ещё не сохранённого урока.
-  const [savedPresent, setSavedPresent] = useState<Record<number, boolean>>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [assigningExtra, setAssigningExtra] = useState(false);
-  const [burnConfirmStudentId, setBurnConfirmStudentId] = useState<number | null>(null);
 
   useEffect(() => {
     if (lesson) {
@@ -49,7 +35,6 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
       const init: Record<number, boolean> = {};
       for (const a of lesson.attendance || []) init[a.student_id] = !!a.present;
       setPresent(init);
-      setSavedPresent(init);
     } else if (lessonId === null) {
       setDate('');
       setUrl('');
@@ -57,7 +42,6 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
       const init: Record<number, boolean> = {};
       for (const m of members) init[m.student_id] = false;
       setPresent(init);
-      setSavedPresent({});
     }
   }, [lesson, lessonId, members]);
 
@@ -72,25 +56,11 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
     return <div ref={editorRef} className="lesson-editor-host--loading" />;
   }
 
-  const togglePresent = (sid: number) => {
-    const willBePresent = !present[sid];
-    // Сгорание: у уже сохранённого урока переключаем ученика, отмеченного
-    // отсутствующим на сервере, в присутствующего — именно этот переход
-    // update_attendance_cell на бэке штампует burned_at (см. LessonEditor —
-    // деньги за такой урок считаются в месяце ПРАВКИ, не в месяце урока).
-    // Явно предупреждаем об этом, а не молча списываем урок с баланса.
-    if (lesson && willBePresent && !savedPresent[sid]) {
-      setBurnConfirmStudentId(sid);
-      return;
-    }
-    setPresent((p) => ({ ...p, [sid]: !p[sid] }));
-  };
-
-  const confirmBurn = () => {
-    if (burnConfirmStudentId === null) return;
-    setPresent((p) => ({ ...p, [burnConfirmStudentId]: true }));
-    setBurnConfirmStudentId(null);
-  };
+  // Посещаемость СОХРАНЁННОГО урока — свершившийся факт, грид read-only. Пропуск
+  // закрывают только через раздел «Доп.уроки» (назначить доп.урок / сжечь);
+  // ретроактивной правки посещаемости из редактора урока больше нет (раньше
+  // absent→present штамповал «сгорание» — теперь это отдельная сущность).
+  const locked = !!lesson;
 
   const handleSave = async () => {
     if (!date) { toast('Укажите дату', 'error'); return; }
@@ -112,15 +82,11 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
 
     try {
       if (lesson) {
+        // Посещаемость завершённого урока не редактируется здесь — только дата/ссылка.
         await muts.update.mutateAsync({
           id: lesson.id,
           body: { lesson_date: date, record_url: url },
         });
-        await Promise.all(attendance.map((a) =>
-          muts.toggleAttendance.mutateAsync({
-            lessonId: lesson.id, studentId: a.student_id, present: a.present,
-          }),
-        ));
         toast('Сохранено', 'ok');
       } else {
         await muts.create.mutateAsync({
@@ -166,7 +132,7 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
       </div>
       <div className="lesson-editor__row">
         <label>
-          Посещаемость <span className="lesson-editor__hint">(клик по карточке — переключение)</span>
+          Посещаемость {!locked && <span className="lesson-editor__hint">(клик по карточке — переключение)</span>}
         </label>
         <div className="attendance-grid">
           {members.length ? members.map((m) => {
@@ -175,8 +141,10 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
               <button
                 key={m.student_id}
                 type="button"
-                className={`attendance-card ${isPresent ? 'is-present' : 'is-absent'}`}
-                onClick={() => togglePresent(m.student_id)}
+                className={`attendance-card ${isPresent ? 'is-present' : 'is-absent'}${locked ? ' is-locked' : ''}`}
+                onClick={locked ? undefined : () => setPresent((p) => ({ ...p, [m.student_id]: !p[m.student_id] }))}
+                disabled={locked}
+                aria-disabled={locked}
               >
                 <span className="attendance-card__icon" aria-hidden>{isPresent ? '✓' : '✕'}</span>
                 <span className="attendance-card__name">{m.student_name || `#${m.student_id}`}</span>
@@ -195,62 +163,14 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
             onClick={() => { void handleDelete(); }}
           >{confirmingDelete ? 'Точно удалить?' : 'Удалить урок'}</button>
         )}
-        {lesson && Object.values(present).some((p) => !p) && (
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => setAssigningExtra(true)}
-          >
-            Назначить доп.урок
-          </button>
-        )}
         <button
           type="button"
           className="btn-save"
           style={{ marginLeft: 'auto' }}
           onClick={() => { void handleSave(); }}
-          disabled={muts.create.isPending || muts.update.isPending || muts.toggleAttendance.isPending || muts.remove.isPending}
+          disabled={muts.create.isPending || muts.update.isPending || muts.remove.isPending}
         >{lesson ? 'Сохранить' : 'Создать урок'}</button>
       </div>
-      {assigningExtra && lesson && (
-        <AssignExtraLessonModal
-          missedLessonId={lesson.id}
-          candidates={members
-            .filter((m) => !present[m.student_id])
-            .map((m) => ({ student_id: m.student_id, student_name: m.student_name || `#${m.student_id}` }))}
-          defaultTeacherId={lesson.teacher_id}
-          onClose={() => setAssigningExtra(false)}
-        />
-      )}
-      {burnConfirmStudentId !== null && lesson && (
-        <Dialog
-          open
-          onOpenChange={(o) => !o && setBurnConfirmStudentId(null)}
-          title="Отметить урок сгоревшим?"
-          footer={
-            <>
-              <button type="button" className="btn-secondary" onClick={() => setBurnConfirmStudentId(null)}>
-                Отмена
-              </button>
-              <button type="button" className="btn-save" onClick={confirmBurn}>
-                Да, сгорел
-              </button>
-            </>
-          }
-        >
-          <p>
-            Урок состоялся {fmtDate(lesson.lesson_date)}, и{' '}
-            <strong>{members.find((m) => m.student_id === burnConfirmStudentId)?.student_name || 'ученик'}</strong>{' '}
-            был отмечен отсутствующим.
-          </p>
-          <p>
-            Если отметить его присутствующим сейчас — урок спишется с баланса ученика,
-            а деньги будут учтены в отчётности за <strong>{currentMonthLabel()}</strong>,
-            а не за месяц самого урока.
-          </p>
-          <p>Если ученик просто был на уроке и это ошибка учителя — отменяйте без опасений, это не «сгорание».</p>
-        </Dialog>
-      )}
     </div>
   );
 }

@@ -356,6 +356,24 @@
 }
 .attendance-card__name { flex: 1; }
 
+/* Сохранённый урок: посещаемость — свершившийся факт, грид read-only.
+   Отсутствовавшие гасятся до нейтрального серого (не тревожный красный):
+   пропуск закрывают из раздела «Доп.уроки», не отсюда. */
+.attendance-card.is-locked { cursor: default; }
+.attendance-card.is-locked:hover { transform: none; }
+.attendance-card.is-absent.is-locked {
+  background: var(--bg2);
+  border-color: var(--border);
+  color: var(--text3);
+  opacity: .75;
+}
+.attendance-card.is-absent.is-locked .attendance-card__icon {
+  background: var(--text3); color: var(--bg2);
+}
+
+/* Горизонтальный ряд кнопок в ячейке таблицы (напр. «Назначить»/«Сжечь»). */
+.table-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 .lesson-editor__footer {
   display: flex; gap: 10px; padding-top: 14px;
   border-top: 1px solid var(--border2);

@@ -52,6 +52,11 @@ export function useExtraLessonMutations() {
         api<AbsenceResolution>('POST', `/api/admin/extra-lessons/${id}/cancel`),
       onSuccess: invalidate,
     }),
+    burn: useMutation({
+      mutationFn: (id: number) =>
+        api<{ lesson_id: number; payment: number }>('POST', `/api/admin/extra-lessons/${id}/burn`),
+      onSuccess: invalidate,
+    }),
     remove: useMutation({
       mutationFn: (id: number) => api<void>('DELETE', `/api/admin/extra-lessons/${id}`),
       onSuccess: invalidate,
