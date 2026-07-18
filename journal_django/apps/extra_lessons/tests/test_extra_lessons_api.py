@@ -557,3 +557,73 @@ def test_record_blocked_when_student_balance_dropped(
 def test_record_invalid_body_400(teacher_client):
     resp = teacher_client.post(f'{TEACHER_URL}/1/record', {}, format='json')
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Admin: burn (сжечь) — Phase 1c-2
+# ---------------------------------------------------------------------------
+
+def _pending_rid(client, missed_lesson_id, student_id):
+    lst = client.get(f'{ADMIN_URL}?status=pending').json()
+    for r in lst['rows']:
+        if r['missed_lesson_id'] == missed_lesson_id and r['student_id'] == student_id:
+            return r['id']
+    raise AssertionError('pending resolution not found')
+
+
+def _cleanup_burn(missed_lesson_id, fact_id):
+    with connection.cursor() as cur:
+        # Резолюция держит fact_lesson_id и missed_lesson — снести её ДО факта.
+        cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id = %s', [missed_lesson_id])
+        if fact_id:
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [fact_id])
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [fact_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [fact_id])
+
+
+def test_burn_endpoint_burns_pending(
+    admin_client, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    rid = _pending_rid(admin_client, missed_lesson_fixture, student_fixture)
+    fact_id = None
+    try:
+        resp = admin_client.post(f'{ADMIN_URL}/{rid}/burn')
+        assert resp.status_code == 200
+        assert resp.data['payment'] == 200
+        detail = admin_client.get(f'{ADMIN_URL}/{rid}')
+        assert detail.data['status'] == 'burned'
+        fact_id = detail.data['fact_lesson_id']
+        assert fact_id is not None
+    finally:
+        _cleanup_burn(missed_lesson_fixture, fact_id)
+
+
+def test_burn_endpoint_conflict_when_not_pending(
+    admin_client, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    rid = _pending_rid(admin_client, missed_lesson_fixture, student_fixture)
+    fact_id = None
+    try:
+        first = admin_client.post(f'{ADMIN_URL}/{rid}/burn')
+        assert first.status_code == 200
+        fact_id = admin_client.get(f'{ADMIN_URL}/{rid}').data['fact_lesson_id']
+        second = admin_client.post(f'{ADMIN_URL}/{rid}/burn')
+        assert second.status_code == 409
+    finally:
+        _cleanup_burn(missed_lesson_fixture, fact_id)
+
+
+def test_burn_endpoint_404_for_nonexistent(admin_client):
+    resp = admin_client.post(f'{ADMIN_URL}/999999999/burn')
+    assert resp.status_code == 404
+
+
+def test_burn_endpoint_requires_manager(teacher_client):
+    # RBAC проверяется до логики вьюхи — teacher получает 403 независимо от rid.
+    resp = teacher_client.post(f'{ADMIN_URL}/1/burn')
+    assert resp.status_code == 403
+
+
+def test_burn_endpoint_unauthenticated_401(anon_client):
+    resp = anon_client.post(f'{ADMIN_URL}/1/burn')
+    assert resp.status_code == 401

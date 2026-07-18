@@ -8,8 +8,10 @@ Admin (IsManagerOrAdmin, менеджер/админ/суперадмин — я
                                                кто-то не был отмечен отсутствующим
                                                на нём, ИЛИ у кого-то balance<=0)
   GET  /api/admin/extra-lessons/:id         → 200 | 404
-  DELETE /api/admin/extra-lessons/:id       → 204 | 404 | 409 (не done)
+  DELETE /api/admin/extra-lessons/:id       → 204 | 404 | 409 (не done/burned)
   POST /api/admin/extra-lessons/:id/cancel  → 200 | 404 | 409 (не scheduled)
+  POST /api/admin/extra-lessons/:id/burn    → 200 | 404 | 409 (не pending) |
+                                               400 (balance<=0)
 
 Teacher (IsTeacher, скоуп — своё назначение):
   GET  /api/extra-lessons/:id         → 200 | 404 (чужое = 404, не 403 — не
@@ -117,6 +119,25 @@ class ExtraLessonCancelView(APIView):
     def post(self, request: Request, pk: int) -> Response:
         try:
             result = services.cancel_assignment(pk, request)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(result)
+
+
+class ExtraLessonBurnView(APIView):
+    """POST /api/admin/extra-lessons/:id/burn — «Сжечь» нерешённый пропуск
+    (pending → burned): создаёт burned-урок present=true, флет 200₽, списывает
+    урок с баланса. 200 | 404 | 409 (не pending) | 400 (balance<=0)."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        try:
+            result = services.burn(pk, request=request, burn_date=msk_today())
+        except UnpaidAttendanceBlocked as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if result is None:

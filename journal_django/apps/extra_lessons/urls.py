@@ -3,11 +3,12 @@
 from django.urls import path
 
 from apps.extra_lessons.views import (
-    ExtraLessonCancelView, ExtraLessonDetailView, ExtraLessonListCreateView,
+    ExtraLessonBurnView, ExtraLessonCancelView, ExtraLessonDetailView, ExtraLessonListCreateView,
 )
 
 urlpatterns = [
     path('', ExtraLessonListCreateView.as_view(), name='extra-lessons-list-create'),
     path('/<int:pk>', ExtraLessonDetailView.as_view(), name='extra-lessons-detail'),
     path('/<int:pk>/cancel', ExtraLessonCancelView.as_view(), name='extra-lessons-cancel'),
+    path('/<int:pk>/burn', ExtraLessonBurnView.as_view(), name='extra-lessons-burn'),
 ]

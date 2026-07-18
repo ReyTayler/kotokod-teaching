@@ -56,6 +56,7 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     # extra_lessons (доп.уроки)
     ('POST', re.compile(r'^/api/admin/extra-lessons$'), 'extra_lesson.create'),
     ('POST', re.compile(r'^/api/admin/extra-lessons/\d+/cancel$'), 'extra_lesson.cancel'),
+    ('POST', re.compile(r'^/api/admin/extra-lessons/\d+/burn$'), 'extra_lesson.burn'),
     ('DELETE', re.compile(r'^/api/admin/extra-lessons/\d+$'), 'extra_lesson.delete'),
     ('POST', re.compile(r'^/api/extra-lessons/\d+/record$'), 'extra_lesson.record'),
     # payroll / settings

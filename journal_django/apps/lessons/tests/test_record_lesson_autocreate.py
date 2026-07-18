@@ -97,6 +97,39 @@ def test_delete_lesson_blocked_when_makeup_done(
         _cleanup(lesson_id)
 
 
+def test_delete_lesson_blocked_when_burned(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """Обычный урок со сгоревшим пропуском (burned) удалить нельзя
+    (409/LessonHasMakeupResolutions) — иначе ON DELETE CASCADE осиротил бы
+    burned-факт + payroll. pending — удалять каскадом можно."""
+    res = services.record_lesson(
+        lesson_date='2026-05-05', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='t',
+        submit_date='2026-05-05',
+        attendance=[{'student_id': student_fixture, 'present': False}])
+    lesson_id = res['lesson_id']
+    try:
+        # Симулируем сгорание: pending → burned.
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE absence_resolutions SET status='burned' "
+                "WHERE missed_lesson_id=%s", [lesson_id])
+        with pytest.raises(LessonHasMakeupResolutions):
+            services.delete_lesson_full(lesson_id)
+
+        # Вернём в pending — тогда удаление проходит (каскад снесёт резолюцию).
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE absence_resolutions SET status='pending' WHERE missed_lesson_id=%s",
+                [lesson_id])
+        assert services.delete_lesson_full(lesson_id) is True
+        assert _pending_students(lesson_id) == []
+    finally:
+        _cleanup(lesson_id)
+
+
 def test_extra_lesson_does_not_autocreate(
     group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
 ):
