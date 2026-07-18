@@ -1,6 +1,8 @@
 """Чистая переливка старых групповых назначений в пер-ученик AbsenceResolution."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 
 def migrate_assignments_to_resolutions(connection) -> None:
     with connection.cursor() as cur:
@@ -68,3 +70,103 @@ def revert_historical_makeups(connection) -> None:
               AND la.student_id = ar.student_id
               AND la.present = true
         """)
+
+
+def convert_historical_burned_at(connection) -> None:
+    """Фаза 2: конвертировать исторические «сгоревшие задним числом» правки
+    (LessonAttendance.burned_at + Payroll.burn_surcharge_* от never-deployed
+    burn-WIP) в штатную модель — отдельный burned-Lesson + AbsenceResolution.
+
+    На каждую строку (present=true + burned_at) обычного урока L, ученик S:
+      1. Создать Lesson(lesson_type='burned', lesson_date=burned_at, та же группа/
+         преподаватель/номер/длительность, token='burn-migrated:L:S' —
+         уникализирует lessons_natural_key).
+      2. LessonAttendance(new, S, present=true) — потребление переезжает на него в
+         месяц burned_at (сохранён); исходный урок больше не считается.
+      3. Payroll(new) = доля surcharge исходного payroll (историческую зарплату
+         сохраняем — «прошлое как есть»; при нескольких сожжённых на одном уроке
+         surcharge делится поровну, остаток (копейки) — первому).
+      4. Исходную строку вернуть в present=false, burned_at=NULL.
+      5. У исходного payroll ОБНУЛИТЬ burn_surcharge (перенесён в п.3 → без
+         двойного счёта зарплаты) и выровнять present_count на новый baseline.
+      6. AbsenceResolution(missed=L, student=S, status='burned', fact=new).
+
+    lessons_done НЕ трогаем (историч. flip уже инкрементировал его — как и новая
+    burn()). Идемпотентно: урок с уже существующей burned-резолюцией пропускается;
+    вставка резолюции — ON CONFLICT DO UPDATE (на случай авто-pending за пропуск).
+    Числа (balance/attended/зарплата по преподавателю за месяц) — инвариант.
+    """
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT la.lesson_id, la.student_id, la.burned_at, "
+            "       l.group_id, l.teacher_id, l.lesson_number, l.lesson_duration_minutes "
+            "FROM lesson_attendance la "
+            "JOIN lessons l ON l.id = la.lesson_id "
+            "WHERE la.burned_at IS NOT NULL AND la.present = true "
+            "  AND l.lesson_type = 'regular' "
+            "ORDER BY la.lesson_id, la.student_id"
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return
+
+        by_lesson: dict = {}
+        for r in rows:
+            by_lesson.setdefault(r[0], []).append(r)
+
+        for lesson_id, grp in by_lesson.items():
+            # Идемпотентность: урок уже мигрирован (есть burned-резолюция) → пропустить.
+            cur.execute(
+                "SELECT 1 FROM absence_resolutions "
+                "WHERE missed_lesson_id = %s AND status = 'burned' LIMIT 1",
+                [lesson_id])
+            if cur.fetchone():
+                continue
+
+            cur.execute(
+                "SELECT burn_surcharge_amount FROM payroll WHERE lesson_id = %s",
+                [lesson_id])
+            prow = cur.fetchone()
+            total = prow[0] if prow and prow[0] is not None else Decimal('0')
+            total_cents = int((total * 100).to_integral_value())
+            n = len(grp)
+            base = total_cents // n
+            remainder = total_cents - base * n
+
+            for i, (lid, sid, burned_at, group_id, teacher_id, lesson_number, dur) in enumerate(grp):
+                share = Decimal(base + (remainder if i == 0 else 0)) / Decimal(100)
+                cur.execute(
+                    "INSERT INTO lessons "
+                    "(group_id, teacher_id, lesson_date, lesson_number, "
+                    " lesson_duration_minutes, lesson_type, submitted_at, submitted_by_token) "
+                    "VALUES (%s, %s, %s, %s, %s, 'burned', now(), %s) RETURNING id",
+                    [group_id, teacher_id, burned_at, lesson_number, dur,
+                     f'burn-migrated:{lid}:{sid}'])
+                new_lesson_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO lesson_attendance (lesson_id, student_id, present) "
+                    "VALUES (%s, %s, true)", [new_lesson_id, sid])
+                cur.execute(
+                    "INSERT INTO payroll "
+                    "(lesson_id, teacher_id, total_students, present_count, payment, penalty) "
+                    "VALUES (%s, %s, 1, 1, %s, 0)", [new_lesson_id, teacher_id, share])
+                cur.execute(
+                    "INSERT INTO absence_resolutions "
+                    "(missed_lesson_id, student_id, status, fact_lesson_id, created_at) "
+                    "VALUES (%s, %s, 'burned', %s, now()) "
+                    "ON CONFLICT (missed_lesson_id, student_id) "
+                    "DO UPDATE SET status = 'burned', fact_lesson_id = EXCLUDED.fact_lesson_id",
+                    [lid, sid, new_lesson_id])
+                cur.execute(
+                    "UPDATE lesson_attendance SET present = false, burned_at = NULL "
+                    "WHERE lesson_id = %s AND student_id = %s", [lid, sid])
+
+            # Исходный payroll: перенесённую надбавку обнулить + present_count → baseline.
+            cur.execute(
+                "SELECT COUNT(*) FROM lesson_attendance WHERE lesson_id = %s AND present = true",
+                [lesson_id])
+            baseline_present = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE payroll SET burn_surcharge_amount = 0, burn_surcharge_at = NULL, "
+                "present_count = %s WHERE lesson_id = %s",
+                [baseline_present, lesson_id])
