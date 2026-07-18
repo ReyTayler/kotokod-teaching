@@ -87,7 +87,7 @@ def test_payment_delete_reopens_legacy_payment_linked_deal(
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, cycle_no=1)
     pay = Payment.objects.create(
-        student_id=sid, direction_id=did, subscriptions_count=1,
+        student_id=sid, direction_id=did, subscriptions_count=1, lessons_count=4,
         unit_price=4000, total_amount=4000, paid_at='2026-07-12', created_at=Now())
     # имитируем «историческое» закрытие оплатой (до удаления auto-close)
     RenewalDeal.objects.filter(id=deal.id).update(outcome_at=timezone.now())
@@ -115,7 +115,7 @@ def test_payment_create_survives_crm_failure(django_capture_on_commit_callbacks,
             # внутри sync_lesson_stage_safe, наружу не всплывает и оплату не откатывает.
             with django_capture_on_commit_callbacks(execute=True):
                 pay = Payment.objects.create(
-                    student_id=sid, direction_id=did, subscriptions_count=1,
+                    student_id=sid, direction_id=did, subscriptions_count=1, lessons_count=4,
                     unit_price=4000, total_amount=4000, paid_at='2026-07-08', created_at=Now())
         # оплата фактически создана
         assert Payment.objects.filter(id=pay.id).exists()
