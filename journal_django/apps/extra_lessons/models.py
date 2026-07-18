@@ -18,7 +18,8 @@ from django.db import models
 PENDING = 'pending'
 MAKEUP_SCHEDULED = 'makeup_scheduled'
 MAKEUP_DONE = 'makeup_done'
-STATUS_CHOICES = [PENDING, MAKEUP_SCHEDULED, MAKEUP_DONE]
+BURNED = 'burned'
+STATUS_CHOICES = [PENDING, MAKEUP_SCHEDULED, MAKEUP_DONE, BURNED]
 
 # Совпадает с VALID_LESSON_DURATIONS admin-формы обычных уроков + 30 мин
 # (доп.урок может быть короче группового занятия).
@@ -30,7 +31,8 @@ class AbsenceResolution(models.Model):
     """
     Пер-ученик (1:1) «пропуск, требующий решения» — заменила групповую пару
     ExtraLessonAssignment+ExtraLessonParticipant. Одна строка на (пропущенный
-    урок × ученик). Статусы: pending → makeup_scheduled → makeup_done. См.
+    урок × ученик). Статусы: pending → makeup_scheduled → makeup_done ЛИБО
+    pending → burned (сжечь). См.
     docs/superpowers/specs/2026-07-18-unify-absences-makeup-burn-design.md.
     """
     id = models.AutoField(primary_key=True)
