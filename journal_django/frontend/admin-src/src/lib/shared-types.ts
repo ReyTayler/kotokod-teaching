@@ -183,12 +183,8 @@ export interface PayrollEntry {
   teacher_id: ID;
   total_students: number;
   present_count: number;
-  payment: string | number;  // numeric(10,2) — базовая сумма ЭТОЙ строки (см. is_surcharge)
+  payment: string | number;  // numeric(10,2)
   penalty: string | number;
-  // true — это не сам урок, а надбавка за посещаемость, отмеченную "сгоревшей"
-  // задним числом (update_attendance_cell): payment здесь = сумма надбавки,
-  // lesson_date = дата самой правки, а не дата урока (см. apps/payroll/repository.py).
-  is_surcharge: boolean;
   // joined-only:
   lesson_date?: string;
   group_name?: string;

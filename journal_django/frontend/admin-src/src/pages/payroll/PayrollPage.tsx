@@ -79,13 +79,9 @@ function PayrollListView({ search }: { search: SearchProps }) {
     { key: 'group_name', label: 'Группа', sortable: true, searchable: true,
       cell: (r) => <EntityLink section="lessons" id={r.lesson_id} text={r.group_name} /> },
     { key: 'lesson_number', label: 'Урок #', sortable: true,
-      cell: (r) => r.is_surcharge
-        ? <span className="status-badge status-badge--info" title="Надбавка за урок, отмеченный «сгоревшим» задним числом">
-            Надбавка · сгоревший
-          </span>
-        : r.lesson_number },
+      cell: (r) => r.lesson_number },
     { key: 'present_count', label: 'Было/Всего', sortable: false,
-      cell: (r) => r.is_surcharge ? '—' : `${r.present_count}/${r.total_students}` },
+      cell: (r) => `${r.present_count}/${r.total_students}` },
     { key: 'payment', label: 'Оплата ₽', sortable: true,
       cell: (r) => Number(r.payment).toLocaleString('ru') },
     { key: 'penalty', label: 'Штраф ₽', sortable: true,
