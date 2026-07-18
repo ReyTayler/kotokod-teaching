@@ -112,3 +112,43 @@ class ExtraLessonParticipant(models.Model):
                 name='extra_lesson_participants_assignment_student_key',
             ),
         ]
+
+
+@pghistory.track(pghistory.InsertEvent(), pghistory.UpdateEvent(), pghistory.DeleteEvent())
+class AbsenceResolution(models.Model):
+    """
+    Пер-ученик (1:1) «пропуск, требующий решения» — заменит групповую пару
+    ExtraLessonAssignment+ExtraLessonParticipant. Одна строка на (пропущенный
+    урок × ученик). Статусы в Фазе 1a прежние (scheduled/done/cancelled). См.
+    docs/superpowers/specs/2026-07-18-unify-absences-makeup-burn-design.md.
+    """
+    id = models.AutoField(primary_key=True)
+    missed_lesson = models.ForeignKey('lessons.Lesson', on_delete=models.CASCADE,
+                                      related_name='absence_resolutions')
+    student = models.ForeignKey('students.Student', on_delete=models.PROTECT,
+                                related_name='absence_resolutions')
+    assigned_teacher = models.ForeignKey('teachers.Teacher', on_delete=models.PROTECT,
+                                         null=True, blank=True, related_name='absence_resolutions')
+    scheduled_date = models.DateField(null=True, blank=True)
+    scheduled_time = models.TimeField(null=True, blank=True)
+    duration_minutes = models.PositiveSmallIntegerField(null=True, blank=True)
+    status = models.CharField(max_length=16, default=SCHEDULED)
+    fact_lesson = models.ForeignKey('lessons.Lesson', on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='absence_resolution_facts')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'absence_resolutions'
+        indexes = [
+            models.Index(fields=['status'], name='ar_status_idx'),
+            models.Index(fields=['missed_lesson'], name='ar_missed_lesson_idx'),
+            models.Index(fields=['assigned_teacher', 'scheduled_date'], name='ar_teacher_date_idx'),
+            models.Index(fields=['student'], name='ar_student_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=['missed_lesson', 'student'],
+                                    name='absence_resolutions_missed_student_key'),
+            models.CheckConstraint(name='absence_resolutions_status_check',
+                                   condition=models.Q(status__in=STATUS_CHOICES)),
+        ]

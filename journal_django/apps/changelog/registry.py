@@ -43,6 +43,10 @@ TRACKED: dict[str, TrackedModel] = {
                                                    identity=('lesson_id', 'student_id')),
     'extra_lessons.ExtraLessonAssignment':  TrackedModel('extra_lesson_assignment', True, 45),
     'extra_lessons.ExtraLessonParticipant': TrackedModel('extra_lesson_participant', True, 46),
+    # Фаза 1a: новая пер-ученик модель (старые две выше удаляются в Task 3 вместе
+    # с их записями отсюда). @pghistory.track на модели требует записи в реестре —
+    # иначе test_registry_covers_all_tracked_models падает.
+    'extra_lessons.AbsenceResolution':      TrackedModel('absence_resolution', True, 45),
     'payments.Payment':               TrackedModel('payment', True, 50),
     'payroll.Payroll':                TrackedModel('payroll', True, 50),
     # renewals: справочники воронки → сделки → активность (лог, не откатываем)
