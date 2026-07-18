@@ -55,3 +55,22 @@ def absence_pending(missed_lesson_fixture, student_fixture):
 def test_burned_status_registered():
     assert BURNED == 'burned'
     assert BURNED in STATUS_CHOICES
+
+
+# --- Task 2: repository ---------------------------------------------------
+
+def test_mark_burned_sets_status_and_fact(absence_pending):
+    # fact_lesson_id = missed_lesson_id — валидная строка lessons (для проверки
+    # апдейта достаточно; настоящий burned-факт создаёт сервис в Task 3).
+    repository.mark_burned(absence_pending.id, fact_lesson_id=absence_pending.missed_lesson_id)
+    absence_pending.refresh_from_db()
+    assert absence_pending.status == BURNED
+    assert absence_pending.fact_lesson_id == absence_pending.missed_lesson_id
+
+
+def test_has_active_resolution_true_for_burned(absence_pending):
+    assert repository.has_active_resolution(
+        absence_pending.missed_lesson_id, absence_pending.student_id) is False
+    repository.mark_burned(absence_pending.id, fact_lesson_id=absence_pending.missed_lesson_id)
+    assert repository.has_active_resolution(
+        absence_pending.missed_lesson_id, absence_pending.student_id) is True

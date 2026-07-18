@@ -6,7 +6,7 @@ from typing import Optional
 from django.db.models import F
 
 from apps.extra_lessons.models import (
-    MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution,
+    BURNED, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution,
 )
 from apps.lessons.models import LessonAttendance
 
@@ -104,12 +104,18 @@ def mark_makeup_done(resolution_id, *, fact_lesson_id) -> None:
         status=MAKEUP_DONE, fact_lesson_id=fact_lesson_id)
 
 
+def mark_burned(resolution_id, *, fact_lesson_id) -> None:
+    """pending → burned с привязкой к созданному burned-факту (Lesson)."""
+    AbsenceResolution.objects.filter(id=resolution_id).update(
+        status=BURNED, fact_lesson_id=fact_lesson_id)
+
+
 def has_active_resolution(missed_lesson_id, student_id) -> bool:
-    """Уже назначено или проведено? (pending НЕ считается — его как раз назначают).
-    Используется сервисом как guard от повторного назначения."""
+    """Уже назначено / проведено / сожжено? (pending НЕ считается — его как раз
+    разрешают). Guard от повторного назначения или сжигания уже закрытого пропуска."""
     return (AbsenceResolution.objects
             .filter(missed_lesson_id=missed_lesson_id, student_id=student_id,
-                    status__in=[MAKEUP_SCHEDULED, MAKEUP_DONE]).exists())
+                    status__in=[MAKEUP_SCHEDULED, MAKEUP_DONE, BURNED]).exists())
 
 
 def delete_open_for_student(student_id) -> int:
