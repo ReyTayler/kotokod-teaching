@@ -17,7 +17,7 @@ from django.db import transaction
 
 from apps.groups.models import Group
 from apps.lessons import repository
-from apps.lessons.exceptions import SystemLessonProtected
+from apps.lessons.exceptions import LessonHasMakeupResolutions, SystemLessonProtected
 from apps.lessons.models import Lesson
 from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.scheduling.repository import link_facts
@@ -182,8 +182,22 @@ def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
     return repository.update_lesson(lesson_id, fields)
 
 
+def _assert_no_makeup_done_resolutions(lesson_id: int) -> None:
+    """Бросает LessonHasMakeupResolutions, если по пропускам этого урока уже
+    проведён доп.урок (makeup_done). Без этого гарда DB-level ON DELETE CASCADE
+    (миграция extra_lessons.0007) снёс бы makeup_done-резолюцию каскадом,
+    осиротив факт доп.урока + Payroll и не откатив apply_makeup_attendance.
+    pending/makeup_scheduled (без факта/денег) удалять каскадом безопасно."""
+    from apps.extra_lessons.models import MAKEUP_DONE, AbsenceResolution
+    if AbsenceResolution.objects.filter(
+        missed_lesson_id=lesson_id, status=MAKEUP_DONE,
+    ).exists():
+        raise LessonHasMakeupResolutions()
+
+
 def delete_lesson_full(lesson_id: int) -> bool:
     _assert_not_system_lesson(lesson_id)
+    _assert_no_makeup_done_resolutions(lesson_id)
     return repository.delete_lesson_full(lesson_id)
 
 

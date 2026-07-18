@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from apps.audit.services import log_event
 from apps.extra_lessons import repository
@@ -94,10 +94,17 @@ def create_assignment(data: dict, request) -> dict:
         for sid in student_ids:
             locked = repository.lock_for_assign(missed_lesson_id, sid)
             if locked is None:
-                rid = repository.create_scheduled_direct(
-                    missed_lesson_id=missed_lesson_id, student_id=sid,
-                    assigned_teacher_id=data['teacher_id'], scheduled_date=scheduled_date,
-                    scheduled_time=scheduled_time, duration_minutes=duration_minutes)
+                # Edge: pending-строки нет (пропуск до релиза). FOR UPDATE по нулю
+                # строк не лочит → две параллельные вставки конфликтуют по полному
+                # UNIQUE; переводим IntegrityError в чистый DuplicateAssignment (409),
+                # а не 500.
+                try:
+                    rid = repository.create_scheduled_direct(
+                        missed_lesson_id=missed_lesson_id, student_id=sid,
+                        assigned_teacher_id=data['teacher_id'], scheduled_date=scheduled_date,
+                        scheduled_time=scheduled_time, duration_minutes=duration_minutes)
+                except IntegrityError:
+                    raise DuplicateAssignment([str(sid)])
             elif locked['status'] != PENDING:
                 # Гонка: между has_active_resolution и локом статус ушёл.
                 raise DuplicateAssignment([str(sid)])

@@ -67,7 +67,7 @@ def _makeup_completion_dates(
 ) -> dict[tuple[int, int], datetime.date]:
     """
     (missed_lesson_id, student_id) → дата ФАКТИЧЕСКОГО проведения доп.урока,
-    которым скомпенсирован этот пропуск (apps.extra_lessons, status='done').
+    которым скомпенсирован этот пропуск (apps.extra_lessons, status='makeup_done').
 
     Используется, чтобы «отработанные» деньги относились к месяцу, в котором
     доп.урок реально проведён, а не к месяцу исходного пропущенного занятия —

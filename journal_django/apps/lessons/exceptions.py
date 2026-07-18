@@ -40,3 +40,20 @@ class SystemLessonProtected(Exception):
             f'Это системный {label} — изменить или удалить его можно только '
             f'через раздел «Доп.уроки», не через общий список уроков.'
         )
+
+
+class LessonHasMakeupResolutions(Exception):
+    """
+    Попытка удалить ОБЫЧНЫЙ урок, по пропускам которого уже проведён доп.урок
+    (apps.extra_lessons.AbsenceResolution.status='makeup_done'). FK
+    missed_lesson = ON DELETE CASCADE снёс бы резолюцию вместе с уроком,
+    осиротив факт доп.урока (Lesson lesson_type='extra') + его Payroll и не
+    откатив apply_makeup_attendance. Сначала нужно откатить доп.урок из раздела
+    «Доп.уроки» (delete_fact), затем удалять исходный урок.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            'По пропускам этого урока проведены доп.уроки — сначала откатите их '
+            'в разделе «Доп.уроки», затем удаляйте урок.'
+        )

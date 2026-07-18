@@ -6,6 +6,7 @@ import pytest
 from django.db import connection
 
 from apps.lessons import services
+from apps.lessons.exceptions import LessonHasMakeupResolutions
 
 pytestmark = pytest.mark.django_db
 
@@ -59,6 +60,39 @@ def test_present_student_gets_no_pending(
     lesson_id = res['lesson_id']
     try:
         assert _pending_students(lesson_id) == []
+    finally:
+        _cleanup(lesson_id)
+
+
+def test_delete_lesson_blocked_when_makeup_done(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """Обычный урок с проведённым доп.уроком по его пропуску (makeup_done) удалить
+    нельзя (409/LessonHasMakeupResolutions) — иначе ON DELETE CASCADE осиротил бы
+    факт доп.урока + payroll. pending — удалять каскадом можно."""
+    res = services.record_lesson(
+        lesson_date='2026-05-04', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='t',
+        submit_date='2026-05-04',
+        attendance=[{'student_id': student_fixture, 'present': False}])
+    lesson_id = res['lesson_id']
+    try:
+        # Симулируем проведённый доп.урок: pending → makeup_done.
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE absence_resolutions SET status='makeup_done' "
+                "WHERE missed_lesson_id=%s", [lesson_id])
+        with pytest.raises(LessonHasMakeupResolutions):
+            services.delete_lesson_full(lesson_id)
+
+        # Вернём в pending — тогда удаление проходит (каскад снесёт резолюцию).
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE absence_resolutions SET status='pending' WHERE missed_lesson_id=%s",
+                [lesson_id])
+        assert services.delete_lesson_full(lesson_id) is True
+        assert _pending_students(lesson_id) == []  # каскад снёс резолюцию
     finally:
         _cleanup(lesson_id)
 
