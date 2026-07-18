@@ -145,3 +145,33 @@ def test_burn_pays_current_group_teacher_when_missed_teacher_fired(
         Teacher.objects.filter(id=original_teacher_id).update(active=True)
         AbsenceResolution.objects.filter(id=absence_pending.id).update(
             status=PENDING, fact_lesson_id=None)
+
+
+# --- Task 4: откат сгорания через обобщённый delete_fact -------------------
+
+def test_unburn_reverses_everything(absence_pending, lessons_done):
+    student_id = absence_pending.student_id
+    group_id = Lesson.objects.get(id=absence_pending.missed_lesson_id).group_id
+    before = lessons_done(group_id, student_id)
+
+    services.burn(absence_pending.id, request=_FakeRequest(), burn_date='2026-07-18')
+    absence_pending.refresh_from_db()
+    fact_id = absence_pending.fact_lesson_id
+    assert lessons_done(group_id, student_id) == before + 1  # 60-мин пропуск → +1
+
+    ok = services.delete_fact(absence_pending.id, _FakeRequest())
+    absence_pending.refresh_from_db()
+    assert ok is True
+    assert absence_pending.status == PENDING
+    assert absence_pending.fact_lesson_id is None
+    assert not Lesson.objects.filter(id=fact_id).exists()
+    assert not Payroll.objects.filter(lesson_id=fact_id).exists()
+    assert lessons_done(group_id, student_id) == before  # lessons_done восстановлен
+    # Исходный пропуск всё время present=false.
+    assert LessonAttendance.objects.get(
+        lesson_id=absence_pending.missed_lesson_id, student_id=student_id).present is False
+
+
+def test_delete_fact_rejects_pending(absence_pending):
+    with pytest.raises(ValueError):
+        services.delete_fact(absence_pending.id, _FakeRequest())

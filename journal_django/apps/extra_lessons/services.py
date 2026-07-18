@@ -381,17 +381,18 @@ def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
 
 def delete_fact(resolution_id: int, request) -> bool:
     """
-    Откатывает проведённый доп.урок: списывает lessons_done обратно на вес факта
-    доп.урока, удаляет Payroll+Lesson доп.урока, возвращает резолюцию в
-    status=pending. Исходный пропуск и так остался present=false — трогать его не
-    нужно. ValueError → резолюция не в статусе makeup_done (view → 409).
-    False → резолюции нет (view → 404).
+    Откатывает проведённый доп.урок ИЛИ сгорание (makeup_done / burned): списывает
+    lessons_done обратно на вес факта (extra/burned несут длительность исходного
+    урока → _step корректен для обоих), удаляет Payroll+Lesson факта, возвращает
+    резолюцию в status=pending. Исходный пропуск и так остался present=false —
+    трогать его не нужно. ValueError → резолюция не в откатываемом статусе
+    (view → 409). False → резолюции нет (view → 404).
     """
     full = repository.get_resolution_full(resolution_id)
     if full is None:
         return False
-    if full['status'] != MAKEUP_DONE:
-        raise ValueError('Удалить факт можно только у проведённого доп.урока.')
+    if full['status'] not in (MAKEUP_DONE, BURNED):
+        raise ValueError('Удалить факт можно только у проведённого доп.урока или сгорания.')
 
     with transaction.atomic():
         # Авторитетная проверка статуса под блокировкой строки — гонка двух
@@ -401,8 +402,8 @@ def delete_fact(resolution_id: int, request) -> bool:
         locked = repository.lock_for_delete(resolution_id)
         if locked is None:
             return False
-        if locked['status'] != MAKEUP_DONE:
-            raise ValueError('Удалить факт можно только у проведённого доп.урока.')
+        if locked['status'] not in (MAKEUP_DONE, BURNED):
+            raise ValueError('Удалить факт можно только у проведённого доп.урока или сгорания.')
 
         fact_lesson_id = locked['fact_lesson_id']
         fact = Lesson.objects.get(id=fact_lesson_id)
