@@ -284,15 +284,18 @@ def record(
 def _burn_payment_teacher_id(missed_lesson) -> int:
     """Флет-надбавку за сгорание получает преподаватель пропущенного урока. Если
     он уволен (Teacher.active=False) — надбавка уходит ТЕКУЩЕМУ преподавателю
-    группы (Group.teacher_id): уволенному платить нельзя. Если и текущий не
-    найден — остаётся исходный (не допускаем NULL teacher_id в Payroll)."""
+    группы (Group.teacher_id), но только если тот сам активен: уволенному платить
+    нельзя. Если активной альтернативы нет — остаётся исходный (не допускаем NULL
+    teacher_id в Payroll; крайний вырожденный случай)."""
     active = Teacher.objects.filter(
         id=missed_lesson.teacher_id).values_list('active', flat=True).first()
     if active:
         return missed_lesson.teacher_id
     current = Group.objects.filter(
         id=missed_lesson.group_id).values_list('teacher_id', flat=True).first()
-    return current or missed_lesson.teacher_id
+    if current and Teacher.objects.filter(id=current, active=True).exists():
+        return current
+    return missed_lesson.teacher_id
 
 
 def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
