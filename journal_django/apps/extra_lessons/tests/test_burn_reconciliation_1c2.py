@@ -75,10 +75,9 @@ def test_burn_lifecycle_reconciles(absence_pending):
         lesson_id=missed.id, student_id=student_id).present is False
 
 
-def test_burned_fact_attendance_has_no_burned_at(absence_pending):
-    """Новый burned-факт потребляется в СВОЮ дату (lesson_date), а не через
-    старый burned_at-приоритет — его attendance.burned_at должен быть NULL."""
+def test_burned_fact_consumes_in_its_own_month(absence_pending):
+    """Burned-факт потребляется в свою дату (lesson_date=дата сжигания)."""
     services.burn(absence_pending.id, request=_FakeRequest(), burn_date='2026-07-18')
     absence_pending.refresh_from_db()
-    att = LessonAttendance.objects.get(lesson_id=absence_pending.fact_lesson_id)
-    assert att.burned_at is None
+    fact = Lesson.objects.get(id=absence_pending.fact_lesson_id)
+    assert fact.lesson_date.isoformat() == '2026-07-18'

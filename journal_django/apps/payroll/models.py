@@ -37,19 +37,8 @@ class Payroll(models.Model):
     )
     total_students = models.IntegerField()
     present_count = models.IntegerField()
-    # payment — БАЗОВАЯ оплата за урок, как он был изначально отчитан (present_count
-    # без учёта учеников, отмеченных "сгоревшими" задним числом через
-    # update_attendance_cell). Надбавка за такие правки — отдельно ниже, чтобы
-    # зарплата за май не менялась молча, если правку внесли в июле (симметрично
-    # LessonAttendance.burned_at — см. apps.lessons.repository.update_attendance_cell).
     payment = models.DecimalField(max_digits=10, decimal_places=2)
     penalty = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    # Надбавка = calculate_payment(total, present_baseline+burned) - payment.
-    # 0/NULL, если по этому уроку не было ни одного "сгорания".
-    burn_surcharge_amount = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0, db_default=0,
-    )
-    burn_surcharge_at = models.DateField(null=True, blank=True)
 
     class Meta:
         managed = True

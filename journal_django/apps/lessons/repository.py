@@ -281,7 +281,6 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
     lesson['payroll'] = dictrow(
         Payroll.objects.filter(lesson_id=lesson_id).values(
             'id', 'total_students', 'present_count', 'payment', 'penalty',
-            'burn_surcharge_amount', 'burn_surcharge_at',
         )
     )
 

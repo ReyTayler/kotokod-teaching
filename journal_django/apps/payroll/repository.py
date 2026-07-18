@@ -14,7 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Optional
 
-from django.db.models import BooleanField, Count, DecimalField, F, Sum, Value
+from django.db.models import Count, DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 
 from apps.core.utils.orm import dictrow, dictrows
@@ -28,8 +28,8 @@ _PAYROLL_FIELDS = (
     'payment', 'penalty',
 )
 
-# Whitelist sort_by → ORM-поле (алиасы entry_* — см. _base_entries/_surcharge_entries,
-# union требует одинаковых имён колонок с обеих сторон). p.id DESC — вторичная сортировка.
+# Whitelist sort_by → ORM-поле (алиасы entry_* — см. _base_entries).
+# p.id DESC — вторичная сортировка.
 _SORTABLE: dict[str, str] = {
     'lesson_date':   'entry_date',
     'lesson_number': 'lesson_number',
@@ -43,13 +43,12 @@ _DEFAULT_SORT_BY = 'lesson_date'
 _DEFAULT_SORT_DIR = 'desc'
 
 _ZERO = Value(Decimal('0'), output_field=DecimalField(max_digits=20, decimal_places=2))
-_ZERO_MONEY = Value(Decimal('0'), output_field=DecimalField(max_digits=10, decimal_places=2))
 
-# Колонки итоговой (union'утой) выборки — порядок и типы должны совпадать в
-# _base_entries/_surcharge_entries, иначе Django откажется строить UNION.
+# Колонки выборки строки payroll (алиасы entry_* сохранены для стабильности
+# сортировки/переименования в list_payroll).
 _ENTRY_VALUES = (
     'id', 'lesson_id', 'teacher_id', 'total_students', 'present_count',
-    'entry_payment', 'entry_penalty', 'entry_date', 'is_surcharge',
+    'entry_payment', 'entry_penalty', 'entry_date',
     'lesson_number', 'group_id', 'group_name', 'teacher_name',
 )
 
@@ -78,7 +77,7 @@ def _apply_common_filters(qs, filters: dict[str, Any]):
 
 def _apply_date_range(qs, filters: dict[str, Any], date_field: str):
     """date_from/date_to (+ алиасы lesson_date_from/to) — против ПЕРЕДАННОГО поля
-    даты: у базовой строки это lesson__lesson_date, у надбавки — burn_surcharge_at."""
+    даты (lesson__lesson_date)."""
     for key in ('date_from', 'lesson_date_from'):
         val = filters.get(key)
         if val not in (None, ''):
@@ -93,35 +92,15 @@ def _apply_date_range(qs, filters: dict[str, Any], date_field: str):
 
 
 def _base_entries(filters: dict[str, Any]):
-    """Базовая (как отчитан урок изначально) строка на каждый payroll — дата
-    фильтруется/сортируется по lesson_date, сумма — payment (без надбавок)."""
+    """Строка на каждый payroll — дата фильтруется/сортируется по lesson_date,
+    сумма — payment. Для доп.урока/сгорания это отдельный Lesson (extra/burned)
+    в свой месяц, поэтому спец-надбавок больше нет."""
     qs = _apply_common_filters(Payroll.objects.all(), filters)
     qs = _apply_date_range(qs, filters, 'lesson__lesson_date')
     return qs.annotate(
         entry_date=F('lesson__lesson_date'),
         entry_payment=F('payment'),
         entry_penalty=F('penalty'),
-        is_surcharge=Value(False, output_field=BooleanField()),
-        lesson_number=F('lesson__lesson_number'),
-        group_id=F('lesson__group_id'),
-        group_name=F('lesson__group__name'),
-        teacher_name=F('teacher__name'),
-    ).values(*_ENTRY_VALUES)
-
-
-def _surcharge_entries(filters: dict[str, Any]):
-    """Надбавка за «сгоревшие» задним числом уроки (см. LessonAttendance.burned_at,
-    apps.lessons.repository.update_attendance_cell) — отдельная строка, дата/сумма
-    из burn_surcharge_at/burn_surcharge_amount, а не из самого урока. Только уроки,
-    где надбавка реально есть (> 0) — иначе засорим список нулевыми строками."""
-    qs = Payroll.objects.filter(burn_surcharge_amount__gt=0)
-    qs = _apply_common_filters(qs, filters)
-    qs = _apply_date_range(qs, filters, 'burn_surcharge_at')
-    return qs.annotate(
-        entry_date=F('burn_surcharge_at'),
-        entry_payment=F('burn_surcharge_amount'),
-        entry_penalty=_ZERO_MONEY,
-        is_surcharge=Value(True, output_field=BooleanField()),
         lesson_number=F('lesson__lesson_number'),
         group_id=F('lesson__group_id'),
         group_name=F('lesson__group__name'),
@@ -143,10 +122,8 @@ def list_payroll(
     """
     Пагинированный список payroll с joined-полями. Контракт {rows,total,page,page_size}.
 
-    UNION ALL двух выборок с одного и того же payroll (см. _base_entries/
-    _surcharge_entries) — базовая оплата за урок остаётся в месяце самого урока,
-    надбавка за «сгоревшие» правки — отдельной строкой в месяце самой правки.
-    rows[i]['is_surcharge'] отличает вторую строку от первой на фронте.
+    Одна строка на payroll (доп.урок/сгорание — отдельные Lesson в свой месяц,
+    отдельных строк-надбавок больше нет).
     """
     if filters is None:
         filters = {}
@@ -154,12 +131,12 @@ def list_payroll(
     sort_field = _SORTABLE.get(sort_by) or _SORTABLE[_DEFAULT_SORT_BY]
     order_prefix = '' if sort_dir == 'asc' else '-'
 
-    combined = _base_entries(filters).union(_surcharge_entries(filters), all=True)
+    entries = _base_entries(filters)
 
-    total = combined.count()
+    total = entries.count()
 
     offset = max(0, (page - 1) * page_size)
-    ordered = combined.order_by(f'{order_prefix}{sort_field}', '-id')
+    ordered = entries.order_by(f'{order_prefix}{sort_field}', '-id')
     rows = dictrows(ordered[offset:offset + page_size])
     for r in rows:
         r['payment'] = r.pop('entry_payment')
@@ -182,10 +159,8 @@ def payroll_summary(
     """
     Сводка по учителю: COUNT уроков, SUM(payment), SUM(penalty). ORDER BY te.name.
 
-    sum_payment = SUM(payment) за уроки в диапазоне (по lesson_date) + SUM(надбавок
-    за «сгоревшие» правки), попавших в диапазон по ДАТЕ ПРАВКИ (burn_surcharge_at),
-    а не по дате урока — см. list_payroll/_surcharge_entries. lessons_count считает
-    только реальные уроки (базовую строку), надбавка новым уроком не считается.
+    Диапазон — по lesson_date. Доп.урок/сгорание — отдельные Lesson (extra/burned)
+    в свой месяц, считаются обычными строками payroll (спец-надбавок больше нет).
     lessons_count → строка (node-pg bigint = строка). sum_* → Decimal (renderer → строка).
     """
     base_qs = Payroll.objects.all()
@@ -205,40 +180,14 @@ def payroll_summary(
         )
     )
 
-    surcharge_qs = Payroll.objects.filter(burn_surcharge_amount__gt=0)
-    if teacher_id:
-        surcharge_qs = surcharge_qs.filter(teacher_id=teacher_id)
-    if date_from:
-        surcharge_qs = surcharge_qs.filter(burn_surcharge_at__gte=date_from)
-    if date_to:
-        surcharge_qs = surcharge_qs.filter(burn_surcharge_at__lte=date_to)
-
-    surcharge_rows = (
-        surcharge_qs.values('teacher_id', teacher_name=F('teacher__name'))
-        .annotate(sum_surcharge=Coalesce(Sum('burn_surcharge_amount'), _ZERO))
-    )
-    surcharge_by_teacher = {r['teacher_id']: r for r in surcharge_rows}
-
     result_by_teacher: dict[int, dict] = {}
     for r in base_rows:
-        surcharge = surcharge_by_teacher.pop(r['teacher_id'], None)
         result_by_teacher[r['teacher_id']] = {
             'teacher_id': r['teacher_id'],
             'teacher_name': r['teacher_name'],
             'lessons_count': str(r['lessons_count']),   # ::text — bigint строкой
-            'sum_payment': r['sum_payment'] + (surcharge['sum_surcharge'] if surcharge else Decimal('0')),
+            'sum_payment': r['sum_payment'],
             'sum_penalty': r['sum_penalty'],
-        }
-
-    # Учителя, у которых в диапазоне ЕСТЬ надбавка, но нет ни одного урока
-    # (базовая строка вне диапазона/у другого учителя) — не должны пропасть из сводки.
-    for tid, r in surcharge_by_teacher.items():
-        result_by_teacher[tid] = {
-            'teacher_id': tid,
-            'teacher_name': r['teacher_name'],
-            'lessons_count': '0',
-            'sum_payment': r['sum_surcharge'],
-            'sum_penalty': Decimal('0'),
         }
 
     return sorted(result_by_teacher.values(), key=lambda r: r['teacher_name'] or '')
