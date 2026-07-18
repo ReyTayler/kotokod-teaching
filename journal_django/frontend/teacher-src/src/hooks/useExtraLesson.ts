@@ -11,7 +11,7 @@ import { api } from '@shared/lib/api';
 
 export interface ExtraLessonDetail {
   id: number;
-  status: 'scheduled' | 'done' | 'cancelled';
+  status: 'pending' | 'makeup_scheduled' | 'makeup_done';
   scheduled_date: string;
   scheduled_time: string;
   duration_minutes: number;

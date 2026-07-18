@@ -118,8 +118,7 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
   attendance:     'Посещаемость',
   payment:        'Оплата',
   payroll:        'Начисление',
-  extra_lesson_assignment:  'Доп.урок (назначение)',
-  extra_lesson_participant: 'Доп.урок (участник)',
+  absence_resolution: 'Пропуск (резолюция)',
 };
 
 export const CHANGELOG_ENTITY_OPTIONS: { value: string; label: string }[] =
