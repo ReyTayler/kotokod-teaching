@@ -41,6 +41,13 @@ def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
     engine.sync_lesson_stage_safe(student_id, direction_id)
 
 
+def sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
+    """Публичная обёртка над _sync_renewal_stage для внешних вызывающих
+    (apps.extra_lessons.services.record/delete_fact) — доп.урок тоже двигает
+    авто-стадию «Продлений», как обычный урок в record_lesson."""
+    _sync_renewal_stage(student_id, direction_id)
+
+
 # ---------------------------------------------------------------------------
 # Конфигурация пагинации
 # ---------------------------------------------------------------------------

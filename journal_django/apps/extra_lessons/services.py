@@ -17,6 +17,7 @@ from apps.extra_lessons.exceptions import (
     DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
 )
 from apps.extra_lessons.models import MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
+from apps.groups.models import Group
 from apps.lessons import repository as lessons_repository
 from apps.lessons.models import Lesson
 from apps.payroll.calculator import calculate_extra_lesson_payment, calculate_penalty
@@ -261,6 +262,13 @@ def record(
             lessons_repository.increment_lessons_done(
                 locked['missed_lesson_group_id'], [locked['student_id']], step,
             )
+            # Доп.урок двигает авто-стадию «Продлений» (как обычный урок в
+            # record_lesson) — раньше это делал apply_makeup_attendance через
+            # on_commit; теперь делаем явно, т.к. потребление ушло на extra-факт.
+            direction_id = Group.objects.filter(
+                id=locked['missed_lesson_group_id']).values_list('direction_id', flat=True).first()
+            transaction.on_commit(
+                lambda: lessons_repository.sync_renewal_stage(locked['student_id'], direction_id))
         repository.mark_makeup_done(resolution_id, fact_lesson_id=lesson_id)
 
     log_event(
@@ -308,6 +316,13 @@ def delete_fact(resolution_id: int, request) -> bool:
         if present_ids:
             step = _step(fact.lesson_duration_minutes)
             lessons_repository.decrement_lessons_done(fact.group_id, present_ids, step)
+            # Откат доп.урока тоже двигает авто-стадию «Продлений» назад
+            # (раньше — revert_makeup_attendance через on_commit).
+            direction_id = Group.objects.filter(
+                id=fact.group_id).values_list('direction_id', flat=True).first()
+            for sid in present_ids:
+                transaction.on_commit(
+                    lambda sid=sid: lessons_repository.sync_renewal_stage(sid, direction_id))
         Payroll.objects.filter(lesson_id=fact_lesson_id).delete()
         Lesson.objects.filter(id=fact_lesson_id).delete()
         repository.back_to_pending(resolution_id)

@@ -55,10 +55,10 @@ def _attended_total(student_id: int) -> float:
     """
     Суммарно посещено уроков за ВСЮ историю ученика (half-lesson 45мин=0.5).
     Делегирует apps.finances.repository.attended_units_total — ЕДИНЫЙ источник
-    «отработано», тот же, что и баланс/потребление finances (с исключением
-    lesson_type='extra'). Раньше здесь был отдельный SQL БЕЗ исключения extra, из-за
-    чего доп.урок задваивал прогресс сделки (регрессия 2026-07-18). Локальный импорт —
-    чтобы не тянуть finances в граф импорта renewals на старте.
+    «отработано», тот же, что и баланс/потребление finances (present=true по всем
+    подтипам урока; модель 1c — доп.урок present=true считается как любой урок, а
+    исходный пропуск остаётся present=false, поэтому задвоения нет). Локальный
+    импорт — чтобы не тянуть finances в граф импорта renewals на старте.
     """
     from apps.finances.repository import attended_units_total
     return float(attended_units_total(student_id))
