@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from django.db import transaction
 from django.db.models import F
 
 from apps.extra_lessons.models import (
@@ -12,16 +11,22 @@ from apps.extra_lessons.models import (
 from apps.lessons.models import LessonAttendance
 
 
-def create_resolutions(*, missed_lesson_id, assigned_teacher_id, student_ids,
-                       scheduled_date, scheduled_time, duration_minutes) -> list[int]:
-    """N независимых резолюций (по одной на ученика), status=scheduled. Возвращает их id."""
-    objs = [AbsenceResolution(
-        missed_lesson_id=missed_lesson_id, student_id=sid, assigned_teacher_id=assigned_teacher_id,
-        scheduled_date=scheduled_date, scheduled_time=scheduled_time,
-        duration_minutes=duration_minutes, status=SCHEDULED,
-    ) for sid in student_ids]
-    AbsenceResolution.objects.bulk_create(objs)
-    return [o.id for o in objs]
+def autocreate_pending(missed_lesson_id, student_ids) -> int:
+    """Идемпотентно создать pending-резолюции по списку отсутствовавших.
+    ON CONFLICT DO NOTHING по UNIQUE(missed_lesson, student). Возвращает
+    len(student_ids) (верхняя оценка; тесты проверяют факт создания выборкой).
+    Пустой список — no-op (return 0)."""
+    if not student_ids:
+        return 0
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO absence_resolutions (missed_lesson_id, student_id, status, created_at) "
+            "VALUES (%s, %s, 'pending', now()) "
+            "ON CONFLICT (missed_lesson_id, student_id) DO NOTHING",
+            [(missed_lesson_id, sid) for sid in student_ids],
+        )
+    return len(student_ids)
 
 
 def _full_values(qs):
@@ -52,9 +57,12 @@ def lock_for_delete(resolution_id) -> Optional[dict]:
             .values('id', 'status', 'missed_lesson_id', 'student_id', 'fact_lesson_id').first())
 
 
-def has_active_resolution(missed_lesson_id, student_id) -> bool:
-    return (AbsenceResolution.objects.filter(missed_lesson_id=missed_lesson_id, student_id=student_id)
-            .exclude(status=CANCELLED).exists())
+def lock_for_assign(missed_lesson_id, student_id) -> Optional[dict]:
+    """SELECT ... FOR UPDATE резолюции перед переводом в makeup_scheduled.
+    None → строки нет (сервис создаст напрямую create_scheduled_direct)."""
+    return (AbsenceResolution.objects.select_for_update()
+            .filter(missed_lesson_id=missed_lesson_id, student_id=student_id)
+            .values('id', 'status').first())
 
 
 def students_not_absent(missed_lesson_id, student_ids) -> list[int]:
@@ -64,23 +72,54 @@ def students_not_absent(missed_lesson_id, student_ids) -> list[int]:
     return [sid for sid in student_ids if sid not in absent]
 
 
-def cancel(resolution_id) -> None:
-    with transaction.atomic():
-        obj = AbsenceResolution.objects.select_for_update().filter(id=resolution_id).first()
-        if obj is None:
-            return
-        if obj.status != SCHEDULED:
-            raise ValueError('Отменить можно только ещё не проведённый доп.урок.')
-        obj.status = CANCELLED
-        obj.save(update_fields=['status'])
+def assign_pending(resolution_id, *, assigned_teacher_id, scheduled_date, scheduled_time,
+                   duration_minutes) -> None:
+    """pending → makeup_scheduled с параметрами доп.урока."""
+    AbsenceResolution.objects.filter(id=resolution_id).update(
+        status=MAKEUP_SCHEDULED, assigned_teacher_id=assigned_teacher_id,
+        scheduled_date=scheduled_date, scheduled_time=scheduled_time,
+        duration_minutes=duration_minutes)
 
 
-def mark_done(resolution_id, *, fact_lesson_id) -> None:
-    AbsenceResolution.objects.filter(id=resolution_id).update(status=DONE, fact_lesson_id=fact_lesson_id)
+def create_scheduled_direct(*, missed_lesson_id, student_id, assigned_teacher_id,
+                            scheduled_date, scheduled_time, duration_minutes) -> int:
+    """Edge: pending-строки нет (пропуск до релиза) → создать сразу makeup_scheduled."""
+    obj = AbsenceResolution.objects.create(
+        missed_lesson_id=missed_lesson_id, student_id=student_id,
+        assigned_teacher_id=assigned_teacher_id, status=MAKEUP_SCHEDULED,
+        scheduled_date=scheduled_date, scheduled_time=scheduled_time,
+        duration_minutes=duration_minutes)
+    return obj.id
 
 
-def reset_to_scheduled(resolution_id) -> None:
-    AbsenceResolution.objects.filter(id=resolution_id).update(status=SCHEDULED, fact_lesson_id=None)
+def back_to_pending(resolution_id) -> None:
+    """Отмена назначения / откат факта → pending. Сбрасывает параметры и факт."""
+    AbsenceResolution.objects.filter(id=resolution_id).update(
+        status=PENDING, assigned_teacher_id=None, scheduled_date=None,
+        scheduled_time=None, duration_minutes=None, fact_lesson_id=None)
+
+
+def mark_makeup_done(resolution_id, *, fact_lesson_id) -> None:
+    AbsenceResolution.objects.filter(id=resolution_id).update(
+        status=MAKEUP_DONE, fact_lesson_id=fact_lesson_id)
+
+
+def has_active_resolution(missed_lesson_id, student_id) -> bool:
+    """Уже назначено или проведено? (pending НЕ считается — его как раз назначают).
+    Используется сервисом как guard от повторного назначения."""
+    return (AbsenceResolution.objects
+            .filter(missed_lesson_id=missed_lesson_id, student_id=student_id,
+                    status__in=[MAKEUP_SCHEDULED, MAKEUP_DONE]).exists())
+
+
+def delete_open_for_student(student_id) -> int:
+    """Уход ученика: удалить его pending + makeup_scheduled (нет факта/денег).
+    makeup_done не трогаем. Возвращает число удалённых."""
+    qs = AbsenceResolution.objects.filter(
+        student_id=student_id, status__in=[PENDING, MAKEUP_SCHEDULED])
+    n = qs.count()
+    qs.delete()
+    return n
 
 
 def list_resolutions(page=1, page_size=50, sort_by='scheduled_date', sort_dir='desc', filters=None) -> dict:
