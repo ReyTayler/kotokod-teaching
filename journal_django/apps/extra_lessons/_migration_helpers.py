@@ -115,12 +115,21 @@ def convert_historical_burned_at(connection) -> None:
             by_lesson.setdefault(r[0], []).append(r)
 
         for lesson_id, grp in by_lesson.items():
-            # Идемпотентность: урок уже мигрирован (есть burned-резолюция) → пропустить.
-            cur.execute(
-                "SELECT 1 FROM absence_resolutions "
-                "WHERE missed_lesson_id = %s AND status = 'burned' LIMIT 1",
-                [lesson_id])
-            if cur.fetchone():
+            # Идемпотентность на уровне ПАРЫ (урок×ученик), а не всего урока:
+            # мигрируем только тех, у кого ещё нет burned-резолюции. Иначе в редком
+            # миксе (ученик A уже сожжён через live-burn, B несёт WIP-мету на том же
+            # уроке) гард по уроку пропустил бы B и потерял его данные при 2c.
+            # (Обычный повторный прогон и так no-op: исходные строки уже present=false
+            #  → верхний SELECT их не вернёт.)
+            pending = []
+            for row in grp:
+                cur.execute(
+                    "SELECT 1 FROM absence_resolutions "
+                    "WHERE missed_lesson_id = %s AND student_id = %s AND status = 'burned' LIMIT 1",
+                    [row[0], row[1]])
+                if not cur.fetchone():
+                    pending.append(row)
+            if not pending:
                 continue
 
             cur.execute(
@@ -129,11 +138,11 @@ def convert_historical_burned_at(connection) -> None:
             prow = cur.fetchone()
             total = prow[0] if prow and prow[0] is not None else Decimal('0')
             total_cents = int((total * 100).to_integral_value())
-            n = len(grp)
+            n = len(pending)
             base = total_cents // n
             remainder = total_cents - base * n
 
-            for i, (lid, sid, burned_at, group_id, teacher_id, lesson_number, dur) in enumerate(grp):
+            for i, (lid, sid, burned_at, group_id, teacher_id, lesson_number, dur) in enumerate(pending):
                 share = Decimal(base + (remainder if i == 0 else 0)) / Decimal(100)
                 cur.execute(
                     "INSERT INTO lessons "

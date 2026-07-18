@@ -103,3 +103,59 @@ def test_convert_historical_burned_at_reconciles(
                 cur.execute('DELETE FROM payroll WHERE lesson_id=%s', [fid])
                 cur.execute('DELETE FROM lesson_attendance WHERE lesson_id=%s', [fid])
                 cur.execute('DELETE FROM lessons WHERE id=%s', [fid])
+
+
+def test_convert_splits_surcharge_across_multiple_burned(
+    group_fixture, teacher_fixture, student_fixture, missed_lesson_fixture,
+):
+    """Несколько сожжённых на одном уроке: надбавка делится поровну, нечётный
+    остаток (копейки) — первому по student_id. Сумма долей == исходной надбавке."""
+    lesson_id = missed_lesson_fixture
+    with connection.cursor() as cur:
+        # Второй ученик, отсутствовавший на том же уроке.
+        cur.execute(
+            "INSERT INTO students (full_name, enrollment_status) "
+            "VALUES ('__el_burn2_student__','enrolled') RETURNING id")
+        student2 = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s,%s,0,true)", [group_fixture, student2])
+        cur.execute(
+            "INSERT INTO lesson_attendance (lesson_id, student_id, present) "
+            "VALUES (%s,%s,false)", [lesson_id, student2])
+        # Оба сожжены задним числом; надбавка 2.01 (201 копейка) на двоих →
+        # 1.01 первому по student_id (остаток копейки), 1.00 второму.
+        cur.execute(
+            "UPDATE lesson_attendance SET present=true, burned_at='2026-07-17' "
+            "WHERE lesson_id=%s AND student_id IN (%s,%s)",
+            [lesson_id, student_fixture, student2])
+        cur.execute(
+            "UPDATE payroll SET burn_surcharge_amount=2.01, burn_surcharge_at='2026-07-17' "
+            "WHERE lesson_id=%s", [lesson_id])
+        cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id=%s', [lesson_id])
+
+    try:
+        convert_historical_burned_at(connection)
+        from apps.extra_lessons.models import AbsenceResolution
+        shares = {}
+        for sid in (student_fixture, student2):
+            res = AbsenceResolution.objects.get(missed_lesson_id=lesson_id, student_id=sid)
+            shares[sid] = Payroll.objects.get(lesson_id=res.fact_lesson_id).payment
+        first, second = sorted((student_fixture, student2))
+        assert shares[first] == Decimal('1.01')   # остаток первому по student_id
+        assert shares[second] == Decimal('1.00')
+        assert shares[first] + shares[second] == Decimal('2.01')  # == исходная надбавка
+    finally:
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT fact_lesson_id FROM absence_resolutions "
+                "WHERE missed_lesson_id=%s AND fact_lesson_id IS NOT NULL", [lesson_id])
+            fact_ids = [r[0] for r in cur.fetchall()]
+            cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id=%s', [lesson_id])
+            for fid in fact_ids:
+                cur.execute('DELETE FROM payroll WHERE lesson_id=%s', [fid])
+                cur.execute('DELETE FROM lesson_attendance WHERE lesson_id=%s', [fid])
+                cur.execute('DELETE FROM lessons WHERE id=%s', [fid])
+            cur.execute('DELETE FROM lesson_attendance WHERE student_id=%s', [student2])
+            cur.execute('DELETE FROM group_memberships WHERE student_id=%s', [student2])
+            cur.execute('DELETE FROM students WHERE id=%s', [student2])
