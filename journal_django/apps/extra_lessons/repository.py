@@ -6,7 +6,9 @@ from typing import Optional
 from django.db import transaction
 from django.db.models import F
 
-from apps.extra_lessons.models import CANCELLED, DONE, SCHEDULED, AbsenceResolution
+from apps.extra_lessons.models import (
+    MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution,
+)
 from apps.lessons.models import LessonAttendance
 
 

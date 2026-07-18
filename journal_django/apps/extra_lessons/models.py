@@ -3,9 +3,11 @@ Models for extra_lessons — доп.уроки/резолюции пропуск
 конкретному ученику, пропустившему основной (уже проведённый) урок.
 
 AbsenceResolution — пер-ученик (1:1) «пропуск, требующий решения»: одна строка
-на (пропущенный урок × ученик), scheduled (назначено) → done (проведено,
-fact_lesson заполнен) | cancelled. Группа доп.урока отдельно не хранится — это
-всегда группа missed_lesson. См.
+на (пропущенный урок × ученик). pending (авто-создан по пропуску, ждёт решения)
+→ makeup_scheduled (доп.урок назначен) → makeup_done (проведён, fact_lesson
+заполнен). Отмена назначения / откат факта возвращают в pending (терминального
+cancelled нет). Группа доп.урока отдельно не хранится — это всегда группа
+missed_lesson. См.
 docs/superpowers/specs/2026-07-18-unify-absences-makeup-burn-design.md.
 """
 from __future__ import annotations
@@ -13,10 +15,10 @@ from __future__ import annotations
 import pghistory
 from django.db import models
 
-SCHEDULED = 'scheduled'
-DONE = 'done'
-CANCELLED = 'cancelled'
-STATUS_CHOICES = [SCHEDULED, DONE, CANCELLED]
+PENDING = 'pending'
+MAKEUP_SCHEDULED = 'makeup_scheduled'
+MAKEUP_DONE = 'makeup_done'
+STATUS_CHOICES = [PENDING, MAKEUP_SCHEDULED, MAKEUP_DONE]
 
 # Совпадает с VALID_LESSON_DURATIONS admin-формы обычных уроков + 30 мин
 # (доп.урок может быть короче группового занятия).
@@ -28,7 +30,7 @@ class AbsenceResolution(models.Model):
     """
     Пер-ученик (1:1) «пропуск, требующий решения» — заменила групповую пару
     ExtraLessonAssignment+ExtraLessonParticipant. Одна строка на (пропущенный
-    урок × ученик). Статусы в Фазе 1a прежние (scheduled/done/cancelled). См.
+    урок × ученик). Статусы: pending → makeup_scheduled → makeup_done. См.
     docs/superpowers/specs/2026-07-18-unify-absences-makeup-burn-design.md.
     """
     id = models.AutoField(primary_key=True)
@@ -41,7 +43,7 @@ class AbsenceResolution(models.Model):
     scheduled_date = models.DateField(null=True, blank=True)
     scheduled_time = models.TimeField(null=True, blank=True)
     duration_minutes = models.PositiveSmallIntegerField(null=True, blank=True)
-    status = models.CharField(max_length=16, default=SCHEDULED)
+    status = models.CharField(max_length=16, default=PENDING)
     fact_lesson = models.ForeignKey('lessons.Lesson', on_delete=models.SET_NULL,
                                     null=True, blank=True, related_name='absence_resolution_facts')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -56,13 +58,10 @@ class AbsenceResolution(models.Model):
             models.Index(fields=['student'], name='ar_student_idx'),
         ]
         constraints = [
-            # Частичный уникальный: не более ОДНОЙ активной (не отменённой)
-            # резолюции на (пропуск × ученик) — совпадает с guard'ом
-            # repository.has_active_resolution (тот тоже исключает cancelled).
-            # После отмены можно назначить заново (cancelled-строки не считаются),
-            # как было в групповой модели.
+            # Полный уникальный: РОВНО одна резолюция на (пропуск × ученик).
+            # Терминального cancelled больше нет (отмена/откат → pending), поэтому
+            # строки не накапливаются и частичное условие не нужно.
             models.UniqueConstraint(fields=['missed_lesson', 'student'],
-                                    condition=~models.Q(status=CANCELLED),
                                     name='absence_resolutions_missed_student_key'),
             models.CheckConstraint(name='absence_resolutions_status_check',
                                    condition=models.Q(status__in=STATUS_CHOICES)),

@@ -11,7 +11,7 @@ import datetime
 from apps.audit.services import log_event
 from apps.core.utils.dates import MSK, msk_now
 from apps.extra_lessons import repository as extra_lessons_repository
-from apps.extra_lessons.models import CANCELLED as EXTRA_CANCELLED, DONE as EXTRA_DONE
+from apps.extra_lessons.models import MAKEUP_DONE as EXTRA_DONE
 from apps.scheduling import repository
 from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING
 
@@ -108,16 +108,15 @@ def _extra_lesson_status(status_value: str, scheduled_date, scheduled_time, now_
     """
     Статус карточки доп.урока → тот же алфавит OccStatus, что и у planned_lessons.
 
-    status_value — значение ExtraLessonAssignment.status (свой словарь
-    scheduled/done/cancelled из apps.extra_lessons.models), сравниваем с его
-    константами EXTRA_DONE/EXTRA_CANCELLED, а не с DONE/CANCELLED (те —
-    OccStatus для ВЫХОДА этой функции, из apps.scheduling.occurrences;
-    строки совпадают случайно, это разные словари).
+    status_value — значение AbsenceResolution.status (свой словарь
+    pending/makeup_scheduled/makeup_done из apps.extra_lessons.models), сравниваем
+    с его константой EXTRA_DONE (=makeup_done), а не с DONE (тот — OccStatus для
+    ВЫХОДА этой функции, из apps.scheduling.occurrences; строки совпадают случайно,
+    это разные словари). Резолюции в статусе pending имеют scheduled_date=NULL и в
+    окно календаря не попадают, поэтому сюда доходят только makeup_scheduled/done.
     """
     if status_value == EXTRA_DONE:
         return DONE
-    if status_value == EXTRA_CANCELLED:
-        return CANCELLED
     occ_dt = datetime.datetime.combine(scheduled_date, scheduled_time, tzinfo=MSK)
     return OVERDUE if now_msk >= occ_dt else PENDING
 

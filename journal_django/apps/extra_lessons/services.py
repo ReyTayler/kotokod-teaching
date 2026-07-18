@@ -15,7 +15,7 @@ from apps.extra_lessons import repository
 from apps.extra_lessons.exceptions import (
     DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
 )
-from apps.extra_lessons.models import DONE, SCHEDULED
+from apps.extra_lessons.models import MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
 from apps.lessons import repository as lessons_repository
 from apps.lessons.models import Lesson
 from apps.payroll.calculator import calculate_extra_lesson_payment, calculate_penalty
