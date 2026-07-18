@@ -28,7 +28,7 @@ class TestPaymentsDirectionCountConstraint:
         sid = _make_student()
         try:
             p = Payment.objects.create(
-                student_id=sid, direction_id=None, subscriptions_count=2,
+                student_id=sid, direction_id=None, subscriptions_count=2, lessons_count=8,
                 unit_price='100.00', total_amount='200.00',
                 paid_at='2026-01-01', created_at='2026-01-01T00:00:00Z',
             )
@@ -50,6 +50,26 @@ class TestPaymentsDirectionCountConstraint:
                         "INSERT INTO payments (student_id, direction_id, kind, lessons_count, "
                         "unit_price, total_amount, paid_at, created_at) "
                         "VALUES (%s, NULL, 'purchase', 0, 100.00, 0.00, '2026-01-01', "
+                        "'2026-01-01T00:00:00Z')",
+                        [sid],
+                    )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
+                cur.execute('DELETE FROM students WHERE id = %s', [sid])
+
+    def test_purchase_null_lessons_rejected(self):
+        """payments_purchase_signs: purchase с lessons_count=NULL отклоняется —
+        иначе оплата молча выпала бы из purchased (завышенный «долг»). Раньше CHECK
+        пропускал NULL (`NULL > 0` = NULL, а CHECK валит только на FALSE)."""
+        sid = _make_student()
+        try:
+            with pytest.raises(IntegrityError), transaction.atomic():
+                with connection.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO payments (student_id, direction_id, kind, lessons_count, "
+                        "unit_price, total_amount, paid_at, created_at) "
+                        "VALUES (%s, NULL, 'purchase', NULL, 100.00, 200.00, '2026-01-01', "
                         "'2026-01-01T00:00:00Z')",
                         [sid],
                     )
@@ -97,10 +117,13 @@ class TestBackfillLegacySubscriptionsCount:
         sid = _make_student()
         try:
             with connection.cursor() as cur:
+                # lessons_count задан (CHECK payments_purchase_signs требует NOT NULL);
+                # тест про бэкафилл subscriptions_count (direction+subs=NULL → subs=1),
+                # lessons_count на эту логику не влияет.
                 cur.execute(
                     "INSERT INTO payments (student_id, direction_id, subscriptions_count, "
-                    "unit_price, total_amount, paid_at, created_by) "
-                    "VALUES (%s, NULL, NULL, 9990.00, 9990.00, '2024-03-15', 'backfill-script') "
+                    "lessons_count, unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, NULL, NULL, 4, 9990.00, 9990.00, '2024-03-15', 'backfill-script') "
                     "RETURNING id",
                     [sid],
                 )

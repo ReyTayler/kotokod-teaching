@@ -80,18 +80,24 @@ class Payment(models.Model):
                 condition=models.Q(unit_price__gte=0),
             ),
             # purchase: положительные количества и сумма; refund: отрицательные.
+            # lessons_count__isnull=False обязателен ЯВНО: `lessons_count > 0` на
+            # NULL даёт NULL, а CHECK пропускает всё, кроме FALSE → без isnull-ветки
+            # purchase с lessons_count=NULL молча прошёл бы и выпал из purchased
+            # (balances_for_students SUM игнорит NULL) → завышенный «долг» без ошибки.
             models.CheckConstraint(
                 name='payments_purchase_signs',
                 condition=(
                     ~models.Q(kind='purchase')
-                    | (models.Q(lessons_count__gt=0) & models.Q(total_amount__gte=0))
+                    | (models.Q(lessons_count__isnull=False)
+                       & models.Q(lessons_count__gt=0) & models.Q(total_amount__gte=0))
                 ),
             ),
             models.CheckConstraint(
                 name='payments_refund_signs',
                 condition=(
                     ~models.Q(kind='refund')
-                    | (models.Q(lessons_count__lt=0) & models.Q(total_amount__lte=0))
+                    | (models.Q(lessons_count__isnull=False)
+                       & models.Q(lessons_count__lt=0) & models.Q(total_amount__lte=0))
                 ),
             ),
         ]

@@ -27,26 +27,14 @@ pytestmark = pytest.mark.django_db
 
 
 def _add_payment(created, student_id, direction_id, subs, unit_price, total, paid_at):
+    # lessons_count = subs*4 (как create_payment/бэкафилл 0006 и как читает fifo_inputs
+    # для размера партии). Обязателен — CHECK payments_purchase_signs требует NOT NULL.
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO payments (student_id, direction_id, subscriptions_count, unit_price, "
-            "total_amount, paid_at, created_by) VALUES (%s,%s,%s,%s,%s,%s,'test') RETURNING id",
-            [student_id, direction_id, subs, unit_price, total, paid_at],
-        )
-        pid = cur.fetchone()[0]
-    created['payments'].append(pid)
-    return pid
-
-
-def _add_unbackfilled_legacy_payment(created, student_id, paid_at):
-    """Легаси-оплата ДО бэкафилла: direction_id=NULL, subscriptions_count=NULL
-    (валидно по CHECK). По-прежнему исключается — guard'ом NULL/0
-    subscriptions_count в fifo_inputs(), а не фильтром по direction_id."""
-    with connection.cursor() as cur:
-        cur.execute(
-            "INSERT INTO payments (student_id, direction_id, subscriptions_count, unit_price, "
-            "total_amount, paid_at, created_by) VALUES (%s,NULL,NULL,0,0,%s,'test') RETURNING id",
-            [student_id, paid_at],
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+            "unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,'test') RETURNING id",
+            [student_id, direction_id, subs, subs * 4, unit_price, total, paid_at],
         )
         pid = cur.fetchone()[0]
     created['payments'].append(pid)
@@ -54,13 +42,14 @@ def _add_unbackfilled_legacy_payment(created, student_id, paid_at):
 
 
 def _add_backfilled_legacy_payment(created, student_id, paid_at, amount):
-    """Легаси-оплата ПОСЛЕ бэкафилла (миграция 0004): direction_id=NULL,
-    subscriptions_count=1, unit_price == total_amount. Должна попадать в общий
-    пул наравне с оплатами, помеченными направлением."""
+    """Легаси-оплата ПОСЛЕ бэкафилла: direction_id=NULL, subscriptions_count=1,
+    lessons_count=4, unit_price == total_amount. Должна попадать в общий пул
+    наравне с оплатами, помеченными направлением."""
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO payments (student_id, direction_id, subscriptions_count, unit_price, "
-            "total_amount, paid_at, created_by) VALUES (%s,NULL,1,%s,%s,%s,'test') RETURNING id",
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+            "unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s,NULL,1,4,%s,%s,%s,'test') RETURNING id",
             [student_id, amount, amount, paid_at],
         )
         pid = cur.fetchone()[0]
@@ -98,9 +87,7 @@ def test_fifo_inputs_builds_lots_and_consumptions(
     # Три партии разной цены: 1 подписка ×4=4 урока по 500; 1×4=4 по 450; легаси ×4=4 по 100.
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, 2000, '2026-05-01')
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 1800, 1800, '2026-05-15')
-    # Легаси-оплата ДО бэкафилла (subs=NULL) — по-прежнему исключена guard'ом.
-    _add_unbackfilled_legacy_payment(graph_cleanup, student_fixture, '2026-05-18')
-    # Легаси-оплата ПОСЛЕ бэкафилла (subs=1, direction=NULL) — теперь пулится наравне с остальными.
+    # Легаси-оплата ПОСЛЕ бэкафилла (subs=1, direction=NULL) — пулится наравне с остальными.
     _add_backfilled_legacy_payment(graph_cleanup, student_fixture, '2026-05-20', 400)
     # 3 посещения в мае, 4 в июне.
     for _ in range(3):
@@ -117,8 +104,8 @@ def test_fifo_inputs_builds_lots_and_consumptions(
 
     assert key in inputs['keys']
     lots = inputs['lots_by_key'][key]
-    # Неотбэкафилленная легаси (subs=NULL) исключена guard'ом; отбэкафилленная
-    # (subs=1, direction=NULL) — включена наравне с обычными → ровно 3 партии.
+    # Отбэкафилленная легаси (subs=1, direction=NULL) включена наравне с
+    # обычными → ровно 3 партии.
     assert len(lots) == 3
     assert lots[0]['lessons'] == 4
     assert lots[0]['price_per_lesson'] == Decimal('500')
