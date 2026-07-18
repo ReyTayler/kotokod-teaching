@@ -12,6 +12,19 @@ from apps.extra_lessons.models import MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
 pytestmark = pytest.mark.django_db
 
 
+def _assign_fixture_pending(missed_lesson_id, student_id, teacher_id):
+    """Авто-созданный фикстурой pending → makeup_scheduled. missed_lesson_fixture
+    пишет урок через record_lesson, который теперь авто-создаёт pending, поэтому
+    прямой create_scheduled_direct на ту же пару конфликтует по UNIQUE — берём
+    существующий pending и назначаем его."""
+    rid = repository.lock_for_assign(missed_lesson_id, student_id)['id']
+    repository.assign_pending(
+        rid, assigned_teacher_id=teacher_id,
+        scheduled_date=datetime.date(2026, 4, 5), scheduled_time=datetime.time(15, 0),
+        duration_minutes=45)
+    return rid
+
+
 @pytest.fixture
 def resolution_cleanup(missed_lesson_fixture):
     """Сносит созданные тестом резолюции ДО teardown missed_lesson_fixture.
@@ -103,6 +116,11 @@ def test_create_scheduled_direct(
     teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
 ):
     """Edge: pending-строки нет — резолюция создаётся сразу в makeup_scheduled."""
+    # Убрать авто-pending (missed_lesson_fixture пишет урок через record_lesson,
+    # который авто-создаёт pending) — этот путь проверяет именно ОТСУТСТВИЕ pending.
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id=%s AND student_id=%s',
+                    [missed_lesson_fixture, student_fixture])
     resolution_id = repository.create_scheduled_direct(
         missed_lesson_id=missed_lesson_fixture, student_id=student_fixture,
         assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 5),
@@ -120,10 +138,7 @@ def test_create_scheduled_direct(
 def test_back_to_pending_resets(
     teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
 ):
-    resolution_id = repository.create_scheduled_direct(
-        missed_lesson_id=missed_lesson_fixture, student_id=student_fixture,
-        assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 5),
-        scheduled_time=datetime.time(15, 0), duration_minutes=45)
+    resolution_id = _assign_fixture_pending(missed_lesson_fixture, student_fixture, teacher_fixture)
 
     # Из makeup_scheduled → pending: параметры сбрасываются.
     repository.back_to_pending(resolution_id)
@@ -155,10 +170,7 @@ def test_back_to_pending_resets(
 def test_mark_makeup_done_sets_fact(
     teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
 ):
-    resolution_id = repository.create_scheduled_direct(
-        missed_lesson_id=missed_lesson_fixture, student_id=student_fixture,
-        assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 5),
-        scheduled_time=datetime.time(15, 0), duration_minutes=45)
+    resolution_id = _assign_fixture_pending(missed_lesson_fixture, student_fixture, teacher_fixture)
 
     repository.mark_makeup_done(resolution_id, fact_lesson_id=missed_lesson_fixture)
     full = repository.get_resolution_full(resolution_id)
@@ -237,10 +249,7 @@ def test_students_not_absent_excludes_present_and_non_participants(
 def test_lock_for_delete_returns_locked_fields(
     teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
 ):
-    resolution_id = repository.create_scheduled_direct(
-        missed_lesson_id=missed_lesson_fixture, student_id=student_fixture,
-        assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 5),
-        scheduled_time=datetime.time(15, 0), duration_minutes=45)
+    resolution_id = _assign_fixture_pending(missed_lesson_fixture, student_fixture, teacher_fixture)
     repository.mark_makeup_done(resolution_id, fact_lesson_id=missed_lesson_fixture)
 
     locked = repository.lock_for_delete(resolution_id)

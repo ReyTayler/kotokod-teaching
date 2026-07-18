@@ -119,6 +119,16 @@ def record_lesson(*,
             'penalty': penalty,
         })
 
+        # Авто-создание «пропусков, требующих решения» — только для обычных уроков
+        # (extra/burned сами являются РЕЗУЛЬТАТОМ решения, пропусков не порождают).
+        # Ленивый импорт: apps.extra_lessons.repository импортит apps.lessons.models,
+        # прямой top-level импорт здесь завёл бы цикл.
+        if lesson_type == 'regular':
+            absent_student_ids = [a['student_id'] for a in attendance if not a['present']]
+            if absent_student_ids:
+                from apps.extra_lessons import services as extra_lessons_services
+                extra_lessons_services.autocreate_pending_for_lesson(lesson_id, absent_student_ids)
+
         for sid in present_student_ids:
             transaction.on_commit(lambda sid=sid: repository._sync_renewal_stage(sid, direction_id))
 

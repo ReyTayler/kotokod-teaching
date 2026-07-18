@@ -189,8 +189,10 @@ def test_create_assignment_raises_if_student_not_absent(
                 },
                 _FakeRequest(),
             )
+        # present_student present=true → авто-pending для него не создавался, и
+        # назначение не прошло → у него нет НИКАКОЙ резолюции.
         assert not AbsenceResolution.objects.filter(
-            missed_lesson_id=missed_lesson_fixture,
+            missed_lesson_id=missed_lesson_fixture, student_id=present_student_id,
         ).exists()
     finally:
         with connection.cursor() as cur:
@@ -216,8 +218,10 @@ def test_create_assignment_raises_if_student_unpaid(
             },
             _FakeRequest(),
         )
+    # missed_lesson_unpaid_fixture авто-создал pending для unpaid_student. Блок по
+    # балансу не должен ПЕРЕВЕСТИ его в makeup_scheduled — резолюция остаётся pending.
     assert not AbsenceResolution.objects.filter(
-        missed_lesson_id=missed_lesson_unpaid_fixture,
+        missed_lesson_id=missed_lesson_unpaid_fixture, status=MAKEUP_SCHEDULED,
     ).exists()
 
 

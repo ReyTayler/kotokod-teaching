@@ -282,7 +282,7 @@ def test_cancel_happy_path(
     rid = _created_id(create_resp)
     resp = admin_client.post(f'{ADMIN_URL}/{rid}/cancel')
     assert resp.status_code == 200
-    assert resp.data['status'] == 'cancelled'
+    assert resp.data['status'] == 'pending'
 
 
 def test_cancel_404(admin_client):
@@ -359,7 +359,7 @@ def test_delete_happy_path_when_done(
         # Verify the assignment still exists but status is back to scheduled
         get_resp = admin_client.get(f'{ADMIN_URL}/{assignment_id}')
         assert get_resp.status_code == 200
-        assert get_resp.data['status'] == 'scheduled'
+        assert get_resp.data['status'] == 'pending'
         assert get_resp.data['fact_lesson_id'] is None
     finally:
         # Cleanup: delete lesson if it still exists

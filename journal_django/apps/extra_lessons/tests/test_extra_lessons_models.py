@@ -10,6 +10,12 @@ pytestmark = pytest.mark.django_db
 
 
 def test_unique_missed_lesson_student(teacher_fixture, missed_lesson_fixture, student_fixture):
+    # missed_lesson_fixture пишет урок через record_lesson → авто-создаёт pending
+    # для student_fixture. Убираем его, чтобы проверить именно UNIQUE на паре
+    # двух явных вставок ниже.
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id=%s AND student_id=%s',
+                    [missed_lesson_fixture, student_fixture])
     AbsenceResolution.objects.create(
         missed_lesson_id=missed_lesson_fixture, student_id=student_fixture,
         assigned_teacher_id=teacher_fixture, status=MAKEUP_SCHEDULED,

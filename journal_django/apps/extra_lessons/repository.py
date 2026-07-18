@@ -13,19 +13,19 @@ from apps.lessons.models import LessonAttendance
 
 def autocreate_pending(missed_lesson_id, student_ids) -> int:
     """Идемпотентно создать pending-резолюции по списку отсутствовавших.
-    ON CONFLICT DO NOTHING по UNIQUE(missed_lesson, student). Возвращает
-    len(student_ids) (верхняя оценка; тесты проверяют факт создания выборкой).
-    Пустой список — no-op (return 0)."""
+    bulk_create(ignore_conflicts=True) → INSERT ... ON CONFLICT DO NOTHING по
+    UNIQUE(missed_lesson, student). Возвращает len(student_ids) (верхняя оценка;
+    тесты проверяют факт создания выборкой). Пустой список — no-op (return 0).
+
+    Через ORM, а не raw executemany: последний несовместим с инъекцией
+    pghistory-контекста под HTTP-запросом (не все аргументы форматируются)."""
     if not student_ids:
         return 0
-    from django.db import connection
-    with connection.cursor() as cur:
-        cur.executemany(
-            "INSERT INTO absence_resolutions (missed_lesson_id, student_id, status, created_at) "
-            "VALUES (%s, %s, 'pending', now()) "
-            "ON CONFLICT (missed_lesson_id, student_id) DO NOTHING",
-            [(missed_lesson_id, sid) for sid in student_ids],
-        )
+    AbsenceResolution.objects.bulk_create(
+        [AbsenceResolution(missed_lesson_id=missed_lesson_id, student_id=sid, status=PENDING)
+         for sid in student_ids],
+        ignore_conflicts=True,
+    )
     return len(student_ids)
 
 
