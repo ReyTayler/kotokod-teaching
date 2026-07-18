@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from django.db import connection, transaction
+from django.db import transaction
 from django.utils import timezone
 
 from apps.renewals import cycle
@@ -53,20 +53,15 @@ def _progress_stages(pipeline: RenewalPipeline) -> list[RenewalStage]:
 
 def _attended_total(student_id: int) -> float:
     """
-    Суммарно посещено уроков за ВСЮ историю ученика (все направления,
-    half-lesson 45мин=0.5) — тот же источник, что и баланс в apps.finances
-    (lesson_attendance, present=true). Основа подписочной модели: цикл =
-    абонемент = 4 суммарных урока, LT ученика = число циклов.
+    Суммарно посещено уроков за ВСЮ историю ученика (half-lesson 45мин=0.5).
+    Делегирует apps.finances.repository.attended_units_total — ЕДИНЫЙ источник
+    «отработано», тот же, что и баланс/потребление finances (с исключением
+    lesson_type='extra'). Раньше здесь был отдельный SQL БЕЗ исключения extra, из-за
+    чего доп.урок задваивал прогресс сделки (регрессия 2026-07-18). Локальный импорт —
+    чтобы не тянуть finances в граф импорта renewals на старте.
     """
-    with connection.cursor() as cur:
-        cur.execute("""
-            SELECT COALESCE(SUM(CASE WHEN l.lesson_duration_minutes = 45
-                                     THEN 0.5 ELSE 1 END), 0)
-            FROM lesson_attendance la
-            JOIN lessons l ON l.id = la.lesson_id
-            WHERE la.student_id = %s AND la.present = true
-        """, [student_id])
-        return float(cur.fetchone()[0] or 0)
+    from apps.finances.repository import attended_units_total
+    return float(attended_units_total(student_id))
 
 
 def cycle_completed(deal: RenewalDeal) -> bool:

@@ -205,3 +205,34 @@ def test_prepaid_cycle2_deal_stays_on_no_lesson_yet(make_student, make_direction
         assert deal.stage.key == 'no_lesson_yet'
     finally:
         _cleanup_group(gid, sid)
+
+
+@pytest.mark.django_db
+def test_attended_total_excludes_extra_lessons(make_student, make_direction, make_teacher, make_attendance):
+    """
+    Регрессия 2026-07-18: доп.урок (lesson_type='extra') НЕ должен задваивать
+    прогресс сделки. _attended_total обязан считать его 0 (потребление идёт от
+    исходного урока, extra исключён — как в финансах), значит при 1 обычном
+    посещённом уроке + 1 extra итог = 1.0, а не 2.0.
+    """
+    sid, did, tid = make_student(), make_direction(), make_teacher()
+    gid = _make_group_with_membership(did, tid, sid, name='__extra_dc_group__')
+    try:
+        make_attendance(sid, gid, tid, count=1)  # 1 обычный урок, present=true
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+                "lesson_duration_minutes, lesson_type, submitted_by_token) "
+                "VALUES (%s,%s,'2026-06-05',1,60,'extra','__dc_test__') RETURNING id", [gid, tid])
+            extra_lid = cur.fetchone()[0]
+            cur.execute(
+                'INSERT INTO lesson_attendance (lesson_id, student_id, present) '
+                'VALUES (%s,%s,true)', [extra_lid, sid])
+        try:
+            assert engine._attended_total(sid) == 1.0
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [extra_lid])
+                cur.execute('DELETE FROM lessons WHERE id = %s', [extra_lid])
+    finally:
+        _cleanup_group(gid, sid)

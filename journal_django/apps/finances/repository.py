@@ -243,6 +243,28 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
     return {sid: _js_number(v) for sid, v in balances.items()}
 
 
+def attended_units_total(student_id: int) -> Decimal:
+    """
+    Суммарно «отработано» уроков учеником за всю историю (present=true), в тех же
+    единицах (half-lesson 45мин=0.5) и с тем же исключением lesson_type='extra',
+    что и потребление баланса (fifo_inputs/balances_for_students): компенсируемый
+    пропуск уже учтён через ретроактивную отметку исходного урока, а сам extra —
+    нет, иначе один пропуск считался бы дважды.
+
+    ЕДИНЫЙ источник правды «отработано» — вызывается и балансом finances, и движком
+    продлений (apps.renewals.engine._attended_total), чтобы «отработано» в отчёте и
+    прогресс сделки в «Продлениях» никогда не разошлись (до этого продления считали
+    present=true БЕЗ исключения extra → доп.урок задваивал прогресс).
+    """
+    row = (
+        LessonAttendance.objects
+        .filter(student_id=student_id, present=True)
+        .exclude(lesson__lesson_type='extra')
+        .aggregate(s=Coalesce(Sum(_attended_units_case()), _ZERO))
+    )
+    return row['s']
+
+
 def balance_for_student(student_id: int) -> int | float:
     """
     Общий баланс ученика (единый пул по всем направлениям): purchased − attended.
