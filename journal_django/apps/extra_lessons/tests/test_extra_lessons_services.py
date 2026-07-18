@@ -207,6 +207,29 @@ def test_cancel_assignment(
     assert result['status'] == CANCELLED
 
 
+def test_create_after_cancel_is_allowed(
+    teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
+):
+    """Регрессия (code review): после отмены резолюции повторное назначение
+    доп.урока тому же ученику за тот же пропуск обязано работать (как в старой
+    групповой модели), а не падать IntegrityError на UNIQUE(missed_lesson,
+    student). Частичный uniq-constraint исключает cancelled-строки."""
+    payload = {
+        'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
+        'student_ids': [student_fixture], 'scheduled_date': '2026-04-05',
+        'scheduled_time': '15:00', 'duration_minutes': 45,
+    }
+    first = services.create_assignment(payload, _FakeRequest())
+    services.cancel_assignment(first['resolution_ids'][0], _FakeRequest())
+
+    second = services.create_assignment(payload, _FakeRequest())
+    assert second['created'] == 1
+    new_rid = second['resolution_ids'][0]
+    assert new_rid != first['resolution_ids'][0]
+    from apps.extra_lessons import repository
+    assert repository.get_resolution_full(new_rid)['status'] == SCHEDULED
+
+
 def test_record_creates_fact_and_applies_makeup_attendance(
     group_fixture, teacher_fixture, other_teacher_fixture, missed_lesson_fixture,
     student_fixture, lessons_done, resolution_cleanup,

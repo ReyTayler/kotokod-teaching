@@ -56,7 +56,13 @@ class AbsenceResolution(models.Model):
             models.Index(fields=['student'], name='ar_student_idx'),
         ]
         constraints = [
+            # Частичный уникальный: не более ОДНОЙ активной (не отменённой)
+            # резолюции на (пропуск × ученик) — совпадает с guard'ом
+            # repository.has_active_resolution (тот тоже исключает cancelled).
+            # После отмены можно назначить заново (cancelled-строки не считаются),
+            # как было в групповой модели.
             models.UniqueConstraint(fields=['missed_lesson', 'student'],
+                                    condition=~models.Q(status=CANCELLED),
                                     name='absence_resolutions_missed_student_key'),
             models.CheckConstraint(name='absence_resolutions_status_check',
                                    condition=models.Q(status__in=STATUS_CHOICES)),

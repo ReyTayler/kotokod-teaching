@@ -20,6 +20,7 @@ Teacher (IsTeacher, скоуп — своё назначение):
 """
 from __future__ import annotations
 
+from django.db import IntegrityError
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -80,6 +81,14 @@ class ExtraLessonListCreateView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except DuplicateAssignment as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        except IntegrityError:
+            # Бэкстоп для гонки двух одновременных create на один (пропуск×ученик):
+            # частичный uniq-constraint не даст задвоить активную резолюцию —
+            # переводим в 409, а не 500 (сервисный guard закрывает обычный путь).
+            return Response(
+                {'error': 'Доп.урок для этого ученика за этот пропуск уже назначен.'},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(result, status=status.HTTP_201_CREATED)
 
 
