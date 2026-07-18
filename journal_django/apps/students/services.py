@@ -145,6 +145,12 @@ def change_student_status(
         student.save(update_fields=['enrollment_status', 'frozen_from', 'frozen_until'])
         if new_status == 'declined':
             engine.decline_deal(student_id, author_id=_actor_id(actor))
+        # Уход/архивация: снять «пропуски, требующие решения» — pending +
+        # назначенные, но не проведённые доп.уроки (факта/денег нет). makeup_done
+        # не трогаем (есть факт-урок + payroll). Только declined/not_enrolled,
+        # НЕ frozen (заморозка временна — ученик вернётся).
+        from apps.extra_lessons import services as extra_lessons_services
+        extra_lessons_services.cleanup_on_student_leave(student_id)
 
     else:  # enrolled — прямой возврат без каскада расписания (используйте resume_student)
         student.enrollment_status = 'enrolled'
