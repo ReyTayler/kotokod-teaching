@@ -41,9 +41,23 @@ def _make_pghistory_json_fields_tolerant() -> None:
                 return value
             return base_cls.from_db_value(self, value, expression, connection)
 
+        def deconstruct(self):
+            # Подмена класса поля — ЧИСТО рантайм (для jsonb-толерантности) и НЕ
+            # должна быть видна автодетектору миграций: иначе Django считает поле
+            # изменённым и пишет мусорную AlterField-миграцию pghistory прямо в
+            # site-packages с неимпортируемым путём (apps.changelog.apps.Tolerant…).
+            # Деконструируем КАК БАЗОВОЕ поле: временно возвращаем __class__ к
+            # base_cls, чтобы Field.deconstruct дал нормализованный путь базы.
+            real_cls = self.__class__
+            self.__class__ = base_cls
+            try:
+                return base_cls.deconstruct(self)
+            finally:
+                self.__class__ = real_cls
+
         subclass = type(
             'Tolerant' + base_cls.__name__, (base_cls,),
-            {'from_db_value': from_db_value, '_chg_tolerant': True},
+            {'from_db_value': from_db_value, 'deconstruct': deconstruct, '_chg_tolerant': True},
         )
         tolerant_cache[base_cls] = subclass
         return subclass
