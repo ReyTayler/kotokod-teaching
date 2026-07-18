@@ -342,6 +342,6 @@ def test_worked_off_month_uses_extra_lesson_completion_date(
         assert '2026-06' not in fifo['worked_off_by_month']
     finally:
         full = get_resolution_full(rid)
-        if full and full['status'] == 'done':
+        if full and full['status'] == 'makeup_done':
             extra_services.delete_fact(rid, _FakeRequest())
         AbsenceResolution.objects.filter(id=rid).delete()

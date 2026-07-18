@@ -41,15 +41,17 @@ def _to_time(value: str) -> datetime.time:
 
 
 def create_assignment(data: dict, request) -> dict:
-    """
-    Создаёт назначение доп.урока — по одной независимой резолюции
-    (AbsenceResolution) на каждого ученика из student_ids. Валидация:
+    """Назначить доп.урок по multi-select. Для каждого ученика: найти его
+    pending-резолюцию (авто-создана при записи урока) и перевести в
+    makeup_scheduled; если pending нет (пропуск до релиза) — создать сразу
+    makeup_scheduled. Валидации:
       - missed_lesson_id обязан существовать (иначе MissedLessonNotFound)
       - каждый student_id обязан быть реально отмечен present=false на
         missed_lesson_id (иначе StudentNotAbsent) — доп.урок компенсирует
         только настоящий пропуск, не присутствовавшего/постороннего ученика
       - ни у одного из student_ids не должно быть уже активной резолюции
-        за этот же пропуск (иначе DuplicateAssignment)
+        (makeup_scheduled/makeup_done) за этот же пропуск (иначе
+        DuplicateAssignment)
       - ни у одного из student_ids не должно быть balance <= 0 (иначе
         UnpaidAttendanceBlocked, apps.lessons.exceptions) — доп.урок не должен
         компенсировать пропуск ученику, у которого на МОМЕНТ назначения уже
@@ -84,16 +86,30 @@ def create_assignment(data: dict, request) -> dict:
 
     lessons_repository.assert_students_paid(student_ids)
 
-    resolution_ids = repository.create_resolutions(
-        missed_lesson_id=missed_lesson_id,
-        assigned_teacher_id=data['teacher_id'],
-        student_ids=student_ids,
-        scheduled_date=_to_date(data['scheduled_date']),
-        scheduled_time=_to_time(data['scheduled_time']),
-        duration_minutes=data['duration_minutes'],
-    )
+    scheduled_date = _to_date(data['scheduled_date'])
+    scheduled_time = _to_time(data['scheduled_time'])
+    duration_minutes = data['duration_minutes']
+    resolution_ids = []
+    with transaction.atomic():
+        for sid in student_ids:
+            locked = repository.lock_for_assign(missed_lesson_id, sid)
+            if locked is None:
+                rid = repository.create_scheduled_direct(
+                    missed_lesson_id=missed_lesson_id, student_id=sid,
+                    assigned_teacher_id=data['teacher_id'], scheduled_date=scheduled_date,
+                    scheduled_time=scheduled_time, duration_minutes=duration_minutes)
+            elif locked['status'] != PENDING:
+                # Гонка: между has_active_resolution и локом статус ушёл.
+                raise DuplicateAssignment([str(sid)])
+            else:
+                repository.assign_pending(
+                    locked['id'], assigned_teacher_id=data['teacher_id'],
+                    scheduled_date=scheduled_date, scheduled_time=scheduled_time,
+                    duration_minutes=duration_minutes)
+                rid = locked['id']
+            resolution_ids.append(rid)
     log_event(
-        'extra_lesson_create',
+        'extra_lesson_assign',
         actor_email=_actor(request),
         target_id=resolution_ids[0],
         meta={
@@ -107,10 +123,15 @@ def create_assignment(data: dict, request) -> dict:
 
 
 def cancel_assignment(resolution_id: int, request) -> Optional[dict]:
-    """None → резолюции нет (404). ValueError → уже done/cancelled (view → 409)."""
-    if repository.get_resolution_full(resolution_id) is None:
+    """Отмена назначенного доп.урока: makeup_scheduled → pending (пропуск снова
+    ждёт решения). None → нет резолюции (404). ValueError → не makeup_scheduled
+    (view → 409)."""
+    full = repository.get_resolution_full(resolution_id)
+    if full is None:
         return None
-    repository.cancel(resolution_id)
+    if full['status'] != MAKEUP_SCHEDULED:
+        raise ValueError('Отменить можно только назначенный (ещё не проведённый) доп.урок.')
+    repository.back_to_pending(resolution_id)
     log_event(
         'extra_lesson_cancel', actor_email=_actor(request),
         target_id=resolution_id, meta={}, request=request,
@@ -145,10 +166,10 @@ def record(
       3. Payroll — payment=200×present (calculate_extra_lesson_payment),
          penalty — та же формула просрочки, что у обычных уроков.
       4. Если present — apply_makeup_attendance на ИСХОДНОМ уроке.
-      5. AbsenceResolution → status=done, fact_lesson=новый Lesson.
+      5. AbsenceResolution → status=makeup_done, fact_lesson=новый Lesson.
 
     None → резолюции нет (view → 404). NotTeachersAssignment → чужая резолюция
-    (view → 403). ValueError → уже done/cancelled (view → 409).
+    (view → 403). ValueError → не в статусе makeup_scheduled (view → 409).
     UnpaidAttendanceBlocked (apps.lessons.exceptions) → у present-ученика
     balance <= 0 НА МОМЕНТ проведения (view → 400) — проверяется заново здесь,
     а не только при create_assignment, потому что между назначением и
@@ -162,8 +183,8 @@ def record(
         raise NotTeachersAssignment('Это назначение принадлежит другому преподавателю.')
     # Быстрая проверка без блокировки — не гейтит запись, только 404/403.
     # Авторитетная проверка статуса — под select_for_update() ниже, в atomic().
-    if full['status'] != SCHEDULED:
-        raise ValueError('Доп.урок уже проведён или отменён.')
+    if full['status'] != MAKEUP_SCHEDULED:
+        raise ValueError('Доп.урок можно провести только из статуса «назначен».')
 
     if present:
         lessons_repository.assert_students_paid([full['student_id']])
@@ -183,8 +204,8 @@ def record(
             return None
         if locked['assigned_teacher_id'] != teacher_id:
             raise NotTeachersAssignment('Это назначение принадлежит другому преподавателю.')
-        if locked['status'] != SCHEDULED:
-            raise ValueError('Доп.урок уже проведён или отменён.')
+        if locked['status'] != MAKEUP_SCHEDULED:
+            raise ValueError('Доп.урок можно провести только из статуса «назначен».')
 
         lesson_id = lessons_repository.insert_lesson({
             'lesson_date': locked['scheduled_date'].isoformat(),
@@ -215,7 +236,7 @@ def record(
             lessons_repository.apply_makeup_attendance(
                 locked['missed_lesson_id'], locked['student_id'],
             )
-        repository.mark_done(resolution_id, fact_lesson_id=lesson_id)
+        repository.mark_makeup_done(resolution_id, fact_lesson_id=lesson_id)
 
     log_event(
         'extra_lesson_record', actor_email=_actor(request),
@@ -230,13 +251,13 @@ def delete_fact(resolution_id: int, request) -> bool:
     """
     Откатывает проведённый доп.урок: возвращает исходному уроку прежнюю
     посещаемость/lessons_done, удаляет Payroll+Lesson доп.урока, возвращает
-    резолюцию в status=scheduled. ValueError → резолюция не в статусе done
+    резолюцию в status=pending. ValueError → резолюция не в статусе makeup_done
     (view → 409). False → резолюции нет (view → 404).
     """
     full = repository.get_resolution_full(resolution_id)
     if full is None:
         return False
-    if full['status'] != DONE:
+    if full['status'] != MAKEUP_DONE:
         raise ValueError('Удалить факт можно только у проведённого доп.урока.')
 
     with transaction.atomic():
@@ -247,7 +268,7 @@ def delete_fact(resolution_id: int, request) -> bool:
         locked = repository.lock_for_delete(resolution_id)
         if locked is None:
             return False
-        if locked['status'] != DONE:
+        if locked['status'] != MAKEUP_DONE:
             raise ValueError('Удалить факт можно только у проведённого доп.урока.')
 
         fact_lesson_id = locked['fact_lesson_id']
@@ -259,13 +280,25 @@ def delete_fact(resolution_id: int, request) -> bool:
             lessons_repository.revert_makeup_attendance(locked['missed_lesson_id'], sid)
         Payroll.objects.filter(lesson_id=fact_lesson_id).delete()
         Lesson.objects.filter(id=fact_lesson_id).delete()
-        repository.reset_to_scheduled(resolution_id)
+        repository.back_to_pending(resolution_id)
 
     log_event(
         'extra_lesson_delete', actor_email=_actor(request),
         target_id=resolution_id, meta={'fact_lesson_id': fact_lesson_id}, request=request,
     )
     return True
+
+
+def autocreate_pending_for_lesson(missed_lesson_id, absent_student_ids) -> int:
+    """Вызывается из record_lesson (та же транзакция) для обычных уроков.
+    Создаёт pending по отсутствовавшим. Идемпотентно."""
+    return repository.autocreate_pending(missed_lesson_id, absent_student_ids)
+
+
+def cleanup_on_student_leave(student_id) -> int:
+    """Уход/архивация ученика: удалить его pending + makeup_scheduled резолюции.
+    makeup_done не трогаем. Вызывается из apps.students.services.change_student_status."""
+    return repository.delete_open_for_student(student_id)
 
 
 def list_assignments(

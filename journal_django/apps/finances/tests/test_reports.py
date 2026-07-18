@@ -214,6 +214,6 @@ def test_collect_monthly_report_extra_lesson_counted_in_makeup_month(
         assert july_row.worked_off_month == Decimal('500.00')
     finally:
         full = get_resolution_full(rid)
-        if full and full['status'] == 'done':
+        if full and full['status'] == 'makeup_done':
             extra_services.delete_fact(rid, _FakeRequest())
         AbsenceResolution.objects.filter(id=rid).delete()

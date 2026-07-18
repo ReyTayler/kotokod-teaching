@@ -78,7 +78,7 @@ def _makeup_completion_dates(
     """
     from apps.extra_lessons.models import AbsenceResolution
 
-    qs = AbsenceResolution.objects.filter(status='done')
+    qs = AbsenceResolution.objects.filter(status='makeup_done')
     if student_ids is not None:
         qs = qs.filter(student_id__in=list(student_ids))
     rows = qs.values(
