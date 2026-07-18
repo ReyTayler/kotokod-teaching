@@ -266,6 +266,28 @@ def test_get_detail_404(admin_client):
     assert resp.status_code == 404
 
 
+def test_pending_queue_and_assign_transition(
+    admin_client, teacher_fixture, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    """missed_lesson_fixture (ученик present=false) авто-создал pending. Он виден
+    в очереди ?status=pending; назначение переводит ЭТУ строку в
+    makeup_scheduled (без дубля)."""
+    lst = admin_client.get(f'{ADMIN_URL}?status=pending').json()
+    mine = [r for r in lst['rows']
+            if r['missed_lesson_id'] == missed_lesson_fixture and r['student_id'] == student_fixture]
+    assert len(mine) == 1
+    assert mine[0]['status'] == 'pending'
+
+    resp = admin_client.post(
+        ADMIN_URL, _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
+        format='json')
+    assert resp.status_code == 201
+    rid = resp.data['resolution_ids'][0]
+    assert rid == mine[0]['id']  # та же строка, не новая
+    detail = admin_client.get(f'{ADMIN_URL}/{rid}')
+    assert detail.data['status'] == 'makeup_scheduled'
+
+
 # ---------------------------------------------------------------------------
 # Admin: cancel
 # ---------------------------------------------------------------------------
