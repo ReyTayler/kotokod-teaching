@@ -144,6 +144,29 @@ class TestContract:
         assert borya['held'] == 2
         assert borya['pct'] == 50
         assert borya['cells'][:2] == [False, True]
+        # Без компенсаций — все ячейки не жёлтые.
+        assert all(c is False for c in borya['compensated'])
+
+    def test_compensated_cell_marks_makeup_or_burned(self, manager_client, progress_group):
+        """Пропуск, закрытый доп.уроком/сожжённый, помечается compensated=true
+        (фронт красит жёлтым). Исходная ячейка при этом остаётся present=false."""
+        gid = progress_group['group_id']
+        missed = progress_group['lesson_ids'][0]  # Боря не был на уроке 1
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO absence_resolutions (missed_lesson_id, student_id, status, created_at) "
+                "VALUES (%s,%s,'burned',now())", [missed, progress_group['borya']])
+        try:
+            body = manager_client.get(_url(gid)).json()
+            borya = next(r for r in body['students'] if r['student_id'] == progress_group['borya'])
+            assert borya['cells'][0] is False        # исходный пропуск остаётся present=false
+            assert borya['compensated'][0] is True   # жёлтая ячейка
+            assert borya['compensated'][1] is False  # был вживую — не компенсация
+            anya = next(r for r in body['students'] if r['student_id'] == progress_group['anya'])
+            assert all(c is False for c in anya['compensated'])
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id=%s', [missed])
 
     def test_inactive_members_excluded(self, manager_client, progress_group):
         # Выбывший ученик (membership active=false) не должен быть строкой матрицы.

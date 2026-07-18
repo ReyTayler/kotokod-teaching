@@ -460,6 +460,19 @@ def get_group_progress(group_id: int) -> Optional[dict]:
         ):
             att_map[(lid, sid)] = present
 
+    # Компенсированные пропуски: (missed_lesson_id, student_id), по которым пропуск
+    # закрыт доп.уроком (makeup_done) или сожжён (burned). Ячейку такого пропуска
+    # фронт красит жёлтым («был через доп.урок / урок сожжён»), а не красным.
+    # Один запрос на всю матрицу — без N+1. Ленивый импорт (цикл apps.extra_lessons).
+    compensated_map: set[tuple[int, int]] = set()
+    if lesson_ids:
+        from apps.extra_lessons.models import BURNED, MAKEUP_DONE, AbsenceResolution
+        compensated_map = set(
+            AbsenceResolution.objects
+            .filter(missed_lesson_id__in=lesson_ids, status__in=[MAKEUP_DONE, BURNED])
+            .values_list('missed_lesson_id', 'student_id')
+        )
+
     # Столбцы (слоты). held=True — урок проведён (есть запись), иначе плановый.
     slots = []
     held_slots = 0
@@ -479,21 +492,26 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     for member in members:
         sid = member['student_id']
         cells: list[Optional[bool]] = []
+        compensated: list[bool] = []
         present = 0
         held = 0
         for col in slots:
             if not col['held']:
                 cells.append(None)
+                compensated.append(False)
                 continue
             key = (col['lesson_id'], sid)
             if key not in att_map:      # ученик не входил в состав на тот урок
                 cells.append(None)
+                compensated.append(False)
                 continue
             is_present = bool(att_map[key])
             held += 1
             if is_present:
                 present += 1
             cells.append(is_present)
+            # Жёлтая ячейка: пропуск (present=false), закрытый доп.уроком/сожжённый.
+            compensated.append(not is_present and (col['lesson_id'], sid) in compensated_map)
         transferred_lessons = 0
         transferred_from_group_name = None
         if member['transferred_from_id']:
@@ -509,6 +527,7 @@ def get_group_progress(group_id: int) -> Optional[dict]:
             'held': held,
             'pct': round(present / held * 100) if held else 0,
             'cells': cells,
+            'compensated': compensated,
             'transferred_lessons': transferred_lessons,
             'transferred_from_group_name': transferred_from_group_name,
         })
