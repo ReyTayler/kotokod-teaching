@@ -21,6 +21,9 @@ export interface ProgressStudent {
   held: number;
   pct: number;
   cells: (boolean | null)[];
+  // Выровнен по cells: true — пропуск (cell=false) закрыт доп.уроком/сожжён,
+  // такую ячейку матрица красит жёлтым («был через доп.урок / урок сожжён»).
+  compensated: boolean[];
   transferred_lessons: number;
   transferred_from_group_name: string | null;
 }

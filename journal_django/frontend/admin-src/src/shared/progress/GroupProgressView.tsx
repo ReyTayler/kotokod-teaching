@@ -12,7 +12,7 @@ function fmtLessonDate(iso: string): string {
   return `${WD[wd]}, ${d} ${MON[m - 1]}`;
 }
 
-type CellStatus = 'present' | 'absent' | 'planned' | 'transferred';
+type CellStatus = 'present' | 'absent' | 'planned' | 'transferred' | 'compensated';
 
 function cellStatus(cell: boolean | null): CellStatus {
   if (cell === true) return 'present';
@@ -25,17 +25,22 @@ const STATUS_LABEL: Record<CellStatus, string> = {
   absent: 'Не был',
   planned: 'Не проведён',
   transferred: 'Перевод',
+  compensated: 'Был через доп.урок / сгорание',
 };
 
 /**
- * Статусы ленты ученика с учётом «бюджета» переведённых уроков: расходуется
- * слева направо только на cell === null, реальные true/false никогда не
- * перекрываются статусом transferred.
+ * Статусы ленты ученика с учётом «бюджета» переведённых уроков (расходуется
+ * слева направо только на cell === null) и компенсаций: пропуск (cell === false),
+ * закрытый доп.уроком/сожжённый (compensated[i]), становится статусом
+ * 'compensated' (жёлтый), а не 'absent'.
  */
-function computeCellStatuses(cells: (boolean | null)[], transferredLessons: number): CellStatus[] {
+function computeCellStatuses(
+  cells: (boolean | null)[], transferredLessons: number, compensated: boolean[],
+): CellStatus[] {
   let transferredLeft = transferredLessons;
-  return cells.map((cell) => {
+  return cells.map((cell, i) => {
     if (cell === null && transferredLeft > 0) { transferredLeft--; return 'transferred'; }
+    if (cell === false && compensated[i]) return 'compensated';
     return cellStatus(cell);
   });
 }
@@ -96,6 +101,7 @@ export function GroupProgressView({ data }: { data: GroupProgress }) {
           <span className="progress-legend__item"><span className="progress-chip is-present" />Был</span>
           <span className="progress-legend__item"><span className="progress-chip is-absent" />Не был</span>
           <span className="progress-legend__item"><span className="progress-chip is-planned" />Не проведён</span>
+          <span className="progress-legend__item"><span className="progress-chip is-compensated" />Доп.урок / сгорание</span>
           <span className="progress-legend__item"><span className="progress-chip is-transferred" />Перевод</span>
         </div>
         <div className="progress-view__summary">
@@ -119,7 +125,7 @@ export function GroupProgressView({ data }: { data: GroupProgress }) {
             </div>
 
             <div className="progress-ribbon">
-              {computeCellStatuses(s.cells, s.transferred_lessons).map((st, i) => {
+              {computeCellStatuses(s.cells, s.transferred_lessons, s.compensated ?? []).map((st, i) => {
                 const slot = slots[i];
                 const label = st === 'transferred'
                   ? `Урок №${slot.slot}: Перевод из «${s.transferred_from_group_name}»`
