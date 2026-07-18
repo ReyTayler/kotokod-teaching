@@ -13,6 +13,7 @@ const STATUS_LABELS: Record<string, string> = {
   pending: 'Ждёт решения',
   makeup_scheduled: 'Назначен',
   makeup_done: 'Проведён',
+  burned: 'Сгорел',
 };
 
 export default function ExtraLessonsListPage() {

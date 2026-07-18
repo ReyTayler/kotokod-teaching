@@ -82,6 +82,7 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'extra_lesson.cancel':           'Отмена доп.урока',
   'extra_lesson.delete':           'Удаление доп.урока',
   'extra_lesson.record':           'Проведение доп.урока',
+  'extra_lesson.burn':             'Сгорание пропуска',
   'payroll.update':                'Правка начисления',
   'settings.update':               'Настройки',
   'account.create':                'Новая учётка',

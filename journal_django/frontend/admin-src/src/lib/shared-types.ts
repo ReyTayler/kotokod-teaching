@@ -166,7 +166,7 @@ export interface AbsenceResolution {
   scheduled_date: string;
   scheduled_time: string;
   duration_minutes: number;
-  status: 'pending' | 'makeup_scheduled' | 'makeup_done';
+  status: 'pending' | 'makeup_scheduled' | 'makeup_done' | 'burned';
   fact_lesson_id: ID | null;
 }
 
