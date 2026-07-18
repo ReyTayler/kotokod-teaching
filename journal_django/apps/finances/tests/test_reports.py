@@ -159,8 +159,8 @@ def test_collect_monthly_report_extra_lesson_counted_in_makeup_month(
     не к месяцу исходного пропуска, и не задваивать посещаемость.
     """
     from apps.extra_lessons import services as extra_services
-    from apps.extra_lessons.models import ExtraLessonAssignment
-    from apps.extra_lessons.repository import get_assignment_full
+    from apps.extra_lessons.models import AbsenceResolution
+    from apps.extra_lessons.repository import get_resolution_full
 
     class _FakeRequest:
         META = {}
@@ -191,10 +191,10 @@ def test_collect_monthly_report_extra_lesson_counted_in_makeup_month(
         },
         _FakeRequest(),
     )
+    rid = created['resolution_ids'][0]
     try:
         extra_services.record(
-            created['id'], teacher_id=teacher_id_fixture,
-            attendance=[{'student_id': student_fixture, 'present': True}],
+            rid, teacher_id=teacher_id_fixture, present=True,
             record_url=None, submitted_by_token='test', submit_date='2026-07-10',
             request=_FakeRequest(),
         )
@@ -213,7 +213,7 @@ def test_collect_monthly_report_extra_lesson_counted_in_makeup_month(
         assert july_row.attended_lessons == 1
         assert july_row.worked_off_month == Decimal('500.00')
     finally:
-        full = get_assignment_full(created['id'])
+        full = get_resolution_full(rid)
         if full and full['status'] == 'done':
-            extra_services.delete_fact(created['id'], _FakeRequest())
-        ExtraLessonAssignment.objects.filter(id=created['id']).delete()
+            extra_services.delete_fact(rid, _FakeRequest())
+        AbsenceResolution.objects.filter(id=rid).delete()

@@ -301,8 +301,8 @@ def test_worked_off_month_uses_extra_lesson_completion_date(
     отработал и получил за это зарплату), а не к месяцу исходного пропуска.
     """
     from apps.extra_lessons import services as extra_services
-    from apps.extra_lessons.models import ExtraLessonAssignment
-    from apps.extra_lessons.repository import get_assignment_full
+    from apps.extra_lessons.models import AbsenceResolution
+    from apps.extra_lessons.repository import get_resolution_full
     from apps.finances.fifo import compute_fifo
 
     class _FakeRequest:
@@ -323,10 +323,10 @@ def test_worked_off_month_uses_extra_lesson_completion_date(
         },
         _FakeRequest(),
     )
+    rid = created['resolution_ids'][0]
     try:
         extra_services.record(
-            created['id'], teacher_id=teacher_id_fixture,
-            attendance=[{'student_id': student_fixture, 'present': True}],
+            rid, teacher_id=teacher_id_fixture, present=True,
             record_url=None, submitted_by_token='test', submit_date='2026-07-10',
             request=_FakeRequest(),
         )
@@ -341,7 +341,7 @@ def test_worked_off_month_uses_extra_lesson_completion_date(
         assert fifo['worked_off_by_month'].get('2026-07') == 500
         assert '2026-06' not in fifo['worked_off_by_month']
     finally:
-        full = get_assignment_full(created['id'])
+        full = get_resolution_full(rid)
         if full and full['status'] == 'done':
-            extra_services.delete_fact(created['id'], _FakeRequest())
-        ExtraLessonAssignment.objects.filter(id=created['id']).delete()
+            extra_services.delete_fact(rid, _FakeRequest())
+        AbsenceResolution.objects.filter(id=rid).delete()

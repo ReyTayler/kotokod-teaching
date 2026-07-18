@@ -76,15 +76,15 @@ def _makeup_completion_dates(
     2026-07-16). Единицы (half-lesson) по-прежнему считаются от ИСХОДНОГО
     урока (_attended_units_case) — меняется только дата для месячной разбивки.
     """
-    from apps.extra_lessons.models import ExtraLessonParticipant
+    from apps.extra_lessons.models import AbsenceResolution
 
-    qs = ExtraLessonParticipant.objects.filter(assignment__status='done')
+    qs = AbsenceResolution.objects.filter(status='done')
     if student_ids is not None:
         qs = qs.filter(student_id__in=list(student_ids))
     rows = qs.values(
         'student_id',
-        missed_lesson_id=F('assignment__missed_lesson_id'),
-        completion_date=F('assignment__fact_lesson__lesson_date'),
+        'missed_lesson_id',
+        completion_date=F('fact_lesson__lesson_date'),
     )
     return {
         (r['missed_lesson_id'], r['student_id']): r['completion_date']
