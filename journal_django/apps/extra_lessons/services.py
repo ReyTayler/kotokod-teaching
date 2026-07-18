@@ -16,13 +16,14 @@ from apps.extra_lessons import repository
 from apps.extra_lessons.exceptions import (
     DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
 )
-from apps.extra_lessons.models import MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
+from apps.extra_lessons.models import BURNED, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
 from apps.groups.models import Group
 from apps.lessons import repository as lessons_repository
 from apps.lessons.models import Lesson
 from apps.payroll.calculator import calculate_extra_lesson_payment, calculate_penalty
 from apps.payroll.models import Payroll
 from apps.students.models import Student
+from apps.teachers.models import Teacher
 
 # insert_payroll (apps.lessons.repository) принимает ровно этот набор полей —
 # переиспользуем его вместо повторной ORM-вставки Payroll здесь (единственное
@@ -278,6 +279,104 @@ def record(
         request=request,
     )
     return {'lesson_id': lesson_id, 'payment': payment, 'penalty': penalty}
+
+
+def _burn_payment_teacher_id(missed_lesson) -> int:
+    """Флет-надбавку за сгорание получает преподаватель пропущенного урока. Если
+    он уволен (Teacher.active=False) — надбавка уходит ТЕКУЩЕМУ преподавателю
+    группы (Group.teacher_id): уволенному платить нельзя. Если и текущий не
+    найден — остаётся исходный (не допускаем NULL teacher_id в Payroll)."""
+    active = Teacher.objects.filter(
+        id=missed_lesson.teacher_id).values_list('active', flat=True).first()
+    if active:
+        return missed_lesson.teacher_id
+    current = Group.objects.filter(
+        id=missed_lesson.group_id).values_list('teacher_id', flat=True).first()
+    return current or missed_lesson.teacher_id
+
+
+def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
+    """
+    «Сжечь» пропуск: pending → burned. Симметрично проведённому доп.уроку —
+    создаёт отдельную запись-урок Lesson(lesson_type='burned') present=true для
+    ученика, дата=burn_date (сегодня), длительность=ИСХОДНОГО урока (вес
+    потребления, half-lesson 45→0.5), teacher=преподаватель пропущенного урока
+    (уволенному — текущему преп. группы, см. _burn_payment_teacher_id). Флет
+    payment=200 (calculate_extra_lesson_payment), penalty=0 (админское действие,
+    submit_date==lesson_date). Урок списывается с баланса штатно (present=true на
+    burned-факте в свою дату); ИСХОДНЫЙ пропуск остаётся present=false.
+
+    None → резолюции нет (view → 404). ValueError → не в статусе pending
+    (view → 409). UnpaidAttendanceBlocked → у ученика balance<=0 (view → 400):
+    сжигать нечего.
+    """
+    full = repository.get_resolution_full(resolution_id)
+    if full is None:
+        return None
+    if full['status'] != PENDING:
+        raise ValueError('Сжечь можно только нерешённый (pending) пропуск.')
+
+    # Нельзя сжечь урок ученику без оплаченного остатка (нечего сжигать).
+    lessons_repository.assert_students_paid([full['student_id']])
+
+    payment = calculate_extra_lesson_payment(1)
+    penalty = 0  # админское действие: submit_date == lesson_date
+
+    with transaction.atomic():
+        # Авторитетная проверка статуса под блокировкой строки — гонка двух
+        # параллельных burn() иначе создала бы два burned-факта + Payroll.
+        locked = repository.lock_for_record(resolution_id)
+        if locked is None:
+            return None
+        if locked['status'] != PENDING:
+            raise ValueError('Сжечь можно только нерешённый (pending) пропуск.')
+
+        missed_lesson = Lesson.objects.get(id=locked['missed_lesson_id'])
+        payment_teacher_id = _burn_payment_teacher_id(missed_lesson)
+        lesson_id = lessons_repository.insert_lesson({
+            'lesson_date': burn_date,
+            'teacher_id': payment_teacher_id,
+            'group_id': locked['missed_lesson_group_id'],
+            'original_teacher_id': None,
+            'lesson_number': missed_lesson.lesson_number,
+            # Вес списания = вес пропущенного занятия (half-lesson 45→0.5).
+            'lesson_duration_minutes': missed_lesson.lesson_duration_minutes,
+            'lesson_type': 'burned',
+            'record_url': None,
+            # Уникализирует lessons_natural_key (date,group,number,token): два
+            # ученика, сожжённые за один пропуск в один день, иначе схлопнулись бы.
+            'submitted_by_token': f'burn:{resolution_id}',
+        })
+        lessons_repository.insert_attendance(
+            lesson_id, [{'student_id': locked['student_id'], 'present': True}],
+        )
+        lessons_repository.insert_payroll({
+            'lesson_id': lesson_id,
+            'teacher_id': payment_teacher_id,
+            'total_students': 1,
+            'present_count': 1,
+            'payment': payment,
+            'penalty': penalty,
+        })
+        step = _step(missed_lesson.lesson_duration_minutes)
+        lessons_repository.increment_lessons_done(
+            locked['missed_lesson_group_id'], [locked['student_id']], step,
+        )
+        # Сгорание двигает авто-стадию «Продлений» (как обычный урок/доп.урок) —
+        # потребление ушло на burned-факт.
+        direction_id = Group.objects.filter(
+            id=locked['missed_lesson_group_id']).values_list('direction_id', flat=True).first()
+        transaction.on_commit(
+            lambda: lessons_repository.sync_renewal_stage(locked['student_id'], direction_id))
+        repository.mark_burned(resolution_id, fact_lesson_id=lesson_id)
+
+    log_event(
+        'extra_lesson_burn', actor_email=_actor(request),
+        target_id=resolution_id,
+        meta={'lesson_id': lesson_id, 'payment': payment},
+        request=request,
+    )
+    return {'lesson_id': lesson_id, 'payment': payment}
 
 
 def delete_fact(resolution_id: int, request) -> bool:

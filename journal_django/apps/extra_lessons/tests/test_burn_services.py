@@ -74,3 +74,74 @@ def test_has_active_resolution_true_for_burned(absence_pending):
     repository.mark_burned(absence_pending.id, fact_lesson_id=absence_pending.missed_lesson_id)
     assert repository.has_active_resolution(
         absence_pending.missed_lesson_id, absence_pending.student_id) is True
+
+
+# --- Task 3: сервис burn() -------------------------------------------------
+
+def test_burn_creates_burned_fact(absence_pending):
+    student_id = absence_pending.student_id
+    missed = Lesson.objects.get(id=absence_pending.missed_lesson_id)
+
+    res = services.burn(absence_pending.id, request=_FakeRequest(), burn_date='2026-07-18')
+    absence_pending.refresh_from_db()
+
+    assert absence_pending.status == BURNED
+    fact = Lesson.objects.get(id=absence_pending.fact_lesson_id)
+    assert fact.lesson_type == 'burned'
+    assert fact.lesson_date.isoformat() == '2026-07-18'
+    # вес списания = длительность ИСХОДНОГО урока (60), не операционная.
+    assert fact.lesson_duration_minutes == missed.lesson_duration_minutes == 60
+    assert fact.lesson_number == missed.lesson_number
+    # преподаватель пропущенного урока (активен) — получатель надбавки.
+    assert fact.teacher_id == missed.teacher_id
+    # present=true на burned-факте; ИСХОДНЫЙ пропуск ОСТАЁТСЯ present=false.
+    assert LessonAttendance.objects.get(
+        lesson_id=fact.id, student_id=student_id).present is True
+    assert LessonAttendance.objects.get(
+        lesson_id=missed.id, student_id=student_id).present is False
+    # флет 200, penalty 0.
+    pr = Payroll.objects.get(lesson_id=fact.id)
+    assert pr.payment == 200 and pr.penalty == 0 and pr.teacher_id == missed.teacher_id
+    assert res['payment'] == 200 and res['lesson_id'] == fact.id
+
+
+def test_burn_requires_pending(absence_pending):
+    services.burn(absence_pending.id, request=_FakeRequest(), burn_date='2026-07-18')
+    with pytest.raises(ValueError):
+        services.burn(absence_pending.id, request=_FakeRequest(), burn_date='2026-07-18')
+
+
+def test_burn_missing_returns_none():
+    assert services.burn(999_999_999, request=_FakeRequest(), burn_date='2026-07-18') is None
+
+
+def test_burn_pays_current_group_teacher_when_missed_teacher_fired(
+    absence_pending, other_teacher_fixture,
+):
+    """Уволенному преподавателю пропущенного урока платить нельзя — надбавка
+    уходит текущему преподавателю группы (Group.teacher_id)."""
+    from apps.groups.models import Group
+    from apps.teachers.models import Teacher
+
+    missed = Lesson.objects.get(id=absence_pending.missed_lesson_id)
+    original_teacher_id = missed.teacher_id
+    # Сделать текущим преподавателем группы ДРУГОГО (активного), а преподавателя
+    # пропущенного урока — уволить.
+    Group.objects.filter(id=missed.group_id).update(teacher_id=other_teacher_fixture)
+    Teacher.objects.filter(id=original_teacher_id).update(active=False)
+    try:
+        services.burn(absence_pending.id, request=_FakeRequest(), burn_date='2026-07-18')
+        absence_pending.refresh_from_db()
+        pr = Payroll.objects.get(lesson_id=absence_pending.fact_lesson_id)
+        assert pr.teacher_id == other_teacher_fixture
+    finally:
+        # Вернуть группу исходному преподавателю и снести burned-факт (он
+        # references other_teacher_fixture) ДО teardown other_teacher_fixture,
+        # иначе FK groups/lessons/payroll → teachers упадёт при удалении препода.
+        absence_pending.refresh_from_db()
+        if absence_pending.fact_lesson_id:
+            _cleanup_fact(absence_pending.fact_lesson_id)
+        Group.objects.filter(id=missed.group_id).update(teacher_id=original_teacher_id)
+        Teacher.objects.filter(id=original_teacher_id).update(active=True)
+        AbsenceResolution.objects.filter(id=absence_pending.id).update(
+            status=PENDING, fact_lesson_id=None)
