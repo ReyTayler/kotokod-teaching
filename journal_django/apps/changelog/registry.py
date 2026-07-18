@@ -41,11 +41,10 @@ TRACKED: dict[str, TrackedModel] = {
     'lessons.Lesson':                 TrackedModel('lesson', True, 40),
     'lessons.LessonAttendance':       TrackedModel('attendance', True, 50,
                                                    identity=('lesson_id', 'student_id')),
-    'extra_lessons.ExtraLessonAssignment':  TrackedModel('extra_lesson_assignment', True, 45),
-    'extra_lessons.ExtraLessonParticipant': TrackedModel('extra_lesson_participant', True, 46),
-    # Фаза 1a: новая пер-ученик модель (старые две выше удаляются в Task 3 вместе
-    # с их записями отсюда). @pghistory.track на модели требует записи в реестре —
-    # иначе test_registry_covers_all_tracked_models падает.
+    # Пер-ученик модель раздела доп.уроков (заменила групповые
+    # ExtraLessonAssignment+ExtraLessonParticipant, удалённые на cutover Фазы 1a).
+    # @pghistory.track на модели требует записи в реестре — иначе
+    # test_registry_covers_all_tracked_models падает.
     'extra_lessons.AbsenceResolution':      TrackedModel('absence_resolution', True, 45),
     'payments.Payment':               TrackedModel('payment', True, 50),
     'payroll.Payroll':                TrackedModel('payroll', True, 50),

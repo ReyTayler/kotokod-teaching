@@ -120,21 +120,10 @@ def missed_lesson_fixture(group_fixture, teacher_fixture, student_fixture, membe
     lesson_id = result['lesson_id']
     yield lesson_id
     with connection.cursor() as cur:
-        # Доп.уроки, назначенные тестом за этот пропуск, держат missed_lesson_id
-        # (PROTECT) — снести их первыми, иначе DELETE FROM lessons ниже упадёт
-        # по FK. Django on_delete=CASCADE — только ORM-семантика, не реальный
-        # DB-level ON DELETE CASCADE, поэтому participants чистим явно, до
-        # удаления assignments (иначе повиснет их FK на assignment_id).
-        cur.execute(
-            """
-            DELETE FROM extra_lesson_participants
-            WHERE assignment_id IN (
-                SELECT id FROM extra_lesson_assignments WHERE missed_lesson_id = %s
-            )
-            """,
-            [lesson_id],
-        )
-        cur.execute('DELETE FROM extra_lesson_assignments WHERE missed_lesson_id = %s', [lesson_id])
+        # Резолюции пропусков за этот урок (absence_resolutions.missed_lesson —
+        # реальный DB-level FK) снести первыми, иначе DELETE FROM lessons ниже
+        # упадёт по внешнему ключу.
+        cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id = %s', [lesson_id])
         cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
         cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
         cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
@@ -193,16 +182,7 @@ def missed_lesson_unpaid_fixture(
     lesson_id = result['lesson_id']
     yield lesson_id
     with connection.cursor() as cur:
-        cur.execute(
-            """
-            DELETE FROM extra_lesson_participants
-            WHERE assignment_id IN (
-                SELECT id FROM extra_lesson_assignments WHERE missed_lesson_id = %s
-            )
-            """,
-            [lesson_id],
-        )
-        cur.execute('DELETE FROM extra_lesson_assignments WHERE missed_lesson_id = %s', [lesson_id])
+        cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id = %s', [lesson_id])
         cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
         cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
         cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])

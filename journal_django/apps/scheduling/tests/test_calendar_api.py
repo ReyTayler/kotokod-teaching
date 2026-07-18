@@ -302,18 +302,19 @@ class TestExtraLessonMerge:
             'lesson_duration_minutes': 60,
             'attendance': [{'student_id': student_id, 'present': False}],
         })
-        assignment = extra_services.create_assignment({
+        created = extra_services.create_assignment({
             'missed_lesson_id': fact['lesson_id'], 'teacher_id': teacher_b,
             'student_ids': [student_id], 'scheduled_date': '2099-05-03',
             'scheduled_time': '16:00', 'duration_minutes': 30,
         }, request=None)
+        resolution_id = created['resolution_ids'][0]
 
         try:
             resp = client_b.get('/api/calendar?from=2099-05-01&to=2099-05-07')
             assert resp.status_code == 200
             body = resp.json()
             extra_occs = [
-                o for o in body['occurrences'] if o.get('extraLessonId') == assignment['id']
+                o for o in body['occurrences'] if o.get('extraLessonId') == resolution_id
             ]
             assert len(extra_occs) == 1
             occ = extra_occs[0]
@@ -331,16 +332,12 @@ class TestExtraLessonMerge:
                 '/api/calendar?from=2099-05-01&to=2099-05-07',
             ).json()
             assert not any(
-                o.get('extraLessonId') == assignment['id'] for o in body_a['occurrences']
+                o.get('extraLessonId') == resolution_id for o in body_a['occurrences']
             )
         finally:
             with connection.cursor() as cur:
                 cur.execute(
-                    'DELETE FROM extra_lesson_participants WHERE assignment_id = %s',
-                    [assignment['id']],
-                )
-                cur.execute(
-                    'DELETE FROM extra_lesson_assignments WHERE id = %s', [assignment['id']],
+                    'DELETE FROM absence_resolutions WHERE id = %s', [resolution_id],
                 )
                 # payroll/lesson_attendance пропущенного урока (fact) — снести ДО того,
                 # как sched_setup teardown снесёт саму строку lessons (FK), и ДО
