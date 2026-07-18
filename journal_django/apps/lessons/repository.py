@@ -397,8 +397,14 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
     ячейки исходного урока.
     """
     with transaction.atomic():
+        # Лочим строку урока В НАЧАЛЕ — сериализует все параллельные правки
+        # ячеек ЭТОГО урока: иначе два одновременных PATCH одной ячейки читают
+        # prev_present до коммита друг друга, оба считают delta=+step и наращивают
+        # lessons_done на 2×step (read-modify-write счётчика вне лока). Лок здесь
+        # закрывает и эту гонку, и lost-update пересчёта Payroll ниже.
         ctx = (
             Lesson.objects
+            .select_for_update()
             .filter(id=lesson_id)
             .values('group_id', 'lesson_duration_minutes')
             .first()
