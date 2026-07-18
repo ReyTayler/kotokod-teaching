@@ -62,36 +62,6 @@ def _attended_units_case():
     )
 
 
-def _makeup_completion_dates(
-    student_ids: Optional[Iterable[int]] = None,
-) -> dict[tuple[int, int], datetime.date]:
-    """
-    (missed_lesson_id, student_id) → дата ФАКТИЧЕСКОГО проведения доп.урока,
-    которым скомпенсирован этот пропуск (apps.extra_lessons, status='makeup_done').
-
-    Используется, чтобы «отработанные» деньги относились к месяцу, в котором
-    доп.урок реально проведён, а не к месяцу исходного пропущенного занятия —
-    иначе компенсация, проведённая в другом месяце, задним числом уезжала бы
-    в месяц пропуска в помесячных финансовых отчётах (решение пользователя
-    2026-07-16). Единицы (half-lesson) по-прежнему считаются от ИСХОДНОГО
-    урока (_attended_units_case) — меняется только дата для месячной разбивки.
-    """
-    from apps.extra_lessons.models import AbsenceResolution
-
-    qs = AbsenceResolution.objects.filter(status='makeup_done')
-    if student_ids is not None:
-        qs = qs.filter(student_id__in=list(student_ids))
-    rows = qs.values(
-        'student_id',
-        'missed_lesson_id',
-        completion_date=F('fact_lesson__lesson_date'),
-    )
-    return {
-        (r['missed_lesson_id'], r['student_id']): r['completion_date']
-        for r in rows if r['completion_date'] is not None
-    }
-
-
 # ---------------------------------------------------------------------------
 # FIFO-входы (порт _fifoInputs из dashboard.js)
 # ---------------------------------------------------------------------------
