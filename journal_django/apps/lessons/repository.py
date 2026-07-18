@@ -275,7 +275,7 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
         LessonAttendance.objects
         .filter(lesson_id=lesson_id)
         .order_by('student__full_name')
-        .values('student_id', 'present', 'burned_at', student_name=F('student__full_name'))
+        .values('student_id', 'present', student_name=F('student__full_name'))
     )
 
     lesson['payroll'] = dictrow(
