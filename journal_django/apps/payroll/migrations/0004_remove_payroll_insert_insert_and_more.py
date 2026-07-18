@@ -9,6 +9,11 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('payroll', '0003_remove_payroll_insert_insert_and_more'),
+        # Историч. burned_at → burned-Lesson (2b) ЧИТАЕТ burn_surcharge_* — обязана
+        # пройти ДО удаления этих колонок. Без явного ребра на fresh migrate
+        # payroll.0004 попал бы в план раньше extra_lessons.0010 (порядок
+        # INSTALLED_APPS) и helper упал бы на несуществующей колонке.
+        ('extra_lessons', '0010_convert_historical_burned_at'),
     ]
 
     operations = [

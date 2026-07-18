@@ -9,6 +9,11 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('lessons', '0003_remove_lessonattendance_insert_insert_and_more'),
+        # Историч. burned_at → burned-Lesson (2b) ЧИТАЕТ LessonAttendance.burned_at —
+        # обязана пройти ДО удаления колонки. Без явного ребра на fresh migrate
+        # lessons.0004 попал бы в план раньше extra_lessons.0010 (порядок
+        # INSTALLED_APPS) и helper упал бы на несуществующей колонке.
+        ('extra_lessons', '0010_convert_historical_burned_at'),
     ]
 
     operations = [
