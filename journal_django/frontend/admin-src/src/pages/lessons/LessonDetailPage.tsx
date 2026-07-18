@@ -99,13 +99,21 @@ export default function LessonDetailPage() {
                     <input
                       type="checkbox"
                       defaultChecked={a.present}
-                      disabled={!canWrite}
+                      disabled={!canWrite || a.compensated}
                       onChange={(e) => { void toggleAttendance(a.student_id, e.target.checked); }}
                     />
                     <span className="modal__check-box" />
                   </label>
                 </div>
-                <div /><div />
+                <div>
+                  {a.compensated && (
+                    <span className="status-badge status-badge--info"
+                      title="Пропуск закрыт доп.уроком или сожжён — правка только через раздел «Доп.уроки»">
+                      Компенсирован
+                    </span>
+                  )}
+                </div>
+                <div />
               </div>
             ))}
           </>

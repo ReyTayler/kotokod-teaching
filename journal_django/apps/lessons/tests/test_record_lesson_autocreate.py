@@ -6,7 +6,7 @@ import pytest
 from django.db import connection
 
 from apps.lessons import services
-from apps.lessons.exceptions import LessonHasMakeupResolutions
+from apps.lessons.exceptions import AttendanceCompensatedElsewhere, LessonHasMakeupResolutions
 
 pytestmark = pytest.mark.django_db
 
@@ -93,6 +93,40 @@ def test_delete_lesson_blocked_when_makeup_done(
                 [lesson_id])
         assert services.delete_lesson_full(lesson_id) is True
         assert _pending_students(lesson_id) == []  # каскад снёс резолюцию
+    finally:
+        _cleanup(lesson_id)
+
+
+@pytest.mark.parametrize('status', ['makeup_done', 'burned'])
+def test_attendance_toggle_to_present_blocked_when_compensated(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, status,
+):
+    """Critical-гард: нельзя вручную флипнуть исходную ячейку пропуска в present=true,
+    если пропуск уже компенсирован (makeup_done) или сожжён (burned) — иначе урок
+    спишется дважды. Снятие present (в absent) — разрешено."""
+    res = services.record_lesson(
+        lesson_date='2026-05-06', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='t',
+        submit_date='2026-05-06',
+        attendance=[{'student_id': student_fixture, 'present': False}])
+    lesson_id = res['lesson_id']
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE absence_resolutions SET status=%s WHERE missed_lesson_id=%s",
+                [status, lesson_id])
+        # Флип в present — заблокирован.
+        with pytest.raises(AttendanceCompensatedElsewhere):
+            services.update_attendance_cell(lesson_id, student_fixture, True)
+        # Ячейка не изменилась.
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT present FROM lesson_attendance WHERE lesson_id=%s AND student_id=%s',
+                [lesson_id, student_fixture])
+            assert cur.fetchone()[0] is False
+        # Снятие present (в absent) — не гейтится (не создаёт двойного учёта).
+        assert services.update_attendance_cell(lesson_id, student_fixture, False) is True
     finally:
         _cleanup(lesson_id)
 

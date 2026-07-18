@@ -30,7 +30,8 @@ from rest_framework.views import APIView
 from apps.core.permissions import ReadStaffWriteAdmin
 from apps.lessons import services
 from apps.lessons.exceptions import (
-    LessonHasMakeupResolutions, SystemLessonProtected, UnpaidAttendanceBlocked,
+    AttendanceCompensatedElsewhere, LessonHasMakeupResolutions, SystemLessonProtected,
+    UnpaidAttendanceBlocked,
 )
 from apps.lessons.serializers import (
     AttendanceUpdateSerializer,
@@ -197,7 +198,7 @@ class AttendanceCellView(APIView):
             )
         except UnpaidAttendanceBlocked as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except SystemLessonProtected as e:
+        except (SystemLessonProtected, AttendanceCompensatedElsewhere) as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if not ok:
             raise NotFound({'error': 'Not found'})

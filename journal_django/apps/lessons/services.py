@@ -17,7 +17,9 @@ from django.db import transaction
 
 from apps.groups.models import Group
 from apps.lessons import repository
-from apps.lessons.exceptions import LessonHasMakeupResolutions, SystemLessonProtected
+from apps.lessons.exceptions import (
+    AttendanceCompensatedElsewhere, LessonHasMakeupResolutions, SystemLessonProtected,
+)
 from apps.lessons.models import Lesson
 from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.scheduling.repository import link_facts
@@ -201,6 +203,22 @@ def delete_lesson_full(lesson_id: int) -> bool:
     return repository.delete_lesson_full(lesson_id)
 
 
+def _assert_not_compensated(lesson_id: int, student_id: int) -> None:
+    """Нельзя вручную отметить ученика присутствовавшим на исходном уроке, если
+    его пропуск уже компенсирован (makeup_done) или сожжён (burned) — потребление
+    уже списано отдельным фактом, флип исходной ячейки задвоил бы списание."""
+    from apps.extra_lessons.models import BURNED, MAKEUP_DONE, AbsenceResolution
+    if AbsenceResolution.objects.filter(
+        missed_lesson_id=lesson_id, student_id=student_id,
+        status__in=[MAKEUP_DONE, BURNED],
+    ).exists():
+        raise AttendanceCompensatedElsewhere()
+
+
 def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bool:
     _assert_not_system_lesson(lesson_id)
+    # Флип В present компенсированного пропуска = двойной учёт (см. гард).
+    # Снятие present (absent) — безопасно, не гейтим.
+    if present:
+        _assert_not_compensated(lesson_id, student_id)
     return repository.update_attendance_cell(lesson_id, student_id, present)

@@ -271,12 +271,23 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
     if lesson is None:
         return None
 
-    lesson['attendance'] = dictrows(
+    attendance = dictrows(
         LessonAttendance.objects
         .filter(lesson_id=lesson_id)
         .order_by('student__full_name')
         .values('student_id', 'present', student_name=F('student__full_name'))
     )
+    # compensated=true — пропуск этого ученика уже закрыт доп.уроком (makeup_done)
+    # или сожжён (burned): его ячейку нельзя флипать в present (двойной учёт),
+    # фронт красит её серой/неактивной. Ленивый импорт — избегаем цикла с
+    # apps.extra_lessons.repository (импортит apps.lessons.models).
+    from apps.extra_lessons.models import BURNED, MAKEUP_DONE, AbsenceResolution
+    compensated = set(AbsenceResolution.objects.filter(
+        missed_lesson_id=lesson_id, status__in=[MAKEUP_DONE, BURNED],
+    ).values_list('student_id', flat=True))
+    for row in attendance:
+        row['compensated'] = row['student_id'] in compensated
+    lesson['attendance'] = attendance
 
     lesson['payroll'] = dictrow(
         Payroll.objects.filter(lesson_id=lesson_id).values(

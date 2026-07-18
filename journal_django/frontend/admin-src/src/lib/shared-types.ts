@@ -142,6 +142,9 @@ export interface LessonAttendance {
   student_id: ID;
   present: boolean;
   student_name?: string;
+  // true — пропуск компенсирован доп.уроком/сожжён: ячейку нельзя флипать в
+  // present (двойной учёт), фронт делает её серой/неактивной.
+  compensated?: boolean;
 }
 
 export interface LessonFull extends Lesson {
