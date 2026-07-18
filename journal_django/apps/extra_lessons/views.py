@@ -15,8 +15,8 @@ Teacher (IsTeacher, скоуп — своё назначение):
   GET  /api/extra-lessons/:id         → 200 | 404 (чужое = 404, не 403 — не
                                          раскрываем существование чужих назначений)
   POST /api/extra-lessons/:id/record  → 200 | 404 | 403 (чужое) | 409 (не
-                                         scheduled) | 400 (у кого-то из
-                                         отмеченных present balance<=0)
+                                         scheduled) | 400 (present, но у ученика
+                                         balance<=0)
 """
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ class ExtraLessonDetailView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
-        full = repository.get_assignment_full(pk)
+        full = repository.get_resolution_full(pk)
         if full is None:
             raise NotFound({'error': 'Not found'})
         return Response(full)
@@ -136,7 +136,7 @@ class TeacherExtraLessonRecordView(APIView):
             result = services.record(
                 pk,
                 teacher_id=request.user.teacher_id,
-                attendance=v['attendance'],
+                present=v['present'],
                 record_url=v.get('record_url') or None,
                 submitted_by_token=f'acct:{request.user.id}',
                 submit_date=msk_today(),

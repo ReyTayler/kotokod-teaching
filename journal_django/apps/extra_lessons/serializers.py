@@ -49,15 +49,14 @@ class ExtraLessonCreateSerializer(StrictSerializer):
         return value
 
 
-class ExtraLessonAttendanceItemSerializer(serializers.Serializer):
-    student_id = serializers.IntegerField(min_value=1)
-    present = serializers.BooleanField()
-
-
 class ExtraLessonRecordSerializer(StrictSerializer):
-    """POST /api/extra-lessons/:id/record — фиксация проведения (teacher)."""
+    """POST /api/extra-lessons/:id/record — фиксация проведения (teacher).
+
+    Одна резолюция = один ученик, поэтому вместо списка attendance — единый
+    флаг present (отметил учитель ученика на доп.уроке или нет).
+    """
 
     record_url = serializers.CharField(
         allow_null=True, allow_blank=True, required=False, trim_whitespace=False,
     )
-    attendance = ExtraLessonAttendanceItemSerializer(many=True, allow_empty=False)
+    present = serializers.BooleanField()

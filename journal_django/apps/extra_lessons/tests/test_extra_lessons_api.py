@@ -23,6 +23,11 @@ ADMIN_URL = '/api/admin/extra-lessons'
 TEACHER_URL = '/api/extra-lessons'
 
 
+def _created_id(resp):
+    """id первой созданной резолюции из ответа POST /extra-lessons."""
+    return resp.data['resolution_ids'][0]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -77,6 +82,25 @@ def teacher_client_for(api_client_for, teacher_fixture, other_teacher_fixture):
         _delete_account(acc_id)
 
 
+@pytest.fixture
+def cleanup_resolutions(missed_lesson_fixture):
+    """Сносит резолюции (absence_resolutions), созданные тестом за этот пропуск.
+
+    conftest.missed_lesson_fixture в teardown чистит только СТАРУЮ таблицу
+    extra_lesson_assignments, а absence_resolutions.{missed_lesson,
+    assigned_teacher} — реальные FK. Оставленная строка ссылается на уже
+    удалённого teacher_fixture-учителя → deferred-проверка при teardown
+    db-фикстуры (SET CONSTRAINTS ALL IMMEDIATE) падает. Зависимость от
+    missed_lesson_fixture гарантирует, что этот teardown отработает РАНЬШЕ,
+    чем снесут учителя/урок."""
+    yield
+    with connection.cursor() as cur:
+        cur.execute(
+            'DELETE FROM absence_resolutions WHERE missed_lesson_id = %s',
+            [missed_lesson_fixture],
+        )
+
+
 def _create_payload(missed_lesson_id, teacher_id, student_id, date='2026-04-05'):
     return {
         'missed_lesson_id': missed_lesson_id,
@@ -94,6 +118,7 @@ def _create_payload(missed_lesson_id, teacher_id, student_id, date='2026-04-05')
 
 def test_manager_can_create_assignment(
     manager_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
     resp = manager_client.post(
         ADMIN_URL,
@@ -101,11 +126,12 @@ def test_manager_can_create_assignment(
         format='json',
     )
     assert resp.status_code == 201
-    assert resp.data['status'] == 'scheduled'
+    assert resp.data['created'] == 1
 
 
 def test_admin_can_create_assignment(
     admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
     resp = admin_client.post(
         ADMIN_URL,
@@ -113,6 +139,7 @@ def test_admin_can_create_assignment(
         format='json',
     )
     assert resp.status_code == 201
+    assert resp.data['created'] == 1
 
 
 def test_teacher_cannot_create_assignment(
@@ -194,6 +221,7 @@ def test_create_blocked_when_student_has_no_paid_balance(
 
 def test_create_duplicate_assignment_409(
     admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
     """Test creating a duplicate assignment (same missed_lesson + student) returns 409."""
     payload = _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture)
@@ -218,15 +246,19 @@ def test_list_contract(admin_client):
     assert set(resp.json().keys()) == {'rows', 'total', 'page', 'page_size'}
 
 
-def test_get_detail_200(admin_client, teacher_fixture, missed_lesson_fixture, student_fixture):
-    created = admin_client.post(
+def test_get_detail_200(
+    admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
+):
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
-    resp = admin_client.get(f'{ADMIN_URL}/{created["id"]}')
+    )
+    rid = _created_id(create_resp)
+    resp = admin_client.get(f'{ADMIN_URL}/{rid}')
     assert resp.status_code == 200
-    assert resp.data['id'] == created['id']
+    assert resp.data['id'] == rid
 
 
 def test_get_detail_404(admin_client):
@@ -238,13 +270,17 @@ def test_get_detail_404(admin_client):
 # Admin: cancel
 # ---------------------------------------------------------------------------
 
-def test_cancel_happy_path(admin_client, teacher_fixture, missed_lesson_fixture, student_fixture):
-    created = admin_client.post(
+def test_cancel_happy_path(
+    admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
+):
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
-    resp = admin_client.post(f'{ADMIN_URL}/{created["id"]}/cancel')
+    )
+    rid = _created_id(create_resp)
+    resp = admin_client.post(f'{ADMIN_URL}/{rid}/cancel')
     assert resp.status_code == 200
     assert resp.data['status'] == 'cancelled'
 
@@ -256,14 +292,16 @@ def test_cancel_404(admin_client):
 
 def test_cancel_conflict_when_already_cancelled(
     admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
-    admin_client.post(f'{ADMIN_URL}/{created["id"]}/cancel')
-    resp = admin_client.post(f'{ADMIN_URL}/{created["id"]}/cancel')
+    )
+    rid = _created_id(create_resp)
+    admin_client.post(f'{ADMIN_URL}/{rid}/cancel')
+    resp = admin_client.post(f'{ADMIN_URL}/{rid}/cancel')
     assert resp.status_code == 409
 
 
@@ -278,36 +316,36 @@ def test_delete_404(admin_client):
 
 def test_delete_conflict_when_not_done(
     admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
-    resp = admin_client.delete(f'{ADMIN_URL}/{created["id"]}')
+    )
+    rid = _created_id(create_resp)
+    resp = admin_client.delete(f'{ADMIN_URL}/{rid}')
     assert resp.status_code == 409
 
 
 def test_delete_happy_path_when_done(
     admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
     """Test DELETE on a done assignment returns 204 and cleans up fact_lesson."""
     # Create assignment
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
-    assignment_id = created['id']
+    )
+    assignment_id = _created_id(create_resp)
 
     # Record the assignment (creates fact_lesson, sets status to done)
     owner_client = teacher_client_for(teacher_fixture, '__el_delete_test__@test.local')
     record_resp = owner_client.post(
         f'{TEACHER_URL}/{assignment_id}/record',
-        {
-            'attendance': [{'student_id': student_fixture, 'present': True}],
-            'record_url': None,
-        },
+        {'present': True, 'record_url': None},
         format='json',
     )
     assert record_resp.status_code == 200
@@ -337,29 +375,32 @@ def test_delete_happy_path_when_done(
 
 def test_teacher_can_get_own_assignment(
     admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
+    )
+    rid = _created_id(create_resp)
     owner_client = teacher_client_for(teacher_fixture, '__el_owner__@test.local')
-    resp = owner_client.get(f'{TEACHER_URL}/{created["id"]}')
+    resp = owner_client.get(f'{TEACHER_URL}/{rid}')
     assert resp.status_code == 200
-    assert resp.data['id'] == created['id']
+    assert resp.data['id'] == rid
 
 
 def test_teacher_gets_404_for_another_teachers_assignment(
     admin_client, teacher_client_for, teacher_fixture, other_teacher_fixture,
-    missed_lesson_fixture, student_fixture,
+    missed_lesson_fixture, student_fixture, cleanup_resolutions,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
+    )
+    rid = _created_id(create_resp)
     stranger_client = teacher_client_for(other_teacher_fixture, '__el_stranger__@test.local')
-    resp = stranger_client.get(f'{TEACHER_URL}/{created["id"]}')
+    resp = stranger_client.get(f'{TEACHER_URL}/{rid}')
     # Единый 404 — не раскрываем чужим существование назначения (не 403).
     assert resp.status_code == 404
 
@@ -380,20 +421,19 @@ def test_manager_cannot_use_teacher_endpoint(manager_client):
 
 def test_teacher_can_record_own_assignment(
     admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
+    )
+    rid = _created_id(create_resp)
     owner_client = teacher_client_for(teacher_fixture, '__el_owner2__@test.local')
     try:
         resp = owner_client.post(
-            f'{TEACHER_URL}/{created["id"]}/record',
-            {
-                'attendance': [{'student_id': student_fixture, 'present': True}],
-                'record_url': None,
-            },
+            f'{TEACHER_URL}/{rid}/record',
+            {'present': True, 'record_url': None},
             format='json',
         )
         assert resp.status_code == 200
@@ -403,8 +443,8 @@ def test_teacher_can_record_own_assignment(
     finally:
         with connection.cursor() as cur:
             cur.execute(
-                'SELECT fact_lesson_id FROM extra_lesson_assignments WHERE id = %s',
-                [created['id']],
+                'SELECT fact_lesson_id FROM absence_resolutions WHERE id = %s',
+                [rid],
             )
             row = cur.fetchone()
             fact_lesson_id = row[0] if row else None
@@ -417,17 +457,18 @@ def test_teacher_can_record_own_assignment(
 
 def test_teacher_cannot_record_another_teachers_assignment(
     admin_client, teacher_client_for, teacher_fixture, other_teacher_fixture,
-    missed_lesson_fixture, student_fixture,
+    missed_lesson_fixture, student_fixture, cleanup_resolutions,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
+    )
+    rid = _created_id(create_resp)
     stranger_client = teacher_client_for(other_teacher_fixture, '__el_stranger2__@test.local')
     resp = stranger_client.post(
-        f'{TEACHER_URL}/{created["id"]}/record',
-        {'attendance': [{'student_id': student_fixture, 'present': True}], 'record_url': None},
+        f'{TEACHER_URL}/{rid}/record',
+        {'present': True, 'record_url': None},
         format='json',
     )
     assert resp.status_code == 403
@@ -436,7 +477,7 @@ def test_teacher_cannot_record_another_teachers_assignment(
 def test_record_404_for_nonexistent(teacher_client, student_fixture):
     resp = teacher_client.post(
         f'{TEACHER_URL}/999999999/record',
-        {'attendance': [{'student_id': student_fixture, 'present': True}], 'record_url': None},
+        {'present': True, 'record_url': None},
         format='json',
     )
     assert resp.status_code == 404
@@ -445,21 +486,25 @@ def test_record_404_for_nonexistent(teacher_client, student_fixture):
 def test_record_conflict_when_already_done(
     admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
+    )
+    rid = _created_id(create_resp)
     owner_client = teacher_client_for(teacher_fixture, '__el_owner3__@test.local')
-    body = {'attendance': [{'student_id': student_fixture, 'present': True}], 'record_url': None}
-    first = owner_client.post(f'{TEACHER_URL}/{created["id"]}/record', body, format='json')
+    body = {'present': True, 'record_url': None}
+    first = owner_client.post(f'{TEACHER_URL}/{rid}/record', body, format='json')
     assert first.status_code == 200
     try:
-        second = owner_client.post(f'{TEACHER_URL}/{created["id"]}/record', body, format='json')
+        second = owner_client.post(f'{TEACHER_URL}/{rid}/record', body, format='json')
         assert second.status_code == 409
     finally:
         fact_lesson_id = first.data['lesson_id']
         with connection.cursor() as cur:
+            # Резолюция (status=done) держит fact_lesson (SET_NULL — ORM-семантика,
+            # DB-FK не каскадит) И missed_lesson — снести её ДО удаления урока.
+            cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id = %s', [missed_lesson_fixture])
             cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [fact_lesson_id])
             cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [fact_lesson_id])
             cur.execute('DELETE FROM lessons WHERE id = %s', [fact_lesson_id])
@@ -467,18 +512,20 @@ def test_record_conflict_when_already_done(
 
 def test_record_blocked_when_student_balance_dropped(
     admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
 ):
-    created = admin_client.post(
+    create_resp = admin_client.post(
         ADMIN_URL,
         _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
         format='json',
-    ).data
+    )
+    rid = _created_id(create_resp)
     with connection.cursor() as cur:
         cur.execute('DELETE FROM payments WHERE student_id = %s', [student_fixture])
     owner_client = teacher_client_for(teacher_fixture, '__el_unpaid_record__@test.local')
     resp = owner_client.post(
-        f'{TEACHER_URL}/{created["id"]}/record',
-        {'attendance': [{'student_id': student_fixture, 'present': True}], 'record_url': None},
+        f'{TEACHER_URL}/{rid}/record',
+        {'present': True, 'record_url': None},
         format='json',
     )
     assert resp.status_code == 400

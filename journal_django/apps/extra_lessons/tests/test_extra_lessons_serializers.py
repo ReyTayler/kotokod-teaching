@@ -51,12 +51,11 @@ def test_create_serializer_rejects_unknown_field():
 
 
 def test_record_serializer_valid():
-    s = ExtraLessonRecordSerializer(data={
-        'attendance': [{'student_id': 1, 'present': True}],
-    })
+    s = ExtraLessonRecordSerializer(data={'present': True, 'record_url': None})
     assert s.is_valid(), s.errors
 
 
-def test_record_serializer_rejects_empty_attendance():
-    s = ExtraLessonRecordSerializer(data={'attendance': []})
+def test_record_serializer_rejects_missing_present():
+    s = ExtraLessonRecordSerializer(data={})
     assert not s.is_valid()
+    assert 'present' in s.errors
