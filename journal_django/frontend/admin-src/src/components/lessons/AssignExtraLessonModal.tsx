@@ -56,7 +56,7 @@ export function AssignExtraLessonModal({ missedLessonId, candidates, defaultTeac
       return;
     }
     try {
-      await muts.create.mutateAsync({
+      const res = await muts.create.mutateAsync({
         missed_lesson_id: missedLessonId,
         teacher_id: teacherId,
         student_ids: studentIds,
@@ -64,7 +64,7 @@ export function AssignExtraLessonModal({ missedLessonId, candidates, defaultTeac
         scheduled_time: time,
         duration_minutes: duration,
       });
-      toast('Доп.урок назначен', 'ok');
+      toast(res.created > 1 ? `Назначено доп.уроков: ${res.created}` : 'Доп.урок назначен', 'ok');
       onClose();
     } catch (err) { showError(err); }
   };

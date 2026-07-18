@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { ExtraLessonAssignment, Paginated } from '../lib/types';
+import type { AbsenceResolution, ExtraLessonCreateResult, Paginated } from '../lib/types';
 
 export interface ExtraLessonsListParams {
   page: number;
@@ -25,7 +25,7 @@ function buildQuery(p: ExtraLessonsListParams): string {
 export function useExtraLessons(params: ExtraLessonsListParams) {
   return useQuery({
     queryKey: ['extra-lessons', params],
-    queryFn: () => api<Paginated<ExtraLessonAssignment>>(
+    queryFn: () => api<Paginated<AbsenceResolution>>(
       'GET', `/api/admin/extra-lessons?${buildQuery(params)}`,
     ),
     placeholderData: keepPreviousData,
@@ -44,12 +44,12 @@ export function useExtraLessonMutations() {
   return {
     create: useMutation({
       mutationFn: (body: Record<string, unknown>) =>
-        api<ExtraLessonAssignment>('POST', '/api/admin/extra-lessons', body),
+        api<ExtraLessonCreateResult>('POST', '/api/admin/extra-lessons', body),
       onSuccess: invalidate,
     }),
     cancel: useMutation({
       mutationFn: (id: number) =>
-        api<ExtraLessonAssignment>('POST', `/api/admin/extra-lessons/${id}/cancel`),
+        api<AbsenceResolution>('POST', `/api/admin/extra-lessons/${id}/cancel`),
       onSuccess: invalidate,
     }),
     remove: useMutation({

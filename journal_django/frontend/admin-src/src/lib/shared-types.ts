@@ -149,17 +149,16 @@ export interface LessonFull extends Lesson {
   payroll: PayrollEntry | null;
 }
 
-// ===== Extra lessons (доп. уроки) =====
+// ===== Extra lessons (доп. уроки / резолюции пропусков) =====
 
-export interface ExtraLessonParticipant {
-  student_id: number;
-  student_name: string;
-}
-
-export interface ExtraLessonAssignment {
+// Пер-ученик (1:1) резолюция пропуска — одна строка на (пропущенный урок ×
+// ученик), заменила групповую ExtraLessonAssignment+participants (Фаза 1a).
+export interface AbsenceResolution {
   id: ID;
-  teacher_id: ID;
-  teacher_name: string;
+  student_id: ID;
+  student_name: string;
+  assigned_teacher_id: ID | null;
+  teacher_name: string | null;
   missed_lesson_id: ID;
   missed_lesson_group_id: ID;
   missed_lesson_group_name: string;
@@ -169,7 +168,12 @@ export interface ExtraLessonAssignment {
   duration_minutes: number;
   status: 'scheduled' | 'done' | 'cancelled';
   fact_lesson_id: ID | null;
-  participants: ExtraLessonParticipant[];
+}
+
+// Ответ POST /api/admin/extra-lessons — multi-select создаёт N резолюций.
+export interface ExtraLessonCreateResult {
+  created: number;
+  resolution_ids: number[];
 }
 
 // ===== Payroll =====

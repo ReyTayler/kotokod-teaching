@@ -6,7 +6,7 @@ import { useToast } from '../../components/ui/Toast';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { fmtDate } from '../../lib/format';
-import type { ExtraLessonAssignment } from '../../lib/types';
+import type { AbsenceResolution } from '../../lib/types';
 
 const STATUS_LABELS: Record<string, string> = {
   scheduled: 'Запланирован',
@@ -29,7 +29,7 @@ export default function ExtraLessonsListPage() {
   // Payroll/посещаемость исходного урока), поэтому по клику подтверждения.
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
 
-  const rows: ExtraLessonAssignment[] = data?.rows || [];
+  const rows: AbsenceResolution[] = data?.rows || [];
   const total = data?.total || 0;
 
   const handleCancel = async (id: number) => {
@@ -51,14 +51,11 @@ export default function ExtraLessonsListPage() {
     setConfirmingDeleteId(null);
   };
 
-  const columns: Column<ExtraLessonAssignment>[] = [
+  const columns: Column<AbsenceResolution>[] = [
     { key: 'scheduled_date', label: 'Дата', sortable: true, searchable: false, cell: (r) => fmtDate(r.scheduled_date) },
     { key: 'missed_lesson_group_name', label: 'Группа (пропуск)', sortable: false, searchable: false },
     { key: 'teacher_name', label: 'Преподаватель', sortable: true, searchable: false },
-    {
-      key: 'participants', label: 'Ученики', sortable: false, searchable: false,
-      cell: (r) => r.participants.map((p) => p.student_name).join(', '),
-    },
+    { key: 'student_name', label: 'Ученик', sortable: true, searchable: false },
     { key: 'status', label: 'Статус', sortable: true, searchable: false, cell: (r) => STATUS_LABELS[r.status] || r.status },
     {
       key: 'actions', label: '', sortable: false, searchable: false,
@@ -90,7 +87,7 @@ export default function ExtraLessonsListPage() {
   if (isLoading) return <TableSkeleton rows={8} cols={columns.length} />;
 
   return (
-    <DataTable<ExtraLessonAssignment>
+    <DataTable<AbsenceResolution>
       data={rows}
       columns={columns}
       title="Доп.уроки"
