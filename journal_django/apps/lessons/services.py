@@ -168,6 +168,7 @@ def create_lesson_full(data: dict) -> dict:
 
 
 def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
+    _assert_not_system_lesson(lesson_id)
     return repository.update_lesson(lesson_id, fields)
 
 
@@ -177,4 +178,5 @@ def delete_lesson_full(lesson_id: int) -> bool:
 
 
 def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bool:
+    _assert_not_system_lesson(lesson_id)
     return repository.update_attendance_cell(lesson_id, student_id, present)

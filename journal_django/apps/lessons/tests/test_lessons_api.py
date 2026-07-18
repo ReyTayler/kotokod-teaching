@@ -461,3 +461,46 @@ def test_delete_extra_lesson_blocked_409():
             assert cur.fetchone()[0] == 1
     finally:
         _cleanup_extra(lid, gid, tid, did)
+
+
+def test_patch_extra_lesson_blocked_409():
+    """PATCH мета факта доп.урока через общий CRUD → 409."""
+    lid, gid, tid, did = _make_extra_lesson()
+    try:
+        resp = _client('admin').patch(f'{BASE_URL}/{lid}', {'record_url': 'https://x.test'}, format='json')
+        assert resp.status_code == 409
+        assert 'error' in resp.json()
+    finally:
+        _cleanup_extra(lid, gid, tid, did)
+
+
+def test_patch_cannot_set_lesson_type_to_extra_400():
+    """Обычный урок нельзя «превратить» в системный (extra) через общий PATCH:
+    lesson_type='extra' не входит в choices LessonUpdateSerializer → 400 (вектор
+    закрыт на слое сериализатора; сервис-гард на существующий системный урок —
+    defense-in-depth, покрыт test_patch_extra_lesson_blocked_409)."""
+    lid, gid, tid, did = _make_extra_lesson()
+    with connection.cursor() as cur:
+        cur.execute("UPDATE lessons SET lesson_type = 'regular' WHERE id = %s", [lid])
+    try:
+        resp = _client('admin').patch(f'{BASE_URL}/{lid}', {'lesson_type': 'extra'}, format='json')
+        assert resp.status_code == 400
+    finally:
+        _cleanup_extra(lid, gid, tid, did)
+
+
+def test_attendance_toggle_on_extra_lesson_blocked_409():
+    """Тоггл ячейки посещаемости на факте доп.урока через общий CRUD → 409."""
+    lid, gid, tid, did = _make_extra_lesson()
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_extra_s__', 'enrolled') RETURNING id")
+        sid = cur.fetchone()[0]
+    try:
+        resp = _client('admin').patch(f'{BASE_URL}/{lid}/attendance/{sid}', {'present': True}, format='json')
+        assert resp.status_code == 409
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE student_id = %s', [sid])
+            cur.execute('DELETE FROM students WHERE id = %s', [sid])
+        _cleanup_extra(lid, gid, tid, did)

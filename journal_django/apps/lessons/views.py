@@ -160,7 +160,10 @@ class LessonDetailView(APIView):
         serializer = LessonUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        updated = services.update_lesson(pk, serializer.validated_data)
+        try:
+            updated = services.update_lesson(pk, serializer.validated_data)
+        except SystemLessonProtected as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if updated is None:
             raise NotFound({'error': 'Not found'})
         return Response(updated)
@@ -192,6 +195,8 @@ class AttendanceCellView(APIView):
             )
         except UnpaidAttendanceBlocked as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except SystemLessonProtected as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response({'ok': True})
