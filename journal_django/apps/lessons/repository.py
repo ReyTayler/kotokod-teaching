@@ -31,7 +31,7 @@ from apps.payroll.calculator import calculate_payment
 from apps.memberships.models import GroupMembership
 from apps.scheduling.repository import unlink_fact
 from apps.finances.repository import balances_for_students
-from .exceptions import UnpaidAttendanceBlocked
+from .exceptions import LessonHasMakeupResolutions, UnpaidAttendanceBlocked
 
 
 def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
@@ -330,8 +330,25 @@ def delete_lesson_full(lesson_id: int) -> bool:
     """
     Удаляет урок (CASCADE attendance + явный DELETE payroll),
     предварительно откатывая lessons_done у присутствовавших (GREATEST(x-step, 0)).
+
+    Бросает LessonHasMakeupResolutions, если по пропускам этого урока есть
+    makeup_done/burned резолюция — проверка ПОД БЛОКИРОВКОЙ резолюций, чтобы
+    сериализоваться с record()/burn() (иначе гонка удаления с проведением/сжиганием
+    осиротила бы факт+payroll: CASCADE снёс бы уже-makeup_done резолюцию).
     """
     with transaction.atomic():
+        # Авторитетная проверка под select_for_update на резолюциях пропуска —
+        # lock_for_record в record()/burn() лочит ту же строку перед переводом в
+        # makeup_done/burned, поэтому здесь конфликт сериализуется.
+        from apps.extra_lessons.models import BURNED, MAKEUP_DONE, AbsenceResolution
+        locked_statuses = list(
+            AbsenceResolution.objects.select_for_update()
+            .filter(missed_lesson_id=lesson_id)
+            .values_list('status', flat=True)
+        )
+        if any(s in (MAKEUP_DONE, BURNED) for s in locked_statuses):
+            raise LessonHasMakeupResolutions()
+
         ctx = (
             Lesson.objects
             .filter(id=lesson_id)
