@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { ApiError } from '@shared/lib/api';
 import { useToast } from '@shared/components/ui/Toast';
@@ -15,9 +15,9 @@ function looksLikeUrl(value: string): boolean {
 }
 
 /**
- * Фиксация проведения доп.урока (ExtraLessonAssignment) — посещаемость
- * только по назначенным участникам (не по всей группе, в отличие от
- * LessonForm). См. apps/extra_lessons/views.py::TeacherExtraLessonRecordView,
+ * Фиксация проведения доп.урока (AbsenceResolution) — одна резолюция = один
+ * ученик, поэтому единый тумблер «Пришёл/Не пришёл», а не список участников.
+ * См. apps/extra_lessons/views.py::TeacherExtraLessonRecordView,
  * apps/extra_lessons/services.py::record. Переиспользует lf-* стили из
  * groups.css (тот же визуальный язык, что LessonForm), чтобы не заводить
  * новые ad-hoc классы.
@@ -27,17 +27,8 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
   const { data, isLoading, isError } = useExtraLesson(assignmentId);
   const record = useRecordExtraLesson();
   const [recordUrl, setRecordUrl] = useState('');
-  const [present, setPresent] = useState<Record<number, boolean>>({});
+  const [present, setPresent] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  // Guard against re-seeding attendance toggles on background refetch of the same assignment.
-  // Track the last assignmentId for which we initialized present state, so we only seed once.
-  const initializedForIdRef = useRef<number | null>(null);
-
-  if (data && initializedForIdRef.current !== assignmentId) {
-    setPresent(Object.fromEntries(data.participants.map((p) => [p.student_id, true])));
-    initializedForIdRef.current = assignmentId;
-  }
 
   if (isLoading || !data) {
     return (
@@ -49,25 +40,11 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
     );
   }
 
-  const total = data.participants.length;
-  const presentCount = data.participants.reduce((n, p) => n + (present[p.student_id] ? 1 : 0), 0);
-  const absentCount = total - presentCount;
-  const allPresent = total > 0 && data.participants.every((p) => present[p.student_id]);
-
-  const toggleAll = () => {
-    const nextVal = !allPresent;
-    setPresent(Object.fromEntries(data.participants.map((p) => [p.student_id, nextVal])));
-  };
-
   const handleSubmit = () => {
     if (record.isPending) return;
     setSubmitError(null);
-    const attendance = data.participants.map((p) => ({
-      student_id: p.student_id,
-      present: !!present[p.student_id],
-    }));
     record.mutate(
-      { id: assignmentId, body: { record_url: recordUrl.trim() || undefined, attendance } },
+      { id: assignmentId, body: { record_url: recordUrl.trim() || undefined, present } },
       {
         onSuccess: (result) => {
           toast(`Доп.урок записан · ${result.payment} ₽`, 'ok');
@@ -94,24 +71,18 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
     >
       <div>
         <div className="lf-students-hdr">
-          <span className="t-sec-label">Посещаемость · {total}</span>
-          <button type="button" className="lf-toggle-all" onClick={toggleAll} disabled={total === 0}>
-            {allPresent ? 'Снять всех' : 'Отметить всех'}
-          </button>
+          <span className="t-sec-label">Посещаемость</span>
         </div>
         <div className="lf-students">
-          {data.participants.map((p) => (
-            <button
-              type="button"
-              key={p.student_id}
-              className={`lf-student${present[p.student_id] ? ' is-present' : ''}`}
-              onClick={() => setPresent((prev) => ({ ...prev, [p.student_id]: !prev[p.student_id] }))}
-              aria-pressed={!!present[p.student_id]}
-            >
-              <span className="lf-student-name">{p.student_name}</span>
-              <span className="lf-student-state">{present[p.student_id] ? 'Пришёл' : 'Не пришёл'}</span>
-            </button>
-          ))}
+          <button
+            type="button"
+            className={`lf-student${present ? ' is-present' : ''}`}
+            onClick={() => setPresent((prev) => !prev)}
+            aria-pressed={present}
+          >
+            <span className="lf-student-name">{data.student_name}</span>
+            <span className="lf-student-state">{present ? 'Пришёл' : 'Не пришёл'}</span>
+          </button>
         </div>
       </div>
 
@@ -150,7 +121,7 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
 
       <div className="lf-preview">
         <div className="lf-preview-row">
-          <span>Пришли {presentCount} / Не пришли {absentCount}</span>
+          <span>{present ? 'Ученик пришёл' : 'Ученик не пришёл'}</span>
         </div>
       </div>
 
