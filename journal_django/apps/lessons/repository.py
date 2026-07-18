@@ -18,9 +18,10 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from django.db import transaction
-from django.db.models import F, Value, DecimalField
+from django.db.models import F, Max, Value, DecimalField
 from django.db.models.functions import Greatest, Now
 
+from apps.core.utils.dates import msk_today
 from apps.core.utils.orm import dictrow, dictrows
 from apps.groups.models import Group
 from apps.students.models import Student
@@ -256,12 +257,13 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
         LessonAttendance.objects
         .filter(lesson_id=lesson_id)
         .order_by('student__full_name')
-        .values('student_id', 'present', student_name=F('student__full_name'))
+        .values('student_id', 'present', 'burned_at', student_name=F('student__full_name'))
     )
 
     lesson['payroll'] = dictrow(
         Payroll.objects.filter(lesson_id=lesson_id).values(
             'id', 'total_students', 'present_count', 'payment', 'penalty',
+            'burn_surcharge_amount', 'burn_surcharge_at',
         )
     )
 
@@ -343,6 +345,15 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
     без оплаченных уроков (assert_students_paid) — ДО любых изменений, но
     ПОСЛЕ проверки существования урока (несуществующий lesson_id → False,
     как и раньше, а не блокировка по балансу).
+
+    burned_at: транзакция False→True (или создание новой строки сразу True) —
+    это ретроактивная правка (например, «сгоревший» пропуск, отмеченный задним
+    числом), а не исходная запись урока (та идёт через insert_attendance) —
+    штампуется датой ПРАВКИ (msk_today), чтобы apps.finances относило деньги к
+    месяцу решения, а не к месяцу самого урока (см. docs/finances.md, решение
+    2026-07-16, симметрично _makeup_completion_dates для доп.уроков). True→False
+    (откат) сбрасывает burned_at — урок больше не потреблён. True→True (no-op)
+    сохраняет прежнее значение как есть.
     """
     with transaction.atomic():
         ctx = (
@@ -357,21 +368,31 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
         if present:
             assert_students_paid([student_id])
 
-        prev_present = (
+        prev = (
             LessonAttendance.objects
             .filter(lesson_id=lesson_id, student_id=student_id)
-            .values_list('present', flat=True)
+            .values('present', 'burned_at')
             .first()
         )
+        prev_present = prev['present'] if prev is not None else None
 
         step = _step(ctx['lesson_duration_minutes'])
         nxt = bool(present)
 
+        if not nxt:
+            burned_at = None
+        elif prev_present is True:
+            burned_at = prev['burned_at']
+        else:
+            burned_at = msk_today()
+
         LessonAttendance.objects.bulk_create(
-            [LessonAttendance(lesson_id=lesson_id, student_id=student_id, present=nxt)],
+            [LessonAttendance(
+                lesson_id=lesson_id, student_id=student_id, present=nxt, burned_at=burned_at,
+            )],
             update_conflicts=True,
             unique_fields=['lesson', 'student'],
-            update_fields=['present'],   # ON CONFLICT DO UPDATE SET present=EXCLUDED.present
+            update_fields=['present', 'burned_at'],
         )
 
         delta = Decimal('0')
@@ -398,17 +419,38 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
         # apps/memberships, apps/scheduling) — без него два параллельных PATCH на
         # разных учеников ОДНОГО урока могут посчитать COUNT до коммита друг друга,
         # и последний commit тихо затрёт вклад первого (lost update).
+        #
+        # payment/burn_surcharge_amount разделены симметрично burned_at: payment —
+        # БАЗОВАЯ оплата (как если бы "сгоревших" учеников не было), она не должна
+        # молча меняться в уже отчитанном месяце. Прирост от "сгораний" уходит в
+        # burn_surcharge_amount/burn_surcharge_at (дата ПОСЛЕДНЕЙ правки) — отдельная
+        # строка в списке зарплаты (apps.payroll.repository), не портит исходную.
         payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
         if payroll is not None:
             total_students = LessonAttendance.objects.filter(lesson_id=lesson_id).count()
-            present_count = LessonAttendance.objects.filter(
+            present_baseline = LessonAttendance.objects.filter(
+                lesson_id=lesson_id, present=True, burned_at__isnull=True,
+            ).count()
+            present_total = LessonAttendance.objects.filter(
                 lesson_id=lesson_id, present=True,
             ).count()
+            latest_burn = LessonAttendance.objects.filter(
+                lesson_id=lesson_id, present=True, burned_at__isnull=False,
+            ).aggregate(latest=Max('burned_at'))['latest']
+
             is_half = ctx['lesson_duration_minutes'] == 45
+            base_payment = calculate_payment(total_students, present_baseline, is_half)
+            total_payment = calculate_payment(total_students, present_total, is_half)
+
             payroll.total_students = total_students
-            payroll.present_count = present_count
-            payroll.payment = calculate_payment(total_students, present_count, is_half)
-            payroll.save(update_fields=['total_students', 'present_count', 'payment'])
+            payroll.present_count = present_total
+            payroll.payment = base_payment
+            payroll.burn_surcharge_amount = total_payment - base_payment
+            payroll.burn_surcharge_at = latest_burn
+            payroll.save(update_fields=[
+                'total_students', 'present_count', 'payment',
+                'burn_surcharge_amount', 'burn_surcharge_at',
+            ])
 
         return True
 

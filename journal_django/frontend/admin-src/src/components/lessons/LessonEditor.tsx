@@ -4,8 +4,14 @@ import { useMemberships } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../ui/Toast';
 import { DateInput } from '../form/DateInput';
+import { Dialog } from '../ui/Dialog';
 import { AssignExtraLessonModal } from './AssignExtraLessonModal';
+import { fmtDate } from '../../lib/format';
 import type { Group } from '../../lib/types';
+
+function currentMonthLabel(): string {
+  return new Date().toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', month: 'long', year: 'numeric' });
+}
 
 interface Props {
   group: Group;
@@ -27,8 +33,14 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
   const [date, setDate] = useState('');
   const [url, setUrl] = useState('');
   const [present, setPresent] = useState<Record<number, boolean>>({});
+  // Посещаемость, СОХРАНЁННАЯ на сервере (снимок при открытии редактора) — по
+  // ней отличаем «переключили в этой сессии» от «уже было так». Нужна, чтобы
+  // понять, является ли клик по карточке именно сгоранием урока задним числом
+  // (см. burnConfirm ниже), а не обычной правкой ещё не сохранённого урока.
+  const [savedPresent, setSavedPresent] = useState<Record<number, boolean>>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [assigningExtra, setAssigningExtra] = useState(false);
+  const [burnConfirmStudentId, setBurnConfirmStudentId] = useState<number | null>(null);
 
   useEffect(() => {
     if (lesson) {
@@ -37,6 +49,7 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
       const init: Record<number, boolean> = {};
       for (const a of lesson.attendance || []) init[a.student_id] = !!a.present;
       setPresent(init);
+      setSavedPresent(init);
     } else if (lessonId === null) {
       setDate('');
       setUrl('');
@@ -44,6 +57,7 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
       const init: Record<number, boolean> = {};
       for (const m of members) init[m.student_id] = false;
       setPresent(init);
+      setSavedPresent({});
     }
   }, [lesson, lessonId, members]);
 
@@ -59,7 +73,23 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
   }
 
   const togglePresent = (sid: number) => {
+    const willBePresent = !present[sid];
+    // Сгорание: у уже сохранённого урока переключаем ученика, отмеченного
+    // отсутствующим на сервере, в присутствующего — именно этот переход
+    // update_attendance_cell на бэке штампует burned_at (см. LessonEditor —
+    // деньги за такой урок считаются в месяце ПРАВКИ, не в месяце урока).
+    // Явно предупреждаем об этом, а не молча списываем урок с баланса.
+    if (lesson && willBePresent && !savedPresent[sid]) {
+      setBurnConfirmStudentId(sid);
+      return;
+    }
     setPresent((p) => ({ ...p, [sid]: !p[sid] }));
+  };
+
+  const confirmBurn = () => {
+    if (burnConfirmStudentId === null) return;
+    setPresent((p) => ({ ...p, [burnConfirmStudentId]: true }));
+    setBurnConfirmStudentId(null);
   };
 
   const handleSave = async () => {
@@ -191,6 +221,35 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
           defaultTeacherId={lesson.teacher_id}
           onClose={() => setAssigningExtra(false)}
         />
+      )}
+      {burnConfirmStudentId !== null && lesson && (
+        <Dialog
+          open
+          onOpenChange={(o) => !o && setBurnConfirmStudentId(null)}
+          title="Отметить урок сгоревшим?"
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setBurnConfirmStudentId(null)}>
+                Отмена
+              </button>
+              <button type="button" className="btn-save" onClick={confirmBurn}>
+                Да, сгорел
+              </button>
+            </>
+          }
+        >
+          <p>
+            Урок состоялся {fmtDate(lesson.lesson_date)}, и{' '}
+            <strong>{members.find((m) => m.student_id === burnConfirmStudentId)?.student_name || 'ученик'}</strong>{' '}
+            был отмечен отсутствующим.
+          </p>
+          <p>
+            Если отметить его присутствующим сейчас — урок спишется с баланса ученика,
+            а деньги будут учтены в отчётности за <strong>{currentMonthLabel()}</strong>,
+            а не за месяц самого урока.
+          </p>
+          <p>Если ученик просто был на уроке и это ошибка учителя — отменяйте без опасений, это не «сгорание».</p>
+        </Dialog>
       )}
     </div>
   );

@@ -11,7 +11,7 @@ import { usePayments, usePaymentMutations } from '../../hooks/usePayments';
 import { useDiscounts } from '../../hooks/useDiscounts';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
-import { fmtRub } from '../../lib/format';
+import { fmtRub, todayMSK } from '../../lib/format';
 import { ENROLLMENT_STATUS_LABELS } from '../../lib/labels';
 import type { Discount } from '../../lib/types';
 import { BlockSelector } from './BlockSelector';
@@ -32,13 +32,6 @@ interface FormErrors {
 }
 
 const FILL_FIELD = 'Заполните поле';
-
-function todayMSK(): string {
-  // МСК = UTC+3 без DST. Согласуется с инвариантом проекта.
-  const now = new Date();
-  const msk = new Date(now.getTime() + (3 * 60 - now.getTimezoneOffset()) * 60_000);
-  return msk.toISOString().slice(0, 10);
-}
 
 export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
   const students = useStudentsAll();

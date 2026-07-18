@@ -26,6 +26,7 @@ from decimal import Decimal
 import pytest
 from django.db import connection
 
+from apps.core.utils.dates import msk_today
 from apps.lessons import repository, services
 from apps.lessons.exceptions import UnpaidAttendanceBlocked
 
@@ -330,6 +331,50 @@ def test_attendance_toggle_delta(
         _delete_lesson(lesson_id)
 
 
+def _burned_at(lesson_id: int, student_id: int):
+    with connection.cursor() as cur:
+        cur.execute(
+            'SELECT burned_at FROM lesson_attendance WHERE lesson_id = %s AND student_id = %s',
+            [lesson_id, student_id],
+        )
+        return cur.fetchone()[0]
+
+
+def test_attendance_toggle_stamps_burned_at_on_retroactive_true(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lessons_done
+):
+    """False→True через update_attendance_cell («сгоревший» пропуск, отмеченный
+    задним числом) штампует burned_at сегодняшней датой — apps.finances относит
+    деньги к месяцу ПРАВКИ, а не к месяцу самого (прошлого) урока."""
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-08',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': False}],
+    })
+    lesson_id = result['lesson_id']
+    try:
+        # Исходная запись урока (insert_attendance) — burned_at не проставлен.
+        assert _burned_at(lesson_id, student_fixture) is None
+
+        # Ретроактивная правка: false → true.
+        repository.update_attendance_cell(lesson_id, student_fixture, True)
+        assert _burned_at(lesson_id, student_fixture) == datetime.date.fromisoformat(msk_today())
+
+        # true → true (no-op) не должен затирать уже проставленную дату правки.
+        stamped = _burned_at(lesson_id, student_fixture)
+        repository.update_attendance_cell(lesson_id, student_fixture, True)
+        assert _burned_at(lesson_id, student_fixture) == stamped
+
+        # Откат true → false сбрасывает burned_at — урок больше не потреблён.
+        repository.update_attendance_cell(lesson_id, student_fixture, False)
+        assert _burned_at(lesson_id, student_fixture) is None
+    finally:
+        _delete_lesson(lesson_id)
+
+
 def test_attendance_toggle_missing_lesson_returns_false(student_fixture):
     assert repository.update_attendance_cell(999_999_999, student_fixture, True) is False
 
@@ -337,13 +382,15 @@ def test_attendance_toggle_missing_lesson_returns_false(student_fixture):
 def test_attendance_toggle_recomputes_payroll(
     group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lessons_done
 ):
-    """Переключение ячейки посещаемости пересчитывает present_count/payment
-    в Payroll (не penalty — она про своевременность исходной записи). НАПОМИНАНИЕ:
-    update_attendance_cell пока НЕ пересчитывает payroll и НЕ проверяет баланс —
-    это отдельная, следующая задача плана (не ваша). Если этот тест сейчас
-    падает на "before"/"after" payroll-ассертах, это ОЖИДАЕМО в конце ВАШЕЙ
-    задачи — следующая задача сделает его зелёным. НЕ пытайтесь чинить
-    update_attendance_cell сами."""
+    """
+    Переключение ячейки посещаемости пересчитывает present_count в Payroll (не
+    penalty — она про своевременность исходной записи урока). Само переключение
+    (false→true на уже существующем уроке) — это «сгорание» (см.
+    test_attendance_toggle_stamps_burned_at_on_retroactive_true), поэтому сумма
+    уходит НЕ в payment (он остаётся базовым — 0, как и было изначально
+    отчитано), а в burn_surcharge_amount — отдельной надбавкой (см.
+    apps.payroll.repository, «Отдельная строка-надбавка», 2026-07-17).
+    """
     result = services.create_lesson_full({
         'lesson_date': '2026-03-08',
         'group_id': group_fixture,
@@ -357,14 +404,25 @@ def test_attendance_toggle_recomputes_payroll(
         before = repository.get_lesson_full(lesson_id)
         assert before['payroll']['present_count'] == 0
         assert before['payroll']['payment'] == Decimal('0.00')
+        assert before['payroll']['burn_surcharge_amount'] == Decimal('0.00')
 
         ok = repository.update_attendance_cell(lesson_id, student_fixture, True)
         assert ok is True
 
         after = repository.get_lesson_full(lesson_id)
         assert after['payroll']['present_count'] == 1
-        # total_students=1, present=1 → small-group-full = 500
-        assert after['payroll']['payment'] == Decimal('500.00')
+        # Базовая оплата (present_baseline=0, burned_at IS NULL) не выросла —
+        # total_students=1, present_baseline=0 → present==0 → 0.
+        assert after['payroll']['payment'] == Decimal('0.00')
+        # Надбавка = calculate_payment(1, 1) - calculate_payment(1, 0) = 500 - 0.
+        assert after['payroll']['burn_surcharge_amount'] == Decimal('500.00')
+        assert after['payroll']['burn_surcharge_at'] == datetime.date.fromisoformat(msk_today())
+
+        # Откат (true → false) убирает надбавку целиком — урок больше не «сгорел».
+        repository.update_attendance_cell(lesson_id, student_fixture, False)
+        reverted = repository.get_lesson_full(lesson_id)
+        assert reverted['payroll']['burn_surcharge_amount'] == Decimal('0.00')
+        assert reverted['payroll']['burn_surcharge_at'] is None
     finally:
         _delete_lesson(lesson_id)
 

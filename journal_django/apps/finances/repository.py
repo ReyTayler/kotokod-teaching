@@ -134,7 +134,7 @@ def fifo_inputs() -> dict:
         .annotate(units=_attended_units_case())
         .order_by('student_id', 'lesson__lesson_date', 'lesson_id')
         .values(
-            'student_id', 'units', 'lesson_id',
+            'student_id', 'units', 'lesson_id', 'burned_at',
             direction_id=F('lesson__group__direction_id'),
             lesson_date=F('lesson__lesson_date'),
         )
@@ -170,9 +170,14 @@ def fifo_inputs() -> dict:
     for r in cons_rows:
         key = str(r['student_id'])
         units = to_decimal(r['units'])
-        # Компенсированный пропуск — дата ДОП.урока (когда реально отработано),
-        # не дата исходного пропущенного занятия (см. _makeup_completion_dates).
-        date = makeup_dates.get((r['lesson_id'], r['student_id']), r['lesson_date'])
+        # Приоритет даты для месячной атрибуции денег:
+        # 1) makeup_dates — компенсированный пропуск: дата ДОП.урока;
+        # 2) burned_at — ретроактивная ручная отметка (update_attendance_cell):
+        #    дата самой правки, не дата исходного урока (см. update_attendance_cell);
+        # 3) lesson_date — обычная посещаемость, проставленная при подаче урока.
+        date = makeup_dates.get(
+            (r['lesson_id'], r['student_id']), r['burned_at'] or r['lesson_date'],
+        )
         cons_by_key.setdefault(key, []).append({
             'units': units,
             'date': _date_str(date),
@@ -321,15 +326,16 @@ def student_fifo_remaining(student_id: int) -> dict:
         .exclude(lesson__lesson_type='extra')
         .annotate(units=_attended_units_case())
         .order_by('lesson__lesson_date', 'lesson_id')
-        .values('units', 'lesson_id', lesson_date=F('lesson__lesson_date'))
+        .values('units', 'lesson_id', 'burned_at', lesson_date=F('lesson__lesson_date'))
     )
     makeup_dates = _makeup_completion_dates(student_ids=[student_id])
     cons = [
         {
             'units': to_decimal(r['units']),
-            # Компенсированный пропуск — дата ДОП.урока, не исходного занятия
-            # (см. _makeup_completion_dates).
-            'date': _date_str(makeup_dates.get((r['lesson_id'], student_id), r['lesson_date'])),
+            # Приоритет даты — см. fifo_inputs(): makeup_dates > burned_at > lesson_date.
+            'date': _date_str(makeup_dates.get(
+                (r['lesson_id'], student_id), r['burned_at'] or r['lesson_date'],
+            )),
             'direction_id': None,
         }
         for r in cons_rows

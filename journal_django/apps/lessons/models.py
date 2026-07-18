@@ -103,6 +103,12 @@ class LessonAttendance(models.Model):
         related_name='attendance',
     )
     present = models.BooleanField()
+    # Дата ретроактивной отметки present=True через update_attendance_cell
+    # («сгоревший» урок задним числом) — NULL для обычной посещаемости,
+    # проставленной при подаче урока (record_lesson/insert_attendance).
+    # Используется apps.finances.repository для атрибуции денег к месяцу
+    # ПРАВКИ, а не месяцу самого урока — см. update_attendance_cell.
+    burned_at = models.DateField(null=True, blank=True)
 
     class Meta:
         managed = True

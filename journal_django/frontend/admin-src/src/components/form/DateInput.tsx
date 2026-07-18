@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, InputHTMLAttributes, KeyboardEvent } from 'react';
 import { MONTHS_RU } from '../../lib/slots';
+import { todayMSK } from '../../lib/format';
 import { Floating } from './Floating';
 
 interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
@@ -12,10 +13,9 @@ interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' |
 // Дни недели сверху grid'а — начинаем с понедельника (русская конвенция).
 const DOW_HEAD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-function todayMSK(): { y: number; m: number; d: number } {
-  const now = new Date();
-  const msk = new Date(now.getTime() + (3 * 60 - now.getTimezoneOffset()) * 60_000);
-  return { y: msk.getUTCFullYear(), m: msk.getUTCMonth(), d: msk.getUTCDate() };
+function todayMSKParts(): { y: number; m: number; d: number } {
+  // todayMSK() всегда возвращает валидный 'YYYY-MM-DD' — parseISO не вернёт null.
+  return parseISO(todayMSK())!;
 }
 
 function parseISO(s: string | undefined): { y: number; m: number; d: number } | null {
@@ -99,7 +99,7 @@ export function DateInput({ value, onChange, placeholder, disabled, className, .
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const valuePart = useMemo(() => parseISO(value), [value]);
-  const today = useMemo(() => todayMSK(), []);
+  const today = useMemo(() => todayMSKParts(), []);
 
   // Локальный буфер редактирования — то, что реально видно в инпуте.
   // Не всегда совпадает с fmtDisplay(value): во время набора там промежуточный текст.

@@ -10,9 +10,11 @@ apps/dashboard/services.py::get_dashboard использует для deferred_t
 «Посещено уроков за месяц» тоже выводится из inp['cons_by_key']
 (fifo_inputs()), а не отдельным запросом к LessonAttendance: так «посещено»
 и «отработано» относятся к одному и тому же месяцу для одного и того же
-события, включая доп.уроки (компенсированный пропуск учитывается в месяце
+события — включая доп.уроки (компенсированный пропуск учитывается в месяце
 ФАКТИЧЕСКОГО проведения доп.урока, не в месяце исходного пропуска — см.
-apps.finances.repository._makeup_completion_dates).
+apps.finances.repository._makeup_completion_dates) и «сгоревшие» пропуски,
+отмеченные задним числом через update_attendance_cell (учитываются в месяце
+самой ПРАВКИ, не в месяце урока — см. LessonAttendance.burned_at).
 
 См. docs/superpowers/specs/2026-07-15-accounting-monthly-report-design.md
 """

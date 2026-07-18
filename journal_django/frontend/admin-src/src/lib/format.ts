@@ -1,3 +1,16 @@
+/**
+ * Сегодняшняя дата по МСК в формате 'YYYY-MM-DD'.
+ * Intl.DateTimeFormat с явным timeZone игнорирует часовой пояс ОС/браузера —
+ * в отличие от ручной арифметики с getTimezoneOffset(), которая давала
+ * двойной сдвиг на машинах с локальным поясом Europe/Moscow.
+ */
+export function todayMSK(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
 export function fmtDate(s: string | Date | null | undefined): string {
   if (!s) return '—';
   const str = String(s);
