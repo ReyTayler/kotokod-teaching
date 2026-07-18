@@ -105,7 +105,7 @@ def fifo_inputs() -> dict:
         .annotate(units=_attended_units_case())
         .order_by('student_id', 'lesson__lesson_date', 'lesson_id')
         .values(
-            'student_id', 'units', 'lesson_id', 'burned_at',
+            'student_id', 'units', 'lesson_id',
             direction_id=F('lesson__group__direction_id'),
             lesson_date=F('lesson__lesson_date'),
         )
@@ -140,13 +140,11 @@ def fifo_inputs() -> dict:
     for r in cons_rows:
         key = str(r['student_id'])
         units = to_decimal(r['units'])
-        # Приоритет даты для месячной атрибуции денег:
-        # 1) burned_at — ретроактивная ручная отметка (update_attendance_cell):
-        #    дата самой правки, не дата исходного урока (см. update_attendance_cell);
-        # 2) lesson_date — обычная посещаемость, проставленная при подаче урока
-        #    (для факта доп.урока это дата его проведения — потребление относится
-        #    к месяцу доп.урока естественно, без отдельного ремаппинга).
-        date = r['burned_at'] or r['lesson_date']
+        # Месяц денег = lesson_date самой записи-урока. Для доп.урока/сгорания это
+        # дата их проведения (extra/burned — отдельные Lesson в свой месяц), для
+        # обычной посещаемости — дата урока. Отдельного ремаппинга (burned_at/
+        # makeup-dates) больше нет: каждое потребление несёт свою дату.
+        date = r['lesson_date']
         cons_by_key.setdefault(key, []).append({
             'units': units,
             'date': _date_str(date),
@@ -292,14 +290,13 @@ def student_fifo_remaining(student_id: int) -> dict:
         # Один пропуск списывается ровно один раз (новая модель компенсации).
         .annotate(units=_attended_units_case())
         .order_by('lesson__lesson_date', 'lesson_id')
-        .values('units', 'lesson_id', 'burned_at', lesson_date=F('lesson__lesson_date'))
+        .values('units', 'lesson_id', lesson_date=F('lesson__lesson_date'))
     )
     cons = [
         {
             'units': to_decimal(r['units']),
-            # Приоритет даты — см. fifo_inputs(): burned_at > lesson_date
-            # (для факта доп.урока lesson_date = дата его проведения).
-            'date': _date_str(r['burned_at'] or r['lesson_date']),
+            # Месяц денег = lesson_date записи (extra/burned — своя дата проведения).
+            'date': _date_str(r['lesson_date']),
             'direction_id': None,
         }
         for r in cons_rows

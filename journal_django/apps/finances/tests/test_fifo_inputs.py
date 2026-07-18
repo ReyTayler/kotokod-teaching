@@ -201,41 +201,6 @@ def test_fifo_inputs_pools_across_directions(
             cur.execute('DELETE FROM directions WHERE id = %s', [direction_b])
 
 
-def test_fifo_inputs_uses_burned_at_over_lesson_date(
-    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup
-):
-    """
-    «Сгоревший» пропуск, отмеченный задним числом через update_attendance_cell
-    (burned_at проставлен) — деньги относятся к месяцу ПРАВКИ (burned_at), не к
-    месяцу самого урока (lesson_date). Symmetric to _makeup_completion_dates
-    для доп.уроков (решение 2026-07-16).
-    """
-    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, 2000, '2026-05-01')
-    # Урок в мае, но burned_at (правка) — в июле: деньги должны уйти в июль.
-    _LESSON_SEQ[0] += 1
-    number = _LESSON_SEQ[0]
-    with connection.cursor() as cur:
-        cur.execute(
-            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
-            "lesson_duration_minutes, lesson_type, submitted_by_token) "
-            "VALUES (%s,%s,%s,%s,60,'regular','test') RETURNING id",
-            [group_fixture, teacher_id_fixture, '2026-05-10', number],
-        )
-        lid = cur.fetchone()[0]
-        cur.execute(
-            'INSERT INTO lesson_attendance (lesson_id, student_id, present, burned_at) '
-            "VALUES (%s,%s,true,'2026-07-16')",
-            [lid, student_fixture],
-        )
-    graph_cleanup['lessons'].append(lid)
-
-    inputs = repository.fifo_inputs()
-    key = str(student_fixture)
-    cons = inputs['cons_by_key'][key]
-    assert len(cons) == 1
-    assert cons[0]['date'] == '2026-07-16'
-
-
 def test_fifo_lots_use_lessons_count(student_fixture, direction_fixture, graph_cleanup):
     from decimal import Decimal
     from django.db import connection
