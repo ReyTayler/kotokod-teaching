@@ -47,9 +47,9 @@ class LessonHasMakeupResolutions(Exception):
     Попытка удалить ОБЫЧНЫЙ урок, по пропускам которого уже проведён доп.урок
     (apps.extra_lessons.AbsenceResolution.status='makeup_done'). FK
     missed_lesson = ON DELETE CASCADE снёс бы резолюцию вместе с уроком,
-    осиротив факт доп.урока (Lesson lesson_type='extra') + его Payroll и не
-    откатив apply_makeup_attendance. Сначала нужно откатить доп.урок из раздела
-    «Доп.уроки» (delete_fact), затем удалять исходный урок.
+    осиротив факт доп.урока/сгорания (Lesson lesson_type='extra'/'burned') + его
+    Payroll. Сначала нужно откатить доп.урок/сгорание из раздела «Доп.уроки»
+    (delete_fact), затем удалять исходный урок.
     """
 
     def __init__(self) -> None:
