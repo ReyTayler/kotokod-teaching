@@ -50,3 +50,31 @@ def test_relay_empty_tail_returns_empty():
                   effective_from=datetime.date(2000, 1, 1))]
     assert relay_from_date([], resume_date=datetime.date(2026, 8, 5),
                            slots=slots, duration_minutes=90) == []
+
+
+def test_relay_skips_occupied_dates_contiguously():
+    """Пересчёт хвоста обходит занятые даты (skip_dates) без дыр: две подряд
+    занятые даты → хвост встаёт на следующие свободные слот-даты."""
+    slots = [Slot(day_of_week=1, start_time=datetime.time(10, 0),   # понедельник
+                  effective_from=datetime.date(2000, 1, 1))]
+    tail = [_row(3, datetime.date(2026, 6, 15)),
+            _row(5, datetime.date(2026, 6, 29))]
+    # resume с 06-15; заняты 06-15 (маркер отмены) и 06-22 (done-урок).
+    out = relay_from_date(
+        tail, resume_date=datetime.date(2026, 6, 15), slots=slots,
+        duration_minutes=90,
+        skip_dates=frozenset({datetime.date(2026, 6, 15), datetime.date(2026, 6, 22)}),
+    )
+    assert [r.scheduled_date for r in out] == [
+        datetime.date(2026, 6, 29), datetime.date(2026, 7, 6)]
+    assert [r.seq for r in out] == [3, 5]
+
+
+def test_relay_without_skip_dates_unchanged():
+    slots = [Slot(day_of_week=3, start_time=datetime.time(10, 0),
+                  effective_from=datetime.date(2000, 1, 1))]
+    tail = [_row(5, datetime.date(2026, 7, 1)), _row(6, datetime.date(2026, 7, 8))]
+    out = relay_from_date(tail, resume_date=datetime.date(2026, 8, 5),
+                          slots=slots, duration_minutes=90)
+    assert [r.scheduled_date for r in out] == [
+        datetime.date(2026, 8, 5), datetime.date(2026, 8, 12)]
