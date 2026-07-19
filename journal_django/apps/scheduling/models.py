@@ -66,6 +66,18 @@ class PlannedLesson(models.Model):
         null=True,
         blank=True,
     )
+    # Разовая замена преподавателя НА ЭТУ ДАТУ (не путать с teacher — преподавателем
+    # контента). Свойство конкретной календарной даты: при смене scheduled_date
+    # строки (перекладка/отмена) обнуляется (замена «не едет» с контентом).
+    # Эффективный преподаватель занятия = substitute_teacher или teacher.
+    substitute_teacher = models.ForeignKey(
+        'teachers.Teacher',
+        on_delete=models.DO_NOTHING,
+        db_column='substitute_teacher_id',
+        related_name='substitute_planned_lessons',
+        null=True,
+        blank=True,
+    )
     status = models.TextField(default=PENDING)
     # Связь план→факт (одна плановая строка ↔ максимум один урок).
     fact_lesson = models.ForeignKey(
