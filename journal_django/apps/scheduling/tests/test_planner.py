@@ -14,9 +14,9 @@ from decimal import Decimal
 
 import pytest
 
-from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING, Slot
+from apps.scheduling.occurrences import DONE, PENDING, Slot
 from apps.scheduling.planner import (
-    Fact, PlannedRow, cancel, change_teacher, change_teacher_tail, extra, generate,
+    Fact, PlannedRow, change_teacher, change_teacher_tail, extra, generate,
     generate_from_facts, permanent_change, reschedule,
 )
 
@@ -264,62 +264,6 @@ def test_permanent_change_sets_teacher_on_tail_only():
     assert by_seq[2].teacher_id == 7
     assert by_seq[3].teacher_id == 9
     assert by_seq[4].teacher_id == 9
-
-
-# --------------------------------------------------------------------------- #
-# cancel
-# --------------------------------------------------------------------------- #
-
-def test_cancel_shifts_tail_plus_seven_days():
-    out = cancel(_plan_mon(), from_date=D(2026, 6, 8))
-    by_seq = {r.seq: r for r in out}
-    assert by_seq[1].scheduled_date == D(2026, 6, 1)    # до from_date — не тронут
-    assert by_seq[2].scheduled_date == D(2026, 6, 15)   # +7
-    assert by_seq[3].scheduled_date == D(2026, 6, 22)
-    assert by_seq[4].scheduled_date == D(2026, 6, 29)
-
-
-def test_cancel_ignores_done():
-    rows = _plan_mon()
-    rows[1].status = DONE  # seq=2 на 06-08 проведён
-    out = cancel(rows, from_date=D(2026, 6, 8))
-    by_seq = {r.seq: r for r in out}
-    assert by_seq[2].scheduled_date == D(2026, 6, 8)    # done не сдвинут
-    assert by_seq[3].scheduled_date == D(2026, 6, 22)   # pending +7
-    assert by_seq[4].scheduled_date == D(2026, 6, 29)
-
-
-def test_cancel_preserves_weekday_and_time():
-    out = cancel(_plan_mon(), from_date=D(2026, 6, 8))
-    moved = next(r for r in out if r.seq == 2)
-    assert moved.scheduled_date.weekday() == D(2026, 6, 8).weekday()  # тот же день недели
-    assert moved.scheduled_time == T(10, 0)
-
-
-def test_cancel_does_not_move_extra_or_markers():
-    """Сдвиг +7 при отмене касается ТОЛЬКО курсовых pending/overdue строк.
-    Доп. занятия (extra, seq=None) и маркеры отмены (cancelled, seq=None) —
-    неподвижные пины, их дата не меняется."""
-    rows = _plan_mon()
-    rows.append(extra(date=D(2026, 6, 20), time=T(15, 0), teacher_id=3))
-    rows.append(PlannedRow(
-        seq=None, lesson_number=None, scheduled_date=D(2026, 6, 15),
-        scheduled_time=T(10, 0), teacher_id=7, status=CANCELLED,
-    ))
-    out = cancel(rows, from_date=D(2026, 6, 8))
-    extra_out = next(r for r in out if r.is_extra and r.status != CANCELLED)
-    marker_out = next(r for r in out if r.status == CANCELLED)
-    assert extra_out.scheduled_date == D(2026, 6, 20)     # extra не сдвинут
-    assert marker_out.scheduled_date == D(2026, 6, 15)    # маркер не сдвинут
-
-
-def test_cancel_shifts_overdue_course_rows():
-    """Курсовая строка в статусе overdue (не только pending) тоже сдвигается."""
-    rows = _plan_mon()
-    rows[1].status = OVERDUE  # seq=2
-    out = cancel(rows, from_date=D(2026, 6, 8))
-    by_seq = {r.seq: r for r in out}
-    assert by_seq[2].scheduled_date == D(2026, 6, 15)
 
 
 # --------------------------------------------------------------------------- #

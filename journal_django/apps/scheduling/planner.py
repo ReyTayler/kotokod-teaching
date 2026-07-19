@@ -2,9 +2,11 @@
 Чистые функции планировщика материализованных плановых занятий — БЕЗ доступа к БД.
 
 Операции над списком плановых строк (PlannedRow): генерация плана из старта/слотов,
-разовый перенос, перенос навсегда (сдвиг хвоста на новый день недели), отмена со
-сдвигом хвоста +1 неделю, доп. занятие. Запись результата в БД — в repository.py
-(шаг 4); здесь только детерминированная логика над датами, тестируемая в изоляции.
+разовый перенос, перенос навсегда (сдвиг хвоста на новый день недели), непрерывная
+перекладка хвоста (relay_from_date, обходит занятые даты), доп. занятие. Отмена —
+не отдельная чистая функция: реализована в repository через маркер + relay_from_date.
+Запись результата в БД — в repository.py; здесь только детерминированная логика над
+датами, тестируемая в изоляции.
 
 Инвариант всех операций: строки со статусом DONE (проведённые) НЕ трогаются.
 `seq`/`lesson_number` (порядок контента) стабильны — двигаются только даты
@@ -245,22 +247,6 @@ def permanent_change(
                 scheduled_time=new_time if new_time is not None else r.scheduled_time,
                 teacher_id=new_teacher_id if new_teacher_id is not None else r.teacher_id,
             ))
-        else:
-            out.append(replace(r))
-    return out
-
-
-def cancel(rows: list[PlannedRow], *, from_date: datetime.date) -> list[PlannedRow]:
-    """Отмена со сдвигом: КУРСОВЫЕ строки (seq задан) в статусе pending/overdue с
-    scheduled_date>=from_date сдвигаются на +7 дней (день недели/время сохраняются —
-    курс продлевается на неделю, уроки не списываются).
-
-    Неподвижны: проведённые (DONE), доп. занятия и маркеры отмены (seq=None) — их
-    дата не меняется, чтобы прежние пины «Отменён»/«Доп.» не уезжали при новой отмене."""
-    out: list[PlannedRow] = []
-    for r in rows:
-        if r.seq is not None and r.status in _MUTABLE and r.scheduled_date >= from_date:
-            out.append(replace(r, scheduled_date=r.scheduled_date + datetime.timedelta(days=7)))
         else:
             out.append(replace(r))
     return out
