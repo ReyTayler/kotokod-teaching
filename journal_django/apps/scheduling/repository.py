@@ -521,7 +521,6 @@ def _row_from_model(p: PlannedLesson) -> PlannedRow:
         substitute_teacher_id=p.substitute_teacher_id,
         status=p.status,
         moved_from_date=p.moved_from_date,
-        is_extra=p.seq is None,
     )
 
 
@@ -942,36 +941,6 @@ def cancel_future_planned(group_id: int) -> int:
         )
         .update(status=CANCELLED, updated_at=now)
     )
-
-
-def add_extra(
-    group_id: int,
-    *,
-    date: datetime.date,
-    time: datetime.time,
-    teacher_id: int | None,
-) -> dict | None:
-    """
-    Доп. занятие вне курса (planner.extra): seq=NULL, lesson_number=NULL, is_extra.
-    Не влияет на seq курсовых строк. None → группы нет (404).
-    """
-    if not Group.objects.filter(id=group_id).exists():
-        return None
-    now = msk_now()
-    with transaction.atomic():
-        row = planner.extra(date=date, time=time, teacher_id=teacher_id)
-        obj = PlannedLesson.objects.create(
-            group_id=group_id,
-            seq=row.seq,
-            lesson_number=row.lesson_number,
-            scheduled_date=row.scheduled_date,
-            scheduled_time=row.scheduled_time,
-            teacher_id=row.teacher_id,
-            status=row.status,
-            created_at=now,
-            updated_at=now,
-        )
-    return _plan_row_dict_obj(obj, teacher_names())
 
 
 def generate_for_group(group_id: int) -> dict | None:

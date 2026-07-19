@@ -97,19 +97,3 @@ export function useCancelLesson(groupId: number) {
     onSuccess: () => invalidatePlan(qc, groupId),
   });
 }
-
-export interface ExtraPayload {
-  date: string;
-  time: string;
-  teacher_id?: number | null;
-}
-
-/** POST /plan/extra — доп. занятие вне курса (seq=NULL). */
-export function useAddExtra(groupId: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: ExtraPayload) =>
-      api<PlanRow>('POST', `/api/admin/groups/${groupId}/plan/extra`, body),
-    onSuccess: () => invalidatePlan(qc, groupId),
-  });
-}

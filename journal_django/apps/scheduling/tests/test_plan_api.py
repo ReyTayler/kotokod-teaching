@@ -5,11 +5,10 @@ API-тесты admin-операций плана (planned_lessons, шаг 4):
   POST /api/admin/groups/<pk>/plan/<lid>/reschedule
   POST /api/admin/groups/<pk>/plan/permanent-change
   POST /api/admin/groups/<pk>/plan/<lid>/cancel
-  POST /api/admin/groups/<pk>/plan/extra
 
 Покрытие: RBAC (401/403), CSRF (session-auth без токена → 403), генерация плана,
 разовый перенос (+moved_from_date), перенос навсегда (пересчёт хвоста + версия
-слота), отмена со сдвигом (не трогает 'done'), доп. занятие, конфликт переноса
+слота), отмена со сдвигом (не трогает 'done'), конфликт переноса
 'done' (409, не 500), запись событий в security_audit_log.
 
 Права: IsManagerOrAdmin. Аутентификация — JWT (root conftest клиенты).
@@ -101,7 +100,6 @@ class TestRBAC:
             ('post', f'/api/admin/groups/{gid}/plan/change-teacher-permanent'),
             ('post', f'/api/admin/groups/{gid}/plan/1/change-teacher'),
             ('post', f'/api/admin/groups/{gid}/plan/1/cancel'),
-            ('post', f'/api/admin/groups/{gid}/plan/extra'),
         ]
 
     def test_anon_401(self, anon_client, plan_group):
@@ -619,17 +617,12 @@ class TestCancel:
         )
         assert resp.status_code == 404
 
-    def test_second_cancel_does_not_move_prior_marker_or_extra(self, manager_client, plan_group):
-        """Повторная отмена не двигает прежний маркер 'cancelled' и доп. занятие —
-        сдвиг +7 касается только курсовых pending/overdue строк."""
+    def test_second_cancel_does_not_move_prior_marker(self, manager_client, plan_group):
+        """Повторная отмена не двигает прежний маркер 'cancelled' — пересчёт хвоста
+        касается только курсовых pending/overdue строк, пины отмен неподвижны."""
         gid = plan_group['group_id']
         plan = _generate(manager_client, gid).json()
         by_seq = _by_seq(plan)
-        # extra на 06-30 (>= будущей from_date) — не должен двигаться
-        manager_client.post(
-            f'/api/admin/groups/{gid}/plan/extra',
-            {'date': '2026-06-30', 'time': '12:00'}, format='json',
-        )
         # первая отмена: seq=5 (2026-06-29) → маркер cancelled на 06-29
         manager_client.post(f'/api/admin/groups/{gid}/plan/{by_seq[5]["id"]}/cancel', {}, format='json')
         # вторая отмена более раннего seq=3 (2026-06-15)
@@ -638,54 +631,25 @@ class TestCancel:
         ).json()
         markers = [r for r in after if r['status'] == 'cancelled']
         assert any(m['scheduled_date'] == '2026-06-29' for m in markers)  # прежний маркер на месте
-        extras = [r for r in after if r['is_extra'] and r['status'] != 'cancelled']
-        assert extras[0]['scheduled_date'] == '2026-06-30'                # extra не сдвинут
+        assert len(markers) == 2                                          # оба маркера присутствуют
 
-    def test_cancel_extra_row_rejected(self, manager_client, plan_group):
-        """Отмена по не-курсовой (extra) строке → 400, хвост не сдвинут."""
+    def test_cancel_marker_row_rejected(self, manager_client, plan_group):
+        """Отмена по не-курсовой строке (маркер отмены, seq=NULL) → 400, план не тронут."""
         gid = plan_group['group_id']
-        _generate(manager_client, gid)
-        extra = manager_client.post(
-            f'/api/admin/groups/{gid}/plan/extra',
-            {'date': '2026-06-05', 'time': '12:00'}, format='json',
+        plan = _generate(manager_client, gid).json()
+        anchor = _by_seq(plan)[3]
+        after = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{anchor["id"]}/cancel', {}, format='json',
         ).json()
+        marker = next(r for r in after if r['status'] == 'cancelled')
         before = _get_plan(manager_client, gid)
         resp = manager_client.post(
-            f'/api/admin/groups/{gid}/plan/{extra["id"]}/cancel', {}, format='json',
+            f'/api/admin/groups/{gid}/plan/{marker["id"]}/cancel', {}, format='json',
         )
         assert resp.status_code == 400
-        after = _get_plan(manager_client, gid)
-        assert [(r['id'], r['scheduled_date']) for r in after] == \
+        after2 = _get_plan(manager_client, gid)
+        assert [(r['id'], r['scheduled_date']) for r in after2] == \
                [(r['id'], r['scheduled_date']) for r in before]
-
-
-class TestExtra:
-    def test_adds_non_course_row(self, manager_client, plan_group):
-        gid = plan_group['group_id']
-        _generate(manager_client, gid)
-        resp = manager_client.post(
-            f'/api/admin/groups/{gid}/plan/extra',
-            {'date': '2026-06-05', 'time': '12:00', 'teacher_id': plan_group['teacher_b']},
-            format='json',
-        )
-        assert resp.status_code == 201
-        row = resp.json()
-        assert row['seq'] is None
-        assert row['lesson_number'] is None
-        assert row['is_extra'] is True
-        assert row['scheduled_date'] == '2026-06-05'
-        assert row['scheduled_time'] == '12:00'
-        assert row['teacher_id'] == plan_group['teacher_b']
-
-        plan = _get_plan(manager_client, gid)
-        assert len(plan) == 9  # 8 курсовых + 1 extra
-
-    def test_missing_group_404(self, manager_client):
-        resp = manager_client.post(
-            '/api/admin/groups/99999999/plan/extra',
-            {'date': '2026-06-05', 'time': '12:00'}, format='json',
-        )
-        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -717,12 +681,6 @@ class TestAudit:
 
         manager_client.post(f'/api/admin/groups/{gid}/plan/{target["id"]}/cancel', {}, format='json')
         assert SecurityAuditLog.objects.filter(event='plan_cancel', target_id=gid).exists()
-
-        manager_client.post(
-            f'/api/admin/groups/{gid}/plan/extra',
-            {'date': '2026-06-05', 'time': '12:00'}, format='json',
-        )
-        assert SecurityAuditLog.objects.filter(event='plan_extra', target_id=gid).exists()
 
         # actor_email проставлен, секретов/PII в meta нет.
         ev = SecurityAuditLog.objects.filter(event='plan_reschedule', target_id=gid).first()

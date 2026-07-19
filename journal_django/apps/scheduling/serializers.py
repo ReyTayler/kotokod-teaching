@@ -80,16 +80,3 @@ class PlanChangeTeacherPermanentSerializer(StrictSerializer):
 
     from_seq = serializers.IntegerField(min_value=1)
     new_teacher_id = serializers.IntegerField(min_value=1)
-
-
-class PlanExtraSerializer(StrictSerializer):
-    """POST /plan/extra — доп. занятие вне курса (seq=NULL)."""
-
-    date = DateStringField()
-    time = serializers.CharField()
-    teacher_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
-
-    def validate_time(self, value):
-        if not value or not _TIME_RE.match(value):
-            raise serializers.ValidationError('Время должно быть в формате HH:MM или HH:MM:SS.')
-        return value

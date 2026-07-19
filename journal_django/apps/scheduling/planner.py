@@ -42,7 +42,6 @@ class PlannedRow:
     status: str = PENDING
     moved_from_date: Optional[datetime.date] = None
     moved_to_date: Optional[datetime.date] = None
-    is_extra: bool = False
     # Прямая связь план→факт (id проведённого урока). Заполняется бэкфиллом
     # из фактов (link_facts_positional) для done-строк; иначе None.
     fact_lesson_id: Optional[int] = None
@@ -252,24 +251,6 @@ def permanent_change(
         else:
             out.append(replace(r))
     return out
-
-
-def extra(
-    *,
-    date: datetime.date,
-    time: datetime.time,
-    teacher_id: Optional[int],
-) -> PlannedRow:
-    """Доп. занятие вне курса: seq/lesson_number = None, is_extra=True."""
-    return PlannedRow(
-        seq=None,
-        lesson_number=None,
-        scheduled_date=date,
-        scheduled_time=time,
-        teacher_id=teacher_id,
-        status=PENDING,
-        is_extra=True,
-    )
 
 
 def relay_from_date(

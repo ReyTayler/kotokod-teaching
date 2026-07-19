@@ -428,24 +428,3 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
         request=request,
     )
     return plan
-
-
-def add_extra(group_id: int, data: dict, request) -> dict | None:
-    """Доп. занятие вне курса + аудит. None → группы нет."""
-    teacher_id = data.get('teacher_id')
-    row = repository.add_extra(
-        group_id,
-        date=_to_date(data['date']),
-        time=_to_time(data['time']),
-        teacher_id=teacher_id,
-    )
-    if row is None:
-        return None
-    log_event(
-        'plan_extra',
-        actor_email=_actor(request),
-        target_id=group_id,
-        meta={'date': data['date'], 'time': data['time'], 'teacher_id': teacher_id},
-        request=request,
-    )
-    return row

@@ -14,7 +14,7 @@ from apps.groups.views import (
 )
 from apps.scheduling.views import (
     GroupPlanCancelView, GroupPlanChangeTeacherPermanentView,
-    GroupPlanChangeTeacherView, GroupPlanExtraView, GroupPlanGenerateView,
+    GroupPlanChangeTeacherView, GroupPlanGenerateView,
     GroupPlanPermanentChangeView, GroupPlanRescheduleView, GroupPlanView,
 )
 
@@ -30,12 +30,11 @@ urlpatterns = [
     # План занятий (materialize-on-write, planned_lessons). Смонтирован под
     # /api/admin/groups (стоит ДО teacher-guard /api) → RBAC IsManagerOrAdmin.
     # Заглушки 501; бизнес-логика — шаги 2/4. Числовой <lid> не конфликтует со
-    # строковыми generate/permanent-change/extra (int-конвертер их не матчит).
+    # строковыми generate/permanent-change (int-конвертер их не матчит).
     path('/<int:pk>/plan', GroupPlanView.as_view(), name='groups-plan'),
     path('/<int:pk>/plan/generate', GroupPlanGenerateView.as_view(), name='groups-plan-generate'),
     path('/<int:pk>/plan/permanent-change', GroupPlanPermanentChangeView.as_view(), name='groups-plan-permanent-change'),
     path('/<int:pk>/plan/change-teacher-permanent', GroupPlanChangeTeacherPermanentView.as_view(), name='groups-plan-change-teacher-permanent'),
-    path('/<int:pk>/plan/extra', GroupPlanExtraView.as_view(), name='groups-plan-extra'),
     path('/<int:pk>/plan/<int:lid>/reschedule', GroupPlanRescheduleView.as_view(), name='groups-plan-reschedule'),
     path('/<int:pk>/plan/<int:lid>/change-teacher', GroupPlanChangeTeacherView.as_view(), name='groups-plan-change-teacher'),
     path('/<int:pk>/plan/<int:lid>/cancel', GroupPlanCancelView.as_view(), name='groups-plan-cancel'),

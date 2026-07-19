@@ -16,7 +16,7 @@ import pytest
 
 from apps.scheduling.occurrences import DONE, PENDING, Slot
 from apps.scheduling.planner import (
-    Fact, PlannedRow, change_teacher, change_teacher_tail, extra, generate,
+    Fact, PlannedRow, change_teacher, change_teacher_tail, generate,
     generate_from_facts, permanent_change, reschedule,
 )
 
@@ -265,21 +265,6 @@ def test_permanent_change_sets_teacher_on_tail_only():
     assert by_seq[2].teacher_id == 7
     assert by_seq[3].teacher_id == 9
     assert by_seq[4].teacher_id == 9
-
-
-# --------------------------------------------------------------------------- #
-# extra
-# --------------------------------------------------------------------------- #
-
-def test_extra_row_is_non_course():
-    r = extra(date=D(2026, 6, 20), time=T(15, 0), teacher_id=3)
-    assert r.seq is None
-    assert r.lesson_number is None
-    assert r.is_extra is True
-    assert r.scheduled_date == D(2026, 6, 20)
-    assert r.scheduled_time == T(15, 0)
-    assert r.teacher_id == 3
-    assert r.status == PENDING
 
 
 # --------------------------------------------------------------------------- #

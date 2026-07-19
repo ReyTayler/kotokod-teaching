@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
 import { useGroupPlan, type PlanRow } from '../../hooks/useGroupPlanCalendar';
 import {
-  useGeneratePlan, useReschedule, usePermanentChange, useCancelLesson, useAddExtra,
+  useGeneratePlan, useReschedule, usePermanentChange, useCancelLesson,
   useChangeTeacher, useChangeTeacherPermanent,
 } from '../../hooks/useGroupPlan';
 import { useTeachers } from '../../hooks/useTeachers';
@@ -54,7 +54,7 @@ interface Props {
   group: Group;
 }
 
-type DialogKind = 'reschedule' | 'permanent' | 'change-teacher' | 'cancel' | 'extra' | null;
+type DialogKind = 'reschedule' | 'permanent' | 'change-teacher' | 'cancel' | null;
 
 /**
  * Toolbar кнопок + модалки операций плана (planned_lessons) для вкладки
@@ -80,7 +80,6 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
   const changeTeacher = useChangeTeacher(groupId);
   const changeTeacherPermanent = useChangeTeacherPermanent(groupId);
   const cancelLesson = useCancelLesson(groupId);
-  const addExtra = useAddExtra(groupId);
 
   const [dialog, setDialog] = useState<DialogKind>(null);
   const closeDialog = () => setDialog(null);
@@ -234,32 +233,6 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
     } catch (err) { showError(err); }
   };
 
-  // ── Доп. занятие (extra) ──
-  const [eDate, setEDate] = useState('');
-  const [eTime, setETime] = useState('');
-  const [eTeacherId, setETeacherId] = useState('');
-
-  const openExtra = () => {
-    setEDate('');
-    setETime('');
-    setETeacherId(group.teacher_id ? String(group.teacher_id) : '');
-    setDialog('extra');
-  };
-
-  const submitExtra = async () => {
-    if (!eDate) { toast('Укажите дату', 'error'); return; }
-    if (!eTime) { toast('Укажите время', 'error'); return; }
-    try {
-      await addExtra.mutateAsync({
-        date: eDate,
-        time: eTime,
-        teacher_id: eTeacherId ? Number(eTeacherId) : null,
-      });
-      toast('Доп. занятие добавлено', 'ok');
-      closeDialog();
-    } catch (err) { showError(err); }
-  };
-
   // ── Сгенерировать план (generate) ──
   const submitGenerate = async () => {
     try {
@@ -312,7 +285,6 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
             <Button variant="danger" onClick={() => openCancel()} disabled={courseRows.length === 0}>
               Отменить занятие
             </Button>
-            <Button onClick={openExtra}>Доп. занятие</Button>
           </>
         )}
       </div>
@@ -448,28 +420,6 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
           Все последующие непроведённые занятия сдвинутся на неделю позже — курс продлевается,
           отменённое занятие не списывается с абонемента.
         </div>
-      </Dialog>
-
-      {/* Доп. занятие */}
-      <Dialog
-        open={dialog === 'extra'}
-        onOpenChange={(o) => !o && closeDialog()}
-        title="Доп. занятие"
-        footer={
-          <Button variant="primary" onClick={() => { void submitExtra(); }} disabled={addExtra.isPending}>
-            Добавить
-          </Button>
-        }
-      >
-        <Field label="Дата" required>
-          <DateInput value={eDate} onChange={(e) => setEDate(e.target.value)} />
-        </Field>
-        <Field label="Время" required>
-          <TimeInput value={eTime} onChange={(e) => setETime(e.target.value)} />
-        </Field>
-        <Field label="Преподаватель">
-          <Combobox value={eTeacherId} onChange={setETeacherId} options={teacherOptions} placeholder="Выберите преподавателя" />
-        </Field>
       </Dialog>
     </div>
   );

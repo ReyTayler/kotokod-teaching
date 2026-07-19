@@ -22,7 +22,7 @@ from apps.core.permissions import IsManagerOrAdmin, IsTeacher
 from apps.scheduling import services
 from apps.scheduling.serializers import (
     PlanChangeTeacherPermanentSerializer, PlanChangeTeacherSerializer,
-    PlanExtraSerializer, PlanPermanentChangeSerializer, PlanRescheduleSerializer,
+    PlanPermanentChangeSerializer, PlanRescheduleSerializer,
 )
 
 # Максимальная ширина окна (дней) — календарь просит неделю/месяц; ограничиваем,
@@ -118,7 +118,7 @@ class AdminCalendarView(APIView):
 
 # ---------------------------------------------------------------------------
 # Admin-план (RBAC IsManagerOrAdmin). Операции над planned_lessons
-# (generate/reschedule/permanent-change/cancel/extra). Смонтированы под
+# (generate/reschedule/permanent-change/cancel). Смонтированы под
 # /api/admin/groups (ДО teacher-guard /api) → доступ проверяется на API, а не
 # только на фронте. Мутации проходят DRF SessionAuthentication/CookieJWT →
 # требуют X-CSRFToken (@csrf_exempt не ставим). Аудит — log_event в services.
@@ -253,22 +253,3 @@ class GroupPlanChangeTeacherPermanentView(APIView):
         if plan is None:
             raise NotFound({'error': 'Not found'})
         return Response(plan)
-
-
-class GroupPlanExtraView(APIView):
-    """POST /api/admin/groups/<pk>/plan/extra — доп. занятие (вне курса)."""
-
-    permission_classes = [IsManagerOrAdmin]
-
-    def post(self, request: Request, pk: int) -> Response:
-        serializer = PlanExtraSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            row = services.add_extra(pk, serializer.validated_data, request)
-        except IntegrityError as exc:
-            if _is_unique_violation(exc):
-                return Response({'error': 'Conflict'}, status=status.HTTP_409_CONFLICT)
-            raise
-        if row is None:
-            raise NotFound({'error': 'Not found'})
-        return Response(row, status=status.HTTP_201_CREATED)
