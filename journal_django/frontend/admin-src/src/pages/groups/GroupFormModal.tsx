@@ -85,12 +85,15 @@ export default function GroupFormModal({ initial, onClose }: Props) {
   // «Уроков в неделю» больше не вводится вручную — это число слотов.
   const lessonsPerWeek = slots.length;
 
-  // Дни недели, покрытые слотами (для подсказки и проверки даты старта).
+  // Дни недели, покрытые слотами (для подсказки).
   const slotDays = useMemo(
     () => Array.from(new Set(slots.map((s) => s.day_of_week))).sort((a, b) => a - b),
     [slots],
   );
-  // Дата старта обязана попадать на день одного из слотов.
+  // Дата старта не попадает на день ни одного слота. НЕ блокирует сохранение:
+  // генератор плана ставит первое занятие на ближайший день слота ≥ даты старта,
+  // а у существующих групп дата старта — исторический факт (слоты могли меняться).
+  // Показываем только как предупреждение-подсказку.
   const startMismatch = startDate !== '' && slots.length > 0 && !slotDays.includes(weekdayOfISO(startDate));
 
   const onSubmit = async (e: FormEvent) => {
@@ -101,10 +104,6 @@ export default function GroupFormModal({ initial, onClose }: Props) {
     }
     if (!isIndividual && slots.length > 1) {
       toast('Групповой формат допускает только один слот', 'error');
-      return;
-    }
-    if (startMismatch) {
-      toast('Дата старта должна попадать на день одного из слотов', 'error');
       return;
     }
     const payload: GroupPayload = {
@@ -141,7 +140,7 @@ export default function GroupFormModal({ initial, onClose }: Props) {
       wide
       title={isNew ? 'Новая группа' : `Редактировать: ${initial!.name}`}
       footer={
-        <button type="submit" form="group-form" className="btn-save" disabled={muts.create.isPending || muts.update.isPending || startMismatch}>
+        <button type="submit" form="group-form" className="btn-save" disabled={muts.create.isPending || muts.update.isPending}>
           Сохранить
         </button>
       }
@@ -212,10 +211,15 @@ export default function GroupFormModal({ initial, onClose }: Props) {
             ]}
           />
         </Field>
-        <Field label="Дата начала" error={startMismatch ? 'Дата старта не попадает ни в один слот' : undefined}>
+        <Field label="Дата начала">
           <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           {slots.length > 0 && (
             <span className="field-hint">Дни слотов: {slotDays.map((d) => DOW[d]).join(', ')}</span>
+          )}
+          {startMismatch && (
+            <span className="field-hint field-hint--warn">
+              Дата старта не попадает на день слота — первое занятие встанет на ближайший день слота после этой даты.
+            </span>
           )}
         </Field>
 
