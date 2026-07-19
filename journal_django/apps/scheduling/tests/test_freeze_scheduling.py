@@ -76,6 +76,33 @@ def test_freeze_relays_tail_and_cancels_extra(indiv_group):
 
 
 @pytest.mark.django_db
+def test_freeze_relay_skips_occupied_slot_dates(indiv_group):
+    """Перекладка хвоста при заморозке обходит занятую слот-дату (done-урок на
+    будущей среде), оставаясь непрерывной — единый примитив relay со skip_dates."""
+    gid = indiv_group['group']
+    now = datetime.datetime(2026, 7, 1, 12, 0)
+    # Проведённый урок (пин) на будущую среду 2026-08-12, куда иначе встал бы хвост.
+    PlannedLesson.objects.create(
+        group_id=gid, seq=5, lesson_number=5,
+        scheduled_date=datetime.date(2026, 8, 12), scheduled_time=datetime.time(10, 0),
+        teacher_id=indiv_group['teacher'], status=DONE, created_at=now, updated_at=now)
+
+    relaid = sched_repo.freeze_individual_group(
+        gid, frozen_from=datetime.date(2026, 7, 8),
+        resume_date=datetime.date(2026, 8, 5))
+    assert relaid == 3
+
+    rows = {r.seq: r for r in PlannedLesson.objects.filter(
+        group_id=gid, seq__isnull=False, status=PENDING).order_by('seq')}
+    dates = [rows[s].scheduled_date for s in (2, 3, 4)]
+    # Ни одна переложенная строка не встала на занятую 2026-08-12 (done),
+    # каденция непрерывна по свободным средам (08-12 обойдена).
+    assert dates == [datetime.date(2026, 8, 5),
+                     datetime.date(2026, 8, 19),
+                     datetime.date(2026, 8, 26)]
+
+
+@pytest.mark.django_db
 def test_freeze_keeps_done_rows(indiv_group):
     gid = indiv_group['group']
     PlannedLesson.objects.filter(group_id=gid, seq=2).update(status=DONE)

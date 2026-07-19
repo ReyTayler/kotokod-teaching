@@ -1138,11 +1138,19 @@ def preview_freeze(
         slots = slots_by_group([group_id]).get(group_id, [])
         open_slots = [s for s in slots if s.effective_to is None]
         if g is not None and open_slots:
+            tail_ids = {p.id for p in tail}
+            skip_dates = frozenset(
+                PlannedLesson.objects
+                .filter(group_id=group_id)
+                .exclude(id__in=tail_ids)
+                .values_list('scheduled_date', flat=True)
+            )
             relaid = planner.relay_from_date(
                 [_row_from_model(p) for p in tail],
                 resume_date=frozen_until,
                 slots=open_slots,
                 duration_minutes=g['lesson_duration_minutes'],
+                skip_dates=skip_dates,
             )
             if relaid:
                 first_lesson_after_resume = relaid[0].scheduled_date
@@ -1207,22 +1215,35 @@ def freeze_individual_group(
         if not open_slots:
             return 0
         by_seq = {p.seq: p for p in tail}
+        tail_ids = {p.id for p in tail}
+        skip_dates = frozenset(
+            PlannedLesson.objects
+            .filter(group_id=group_id)
+            .exclude(id__in=tail_ids)
+            .values_list('scheduled_date', flat=True)
+        )
         relaid = planner.relay_from_date(
             [_row_from_model(p) for p in tail],
             resume_date=resume_date,
             slots=open_slots,
             duration_minutes=g['lesson_duration_minutes'],
+            skip_dates=skip_dates,
         )
         to_update = []
         for cr in relaid:
             p = by_seq[cr.seq]
+            date_changed = p.scheduled_date != cr.scheduled_date
             p.scheduled_date = cr.scheduled_date
             p.scheduled_time = cr.scheduled_time
             p.moved_from_date = None
+            if date_changed:
+                p.substitute_teacher_id = None
             p.updated_at = now
             to_update.append(p)
         PlannedLesson.objects.bulk_update(
-            to_update, ['scheduled_date', 'scheduled_time', 'moved_from_date', 'updated_at'])
+            to_update,
+            ['scheduled_date', 'scheduled_time', 'moved_from_date',
+             'substitute_teacher', 'updated_at'])
         return len(to_update)
 
 
