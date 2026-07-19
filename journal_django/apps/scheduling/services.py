@@ -73,17 +73,21 @@ def _planned_occurrence_dict(
     """
     is_half = r['lesson_duration_minutes'] == 45
     status = _planned_status(r, now_msk)
-    pl_teacher_id = r['teacher_id']
+    sub_id = r.get('substitute_teacher_id')
+    content_teacher_id = r['teacher_id']
     group_teacher_id = r['group_teacher_id']
-    is_override = pl_teacher_id is not None and pl_teacher_id != group_teacher_id
-    teacher = tnames.get(pl_teacher_id) if pl_teacher_id else tnames.get(group_teacher_id)
+    effective_id = sub_id or content_teacher_id
+    is_override = (sub_id is not None) or (
+        content_teacher_id is not None and content_teacher_id != group_teacher_id
+    )
+    teacher = tnames.get(effective_id) if effective_id else tnames.get(group_teacher_id)
     ln = r['lesson_number']
     return {
         'group': r['group_name'],
         'groupId': r['group_pk'],
         'groupDisplay': r['group_name'],
         'teacher': teacher,
-        'teacherOverride': tnames.get(pl_teacher_id) if is_override else None,
+        'teacherOverride': tnames.get(effective_id) if is_override else None,
         'direction': r['direction_name'],
         'color': r['direction_color'],
         'isGroup': not r['is_individual'],

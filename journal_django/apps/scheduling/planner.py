@@ -38,6 +38,7 @@ class PlannedRow:
     scheduled_date: datetime.date
     scheduled_time: datetime.time
     teacher_id: Optional[int] = None
+    substitute_teacher_id: Optional[int] = None
     status: str = PENDING
     moved_from_date: Optional[datetime.date] = None
     moved_to_date: Optional[datetime.date] = None
@@ -197,12 +198,13 @@ def reschedule(
 
 
 def change_teacher(row: PlannedRow, *, new_teacher_id: int) -> PlannedRow:
-    """Разовая смена преподавателя одной строки: меняет ТОЛЬКО teacher_id.
-    Дата/время/moved_from не трогаются (в отличие от reschedule) — занятие не
-    становится «перенесённым». Проведённое (DONE) менять нельзя."""
+    """Разовая замена преподавателя на дату этой строки: пишет substitute_teacher_id
+    (НЕ teacher_id — тот остаётся преподавателем контента). Дата/время/moved_from не
+    трогаются; при последующем переезде строки замена обнуляется (свойство даты).
+    Проведённое (DONE) менять нельзя."""
     if row.status == DONE:
         raise ValueError('Нельзя сменить преподавателя проведённого занятия (status=done).')
-    return replace(row, teacher_id=new_teacher_id)
+    return replace(row, substitute_teacher_id=new_teacher_id)
 
 
 def change_teacher_tail(

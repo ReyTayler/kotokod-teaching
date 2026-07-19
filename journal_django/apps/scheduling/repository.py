@@ -11,7 +11,7 @@ import datetime
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import F, Min
+from django.db.models import F, Min, Q
 
 from apps.core.utils.dates import msk_now, msk_today
 from apps.groups.models import GroupScheduleSlot
@@ -106,14 +106,15 @@ def planned_lessons_in_window(
     return list(
         PlannedLesson.objects
         .filter(
-            teacher_id=teacher_id,
+            Q(substitute_teacher_id=teacher_id)
+            | Q(substitute_teacher_id__isnull=True, teacher_id=teacher_id),
             group__active=True,
             scheduled_date__gte=window_from,
             scheduled_date__lte=window_to,
         )
         .values(
             'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
-            'teacher_id', 'status', 'fact_lesson_id',
+            'teacher_id', 'substitute_teacher_id', 'status', 'fact_lesson_id',
             'moved_from_date',
             group_pk=F('group_id'),
             group_name=F('group__name'),
@@ -469,16 +470,19 @@ def _hhmm(t: datetime.time | None) -> str | None:
 
 
 def _plan_row_dict(r: dict, tnames: dict[int, str]) -> dict:
-    """Сериализуемая плановая строка из .values()-словаря. is_extra = seq IS NULL."""
+    """Сериализуемая плановая строка из .values()-словаря. is_extra = seq IS NULL.
+    teacher_id/teacher_name — ЭФФЕКТИВНЫЙ преподаватель (замена на дату, если есть,
+    иначе преподаватель контента) — чтобы admin-план показывал того, кто реально ведёт."""
     ln = r['lesson_number']
+    effective_teacher_id = r.get('substitute_teacher_id') or r['teacher_id']
     return {
         'id': r['id'],
         'seq': r['seq'],
         'lesson_number': float(ln) if ln is not None else None,
         'scheduled_date': _iso(r['scheduled_date']),
         'scheduled_time': _hhmm(r['scheduled_time']),
-        'teacher_id': r['teacher_id'],
-        'teacher_name': tnames.get(r['teacher_id']),
+        'teacher_id': effective_teacher_id,
+        'teacher_name': tnames.get(effective_teacher_id),
         'status': r['status'],
         'fact_lesson_id': r['fact_lesson_id'],
         # Фактическая дата проведения (из связанного факта) — отдельно от плановой
@@ -499,6 +503,7 @@ def _plan_row_dict_obj(p: PlannedLesson, tnames: dict[int, str]) -> dict:
         'scheduled_date': p.scheduled_date,
         'scheduled_time': p.scheduled_time,
         'teacher_id': p.teacher_id,
+        'substitute_teacher_id': p.substitute_teacher_id,
         'status': p.status,
         'fact_lesson_id': p.fact_lesson_id,
         'moved_from_date': p.moved_from_date,
@@ -513,6 +518,7 @@ def _row_from_model(p: PlannedLesson) -> PlannedRow:
         scheduled_date=p.scheduled_date,
         scheduled_time=p.scheduled_time,
         teacher_id=p.teacher_id,
+        substitute_teacher_id=p.substitute_teacher_id,
         status=p.status,
         moved_from_date=p.moved_from_date,
         is_extra=p.seq is None,
@@ -545,7 +551,8 @@ def get_plan(group_id: int) -> list[dict] | None:
         .order_by('scheduled_date', 'scheduled_time')
         .values(
             'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
-            'teacher_id', 'status', 'fact_lesson_id', 'moved_from_date',
+            'teacher_id', 'substitute_teacher_id', 'status', 'fact_lesson_id',
+            'moved_from_date',
             fact_date=F('fact_lesson__lesson_date'),
             record_url=F('fact_lesson__record_url'),
         )
@@ -615,8 +622,9 @@ def change_teacher(
     group_id: int, lesson_id: int, new_teacher_id: int,
 ) -> dict | None:
     """
-    Разовая смена преподавателя одной строки (planner.change_teacher): меняет ТОЛЬКО
-    teacher_id, дату/время не трогает и НЕ помечает строку перенесённой.
+    Разовая замена преподавателя на дату строки (planner.change_teacher): пишет
+    substitute_teacher (замена на дату); teacher (контент) и дату/время не трогает
+    и НЕ помечает строку перенесённой.
 
     None → строки нет (404). ValueError → строка проведена (status='done').
     """
@@ -631,9 +639,9 @@ def change_teacher(
         if p is None:
             return None
         updated = planner.change_teacher(_row_from_model(p), new_teacher_id=new_teacher_id)
-        p.teacher_id = updated.teacher_id
+        p.substitute_teacher_id = updated.substitute_teacher_id
         p.updated_at = now
-        p.save(update_fields=['teacher', 'updated_at'])
+        p.save(update_fields=['substitute_teacher', 'updated_at'])
 
     return _plan_row_dict_obj(p, teacher_names())
 

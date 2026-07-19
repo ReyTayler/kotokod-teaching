@@ -179,12 +179,13 @@ def test_reschedule_real_date_change_sets_moved_from():
 
 
 # --------------------------------------------------------------------------- #
-# change_teacher (разовая смена преподавателя — только teacher_id одной строки)
+# change_teacher (разовая замена преподавателя на дату — substitute_teacher_id)
 # --------------------------------------------------------------------------- #
 
-def test_change_teacher_only_changes_teacher():
+def test_change_teacher_sets_substitute_not_content():
     out = change_teacher(_row(teacher=7, date=D(2026, 6, 8), time=T(10, 0)), new_teacher_id=9)
-    assert out.teacher_id == 9
+    assert out.substitute_teacher_id == 9        # замена — в отдельном поле
+    assert out.teacher_id == 7                   # преподаватель контента не тронут
     assert out.scheduled_date == D(2026, 6, 8)   # дата не тронута
     assert out.scheduled_time == T(10, 0)        # время не тронуто
     assert out.moved_from_date is None           # НЕ помечается перенесённой

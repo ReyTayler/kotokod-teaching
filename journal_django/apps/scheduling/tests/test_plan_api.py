@@ -317,6 +317,51 @@ class TestChangeTeacher:
         assert resp.status_code == 404
 
 
+class TestSubstituteTeacher:
+    def test_change_teacher_sets_substitute_not_content(self, manager_client, plan_group):
+        """Разовая замена пишется в substitute_teacher, teacher (контент) не тронут."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        target = _by_seq(plan)[3]
+        sub = plan_group['teacher_b']
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/change-teacher',
+            {'new_teacher_id': sub}, format='json',
+        )
+        assert resp.status_code == 200
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT teacher_id, substitute_teacher_id FROM planned_lessons WHERE id=%s",
+                [target['id']],
+            )
+            content_id, substitute_id = cur.fetchone()
+        assert substitute_id == sub          # замена в новой колонке
+        assert content_id != sub             # контент-преподаватель не тронут
+
+    def test_substitute_dropped_when_cancel_moves_row(self, manager_client, plan_group):
+        """Баг №1: замена НЕ едет с контентом. Ставим замену на урок, отменяем его —
+        сдвинутая строка теряет замену (замена осталась на отменённой дате)."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        by_seq = _by_seq(plan)
+        target = by_seq[3]
+        sub = plan_group['teacher_b']
+        manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/change-teacher',
+            {'new_teacher_id': sub}, format='json',
+        )
+        manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/cancel', {}, format='json',
+        )
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT substitute_teacher_id FROM planned_lessons WHERE id=%s",
+                [target['id']],
+            )
+            (substitute_id,) = cur.fetchone()
+        assert substitute_id is None   # замена сброшена при переезде строки
+
+
 class TestChangeTeacherPermanent:
     def test_sets_teacher_on_tail_only(self, manager_client, plan_group):
         gid = plan_group['group_id']

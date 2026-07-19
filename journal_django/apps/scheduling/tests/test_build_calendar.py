@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 
 import pytest
+from django.db import connection
 
 from apps.scheduling import repository, services
 
@@ -25,3 +26,31 @@ def test_occurrence_includes_group_id(sched_setup):
 
     assert len(cal['occurrences']) > 0
     assert cal['occurrences'][0]['groupId'] == s['group_a']
+
+
+@pytest.mark.django_db
+def test_substitute_shows_in_substitute_calendar_on_its_date(sched_setup):
+    """Занятие с заменой попадает в календарь ПОДМЕНЯЮЩЕГО (B) на свою дату, а не
+    преподавателя контента (A); occurrence несёт teacherOverride = имя B."""
+    s = sched_setup
+    repository.generate_for_group(s['group_a'])
+    target_date = D(2026, 6, 15)   # понедельник — курсовая строка группы A
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE planned_lessons SET substitute_teacher_id=%s "
+            "WHERE group_id=%s AND scheduled_date=%s AND seq IS NOT NULL",
+            [s['teacher_b'], s['group_a'], target_date],
+        )
+
+    # Календарь ПОДМЕНЯЮЩЕГО (B) на эту дату — строка есть, эффективный препод = B.
+    cal_b = services.build_calendar(target_date, target_date, teacher_id=s['teacher_b'])
+    b_rows = [o for o in cal_b['occurrences'] if o['groupId'] == s['group_a']]
+    assert len(b_rows) == 1
+    assert b_rows[0]['teacher'] == '__sched_B__'
+    assert b_rows[0]['teacherOverride'] == '__sched_B__'
+
+    # Календарь преподавателя КОНТЕНТА (A) на эту дату — строки с заменой нет.
+    cal_a = services.build_calendar(target_date, target_date, teacher_id=s['teacher_a'])
+    a_rows = [o for o in cal_a['occurrences']
+              if o['groupId'] == s['group_a'] and o['date'] == '2026-06-15']
+    assert a_rows == []
