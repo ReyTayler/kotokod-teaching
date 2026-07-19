@@ -1,7 +1,8 @@
 // journal_django/frontend/admin-src/src/lib/sync.ts
 export type SyncAction =
   | 'teachers' | 'groups' | 'students' | 'lessons' | 'payments' | 'payroll'
-  | 'rebuild-payroll' | 'rebuild-counters' | 'rebuild-planned-lessons' | 'run-all';
+  | 'rebuild-payroll' | 'rebuild-counters' | 'rebuild-planned-lessons'
+  | 'rebuild-absence-resolutions' | 'run-all';
 
 export interface SyncActionDef {
   action: SyncAction;
@@ -22,6 +23,11 @@ export const SYNC_ACTIONS: SyncActionDef[] = [
   {
     action: 'rebuild-planned-lessons',
     label: '⚠️ Плановые уроки — ПОЛНЫЙ пересбор (перезаписывает переносы/отмены/смену препода)',
+    group: 'rebuild',
+  },
+  {
+    action: 'rebuild-absence-resolutions',
+    label: 'Доп.уроки — создать пропуски в очередь (по пропущенным занятиям)',
     group: 'rebuild',
   },
 ];

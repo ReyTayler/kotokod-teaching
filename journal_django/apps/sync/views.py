@@ -23,6 +23,7 @@ ACTIONS = {
     'rebuild-payroll': tasks.rebuild_payroll_task,
     'rebuild-counters': tasks.rebuild_counters_task,
     'rebuild-planned-lessons': tasks.rebuild_planned_lessons_task,
+    'rebuild-absence-resolutions': tasks.rebuild_absence_resolutions_task,
     'run-all': tasks.run_all_task,
 }
 
