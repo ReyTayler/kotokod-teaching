@@ -72,12 +72,17 @@ def _walk(
     step: Decimal,
     total: Optional[int],
     generate_until: datetime.date,
+    skip_dates: frozenset[datetime.date] = frozenset(),
 ) -> list[Occurrence]:
     """
     Перебор курса по неделям от даты старта. На каждой неделе берём слоты,
     активные на конкретную дату, упорядоченные по (дата, время), инкрементим
     seq/lesson_number. Останавливаемся, когда номер превысил длину курса
     (total) ИЛИ прошли generate_until (для открытых курсов total=None).
+
+    Даты из skip_dates ПРОПУСКАЮТСЯ как позиции размещения (номер урока на них
+    НЕ расходуется) — так пересчёт хвоста обходит уже занятые даты (маркеры
+    отмен, проведённые уроки, доп.занятия), оставаясь непрерывным.
     """
     occ: list[Occurrence] = []
     num = Decimal('0')
@@ -94,6 +99,8 @@ def _walk(
                 week_cands.append((d, s.start_time))
         week_cands.sort()
         for d, t in week_cands:
+            if d in skip_dates:
+                continue  # занятая дата — не размещаем и не тратим номер
             num += step
             if total is not None and num > total:
                 return occ  # курс завершён
