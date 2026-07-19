@@ -17,6 +17,8 @@ managed-схема journal_test; чистим прямым DELETE в FK-безо
 """
 from __future__ import annotations
 
+import datetime
+
 import pytest
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
@@ -441,12 +443,15 @@ class TestPermanentChange:
 
 
 class TestCancel:
-    def test_shifts_tail_preserves_done(self, manager_client, plan_group):
+    def test_shifts_tail_relays_around_done_pin(self, manager_client, plan_group):
+        """Отмена пересчитывает хвост непрерывно, ОБХОДЯ проведённый (done) урок:
+        done — неподвижный пин, курсовая строка на его дату не наезжает, а встаёт
+        на следующий свободный слот. Голова до from_date не двигается."""
         gid = plan_group['group_id']
         plan = _generate(manager_client, gid).json()
         by_seq = _by_seq(plan)
         anchor = by_seq[3]         # 2026-06-15
-        done_row = by_seq[4]       # 2026-06-22 — помечаем done, не должен двигаться
+        done_row = by_seq[4]       # 2026-06-22 — done, неподвижный пин
         with connection.cursor() as cur:
             cur.execute("UPDATE planned_lessons SET status='done' WHERE id=%s", [done_row['id']])
 
@@ -455,10 +460,36 @@ class TestCancel:
         after = _by_seq(resp.json())
         assert after[1]['scheduled_date'] == '2026-06-01'   # < from_date — не тронут
         assert after[2]['scheduled_date'] == '2026-06-08'   # < from_date — не тронут
-        assert after[3]['scheduled_date'] == '2026-06-22'   # +7
         assert after[4]['scheduled_date'] == '2026-06-22'   # done — не тронут
         assert after[4]['status'] == 'done'
-        assert after[5]['scheduled_date'] == '2026-07-06'   # +7 от 06-29
+        # seq3 обходит занятые 06-15 (маркер) и 06-22 (done) → 06-29; seq5 → 07-06.
+        assert after[3]['scheduled_date'] == '2026-06-29'
+        assert after[5]['scheduled_date'] == '2026-07-06'
+
+    def test_double_cancel_is_contiguous_no_gap(self, manager_client, plan_group):
+        """Две отмены (сначала поздняя, затем ранняя) НЕ создают ПУСТЫХ недель:
+        весь календарь (курсовые строки + маркеры отмен вместе) идёт непрерывно
+        по неделям. Курс суммарно продлён на 2 недели — по неделе за каждую отмену.
+        Отменённая неделя не «пустая»: она занята маркером, а не потеряна."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        by_seq = _by_seq(plan)
+        # Курс: seq1..8 по понедельникам с 06-01.
+        manager_client.post(f'/api/admin/groups/{gid}/plan/{by_seq[3]["id"]}/cancel', {}, format='json')
+        after = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{by_seq[1]["id"]}/cancel', {}, format='json',
+        ).json()
+        # Полный календарь: курсовые (pending/overdue) + маркеры отмен, по дате.
+        occupied = sorted(r['scheduled_date'] for r in after if r['status'] != 'done')
+        # Непрерывность недель: между соседними занятыми датами ровно 7 дней —
+        # ни одной пустой недели (отменённые недели заняты маркерами).
+        for i in range(1, len(occupied)):
+            d0 = datetime.date.fromisoformat(occupied[i - 1])
+            d1 = datetime.date.fromisoformat(occupied[i])
+            assert (d1 - d0).days == 7, f'пустая неделя между {occupied[i-1]} и {occupied[i]}'
+        # Два маркера отмены присутствуют; курс продлён на 2 недели.
+        markers = [r for r in after if r['status'] == 'cancelled']
+        assert len(markers) == 2
 
     def test_cancel_creates_cancelled_marker(self, manager_client, plan_group):
         """Отмена вставляет НЕ-курсовой маркер status='cancelled' на исходную дату

@@ -801,6 +801,74 @@ def permanent_change(
     return get_plan(group_id)
 
 
+def _relay_tail(
+    group_id: int,
+    *,
+    from_date: datetime.date,
+    now: datetime.datetime,
+) -> None:
+    """Непрерывно переложить курсовой хвост группы (pending/overdue, seq задан,
+    scheduled_date >= from_date) по текущему открытому слоту от from_date,
+    ОБХОДЯ уже занятые даты (проведённые уроки, маркеры отмен, доп.занятия и
+    любые прочие строки вне хвоста). Замена преподавателя (substitute_teacher)
+    обнуляется у строк, чья дата изменилась (замена — свойство даты, не едет).
+
+    Вызывается ВНУТРИ уже открытой транзакции. Нет открытого слота или пустой
+    хвост → ничего не двигаем (нельзя развернуть каденцию)."""
+    tail = list(
+        PlannedLesson.objects
+        .select_for_update()
+        .filter(group_id=group_id, seq__isnull=False,
+                status__in=_MUTABLE_STATUSES, scheduled_date__gte=from_date)
+        .order_by('seq')
+    )
+    if not tail:
+        return
+    tail_ids = {p.id for p in tail}
+
+    g = (Group.objects.filter(id=group_id).values('lesson_duration_minutes').first())
+    if g is None:
+        return
+    open_slots = [s for s in slots_by_group([group_id]).get(group_id, [])
+                  if s.effective_to is None]
+    if not open_slots:
+        return
+
+    # Занятые даты = даты ВСЕХ строк группы, не входящих в перекладываемый хвост
+    # (done/маркеры/extra/голова). На них курсовую строку не ставим.
+    skip_dates = frozenset(
+        PlannedLesson.objects
+        .filter(group_id=group_id)
+        .exclude(id__in=tail_ids)
+        .values_list('scheduled_date', flat=True)
+    )
+
+    by_seq = {p.seq: p for p in tail}
+    relaid = planner.relay_from_date(
+        [_row_from_model(p) for p in tail],
+        resume_date=from_date,
+        slots=open_slots,
+        duration_minutes=g['lesson_duration_minutes'],
+        skip_dates=skip_dates,
+    )
+    to_update = []
+    for cr in relaid:
+        p = by_seq[cr.seq]
+        date_changed = p.scheduled_date != cr.scheduled_date
+        p.scheduled_date = cr.scheduled_date
+        p.scheduled_time = cr.scheduled_time
+        p.moved_from_date = None
+        if date_changed:
+            p.substitute_teacher_id = None  # замена не едет с контентом
+        p.updated_at = now
+        to_update.append(p)
+    PlannedLesson.objects.bulk_update(
+        to_update,
+        ['scheduled_date', 'scheduled_time', 'moved_from_date',
+         'substitute_teacher', 'updated_at'],
+    )
+
+
 def cancel_lesson(
     group_id: int,
     from_date: datetime.date,
@@ -809,40 +877,30 @@ def cancel_lesson(
     marker_teacher_id: int | None,
 ) -> list[dict]:
     """
-    Отмена со сдвигом: непроведённые строки (status != 'done') с
-    scheduled_date >= from_date сдвигаются на +7 дней (день недели/время
-    сохраняются — курс продлевается на неделю, уроки не списываются). На исходную
-    дату вставляется НЕ-курсовой маркер status='cancelled' (seq=NULL) — календарь
-    показывает «отменённое» занятие зачёркнутым. Маркер несёт время/преподавателя
-    отменённого занятия (чтобы попасть в нужный столбец/календарь).
+    Отмена с релеем: непроведённые курсовые строки (status != 'done') с
+    scheduled_date >= from_date непрерывно перекладываются по слоту от
+    from_date, обходя занятые даты (relay); курс продлевается ровно на число
+    отменённых занятий, без дыр. На исходную дату вставляется НЕ-курсовой
+    маркер status='cancelled' (seq=NULL) — календарь показывает «отменённое»
+    занятие зачёркнутым. Маркер несёт время/преподавателя отменённого занятия
+    (чтобы попасть в нужный столбец/календарь).
 
     Батч (без N+1): один SELECT + один bulk_update + один INSERT маркера. Абонемент
     не трогаем. Возвращает новый план (get_plan).
     """
     now = msk_now()
     with transaction.atomic():
-        # Сдвигаем +7 ТОЛЬКО курсовые pending/overdue строки. Доп. занятия и
-        # маркеры отмены (seq=NULL) и проведённые (done) — неподвижные пины.
-        tail = list(
-            PlannedLesson.objects
-            .select_for_update()
-            .filter(
-                group_id=group_id, scheduled_date__gte=from_date,
-                seq__isnull=False, status__in=_MUTABLE_STATUSES,
-            )
-        )
-        if tail:
-            for p in tail:
-                p.scheduled_date = p.scheduled_date + datetime.timedelta(days=7)
-                p.updated_at = now
-            PlannedLesson.objects.bulk_update(tail, ['scheduled_date', 'updated_at'])
-
+        # Маркер отмены на исходной дате (seq=NULL): календарь показывает
+        # зачёркнутое занятие. Несёт время/преподавателя отменённого занятия.
         PlannedLesson.objects.create(
             group_id=group_id, seq=None, lesson_number=None,
             scheduled_date=from_date, scheduled_time=marker_time,
             teacher_id=marker_teacher_id, status=CANCELLED,
             created_at=now, updated_at=now,
         )
+        # Непрерывный пересчёт хвоста от from_date, обходя занятые даты (в т.ч.
+        # только что вставленный маркер). Заменяет прежний слепой сдвиг +7.
+        _relay_tail(group_id, from_date=from_date, now=now)
 
     return get_plan(group_id)
 
