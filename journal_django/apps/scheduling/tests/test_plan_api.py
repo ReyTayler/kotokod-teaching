@@ -381,6 +381,43 @@ class TestSubstituteTeacher:
         # teacher_id маркера (эффективный) = заместитель.
         assert marker['teacher_id'] == sub
 
+    def _set_substitute(self, manager_client, gid, lesson_id, sub):
+        manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{lesson_id}/change-teacher',
+            {'new_teacher_id': sub}, format='json',
+        )
+
+    def _substitute_of(self, lesson_id):
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT substitute_teacher_id FROM planned_lessons WHERE id=%s", [lesson_id])
+            (substitute_id,) = cur.fetchone()
+        return substitute_id
+
+    def test_substitute_dropped_when_reschedule_moves_row(self, manager_client, plan_group):
+        """Разовый перенос на другую дату сбрасывает замену (свойство даты)."""
+        gid = plan_group['group_id']
+        target = _by_seq(_generate(manager_client, gid).json())[3]   # 2026-06-15
+        self._set_substitute(manager_client, gid, target['id'], plan_group['teacher_b'])
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/reschedule',
+            {'new_date': '2026-06-18'}, format='json',
+        )
+        assert resp.status_code == 200
+        assert self._substitute_of(target['id']) is None
+
+    def test_substitute_dropped_when_permanent_change_moves_row(self, manager_client, plan_group):
+        """Перенос навсегда на другой день недели сбрасывает замену у переехавших строк."""
+        gid = plan_group['group_id']
+        target = _by_seq(_generate(manager_client, gid).json())[3]   # 2026-06-15 (Пн)
+        self._set_substitute(manager_client, gid, target['id'], plan_group['teacher_b'])
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/permanent-change',
+            {'from_seq': 3, 'new_day_of_week': 3, 'new_time': '14:00'}, format='json',
+        )
+        assert resp.status_code == 200
+        assert self._substitute_of(target['id']) is None
+
 
 class TestChangeTeacherPermanent:
     def test_sets_teacher_on_tail_only(self, manager_client, plan_group):

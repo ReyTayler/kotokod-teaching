@@ -607,13 +607,17 @@ def reschedule_lesson(
             new_time=new_time,
             new_teacher_id=new_teacher_id,
         )
+        date_changed = updated.scheduled_date != p.scheduled_date
         p.scheduled_date = updated.scheduled_date
         p.scheduled_time = updated.scheduled_time
         p.teacher_id = updated.teacher_id
         p.moved_from_date = updated.moved_from_date
+        if date_changed:
+            p.substitute_teacher_id = None  # замена — свойство даты, не едет
         p.updated_at = now
         p.save(update_fields=[
-            'scheduled_date', 'scheduled_time', 'teacher', 'moved_from_date', 'updated_at',
+            'scheduled_date', 'scheduled_time', 'teacher', 'moved_from_date',
+            'substitute_teacher', 'updated_at',
         ])
 
     return _plan_row_dict_obj(p, teacher_names())
@@ -796,13 +800,18 @@ def permanent_change(
         to_update = []
         for cr in changed:
             p = by_seq[cr.seq]
+            date_changed = p.scheduled_date != cr.scheduled_date
             p.scheduled_date = cr.scheduled_date
             p.scheduled_time = cr.scheduled_time
             p.teacher_id = cr.teacher_id
+            if date_changed:
+                p.substitute_teacher_id = None  # замена — свойство даты, не едет
             p.updated_at = now
             to_update.append(p)
         PlannedLesson.objects.bulk_update(
-            to_update, ['scheduled_date', 'scheduled_time', 'teacher', 'updated_at'],
+            to_update,
+            ['scheduled_date', 'scheduled_time', 'teacher',
+             'substitute_teacher', 'updated_at'],
         )
         if new_teacher_id is not None:
             Group.objects.filter(id=group_id).update(teacher_id=new_teacher_id)

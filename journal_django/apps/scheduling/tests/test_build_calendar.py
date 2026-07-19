@@ -54,3 +54,22 @@ def test_substitute_shows_in_substitute_calendar_on_its_date(sched_setup):
     a_rows = [o for o in cal_a['occurrences']
               if o['groupId'] == s['group_a'] and o['date'] == '2026-06-15']
     assert a_rows == []
+
+
+@pytest.mark.django_db
+def test_substitute_equal_group_teacher_no_override_badge(sched_setup):
+    """Замена на того же преподавателя, что ведёт группу, НЕ показывает бейдж «замена»."""
+    s = sched_setup
+    repository.generate_for_group(s['group_a'])
+    target_date = D(2026, 6, 15)
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE planned_lessons SET substitute_teacher_id=%s "
+            "WHERE group_id=%s AND scheduled_date=%s AND seq IS NOT NULL",
+            [s['teacher_a'], s['group_a'], target_date],   # заместитель = препод группы A
+        )
+    cal = services.build_calendar(target_date, target_date, teacher_id=s['teacher_a'])
+    rows = [o for o in cal['occurrences'] if o['groupId'] == s['group_a']]
+    assert len(rows) == 1
+    assert rows[0]['teacher'] == '__sched_A__'
+    assert rows[0]['teacherOverride'] is None   # тот же препод — бейджа нет

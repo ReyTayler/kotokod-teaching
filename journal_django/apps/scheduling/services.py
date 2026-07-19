@@ -77,9 +77,9 @@ def _planned_occurrence_dict(
     content_teacher_id = r['teacher_id']
     group_teacher_id = r['group_teacher_id']
     effective_id = sub_id or content_teacher_id
-    is_override = (sub_id is not None) or (
-        content_teacher_id is not None and content_teacher_id != group_teacher_id
-    )
+    # Пометка «замена/подмена» — только когда реально ведёт НЕ штатный препод группы
+    # (замена на того же препода группы бейдж не показывает).
+    is_override = effective_id is not None and effective_id != group_teacher_id
     teacher = tnames.get(effective_id) if effective_id else tnames.get(group_teacher_id)
     ln = r['lesson_number']
     return {
