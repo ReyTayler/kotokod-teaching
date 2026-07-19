@@ -90,6 +90,28 @@ class TestScheduleChange:
         assert slots[(3, '14:00')]['effective_from'] == '2026-07-01'  # новый открыт
         assert slots[(3, '14:00')]['effective_to'] is None
 
+    def test_group_detail_shows_only_active_slot(self, manager_client, sched_group):
+        """Витрина группы (GET /groups/<id>) показывает только АКТИВНЫЙ сегодня слот,
+        а не все версии — иначе после смены расписания группа выглядит занимающейся
+        сразу в двух слотах. История версий остаётся в /schedule (экран правки)."""
+        base = f'/api/admin/groups/{sched_group}/schedule-change'
+        # Старый слот действовал 2026-06-01..06-30, новый — с 2026-07-01. Обе даты в
+        # прошлом относительно сегодня → активен только новый (Ср 14:00).
+        manager_client.post(base, {'effective_from': '2026-06-01',
+                                    'slots': [{'day_of_week': 1, 'start_time': '10:00'}]}, format='json')
+        manager_client.post(base, {'effective_from': '2026-07-01',
+                                   'slots': [{'day_of_week': 3, 'start_time': '14:00'}]}, format='json')
+
+        detail = manager_client.get(f'/api/admin/groups/{sched_group}').json()
+        slots = detail['slots']
+        assert len(slots) == 1                       # только активный, не два
+        assert slots[0]['day_of_week'] == 3
+        assert slots[0]['start_time'] == '14:00:00'
+
+        # Экран редактирования по-прежнему видит ОБЕ версии (история).
+        edit = manager_client.get(f'/api/admin/groups/{sched_group}/schedule').json()
+        assert len(edit['slots']) == 2
+
     def test_schedule_change_missing_group_404(self, manager_client):
         resp = manager_client.post(
             '/api/admin/groups/99999999/schedule-change',

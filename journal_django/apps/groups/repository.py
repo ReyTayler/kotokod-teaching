@@ -17,9 +17,10 @@ import datetime
 from typing import Any, Optional
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.db.models.functions import Now
 
+from apps.core.utils.dates import msk_today
 from apps.core.utils.orm import dictrow, dictrows
 
 from .exceptions import ImmutableGroupFormat
@@ -67,15 +68,21 @@ def _slots_by_group(group_ids: list[int]) -> dict[int, list[dict]]:
     Собирает слоты расписания по группам (порядок day_of_week, start_time).
 
     Возвращает {group_id: [{'day_of_week': int, 'start_time': 'HH:MM:SS'}, ...]}.
-    Эквивалент json_agg(... ORDER BY day_of_week, start_time) FILTER (WHERE ...)
-    с COALESCE до '[]' (группы без слотов получают пустой список).
+
+    Только слоты, АКТИВНЫЕ на сегодня (МСК): `effective_from <= today <= effective_to`
+    (открытый слот — `effective_to IS NULL`). Иначе после версионирующей смены
+    расписания (apply_schedule_change закрывает старый слот и открывает новый —
+    остаётся ДВЕ строки) группа показывалась бы занимающейся сразу в двух слотах.
+    История версий отдаётся отдельно в get_schedule (для экрана редактирования).
     """
     result: dict[int, list[dict]] = {gid: [] for gid in group_ids}
     if not group_ids:
         return result
+    today = msk_today()
     slots = (
         GroupScheduleSlot.objects
-        .filter(group_id__in=group_ids)
+        .filter(group_id__in=group_ids, effective_from__lte=today)
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=today))
         .order_by('day_of_week', 'start_time')
         .values('group_id', 'day_of_week', 'start_time')
     )
