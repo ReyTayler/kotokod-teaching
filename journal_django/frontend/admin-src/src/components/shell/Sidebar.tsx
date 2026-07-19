@@ -3,7 +3,20 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { ThemeToggle } from './ThemeToggle';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
+import { usePendingExtraLessonsCount } from '../../hooks/useExtraLessons';
 import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, type Role } from '../../lib/permissions';
+
+/** Красный бейдж с числом необработанных пропусков на кнопке «Доп.уроки». */
+export function ExtraLessonsBadge() {
+  const { data } = usePendingExtraLessonsCount();
+  const count = data?.count ?? 0;
+  if (count <= 0) return null;
+  return (
+    <span className="nav-badge" title={`Необработанных пропусков: ${count}`}>
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
 
 export const NAV_ICONS: Record<string, ReactElement> = {
   dashboard: (
@@ -232,6 +245,7 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
               className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
             >
               {NAV_ICONS[s.key]} {s.label}
+              {s.key === 'extra-lessons' && <ExtraLessonsBadge />}
             </NavLink>
           </div>
         ))}

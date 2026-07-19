@@ -68,6 +68,17 @@
 }
 .nav-btn svg { flex-shrink: 0; opacity: 0.85; }
 .nav-btn.active svg { opacity: 1; }
+/* Красный бейдж-счётчик необработанных пропусков на кнопке «Доп.уроки». */
+.nav-badge {
+  margin-left: auto;
+  min-width: 18px; height: 18px;
+  padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 9px;
+  background: var(--danger); color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  flex-shrink: 0;
+}
 .nav-btn--cta {
   background: var(--accent-soft);
   color: var(--accent);

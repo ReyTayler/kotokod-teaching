@@ -33,6 +33,19 @@ export function useExtraLessons(params: ExtraLessonsListParams) {
   });
 }
 
+/** Число необработанных пропусков (pending) — бейдж в сайдбаре. Разделяет
+ *  префикс ['extra-lessons'] с мутациями раздела, поэтому create/burn/cancel/
+ *  record/remove его инвалидируют автоматически; плюс лёгкий фон-рефетч. */
+export function usePendingExtraLessonsCount() {
+  return useQuery({
+    queryKey: ['extra-lessons', 'pending-count'],
+    queryFn: () => api<{ count: number }>('GET', '/api/admin/extra-lessons/pending-count'),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
 export function useExtraLessonMutations() {
   const qc = useQueryClient();
   const invalidate = () => {

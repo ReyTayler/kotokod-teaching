@@ -94,6 +94,16 @@ class ExtraLessonListCreateView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
+class ExtraLessonPendingCountView(APIView):
+    """GET /api/admin/extra-lessons/pending-count → {count} — необработанные
+    пропуски (pending) для бейджа в сайдбаре. Лёгкий COUNT, без пагинации."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        return Response({'count': repository.pending_count()})
+
+
 class ExtraLessonDetailView(APIView):
     permission_classes = [IsManagerOrAdmin]
 

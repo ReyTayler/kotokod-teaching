@@ -166,6 +166,7 @@ export interface AbsenceResolution {
   missed_lesson_group_id: ID;
   missed_lesson_group_name: string;
   missed_lesson_date: string;
+  missed_lesson_number: string | number;  // numeric(5,1) — рендерится строкой
   scheduled_date: string;
   scheduled_time: string;
   duration_minutes: number;

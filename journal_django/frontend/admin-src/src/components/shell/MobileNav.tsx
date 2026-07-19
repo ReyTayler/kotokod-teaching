@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { SECTIONS, NAV_ICONS } from './Sidebar';
+import { SECTIONS, NAV_ICONS, ExtraLessonsBadge } from './Sidebar';
 import { useAuth } from '../../hooks/useAuth';
 import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, type Role } from '../../lib/permissions';
 
@@ -37,6 +37,7 @@ export function MobileNav({ open, onClose }: Props) {
             >
               {NAV_ICONS[s.key]}
               <span>{s.label}</span>
+              {s.key === 'extra-lessons' && <ExtraLessonsBadge />}
             </NavLink>
           ))}
           {canSeeAccounts(role) && (

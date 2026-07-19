@@ -627,3 +627,32 @@ def test_burn_endpoint_requires_manager(teacher_client):
 def test_burn_endpoint_unauthenticated_401(anon_client):
     resp = anon_client.post(f'{ADMIN_URL}/1/burn')
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Admin: pending-count (бейдж сайдбара)
+# ---------------------------------------------------------------------------
+
+def test_pending_count_reflects_pending_resolutions(
+    admin_client, teacher_fixture, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    """missed_lesson_fixture авто-создал 1 pending → счётчик >= 1; назначение
+    доп.урока (pending → makeup_scheduled) уменьшает его на 1."""
+    resp = admin_client.get(f'{ADMIN_URL}/pending-count')
+    assert resp.status_code == 200
+    assert isinstance(resp.data['count'], int)
+    before = resp.data['count']
+    assert before >= 1
+
+    admin_client.post(
+        ADMIN_URL,
+        _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
+        format='json',
+    )
+    after = admin_client.get(f'{ADMIN_URL}/pending-count').json()['count']
+    assert after == before - 1
+
+
+def test_pending_count_requires_manager(teacher_client):
+    resp = teacher_client.get(f'{ADMIN_URL}/pending-count')
+    assert resp.status_code == 403

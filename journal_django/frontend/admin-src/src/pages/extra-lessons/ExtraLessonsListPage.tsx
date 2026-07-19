@@ -71,8 +71,12 @@ export default function ExtraLessonsListPage() {
   };
 
   const columns: Column<AbsenceResolution>[] = [
-    { key: 'scheduled_date', label: 'Дата', sortable: true, searchable: false, cell: (r) => (r.scheduled_date ? fmtDate(r.scheduled_date) : '—') },
+    { key: 'scheduled_date', label: 'Дата доп.урока', sortable: true, searchable: false, cell: (r) => (r.scheduled_date ? fmtDate(r.scheduled_date) : '—') },
     { key: 'missed_lesson_group_name', label: 'Группа (пропуск)', sortable: false, searchable: false },
+    {
+      key: 'missed_lesson', label: 'За какой урок', sortable: false, searchable: false,
+      cell: (r) => `Урок №${Number(r.missed_lesson_number)} · ${fmtDate(r.missed_lesson_date)}`,
+    },
     { key: 'teacher_name', label: 'Преподаватель', sortable: true, searchable: false, cell: (r) => r.teacher_name || '—' },
     { key: 'student_name', label: 'Ученик', sortable: true, searchable: false },
     { key: 'status', label: 'Статус', sortable: true, searchable: false, cell: (r) => STATUS_LABELS[r.status] || r.status },

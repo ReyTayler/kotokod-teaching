@@ -37,7 +37,8 @@ def _full_values(qs):
         teacher_name=F('assigned_teacher__name'),
         missed_lesson_group_id=F('missed_lesson__group_id'),
         missed_lesson_group_name=F('missed_lesson__group__name'),
-        missed_lesson_date=F('missed_lesson__lesson_date'))
+        missed_lesson_date=F('missed_lesson__lesson_date'),
+        missed_lesson_number=F('missed_lesson__lesson_number'))
 
 
 def get_resolution_full(resolution_id) -> Optional[dict]:
@@ -108,6 +109,11 @@ def mark_burned(resolution_id, *, fact_lesson_id) -> None:
     """pending → burned с привязкой к созданному burned-факту (Lesson)."""
     AbsenceResolution.objects.filter(id=resolution_id).update(
         status=BURNED, fact_lesson_id=fact_lesson_id)
+
+
+def pending_count() -> int:
+    """Число необработанных пропусков (status=pending) — для бейджа в сайдбаре."""
+    return AbsenceResolution.objects.filter(status=PENDING).count()
 
 
 def has_active_resolution(missed_lesson_id, student_id) -> bool:

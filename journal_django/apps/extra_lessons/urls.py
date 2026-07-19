@@ -3,11 +3,13 @@
 from django.urls import path
 
 from apps.extra_lessons.views import (
-    ExtraLessonBurnView, ExtraLessonCancelView, ExtraLessonDetailView, ExtraLessonListCreateView,
+    ExtraLessonBurnView, ExtraLessonCancelView, ExtraLessonDetailView,
+    ExtraLessonListCreateView, ExtraLessonPendingCountView,
 )
 
 urlpatterns = [
     path('', ExtraLessonListCreateView.as_view(), name='extra-lessons-list-create'),
+    path('/pending-count', ExtraLessonPendingCountView.as_view(), name='extra-lessons-pending-count'),
     path('/<int:pk>', ExtraLessonDetailView.as_view(), name='extra-lessons-detail'),
     path('/<int:pk>/cancel', ExtraLessonCancelView.as_view(), name='extra-lessons-cancel'),
     path('/<int:pk>/burn', ExtraLessonBurnView.as_view(), name='extra-lessons-burn'),
