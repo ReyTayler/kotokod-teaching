@@ -569,7 +569,8 @@ def get_plan_lesson(group_id: int, lesson_id: int) -> dict | None:
     return (
         PlannedLesson.objects
         .filter(group_id=group_id, id=lesson_id)
-        .values('id', 'seq', 'scheduled_date', 'scheduled_time', 'teacher_id', 'status')
+        .values('id', 'seq', 'scheduled_date', 'scheduled_time',
+                'teacher_id', 'substitute_teacher_id', 'status')
         .first()
     )
 
@@ -842,11 +843,13 @@ def _relay_tail(
     if not open_slots:
         return
 
-    # Занятые даты = даты ВСЕХ строк группы, не входящих в перекладываемый хвост
-    # (done/маркеры/extra/голова). На них курсовую строку не ставим.
+    # Занятые даты = даты строк группы вне хвоста (done/маркеры/extra) начиная с
+    # from_date. На них курсовую строку не ставим. Ограничение >= from_date: walk
+    # стартует с from_date, более ранние даты недостижимы — не раздуваем skip_dates
+    # историей (иначе горизонт мог бы упереться в _CAP_WEEKS).
     skip_dates = frozenset(
         PlannedLesson.objects
-        .filter(group_id=group_id)
+        .filter(group_id=group_id, scheduled_date__gte=from_date)
         .exclude(id__in=tail_ids)
         .values_list('scheduled_date', flat=True)
     )
@@ -1141,7 +1144,7 @@ def preview_freeze(
             tail_ids = {p.id for p in tail}
             skip_dates = frozenset(
                 PlannedLesson.objects
-                .filter(group_id=group_id)
+                .filter(group_id=group_id, scheduled_date__gte=frozen_until)
                 .exclude(id__in=tail_ids)
                 .values_list('scheduled_date', flat=True)
             )
@@ -1218,7 +1221,7 @@ def freeze_individual_group(
         tail_ids = {p.id for p in tail}
         skip_dates = frozenset(
             PlannedLesson.objects
-            .filter(group_id=group_id)
+            .filter(group_id=group_id, scheduled_date__gte=resume_date)
             .exclude(id__in=tail_ids)
             .values_list('scheduled_date', flat=True)
         )

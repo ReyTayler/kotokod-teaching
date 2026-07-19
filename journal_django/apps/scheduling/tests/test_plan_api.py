@@ -361,6 +361,26 @@ class TestSubstituteTeacher:
             (substitute_id,) = cur.fetchone()
         assert substitute_id is None   # замена сброшена при переезде строки
 
+    def test_cancel_marker_carries_substitute_teacher(self, manager_client, plan_group):
+        """Отмена замещённого занятия: зачёркнутый маркер несёт ЗАМЕСТИТЕЛЯ (он
+        реально должен был вести эту дату), а не преподавателя контента."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        target = _by_seq(plan)[3]
+        sub = plan_group['teacher_b']
+        marker_date = target['scheduled_date']
+        manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/change-teacher',
+            {'new_teacher_id': sub}, format='json',
+        )
+        after = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/cancel', {}, format='json',
+        ).json()
+        marker = next(r for r in after
+                      if r['status'] == 'cancelled' and r['scheduled_date'] == marker_date)
+        # teacher_id маркера (эффективный) = заместитель.
+        assert marker['teacher_id'] == sub
+
 
 class TestChangeTeacherPermanent:
     def test_sets_teacher_on_tail_only(self, manager_client, plan_group):

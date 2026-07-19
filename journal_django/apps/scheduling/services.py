@@ -411,10 +411,14 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
             '(не отменённого/проведённого).'
         )
     from_date = anchor['scheduled_date']
+    # Маркер несёт ЭФФЕКТИВНОГО преподавателя отменённой сессии (замена на дату,
+    # если была) — чтобы зачёркнутое занятие попало в календарь того, кто реально
+    # должен был вести D, а не преподавателя контента.
+    marker_teacher_id = anchor['substitute_teacher_id'] or anchor['teacher_id']
     plan = repository.cancel_lesson(
         group_id, from_date,
         marker_time=anchor['scheduled_time'],
-        marker_teacher_id=anchor['teacher_id'],
+        marker_teacher_id=marker_teacher_id,
     )
     log_event(
         'plan_cancel',
