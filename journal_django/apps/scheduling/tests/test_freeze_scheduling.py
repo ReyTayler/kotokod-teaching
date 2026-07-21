@@ -165,6 +165,34 @@ def test_freeze_cancels_extra_but_skips_relay_when_no_open_slot(indiv_group):
 
 
 @pytest.mark.django_db
+def test_freeze_wipes_stale_cancelled_marker_in_window(indiv_group):
+    """wipe_one_offs добавляет то, чего перекладка хвоста не делает вовсе: удаляет
+    УЖЕ отменённые ранее маркеры (seq=NULL, status=CANCELLED) в окне заморозки.
+
+    Шаг (а) freeze_individual_group ловит только pending/overdue extra/маркеры
+    (переводит их в CANCELLED) — уже-CANCELLED маркер им не подходит под фильтр
+    _MUTABLE_STATUSES и молча остаётся висеть в БД навсегда. Без вызова
+    wipe_one_offs это доказуемый баг: пере-заморозка/пере-разморозка группы копит
+    мёртвые cancelled-маркеры в окне. С wipe_one_offs (см. test_wipe_one_offs.py:
+    удаляет seq IS NULL, status=CANCELLED в диапазоне) такой маркер удаляется."""
+    gid = indiv_group['group']
+    tid = indiv_group['teacher']
+    now = datetime.datetime(2026, 7, 1, 12, 0)
+    # Маркер, отменённый КАКОЙ-ТО прошлой операцией (не текущим freeze), уже
+    # лежит в окне заморозки (2026-07-12 между frozen_from и resume_date).
+    PlannedLesson.objects.create(
+        group_id=gid, seq=None, lesson_number=None,
+        scheduled_date=datetime.date(2026, 7, 12), scheduled_time=datetime.time(11, 0),
+        teacher_id=tid, status=CANCELLED, created_at=now, updated_at=now)
+
+    sched_repo.freeze_individual_group(
+        gid, frozen_from=datetime.date(2026, 7, 8), resume_date=datetime.date(2026, 8, 5))
+
+    assert not PlannedLesson.objects.filter(
+        group_id=gid, seq__isnull=True, scheduled_date=datetime.date(2026, 7, 12)).exists()
+
+
+@pytest.mark.django_db
 def test_freeze_cancels_extra_when_no_tail_to_relay(indiv_group):
     """Если весь курсовой хвост уже done (перекладывать нечего) — extra в окне
     всё равно отменяется, функция не падает на пустом хвосте."""
