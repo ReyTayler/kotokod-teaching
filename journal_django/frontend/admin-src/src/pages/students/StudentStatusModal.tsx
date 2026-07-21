@@ -7,10 +7,12 @@ import { DateInput } from '../../components/form/DateInput';
 import { Checkbox } from '../../components/form/Checkbox';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
-import { api, ApiError, extractErrorDetail } from '../../lib/api';
+import { api, ApiError, extractErrorDetail, scheduledMakeupsBlockMessage } from '../../lib/api';
+import { ScheduledMakeupsBlockModal } from '../../components/memberships/ScheduledMakeupsBlockModal';
 import { fmtDate, todayMSK } from '../../lib/format';
 import { ENROLLMENT_STATUS_OPTIONS } from '../../lib/labels';
 import type { EnrollmentStatus, Student } from '../../lib/types';
+import type { AffectedOp } from '../../hooks/useGroupPlan';
 
 export interface StatusModalMembership {
   id: number;
@@ -20,11 +22,34 @@ export interface StatusModalMembership {
 
 // Ответ POST .../status/preview: плоский словарь membership_id (строкой, т.к.
 // ключи JSON-объекта всегда строки) → результат дран-превью сдвига расписания.
+// affected — те же разовые операции хвоста (переносы/замены/отмены), что
+// preview_affected уже отдаёт диалогу «Изменить расписание» (useGroupPlan.ts) —
+// заморозка сбрасывает их точно так же, как permanent-change.
 type FreezePreviewEntry = {
   lesson_on_frozen_from: boolean;
   first_lesson_after_resume: string | null;
+  affected: AffectedOp[];
 };
 type FreezePreviewResponse = Record<string, FreezePreviewEntry>;
+
+// Те же подписи, что AFFECTED_KIND_LABELS в GroupPlanActions.tsx (permanent-change
+// preview) — держим текст одинаковым для одного и того же понятия в разных местах.
+const AFFECTED_KIND_LABELS: Record<AffectedOp['kind'], string> = {
+  reschedule: 'перенос',
+  substitution: 'замена преподавателя',
+  cancellation: 'отмена',
+};
+
+// Компактная агрегация для инлайн-подсказки под чекбоксом (не полный список —
+// полный список показывается в диалоге подтверждения ниже).
+function summarizeAffected(ops: AffectedOp[]): string {
+  const counts: Record<AffectedOp['kind'], number> = { reschedule: 0, substitution: 0, cancellation: 0 };
+  ops.forEach((op) => { counts[op.kind] += 1; });
+  return (['reschedule', 'substitution', 'cancellation'] as const)
+    .filter((k) => counts[k] > 0)
+    .map((k) => `${AFFECTED_KIND_LABELS[k]} (${counts[k]})`)
+    .join(', ');
+}
 
 // Сколько ждать после последнего изменения дат/чекбоксов, прежде чем дёрнуть
 // превью — не гоняем запрос на каждое нажатие клавиши/чекбокс.
@@ -65,6 +90,12 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
   // frozen_from — старое подтверждение не должно молча «прилипать» к новой дате.
   const [coincidenceConfirmedFor, setCoincidenceConfirmedFor] = useState<string | null>(null);
   const [showCoincidenceConfirm, setShowCoincidenceConfirm] = useState(false);
+  // Сигнатура previewInput (см. ниже), для которой админ уже подтвердил сброс
+  // разовых операций хвоста — сбрасывается при любом изменении дат/выбора индива.
+  const [affectedConfirmedFor, setAffectedConfirmedFor] = useState<string | null>(null);
+  const [showAffectedConfirm, setShowAffectedConfirm] = useState(false);
+  // Блок «есть назначенные доп.уроки» при снятии членства (заморозка/уход) — модалка.
+  const [blockMsg, setBlockMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -75,6 +106,8 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
       setDateError(undefined);
       setCoincidenceConfirmedFor(null);
       setShowCoincidenceConfirm(false);
+      setAffectedConfirmedFor(null);
+      setShowAffectedConfirm(false);
     }
     // memberships пересобирается на каждом рендере родителя — сравнивать нет смысла,
     // достаточно синхронизации по факту открытия модалки.
@@ -127,6 +160,13 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
     return () => clearTimeout(t);
   }, [frozenFrom, frozenUntil, selectedIndividualIdsKey]);
 
+  // Сигнатура текущего (дебаунснутого) превью-запроса — по ней и сбрасываем
+  // ранее данное подтверждение сброса разовых операций (см. affectedConfirmedFor).
+  const previewInputSignature = `${previewInput.from}|${previewInput.until}|${previewInput.idsKey}`;
+  useEffect(() => {
+    setAffectedConfirmedFor(null);
+  }, [previewInputSignature]);
+
   const previewEnabled = open && status === 'frozen'
     && !!previewInput.from && !!previewInput.until && previewInput.from <= previewInput.until
     && previewInput.idsKey.length > 0;
@@ -155,6 +195,22 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
   const hasUnconfirmedCoincidence = coincidentMemberships.length > 0
     && coincidenceConfirmedFor !== frozenFrom;
 
+  // Разовые операции хвоста (переносы/замены/отмены) в окне заморозки по всем
+  // выбранным индив-членствам — сплющены в один список с привязкой к группе,
+  // для диалога подтверждения ниже (мультичленства показываются одним списком).
+  const allAffectedOps = useMemo(() => {
+    if (status !== 'frozen' || !previewQuery.data) return [];
+    return selectedIndividualIds.flatMap((id) => {
+      const preview = previewQuery.data?.[String(id)];
+      if (!preview?.affected.length) return [];
+      const groupName = individualMemberships.find((m) => m.id === id)?.group_name || '';
+      return preview.affected.map((op) => ({ ...op, membershipId: id, groupName }));
+    });
+  }, [status, previewQuery.data, selectedIndividualIds, individualMemberships]);
+
+  const hasUnconfirmedAffected = allAffectedOps.length > 0
+    && affectedConfirmedFor !== previewInputSignature;
+
   const mutation = useMutation({
     mutationFn: () => api<Student>('POST', `/api/admin/students/${studentId}/status`, {
       status,
@@ -171,6 +227,8 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
       onClose();
     },
     onError: (err) => {
+      const block = scheduledMakeupsBlockMessage(err);
+      if (block) { setBlockMsg(block); return; }
       if (err instanceof ApiError) {
         const detail = extractErrorDetail(err.details);
         showError(detail ? new Error(detail) : err, 'Не удалось изменить статус');
@@ -196,12 +254,29 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
       setShowCoincidenceConfirm(true);
       return;
     }
+    if (hasUnconfirmedAffected) {
+      setShowAffectedConfirm(true);
+      return;
+    }
     mutation.mutate();
   };
 
   const confirmCoincidenceAndSubmit = () => {
     setCoincidenceConfirmedFor(frozenFrom);
     setShowCoincidenceConfirm(false);
+    // Оба диалога — последовательные гейты: если после подтверждения
+    // совпадения ещё остались неподтверждённые разовые операции, спрашиваем
+    // и про них, а не проваливаемся молча сразу к сохранению.
+    if (hasUnconfirmedAffected) {
+      setShowAffectedConfirm(true);
+      return;
+    }
+    mutation.mutate();
+  };
+
+  const confirmAffectedAndSubmit = () => {
+    setAffectedConfirmedFor(previewInputSignature);
+    setShowAffectedConfirm(false);
     mutation.mutate();
   };
 
@@ -270,6 +345,11 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
                               : (previewQuery.isError && previewEnabled
                                 ? 'Не удалось проверить расписание — совпадение с уроком не проверено'
                                 : null)}
+                        </div>
+                      )}
+                      {status === 'frozen' && selected && preview && preview.affected.length > 0 && (
+                        <div className="status-form__membership-preview">
+                          Будут сброшены разовые операции: {summarizeAffected(preview.affected)}
                         </div>
                       )}
                     </div>
@@ -341,6 +421,50 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
           </div>
         </div>
       </Dialog>
+    )}
+
+    {showAffectedConfirm && (
+      <Dialog
+        open={showAffectedConfirm}
+        onOpenChange={(o) => { if (!o) setShowAffectedConfirm(false); }}
+        title="Разовые операции будут сброшены"
+      >
+        <div className="status-form">
+          <p className="status-form__hint">
+            В периоде заморозки есть разовые операции по расписанию — при заморозке
+            они будут сброшены:
+          </p>
+          <ul className="affected-ops-list">
+            {allAffectedOps.map((op, i) => (
+              <li key={`${op.membershipId}-${i}`} className="affected-ops-list__item">
+                <span className="status-badge status-badge--negative">{AFFECTED_KIND_LABELS[op.kind]}</span>
+                <span>«{op.groupName}»</span>
+                {op.seq != null && <span>урок {op.seq}</span>}
+                <span>— {fmtDate(op.date)}</span>
+                {op.time && <span>{op.time.slice(0, 5)}</span>}
+                {op.from_date && <span>(было {fmtDate(op.from_date)})</span>}
+              </li>
+            ))}
+          </ul>
+          <div className="status-form__footer">
+            <button type="button" className="btn-cancel" onClick={() => setShowAffectedConfirm(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn-save"
+              onClick={confirmAffectedAndSubmit}
+              disabled={mutation.isPending}
+            >
+              Заморозить и сбросить
+            </button>
+          </div>
+        </div>
+      </Dialog>
+    )}
+
+    {blockMsg && (
+      <ScheduledMakeupsBlockModal message={blockMsg} onClose={() => setBlockMsg(null)} />
     )}
     </>
   );
