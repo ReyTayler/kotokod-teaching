@@ -52,21 +52,41 @@ class PlanRescheduleSerializer(StrictSerializer):
         return _validate_time(value)
 
 
-class PlanPermanentChangeSerializer(StrictSerializer):
-    """POST /plan/permanent-change — перенос навсегда (с позиции from_seq).
+class PlanSlotSerializer(serializers.Serializer):
+    """Один слот целевого набора (перенос навсегда мультислотовой группы)."""
 
-    effective_from НЕ принимается от клиента: граница нового слота выводится на
-    сервере из новой даты строки seq=from_seq (см. repository.permanent_change),
-    чтобы версионирование слота и сдвиг хвоста не разъезжались. Лишний
-    effective_from в теле → 400 (StrictSerializer отклоняет неизвестные поля)."""
+    day_of_week = serializers.IntegerField(min_value=0, max_value=6)
+    start_time = serializers.CharField()
+
+    def validate_start_time(self, value):
+        if not _TIME_RE.match(value or ''):
+            raise serializers.ValidationError('Время должно быть в формате HH:MM или HH:MM:SS.')
+        return value
+
+
+class PlanPermanentChangeSerializer(StrictSerializer):
+    """POST /plan/permanent-change — «изменить расписание» с позиции from_seq.
+
+    Единый контракт (никакого легаси-скаляра): клиент явно передаёт
+      - effective_from — дату, с которой действует новый набор слотов;
+      - new_slots — целевой НАБОР слотов (1..N, {'day_of_week', 'start_time'}).
+    Хвост (seq>=from_seq) чисто перегенерируется от effective_from по new_slots
+    (см. repository.permanent_change) — не переносится относительно старых дат."""
 
     from_seq = serializers.IntegerField(min_value=1)
-    new_day_of_week = serializers.IntegerField(min_value=0, max_value=6)
-    new_time = serializers.CharField(required=False, allow_null=True)
+    effective_from = DateStringField()
+    new_slots = PlanSlotSerializer(many=True, required=True, allow_empty=False)
     new_teacher_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
-    def validate_new_time(self, value):
-        return _validate_time(value)
+    def validate(self, attrs):
+        attrs = super().validate(attrs)  # отклонить неизвестные поля
+        seen = set()
+        for s in attrs['new_slots']:
+            key = (s['day_of_week'], s['start_time'][:5])
+            if key in seen:
+                raise serializers.ValidationError('Дублирующийся слот в new_slots.')
+            seen.add(key)
+        return attrs
 
 
 class PlanChangeTeacherSerializer(StrictSerializer):

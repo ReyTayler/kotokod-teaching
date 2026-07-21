@@ -63,10 +63,11 @@ def test_permanent_change_teacher_moves_tail_between_calendars(sched_setup):
     s = sched_setup
     repository.generate_for_group(s['group_a'])
 
-    # Перенос навсегда с seq=3: тот же день недели (Пн=1), новый преподаватель B.
+    # Перенос навсегда с seq=3 (2026-06-15): тот же день/время (Пн 10:00),
+    # новый преподаватель B.
     repository.permanent_change(
-        s['group_a'], from_seq=3, new_day_of_week=1,
-        new_time=None, new_teacher_id=s['teacher_b'],
+        s['group_a'], from_seq=3, effective_from=D(2026, 6, 15),
+        new_slots=[{'day_of_week': 1, 'start_time': '10:00'}], new_teacher_id=s['teacher_b'],
     )
 
     a_after = _dates_in_calendar(s['teacher_a'], s['group_a_name'])
@@ -87,8 +88,8 @@ def test_done_lesson_not_reassigned_by_permanent_change(sched_setup):
     PlannedLesson.objects.filter(group_id=s['group_a'], seq=3).update(status='done')
 
     repository.permanent_change(
-        s['group_a'], from_seq=3, new_day_of_week=1,
-        new_time=None, new_teacher_id=s['teacher_b'],
+        s['group_a'], from_seq=3, effective_from=D(2026, 6, 15),
+        new_slots=[{'day_of_week': 1, 'start_time': '10:00'}], new_teacher_id=s['teacher_b'],
     )
 
     done = PlannedLesson.objects.get(group_id=s['group_a'], seq=3)

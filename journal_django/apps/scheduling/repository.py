@@ -8,8 +8,8 @@ date/time объекты (managed-модели), генератор работа
 from __future__ import annotations
 
 import datetime
-from decimal import Decimal
 from collections import defaultdict
+from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import F, Min, Q
@@ -703,71 +703,64 @@ def change_teacher_permanent(
     return get_plan(group_id)
 
 
+def _parse_hhmm(value) -> datetime.time:
+    """'HH:MM'/'HH:MM:SS' → time; datetime.time пропускаем как есть."""
+    if isinstance(value, datetime.time):
+        return value
+    parts = [int(x) for x in value.split(':')]
+    return datetime.time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
+
+
 def permanent_change(
     group_id: int,
     *,
     from_seq: int,
-    new_day_of_week: int,
-    new_time: datetime.time | None,
-    new_teacher_id: int | None,
+    effective_from: datetime.date,
+    new_slots: list[dict],
+    new_teacher_id: int | None = None,
 ) -> list[dict] | None:
     """
-    Перенос навсегда с позиции from_seq (в одной транзакции):
+    «Изменить расписание» с позиции from_seq: ЕДИНЫЙ путь — чистая перегенерация
+    хвоста от клиентской effective_from по целевому набору new_slots (1..N слотов).
+    Никакого легаси-скаляра и никакой относительной перекладки (_relay_tail) —
+    только regen, тот же принцип, что и у cancel_lesson/wipe_one_offs.
 
-      (а) пересчитать курсовые строки seq>=from_seq со статусом pending/overdue →
-          planner.permanent_change (сдвиг на новый день недели, опц. время/препод);
-      (б) версионировать слот — groups.repository.apply_schedule_change (закрыть
-          открытые слоты effective_to=дата−1 / вставить новый day/time). Время
-          нового слота = new_time или время текущего открытого слота.
+    Шаги (одна транзакция):
+      (1) wipe_one_offs — сбросить разовые операции хвоста (переносы/замены/
+          маркеры отмен) от effective_from / seq>=from_seq;
+      (2) apply_schedule_change версионирует ВЕСЬ набор слотов от effective_from
+          (закрывает старые открытые слоты днём раньше, открывает новые);
+      (3) planner.generate разворачивает остаток курса (start_seq=from_seq,
+          start_number = голова курса до from_seq) от effective_from по новому
+          набору — тот же примитив, что строит план с нуля, поэтому выдаёт РОВНО
+          ту же seq-последовательность, что уже лежит в БД хвостом;
+      (4) результат мапится на существующие строки хвоста по seq и пишется
+          bulk_update (даты/время/препод; moved_from_date/substitute_teacher_id
+          сбрасываются явно — хвост уже переехал на новые даты);
+      (5) lessons_per_week синхронизируется с числом new_slots; teacher группы —
+          с new_teacher_id, если он передан.
 
-    Граница нового слота (effective_from) НЕ принимается от клиента, а выводится
-    на сервере из новой даты самой ранней сдвинутой строки (seq=from_seq) — так
-    версионирование слота и сдвиг хвоста не могут разъехаться.
+    done и голова (seq<from_seq) не трогаются. Баланс/абонемент не затрагиваются.
 
-    Ограничение (в духе спеки — перенос ЕДИНСТВЕННОГО недельного слота): для групп
-    с >1 открытым слотом операция недоступна (иначе _shift_to_weekday сажает
-    несколько недельных строк на один день/время → коллизия по дате, которую
-    UniqueConstraint(group, seq) не ловит) — поднимаем ValueError ДО любых записей.
-
-    None → группы нет (404). ValueError → мульти-слот / нет времени слота / нет
-    курсовых строк с указанной позиции. Возвращает новый план (get_plan).
-
-    Если передан new_teacher_id, он же становится преподавателем группы по
-    умолчанию (groups.teacher_id) — как и в change_teacher_permanent.
+    None → группы нет (404). ValueError → нет курсовых строк с указанной позиции
+    (from_seq). Возвращает новый план (get_plan).
     """
     # Локальный импорт: избегаем циклической зависимости на уровне модуля
     # (groups.urls → scheduling.views → …). Переиспользуем версионирование слота.
     from apps.groups import repository as groups_repo
-    from apps.groups.models import GroupScheduleSlot
 
     if not Group.objects.filter(id=group_id).exists():
         return None
 
     now = msk_now()
     with transaction.atomic():
-        # (0) Гард мульти-слотовых групп: перенос навсегда рассчитан на один
-        # недельный слот. При >1 открытом слоте отказываемся ДО любых изменений.
-        open_slots = list(
-            GroupScheduleSlot.objects
-            .filter(group_id=group_id, effective_to__isnull=True)
-            .order_by('day_of_week', 'start_time')
-        )
-        if len(open_slots) > 1:
-            raise ValueError(
-                'Перенос навсегда недоступен для групп с несколькими занятиями в неделю.'
-            )
+        g = Group.objects.filter(id=group_id).values(
+            'lesson_duration_minutes', 'teacher_id',
+            total_lessons=F('direction__total_lessons')).first()
+        step = _step_for(g['lesson_duration_minutes'])
+        start_seq = from_seq
+        start_number = (Decimal(from_seq) - 1) * step
 
-        # Время нового слота: явное new_time или время текущего открытого слота.
-        if new_time is not None:
-            slot_time = new_time
-        elif open_slots:
-            slot_time = open_slots[0].start_time
-        else:
-            slot_time = None
-        if slot_time is None:
-            raise ValueError('Нет времени для нового слота: укажите new_time.')
-
-        # (а) пересчитать хвост курсовых строк.
         tail = list(
             PlannedLesson.objects
             .select_for_update()
@@ -780,41 +773,47 @@ def permanent_change(
         if not tail:
             raise ValueError('Нет курсовых строк для переноса с указанной позиции (seq).')
 
+        # (1) чистый лист хвоста — сбросить разовые операции.
+        wipe_one_offs(group_id, date_from=effective_from, from_seq=from_seq)
+
+        # (2) версионируем ВЕСЬ набор слотов от новой (клиентской) даты.
+        target = [
+            {'day_of_week': s['day_of_week'],
+             'start_time': _parse_hhmm(s['start_time']).strftime('%H:%M')}
+            for s in new_slots
+        ]
+        groups_repo.apply_schedule_change(group_id, effective_from, target)
+
+        # (3) генерируем остаток курса от effective_from по новому набору слотов.
+        open_slots = [s for s in slots_by_group([group_id]).get(group_id, [])
+                      if s.effective_to is None]
+        teacher_for_tail = new_teacher_id if new_teacher_id is not None else g['teacher_id']
+        rows = planner.generate(
+            start_date=effective_from, slots=open_slots,
+            total_lessons=g['total_lessons'], duration_minutes=g['lesson_duration_minutes'],
+            default_teacher_id=teacher_for_tail, start_seq=start_seq, start_number=start_number)
+
+        # (4) мапим сгенерированные строки на реальный хвост по seq (та же
+        # seq-последовательность — generate(start_seq=...) детерминирован).
         by_seq = {p.seq: p for p in tail}
-        changed = planner.permanent_change(
-            [_row_from_model(p) for p in tail],
-            from_seq=from_seq,
-            new_day_of_week=new_day_of_week,
-            new_time=new_time,
-            new_teacher_id=new_teacher_id,
-        )
-
-        # (б) версионировать слот. Граница = новая дата самой ранней сдвинутой
-        # строки (changed упорядочен по seq → changed[0] соответствует seq=from_seq),
-        # которая по построению приходится на new_day_of_week.
-        effective_from = changed[0].scheduled_date
-        groups_repo.apply_schedule_change(
-            group_id,
-            effective_from,
-            [{'day_of_week': new_day_of_week, 'start_time': slot_time.strftime('%H:%M')}],
-        )
-
         to_update = []
-        for cr in changed:
-            p = by_seq[cr.seq]
-            date_changed = p.scheduled_date != cr.scheduled_date
-            p.scheduled_date = cr.scheduled_date
-            p.scheduled_time = cr.scheduled_time
-            p.teacher_id = cr.teacher_id
-            if date_changed:
-                p.substitute_teacher_id = None  # замена — свойство даты, не едет
+        for r in rows:
+            p = by_seq.get(r.seq)
+            if p is None:
+                continue
+            p.scheduled_date = r.scheduled_date
+            p.scheduled_time = r.scheduled_time
+            p.teacher_id = teacher_for_tail
+            p.moved_from_date = None
+            p.substitute_teacher_id = None
             p.updated_at = now
             to_update.append(p)
-        PlannedLesson.objects.bulk_update(
-            to_update,
-            ['scheduled_date', 'scheduled_time', 'teacher',
-             'substitute_teacher', 'updated_at'],
-        )
+        PlannedLesson.objects.bulk_update(to_update, [
+            'scheduled_date', 'scheduled_time', 'teacher', 'moved_from_date',
+            'substitute_teacher', 'updated_at'])
+
+        # (5) метаданные группы в синхроне.
+        Group.objects.filter(id=group_id).update(lessons_per_week=len(target))
         if new_teacher_id is not None:
             Group.objects.filter(id=group_id).update(teacher_id=new_teacher_id)
 
@@ -886,76 +885,6 @@ def preview_affected(
         if r['substitute_teacher_id'] is not None:
             out.append({'kind': 'substitution', 'seq': r['seq'], 'date': r['scheduled_date']})
     return out
-
-
-def _relay_tail(
-    group_id: int,
-    *,
-    from_date: datetime.date,
-    now: datetime.datetime,
-) -> None:
-    """Непрерывно переложить курсовой хвост группы (pending/overdue, seq задан,
-    scheduled_date >= from_date) по текущему открытому слоту от from_date,
-    ОБХОДЯ уже занятые даты (проведённые уроки, маркеры отмен, доп.занятия и
-    любые прочие строки вне хвоста). Замена преподавателя (substitute_teacher)
-    обнуляется у строк, чья дата изменилась (замена — свойство даты, не едет).
-
-    Вызывается ВНУТРИ уже открытой транзакции. Нет открытого слота или пустой
-    хвост → ничего не двигаем (нельзя развернуть каденцию)."""
-    tail = list(
-        PlannedLesson.objects
-        .select_for_update()
-        .filter(group_id=group_id, seq__isnull=False,
-                status__in=_MUTABLE_STATUSES, scheduled_date__gte=from_date)
-        .order_by('seq')
-    )
-    if not tail:
-        return
-    tail_ids = {p.id for p in tail}
-
-    g = (Group.objects.filter(id=group_id).values('lesson_duration_minutes').first())
-    if g is None:
-        return
-    open_slots = [s for s in slots_by_group([group_id]).get(group_id, [])
-                  if s.effective_to is None]
-    if not open_slots:
-        return
-
-    # Занятые даты = даты строк группы вне хвоста (done/маркеры/extra) начиная с
-    # from_date. На них курсовую строку не ставим. Ограничение >= from_date: walk
-    # стартует с from_date, более ранние даты недостижимы — не раздуваем skip_dates
-    # историей (иначе горизонт мог бы упереться в _CAP_WEEKS).
-    skip_dates = frozenset(
-        PlannedLesson.objects
-        .filter(group_id=group_id, scheduled_date__gte=from_date)
-        .exclude(id__in=tail_ids)
-        .values_list('scheduled_date', flat=True)
-    )
-
-    by_seq = {p.seq: p for p in tail}
-    relaid = planner.relay_from_date(
-        [_row_from_model(p) for p in tail],
-        resume_date=from_date,
-        slots=open_slots,
-        duration_minutes=g['lesson_duration_minutes'],
-        skip_dates=skip_dates,
-    )
-    to_update = []
-    for cr in relaid:
-        p = by_seq[cr.seq]
-        date_changed = p.scheduled_date != cr.scheduled_date
-        p.scheduled_date = cr.scheduled_date
-        p.scheduled_time = cr.scheduled_time
-        p.moved_from_date = None
-        if date_changed:
-            p.substitute_teacher_id = None  # замена не едет с контентом
-        p.updated_at = now
-        to_update.append(p)
-    PlannedLesson.objects.bulk_update(
-        to_update,
-        ['scheduled_date', 'scheduled_time', 'moved_from_date',
-         'substitute_teacher', 'updated_at'],
-    )
 
 
 def _next_slot_after(

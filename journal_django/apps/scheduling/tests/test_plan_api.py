@@ -411,7 +411,8 @@ class TestSubstituteTeacher:
         self._set_substitute(manager_client, gid, target['id'], plan_group['teacher_b'])
         resp = manager_client.post(
             f'/api/admin/groups/{gid}/plan/permanent-change',
-            {'from_seq': 3, 'new_day_of_week': 3, 'new_time': '14:00'}, format='json',
+            {'from_seq': 3, 'effective_from': '2026-06-15',
+             'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}]}, format='json',
         )
         assert resp.status_code == 200
         assert self._substitute_of(target['id']) is None
@@ -452,7 +453,8 @@ class TestPermanentChange:
         _generate(manager_client, gid)
         resp = manager_client.post(
             f'/api/admin/groups/{gid}/plan/permanent-change',
-            {'from_seq': 5, 'new_day_of_week': 3, 'new_time': '14:00'},
+            {'from_seq': 5, 'effective_from': '2026-06-29',
+             'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}]},
             format='json',
         )
         assert resp.status_code == 200
@@ -460,19 +462,19 @@ class TestPermanentChange:
         # голова (seq<5) не тронута
         assert by_seq[4]['scheduled_date'] == '2026-06-22'
         assert by_seq[4]['scheduled_time'] == '10:00'
-        # хвост на среду 14:00
+        # хвост на среду 14:00, от effective_from=2026-06-29 (Пн той же недели)
         assert by_seq[5]['scheduled_date'] == '2026-07-01'  # среда недели 2026-06-29
         assert by_seq[5]['scheduled_time'] == '14:00'
         assert by_seq[6]['scheduled_date'] == '2026-07-08'
         assert by_seq[8]['scheduled_date'] == '2026-07-22'
 
-        # слот версионирован: effective_from выведен на сервере из новой даты
-        # строки seq=from_seq (2026-07-01). Старый Пн 10:00 закрыт (07-01 − 1),
-        # новый Ср 14:00 открыт.
+        # слот версионирован от КЛИЕНТСКОЙ effective_from (2026-06-29), а не от
+        # новой даты первой строки хвоста (07-01): старый Пн 10:00 закрыт день
+        # перед effective_from (06-28), новый Ср 14:00 открыт ровно с 06-29.
         sched = manager_client.get(f'/api/admin/groups/{gid}/schedule').json()
         slots = {(s['day_of_week'], s['start_time']): s for s in sched['slots']}
-        assert slots[(1, '10:00')]['effective_to'] == '2026-06-30'
-        assert slots[(3, '14:00')]['effective_from'] == '2026-07-01'
+        assert slots[(1, '10:00')]['effective_to'] == '2026-06-28'
+        assert slots[(3, '14:00')]['effective_from'] == '2026-06-29'
         assert slots[(3, '14:00')]['effective_to'] is None
         # new_teacher_id не передавали — преподаватель группы по умолчанию не тронут
         with connection.cursor() as cur:
@@ -484,7 +486,8 @@ class TestPermanentChange:
         _generate(manager_client, gid)
         resp = manager_client.post(
             f'/api/admin/groups/{gid}/plan/permanent-change',
-            {'from_seq': 5, 'new_day_of_week': 3, 'new_time': '14:00',
+            {'from_seq': 5, 'effective_from': '2026-06-29',
+             'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}],
              'new_teacher_id': plan_group['teacher_b']},
             format='json',
         )
@@ -495,48 +498,119 @@ class TestPermanentChange:
             cur.execute('SELECT teacher_id FROM groups WHERE id = %s', [gid])
             assert cur.fetchone()[0] == plan_group['teacher_b']
 
-    def test_effective_from_from_client_rejected(self, manager_client, plan_group):
-        """effective_from больше не принимается от клиента (StrictSerializer → 400)."""
+    def test_effective_from_required(self, manager_client, plan_group):
+        """effective_from теперь ОБЯЗАТЕЛЕН (единственный контракт) — без него 400."""
         gid = plan_group['group_id']
         _generate(manager_client, gid)
         resp = manager_client.post(
             f'/api/admin/groups/{gid}/plan/permanent-change',
-            {'from_seq': 5, 'new_day_of_week': 3, 'new_time': '14:00',
-             'effective_from': '2026-06-29'},
+            {'from_seq': 5, 'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}]},
             format='json',
         )
         assert resp.status_code == 400
 
-    def test_multi_slot_group_rejected(self, manager_client, plan_group):
-        """Группа с >1 открытым слотом → 400, данные не изменились (целостность)."""
+    def test_multi_slot_group_regenerates_tail(self, manager_client, plan_group):
+        """Мультислот (Пн 10:00 + Ср 12:00): «изменить расписание» с seq=5,
+        effective_from=2026-06-15, набором new_slots (Вт 17:00 + Чт 20:00)
+        чисто перегенерирует хвост по новому набору, версионирует ОБА старых
+        слота и открывает оба новых. Голова не тронута."""
         gid = plan_group['group_id']
-        # добавляем второй открытый слот (Ср 12:00) ДО генерации
+        # второй открытый слот (Ср=3 12:00) ДО генерации → мультислотовая группа
         with connection.cursor() as cur:
             cur.execute(
                 "INSERT INTO group_schedule_slots (group_id,day_of_week,start_time,effective_from) "
                 "VALUES (%s,3,'12:00','2026-06-01')",
                 [gid],
             )
-        before = _generate(manager_client, gid).json()
+        _generate(manager_client, gid)
         resp = manager_client.post(
             f'/api/admin/groups/{gid}/plan/permanent-change',
-            {'from_seq': 3, 'new_day_of_week': 5, 'new_time': '18:00'},
+            {'from_seq': 5, 'effective_from': '2026-06-15', 'new_slots': [
+                {'day_of_week': 2, 'start_time': '17:00'},   # Вт
+                {'day_of_week': 4, 'start_time': '20:00'},   # Чт
+            ]},
+            format='json',
+        )
+        assert resp.status_code == 200, resp.content
+        by_seq = _by_seq(resp.json())
+        # голова (seq<5) не тронута: seq4 = Ср 2026-06-10 12:00
+        assert (by_seq[4]['scheduled_date'], by_seq[4]['scheduled_time']) == ('2026-06-10', '12:00')
+        # хвост разложен по Вт 17:00 / Чт 20:00 непрерывно от effective_from (2026-06-15)
+        assert (by_seq[5]['scheduled_date'], by_seq[5]['scheduled_time']) == ('2026-06-16', '17:00')
+        assert (by_seq[6]['scheduled_date'], by_seq[6]['scheduled_time']) == ('2026-06-18', '20:00')
+        assert (by_seq[7]['scheduled_date'], by_seq[7]['scheduled_time']) == ('2026-06-23', '17:00')
+        assert (by_seq[8]['scheduled_date'], by_seq[8]['scheduled_time']) == ('2026-06-25', '20:00')
+        # НЕ должно быть двух курсовых строк на одну дату (constraint это не ловит)
+        tail_dates = [by_seq[i]['scheduled_date'] for i in (5, 6, 7, 8)]
+        assert len(set(tail_dates)) == 4
+        # слоты: оба старых закрыты (eff_to = effective_from-1 = 2026-06-14), оба новых открыты
+        sched = manager_client.get(f'/api/admin/groups/{gid}/schedule').json()
+        slots = {(s['day_of_week'], s['start_time']): s for s in sched['slots']}
+        assert slots[(1, '10:00')]['effective_to'] == '2026-06-14'
+        assert slots[(3, '12:00')]['effective_to'] == '2026-06-14'
+        assert slots[(2, '17:00')]['effective_from'] == '2026-06-15'
+        assert slots[(2, '17:00')]['effective_to'] is None
+        assert slots[(4, '20:00')]['effective_from'] == '2026-06-15'
+        assert slots[(4, '20:00')]['effective_to'] is None
+        # lessons_per_week синхронизирован с числом новых слотов
+        with connection.cursor() as cur:
+            cur.execute('SELECT lessons_per_week FROM groups WHERE id = %s', [gid])
+            assert cur.fetchone()[0] == 2
+
+    def test_expand_single_to_multi_slot(self, manager_client, plan_group):
+        """Одно-слотовая группа (Пн 10:00) расширяется до двух слотов
+        (Пн 10:00 + Ср 12:00) с seq=5 — раньше это было невозможно."""
+        gid = plan_group['group_id']
+        _generate(manager_client, gid)  # 8 понедельников
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/permanent-change',
+            {'from_seq': 5, 'effective_from': '2026-06-29', 'new_slots': [
+                {'day_of_week': 1, 'start_time': '10:00'},   # Пн (оставляем)
+                {'day_of_week': 3, 'start_time': '12:00'},   # + Ср
+            ]},
+            format='json',
+        )
+        assert resp.status_code == 200, resp.content
+        by_seq = _by_seq(resp.json())
+        # голова не тронута: seq4 = Пн 2026-06-22 10:00
+        assert (by_seq[4]['scheduled_date'], by_seq[4]['scheduled_time']) == ('2026-06-22', '10:00')
+        # хвост с seq5 от 2026-06-29 по Пн+Ср
+        assert (by_seq[5]['scheduled_date'], by_seq[5]['scheduled_time']) == ('2026-06-29', '10:00')
+        assert (by_seq[6]['scheduled_date'], by_seq[6]['scheduled_time']) == ('2026-07-01', '12:00')
+        assert (by_seq[7]['scheduled_date'], by_seq[7]['scheduled_time']) == ('2026-07-06', '10:00')
+        assert (by_seq[8]['scheduled_date'], by_seq[8]['scheduled_time']) == ('2026-07-08', '12:00')
+        with connection.cursor() as cur:
+            cur.execute('SELECT lessons_per_week FROM groups WHERE id = %s', [gid])
+            assert cur.fetchone()[0] == 2
+
+    def test_unknown_field_rejected(self, manager_client, plan_group):
+        """Легаси-поле new_day_of_week больше не существует — StrictSerializer
+        отклоняет его как неизвестное, даже если валидный new_slots тоже передан."""
+        gid = plan_group['group_id']
+        _generate(manager_client, gid)
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/permanent-change',
+            {'from_seq': 5, 'effective_from': '2026-06-29', 'new_day_of_week': 3,
+             'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}]},
             format='json',
         )
         assert resp.status_code == 400
-        # план не тронут
-        after = _get_plan(manager_client, gid)
-        assert [(r['seq'], r['scheduled_date'], r['scheduled_time']) for r in after] == \
-               [(r['seq'], r['scheduled_date'], r['scheduled_time']) for r in before]
-        # слоты не версионировались — оба по-прежнему открыты
-        sched = manager_client.get(f'/api/admin/groups/{gid}/schedule').json()
-        assert all(s['effective_to'] is None for s in sched['slots'])
-        assert len(sched['slots']) == 2
+
+    def test_new_slots_required(self, manager_client, plan_group):
+        """new_slots — единственный способ задать целевое расписание; без него 400."""
+        gid = plan_group['group_id']
+        _generate(manager_client, gid)
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/permanent-change',
+            {'from_seq': 5, 'effective_from': '2026-06-29'}, format='json',
+        )
+        assert resp.status_code == 400
 
     def test_missing_group_404(self, manager_client):
         resp = manager_client.post(
             '/api/admin/groups/99999999/plan/permanent-change',
-            {'from_seq': 1, 'new_day_of_week': 3},
+            {'from_seq': 1, 'effective_from': '2026-01-01',
+             'new_slots': [{'day_of_week': 1, 'start_time': '10:00'}]},
             format='json',
         )
         assert resp.status_code == 404
@@ -687,7 +761,8 @@ class TestAudit:
 
         manager_client.post(
             f'/api/admin/groups/{gid}/plan/permanent-change',
-            {'from_seq': 5, 'new_day_of_week': 3},
+            {'from_seq': 5, 'effective_from': '2026-06-29',
+             'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}]},
             format='json',
         )
         assert SecurityAuditLog.objects.filter(event='plan_permanent_change', target_id=gid).exists()

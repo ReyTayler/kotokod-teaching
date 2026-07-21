@@ -366,15 +366,17 @@ def change_teacher_permanent(group_id: int, data: dict, request) -> list[dict] |
 
 
 def permanent_change(group_id: int, data: dict, request) -> list[dict] | None:
-    """Перенос навсегда + аудит. None → группы нет; ValueError → мульти-слот /
-    нет времени слота / нет курсовых строк с позиции (view → 400).
+    """«Изменить расписание» (чистая regen хвоста от effective_from) + аудит.
+    None → группы нет; ValueError → нет курсовых строк с позиции (view → 400).
 
-    effective_from выводится на сервере в repository.permanent_change (не из тела)."""
+    effective_from и new_slots — оба обязательны и приходят от клиента (единый
+    контракт, см. repository.permanent_change/PlanPermanentChangeSerializer)."""
+    new_slots = data['new_slots']
     plan = repository.permanent_change(
         group_id,
         from_seq=data['from_seq'],
-        new_day_of_week=data['new_day_of_week'],
-        new_time=_to_time(data.get('new_time')),
+        effective_from=_to_date(data['effective_from']),
+        new_slots=new_slots,
         new_teacher_id=data.get('new_teacher_id'),
     )
     if plan is None:
@@ -385,8 +387,8 @@ def permanent_change(group_id: int, data: dict, request) -> list[dict] | None:
         target_id=group_id,
         meta={
             'from_seq': data['from_seq'],
-            'new_day_of_week': data['new_day_of_week'],
-            'new_time': data.get('new_time'),
+            'effective_from': data['effective_from'],
+            'new_slots': new_slots,
             'new_teacher_id': data.get('new_teacher_id'),
         },
         request=request,
