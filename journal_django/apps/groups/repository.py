@@ -376,14 +376,18 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     2026-07-13-transfer-progress-matrix-design.md, раздел «Производительность».
     None если группы нет.
 
-    Слот = ceil(lesson_number) (как LessonGrid: half-lesson 0.5 схлопывается в слот,
-    первый урок на слот выигрывает). Число слотов = max(последний слот с уроком,
-    direction.total_lessons) — так плановые, ещё не проведённые уроки видны пунктиром.
+    Слот = lesson_number / step, где step = 0.5 для 45-минутных групп (half-lesson),
+    иначе 1 (как LessonGrid). Для обычных групп это совпадает с ceil(lesson_number)
+    (номера целые); для 45-мин групп каждая половина урока получает СВОЙ слот
+    (0.5→1, 1.0→2, 1.5→3, …) — без коллапса пар. Число слотов = max(последний слот
+    с уроком, direction.total_lessons / step) — так план 45-мин группы показывает
+    вдвое больше ячеек (2N на total_lessons=N), а плановые, ещё не проведённые
+    уроки видны пунктиром.
 
-    ОГРАНИЧЕНИЕ коллапса: если на один слот попадает >1 урока (дробные lesson_number
-    у 45-мин групп ИЛИ дубль номера на другую дату), берётся только первый — посещаемость
-    остальных в % не попадает. В боевых данных lesson_number целочисленный и уникален на
-    группу (проверено SELECT'ом), поэтому на практике коллапс безопасен; зеркалит LessonGrid.
+    ОГРАНИЧЕНИЕ коллапса: если на один слот всё же попадает >1 урока (дубль номера
+    на другую дату — не половинка), берётся только первый — посещаемость остальных
+    в % не попадает. В боевых данных lesson_number уникален на группу (проверено
+    SELECT'ом), поэтому на практике коллапс безопасен; зеркалит LessonGrid.
 
     Ячейка ученика по слоту:
       True  — был (есть запись посещаемости present=true),
@@ -417,11 +421,14 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     grp = (
         Group.objects
         .filter(id=group_id)
-        .values('id', total_lessons=F('direction__total_lessons'))
+        .values('id', 'lesson_duration_minutes', total_lessons=F('direction__total_lessons'))
         .first()
     )
     if grp is None:
         return None
+
+    # Half-lesson: 45 минут → шаг 0.5 (см. CLAUDE.md); слот = lesson_number / step.
+    step = 0.5 if grp['lesson_duration_minutes'] == 45 else 1.0
 
     # Ученики группы — строки матрицы, стабильный порядок по имени.
     # Только активные (active=True): membership удаляется мягко (active=false),
@@ -447,14 +454,14 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     lesson_by_slot: dict[int, dict] = {}
     max_slot = 0
     for lesson in lessons:
-        slot = max(1, math.ceil(float(lesson['lesson_number'])))
+        slot = max(1, round(float(lesson['lesson_number']) / step))
         if slot not in lesson_by_slot:
             lesson_by_slot[slot] = lesson
         if slot > max_slot:
             max_slot = slot
 
     total_lessons = grp['total_lessons'] or 0
-    slot_count = max(max_slot, total_lessons)
+    slot_count = max(max_slot, round(total_lessons / step))
 
     # Посещаемость всех уроков группы разом: (lesson_id, student_id) → present.
     lesson_ids = [lesson['id'] for lesson in lesson_by_slot.values()]

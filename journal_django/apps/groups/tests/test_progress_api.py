@@ -397,3 +397,90 @@ class TestTransferredLessons:
                 )
                 cur.execute('DELETE FROM group_memberships WHERE group_id IN (%s, %s)', [group_a, group_b])
                 cur.execute('DELETE FROM groups WHERE id IN (%s, %s)', [group_a, group_b])
+
+
+@pytest.fixture
+def progress_group_45():
+    """
+    45-минутная группа (half-lesson, direction.total_lessons=8 → 16 слотов
+    по step=0.5) + 1 ученик + 3 проведённых урока подряд: lesson_number
+    0.5, 1.0, 1.5 — три РАЗНЫЕ половинки, не должны схлопываться в один слот.
+    """
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO teachers (name, active) VALUES ('__pg45_t__', true) RETURNING id")
+        teacher_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO directions (name,is_individual,total_lessons,active) "
+            "VALUES ('__pg45_d__',false,8,true) RETURNING id"
+        )
+        direction_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,active) "
+            "VALUES ('__pg45_g__',%s,%s,false,45,true) RETURNING id",
+            [direction_id, teacher_id],
+        )
+        group_id = cur.fetchone()[0]
+
+        cur.execute("INSERT INTO students (full_name, enrollment_status) VALUES ('__pg45 Аня__','enrolled') RETURNING id")
+        anya = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) VALUES (%s,%s,0,true)",
+            [group_id, anya],
+        )
+
+        lesson_ids = []
+        for num, date in ((0.5, '2026-03-02'), (1.0, '2026-03-04'), (1.5, '2026-03-06')):
+            cur.execute(
+                "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+                "lesson_duration_minutes, lesson_type, submitted_by_token) "
+                "VALUES (%s,%s,%s,%s,45,'regular','test') RETURNING id",
+                [group_id, teacher_id, date, num],
+            )
+            lesson_ids.append(cur.fetchone()[0])
+
+        for lid in lesson_ids:
+            cur.execute(
+                "INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s,%s,true)",
+                [lid, anya],
+            )
+
+    yield {'group_id': group_id, 'anya': anya, 'lesson_ids': lesson_ids}
+
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = ANY(%s)', [lesson_ids])
+        cur.execute('DELETE FROM lessons WHERE group_id = %s', [group_id])
+        cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [group_id])
+        cur.execute('DELETE FROM groups WHERE id = %s', [group_id])
+        cur.execute('DELETE FROM students WHERE id = %s', [anya])
+        cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])
+        cur.execute('DELETE FROM teachers WHERE id = %s', [teacher_id])
+
+
+class TestHalfLessonSlots:
+    """45-минутные группы: раздел «Уроки»/матрица прогресса должны показывать
+    2×total_lessons ячеек (half-lesson step=0.5), без коллапса половинок в один слот."""
+
+    def test_total_slots_doubled_for_45min_group(self, manager_client, progress_group_45):
+        body = manager_client.get(_url(progress_group_45['group_id'])).json()
+        # direction.total_lessons=8, step=0.5 → 16 слотов, не 8.
+        assert body['total_slots'] == 16
+        assert len(body['slots']) == 16
+
+    def test_each_half_lesson_gets_own_slot(self, manager_client, progress_group_45):
+        """Три проведённых половинки (0.5, 1.0, 1.5) занимают слоты 1, 2, 3 —
+        каждая своя, без схлопывания в один (старый баг: ceil(0.5)==ceil(1.0)==1)."""
+        body = manager_client.get(_url(progress_group_45['group_id'])).json()
+        assert body['held_slots'] == 3
+        assert [s['held'] for s in body['slots'][:4]] == [True, True, True, False]
+        # Даты слотов 1..3 — три разных проведённых урока, по порядку lesson_number.
+        assert body['slots'][0]['date'] == '2026-03-02'
+        assert body['slots'][1]['date'] == '2026-03-04'
+        assert body['slots'][2]['date'] == '2026-03-06'
+
+    def test_student_cells_reflect_three_distinct_lessons(self, manager_client, progress_group_45):
+        body = manager_client.get(_url(progress_group_45['group_id'])).json()
+        anya = next(r for r in body['students'] if r['student_id'] == progress_group_45['anya'])
+        assert anya['held'] == 3
+        assert anya['present'] == 3
+        assert anya['cells'][:3] == [True, True, True]
+        assert anya['cells'][3:] == [None] * 13
