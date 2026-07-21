@@ -128,6 +128,33 @@ def test_generate_versioned_slots_continuous_numbering():
     assert rows[2].scheduled_time == T(14, 0)
 
 
+def test_generate_start_seq_offsets_numbering():
+    # Хвост курса: 2 занятия по вторникам, нумерация с seq=5 (номер с 4.0).
+    rows = generate(
+        start_date=D(2026, 7, 21),  # вторник
+        slots=[_slot(TUE, 18, eff_from=D(2026, 7, 21))],
+        total_lessons=6,                          # 6 курсовых всего
+        duration_minutes=60,
+        default_teacher_id=9,
+        start_seq=5,
+        start_number=Decimal('4'),
+    )
+    assert [r.seq for r in rows] == [5, 6]
+    assert [r.lesson_number for r in rows] == [Decimal('5'), Decimal('6')]
+    assert rows[0].scheduled_date == D(2026, 7, 21)
+    assert rows[0].status == PENDING
+    assert rows[0].teacher_id == 9
+
+
+def test_generate_default_start_seq_is_one():
+    rows = generate(
+        start_date=D(2026, 7, 21), slots=[_slot(TUE, 18)],
+        total_lessons=2, duration_minutes=60, default_teacher_id=1,
+    )
+    assert [r.seq for r in rows] == [1, 2]
+    assert [r.lesson_number for r in rows] == [Decimal('1'), Decimal('2')]
+
+
 # --------------------------------------------------------------------------- #
 # reschedule
 # --------------------------------------------------------------------------- #

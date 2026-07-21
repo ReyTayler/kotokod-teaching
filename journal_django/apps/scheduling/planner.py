@@ -78,18 +78,24 @@ def generate(
     total_lessons: Optional[int],
     duration_minutes: int,
     default_teacher_id: Optional[int],
+    start_seq: int = 1,
+    start_number: Decimal = Decimal('0'),
 ) -> list[PlannedRow]:
-    """Развернуть план курса: N курсовых строк (seq 1..N) еженедельно на день/время
-    слота. Переиспользует чистый генератор occurrences._walk. total_lessons
-    обязателен: если None (или нет слотов) — группа «unscheduled», вернуть []."""
+    """Развернуть занятия курса от start_date по слотам. С start_seq=1 — полный
+    план; с start_seq=k / start_number — регенерация хвоста (продолжение нумерации).
+    Число занятий = (total_lessons - start_number) / step, привязка к слоту ≥ start_date.
+    total_lessons обязателен и в единицах занятий; None/нет слотов → []."""
     if total_lessons is None or not slots:
         return []
     step = _step_for(duration_minutes)
-    occ = _walk(start_date, slots, step, total_lessons, _far_future(start_date, total_lessons, step))
+    remaining = Decimal(total_lessons) - start_number
+    if remaining <= 0:
+        return []
+    occ = _walk(start_date, slots, step, remaining, _far_future(start_date, int(remaining / step) + 2, step))
     return [
         PlannedRow(
-            seq=o.seq,
-            lesson_number=o.lesson_number,
+            seq=start_seq - 1 + o.seq,
+            lesson_number=start_number + o.lesson_number,
             scheduled_date=o.date,
             scheduled_time=o.time,
             teacher_id=default_teacher_id,
