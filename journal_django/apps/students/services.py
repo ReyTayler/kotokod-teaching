@@ -232,7 +232,10 @@ def preview_freeze_schedule(membership_ids: list[int], *, frozen_from, frozen_un
     так что превью не должно предсказывать сдвиг для того, чего не произойдёт.
 
     Read-only: ничего не пишет в БД. Ключ результата — id членства; значение —
-    {'lesson_on_frozen_from': bool, 'first_lesson_after_resume': date|None}."""
+    {'lesson_on_frozen_from': bool, 'first_lesson_after_resume': date|None,
+    'affected': list[dict]} — 'affected' (repository.preview_affected) — разовые
+    операции (переносы/замены/отмены) внутри [frozen_from, frozen_until], которые
+    freeze_individual_group сбросит при реальной заморозке (см. wipe_one_offs)."""
     from apps.memberships.models import GroupMembership
     from apps.scheduling import repository as sched_repo
 
@@ -241,8 +244,11 @@ def preview_freeze_schedule(membership_ids: list[int], *, frozen_from, frozen_un
                    .filter(id__in=membership_ids, group__is_individual=True, active=True)
                    .values('id', 'group_id'))
     for m in memberships:
-        result[m['id']] = sched_repo.preview_freeze(
+        preview = sched_repo.preview_freeze(
             m['group_id'], frozen_from=frozen_from, frozen_until=frozen_until)
+        preview['affected'] = sched_repo.preview_affected(
+            m['group_id'], date_from=frozen_from, date_to=frozen_until)
+        result[m['id']] = preview
     return result
 
 

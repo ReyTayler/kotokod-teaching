@@ -77,6 +77,10 @@ class PlanPermanentChangeSerializer(StrictSerializer):
     effective_from = DateStringField()
     new_slots = PlanSlotSerializer(many=True, required=True, allow_empty=False)
     new_teacher_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    # Дран-режим: клиент всё равно шлёт полный целевой payload — preview лишь
+    # просит вернуть repository.preview_affected (что БУДЕТ сброшено) вместо
+    # реальной записи. Не делает new_slots/effective_from опциональными.
+    preview = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)  # отклонить неизвестные поля

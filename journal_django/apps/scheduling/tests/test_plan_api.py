@@ -615,6 +615,52 @@ class TestPermanentChange:
         )
         assert resp.status_code == 404
 
+    def test_preview_true_returns_affected_without_writing(self, manager_client, plan_group):
+        """preview: true — вернуть {'affected': [...]} БЕЗ записи (план и слоты
+        остаются прежними). Ставим замену на строку хвоста (substitution), затем
+        шлём тот же payload что и для реальной мутации, но с preview=true."""
+        gid = plan_group['group_id']
+        plan = _generate(manager_client, gid).json()
+        target = _by_seq(plan)[5]   # 2026-06-29 (Пн), попадает в хвост from_seq=5
+        sub = plan_group['teacher_b']
+        manager_client.post(
+            f'/api/admin/groups/{gid}/plan/{target["id"]}/change-teacher',
+            {'new_teacher_id': sub}, format='json',
+        )
+        plan_before = _get_plan(manager_client, gid)
+
+        resp = manager_client.post(
+            f'/api/admin/groups/{gid}/plan/permanent-change',
+            {'preview': True, 'from_seq': 5, 'effective_from': '2026-06-29',
+             'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}]},
+            format='json',
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert 'affected' in body
+        affected = body['affected']
+        assert len(affected) >= 1
+        assert any(a['kind'] == 'substitution' for a in affected)
+
+        # ничего не записано: план идентичен состоянию до preview-запроса
+        plan_after = _get_plan(manager_client, gid)
+        assert plan_after == plan_before
+        # слот-версии тоже не тронуты (никакого versioning при preview)
+        sched = manager_client.get(f'/api/admin/groups/{gid}/schedule').json()
+        slots = {(s['day_of_week'], s['start_time']): s for s in sched['slots']}
+        assert (3, '14:00') not in slots
+        assert slots[(1, '10:00')]['effective_to'] is None
+
+    def test_preview_missing_group_404(self, manager_client):
+        """Превью для несуществующей группы — 404 (не тихое [])."""
+        resp = manager_client.post(
+            '/api/admin/groups/99999999/plan/permanent-change',
+            {'preview': True, 'from_seq': 1, 'effective_from': '2026-01-01',
+             'new_slots': [{'day_of_week': 1, 'start_time': '10:00'}]},
+            format='json',
+        )
+        assert resp.status_code == 404
+
 
 class TestCancel:
     def test_cancel_pins_done_row_and_moves_anchor_to_course_end(self, manager_client, plan_group):

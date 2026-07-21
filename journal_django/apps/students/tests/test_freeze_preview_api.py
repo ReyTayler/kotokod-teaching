@@ -153,3 +153,37 @@ def test_preview_empty_membership_ids_400(admin_client, preview_setup):
          'frozen_from': '2026-07-08', 'frozen_until': '2026-08-05'},
         format='json')
     assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_preview_includes_affected_one_offs(admin_client, preview_setup):
+    """'affected' — разовые операции (замена/перенос/отмена) в окне
+    [frozen_from, frozen_until], которые реальная заморозка сбросит через
+    wipe_one_offs (freeze_individual_group). Ставим замену на курсовую строку
+    seq=2 (2026-07-08), она попадает в окно и должна появиться как 'substitution'."""
+    sid = preview_setup['student']
+    mid = preview_setup['imembership']
+    gid = preview_setup['igroup']
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO teachers (name, active, created_at) "
+            "VALUES ('__pvapi_t2__', true, NOW()) RETURNING id")
+        teacher2 = cur.fetchone()[0]
+        cur.execute(
+            "UPDATE planned_lessons SET substitute_teacher_id=%s "
+            "WHERE group_id=%s AND seq=2", [teacher2, gid])
+
+    resp = admin_client.post(
+        f'{BASE}/{sid}/status/preview',
+        {'membership_ids': [mid],
+         'frozen_from': '2026-07-08', 'frozen_until': '2026-08-05'},
+        format='json')
+    assert resp.status_code == 200
+    entry = resp.json()[str(mid)]
+    assert 'affected' in entry
+    affected = entry['affected']
+    assert len(affected) >= 1
+    assert any(a['kind'] == 'substitution' for a in affected)
+
+    with connection.cursor() as cur:
+        cur.execute("DELETE FROM teachers WHERE id=%s", [teacher2])

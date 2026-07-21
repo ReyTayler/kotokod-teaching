@@ -191,8 +191,19 @@ class GroupPlanPermanentChangeView(APIView):
     def post(self, request: Request, pk: int) -> Response:
         serializer = PlanPermanentChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if data.get('preview'):
+            # Дран-режим: ничего не пишем, только repository.preview_affected
+            # через services.preview_permanent_change (сама конвертирует
+            # effective_from в date, как и permanent_change). None → группы
+            # нет (404), тот же контракт, что и у реального пути ниже.
+            affected = services.preview_permanent_change(
+                pk, data['from_seq'], data['effective_from'])
+            if affected is None:
+                raise NotFound({'error': 'Not found'})
+            return Response({'affected': affected})
         try:
-            plan = services.permanent_change(pk, serializer.validated_data, request)
+            plan = services.permanent_change(pk, data, request)
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except IntegrityError as exc:
