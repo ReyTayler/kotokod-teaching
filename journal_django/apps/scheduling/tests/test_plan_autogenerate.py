@@ -151,6 +151,28 @@ class TestAutogenerateWiring:
         groups_services.update_group(gid, {'group_start_date': '2026-06-01'})
         assert PlannedLesson.objects.filter(group_id=gid).count() == 8  # старт появился → план
 
+    def test_bootstrap_start_and_slots_via_actions(self, wiring):
+        """Группа создана без даты старта И без слотов (план пуст). Сценарий кнопки
+        «Задать расписание» на вкладке расписания: сначала update_group ставит дату
+        начала, затем apply_schedule_change задаёт слоты → план генерируется."""
+        from apps.groups import services as groups_services
+        s, created = wiring
+        data = self._base(s, '__ag_bootstrap__')
+        data['group_start_date'] = None
+        data['slots'] = []
+        group = groups_services.create_group(data)
+        gid = group['id']
+        created.append(gid)
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 0  # ни старта, ни слота
+
+        groups_services.update_group(gid, {'group_start_date': '2026-06-01'})
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 0  # старт есть, слотов нет
+        groups_services.apply_schedule_change(gid, {
+            'effective_from': '2026-06-01',
+            'slots': [{'day_of_week': 1, 'start_time': '10:00'}],
+        })
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 8  # оба заданы → план
+
     def test_second_update_does_not_regenerate(self, wiring):
         from apps.groups import services as groups_services
         s, created = wiring
@@ -164,3 +186,32 @@ class TestAutogenerateWiring:
 
         groups_services.update_group(gid, {'name': '__ag_once_renamed__'})
         assert PlannedLesson.objects.filter(group_id=gid).count() == 8  # без перегенерации
+
+    def test_45min_generates_double_and_snaps_to_slot(self, wiring):
+        """Верификация «Задать расписание» (уже реализовано, план Task 11):
+        45-минутная группа → half-lesson step=0.5, план направления с
+        total_lessons=8 разворачивается в 2×8=16 курсовых строк. Старт 2026-07-20
+        (Пн) со слотом Пт(5) → первое занятие встаёт на первый слот-день ≥ старта
+        (2026-07-24), а не на сам понедельник старта."""
+        from apps.groups import services as groups_services
+        s, created = wiring
+        data = self._base(s, '__ag_45__')
+        data['lesson_duration_minutes'] = 45
+        data['group_start_date'] = None
+        data['slots'] = []
+        group = groups_services.create_group(data)
+        gid = group['id']
+        created.append(gid)
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 0  # ни старта, ни слота
+
+        groups_services.update_group(gid, {'group_start_date': '2026-07-20'})
+        assert PlannedLesson.objects.filter(group_id=gid).count() == 0  # старт есть, слотов нет
+        groups_services.apply_schedule_change(gid, {
+            'effective_from': '2026-07-20',
+            'slots': [{'day_of_week': 5, 'start_time': '17:00'}],
+        })
+        rows = list(
+            PlannedLesson.objects.filter(group_id=gid, seq__isnull=False).order_by('seq')
+        )
+        assert len(rows) == 16  # 2 × total_lessons(8) направления sched_setup
+        assert str(rows[0].scheduled_date) == '2026-07-24'
