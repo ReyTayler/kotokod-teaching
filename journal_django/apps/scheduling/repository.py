@@ -847,7 +847,7 @@ def wipe_one_offs(
         course = course.filter(scheduled_date__gte=date_from)
         if date_to is not None:
             course = course.filter(scheduled_date__lte=date_to)
-    course.update(moved_from_date=None, substitute_teacher=None, updated_at=now)
+    course.update(moved_from_date=None, substitute_teacher_id=None, updated_at=now)
 
 
 def _relay_tail(
