@@ -393,3 +393,40 @@ def test_gff_facts_sorted_by_date():
     assert by_seq[1].fact_lesson_id == 1   # ранний факт → seq 1
     assert by_seq[2].fact_lesson_id == 2
     assert by_seq[3].scheduled_date == D(2026, 7, 11)   # будущее от 04.07 (последний факт)
+
+
+# --------------------------------------------------------------------------- #
+# renumber_by_date (перенумерация по дате)
+# --------------------------------------------------------------------------- #
+
+def test_renumber_by_date_contiguous_from_start():
+    # Три pending-строки не по порядку дат → перенумеровать по дате с seq=3.
+    from apps.scheduling.planner import renumber_by_date
+    rows = [
+        PlannedRow(seq=5, lesson_number=Decimal('5'), scheduled_date=D(2026, 8, 4),
+                   scheduled_time=T(18, 0)),
+        PlannedRow(seq=3, lesson_number=Decimal('3'), scheduled_date=D(2026, 7, 21),
+                   scheduled_time=T(18, 0)),
+        PlannedRow(seq=4, lesson_number=Decimal('4'), scheduled_date=D(2026, 7, 28),
+                   scheduled_time=T(18, 0)),
+    ]
+    out = renumber_by_date(rows, start_seq=3, start_number=Decimal('2'), step=Decimal('1'))
+    ordered = sorted(out, key=lambda r: r.scheduled_date)
+    assert [r.seq for r in ordered] == [3, 4, 5]
+    assert [str(r.lesson_number) for r in ordered] == ['3.0', '4.0', '5.0']
+    # Дата 21.07 → seq 3 (наименьшая), 04.08 → seq 5 (наибольшая).
+    assert ordered[0].scheduled_date == D(2026, 7, 21)
+    assert ordered[-1].scheduled_date == D(2026, 8, 4)
+
+
+def test_renumber_by_date_half_lesson_step():
+    from apps.scheduling.planner import renumber_by_date
+    rows = [
+        PlannedRow(seq=2, lesson_number=Decimal('1.0'), scheduled_date=D(2026, 7, 28),
+                   scheduled_time=T(18, 0)),
+        PlannedRow(seq=1, lesson_number=Decimal('0.5'), scheduled_date=D(2026, 7, 21),
+                   scheduled_time=T(18, 0)),
+    ]
+    out = renumber_by_date(rows, start_seq=1, start_number=Decimal('0'), step=Decimal('0.5'))
+    ordered = sorted(out, key=lambda r: r.scheduled_date)
+    assert [str(r.lesson_number) for r in ordered] == ['0.5', '1.0']

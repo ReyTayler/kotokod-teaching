@@ -299,3 +299,29 @@ def relay_from_date(
             moved_from_date=None,
         ))
     return out
+
+
+def renumber_by_date(
+    rows: list[PlannedRow],
+    *,
+    start_seq: int,
+    start_number: Decimal,
+    step: Decimal,
+) -> list[PlannedRow]:
+    """Присвоить курсовым строкам непрерывные seq/lesson_number по возрастанию
+    (scheduled_date, scheduled_time), начиная с start_seq/start_number+step.
+    seq/номер — по порядку дат; сами даты не трогаются. Вход не мутируется."""
+    ordered = sorted(rows, key=lambda r: (r.scheduled_date, r.scheduled_time))
+    # Determine quantize precision based on step's decimal places (minimum 1).
+    step_exp = step.as_tuple().exponent
+    decimal_places = max(-step_exp, 1)
+    quantize_val = Decimal(10) ** -decimal_places
+
+    out: list[PlannedRow] = []
+    seq = start_seq
+    num = start_number
+    for r in ordered:
+        num += step
+        out.append(replace(r, seq=seq, lesson_number=num.quantize(quantize_val)))
+        seq += 1
+    return out
