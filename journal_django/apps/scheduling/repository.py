@@ -850,6 +850,41 @@ def wipe_one_offs(
     course.update(moved_from_date=None, substitute_teacher_id=None, updated_at=now)
 
 
+def preview_affected(
+    group_id: int,
+    *,
+    date_from: datetime.date,
+    date_to: datetime.date | None = None,
+    from_seq: int | None = None,
+) -> list[dict]:
+    """Read-only: разовые операции, попадающие под перегенерацию (для превью-модалки).
+    kind ∈ {reschedule, substitution, cancellation}. Ничего не пишет."""
+    out: list[dict] = []
+    markers = PlannedLesson.objects.filter(
+        group_id=group_id, seq__isnull=True, status=CANCELLED, scheduled_date__gte=date_from)
+    if date_to is not None:
+        markers = markers.filter(scheduled_date__lte=date_to)
+    for m in markers.values('scheduled_date', 'scheduled_time'):
+        out.append({'kind': 'cancellation', 'date': m['scheduled_date'],
+                    'time': m['scheduled_time']})
+
+    course = PlannedLesson.objects.filter(
+        group_id=group_id, seq__isnull=False, status__in=_MUTABLE_STATUSES)
+    if from_seq is not None:
+        course = course.filter(seq__gte=from_seq)
+    else:
+        course = course.filter(scheduled_date__gte=date_from)
+        if date_to is not None:
+            course = course.filter(scheduled_date__lte=date_to)
+    for r in course.values('seq', 'scheduled_date', 'moved_from_date', 'substitute_teacher_id'):
+        if r['moved_from_date'] is not None:
+            out.append({'kind': 'reschedule', 'seq': r['seq'], 'date': r['scheduled_date'],
+                        'from_date': r['moved_from_date']})
+        if r['substitute_teacher_id'] is not None:
+            out.append({'kind': 'substitution', 'seq': r['seq'], 'date': r['scheduled_date']})
+    return out
+
+
 def _relay_tail(
     group_id: int,
     *,

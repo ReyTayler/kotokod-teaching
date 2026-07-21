@@ -98,3 +98,20 @@ def test_wipe_one_offs_respects_date_to_upper_bound(group_with_group):
     r4 = PlannedLesson.objects.get(group_id=gid, seq=4)
     assert r4.moved_from_date is not None
     assert r4.substitute_teacher_id == tid
+
+
+def test_preview_affected_lists_ops(group_with_group):
+    from apps.scheduling import repository
+    gid, tid = group_with_group
+    PlannedLesson.objects.filter(group_id=gid, seq=3).update(
+        moved_from_date='2026-07-20', substitute_teacher_id=tid)
+    now = datetime.datetime(2026, 7, 1, 12, 0)
+    PlannedLesson.objects.create(group_id=gid, seq=None, lesson_number=None,
+        scheduled_date='2026-07-22', scheduled_time=datetime.time(18, 0),
+        teacher_id=tid, status='cancelled', created_at=now, updated_at=now)
+
+    out = repository.preview_affected(gid, date_from=datetime.date(2026, 7, 21))
+    kinds = sorted(o['kind'] for o in out)
+    assert kinds == ['cancellation', 'reschedule', 'substitution']
+    resc = next(o for o in out if o['kind'] == 'reschedule')
+    assert str(resc['date']) == '2026-07-21'
