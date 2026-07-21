@@ -8,6 +8,7 @@ date/time объекты (managed-модели), генератор работа
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 from collections import defaultdict
 
 from django.db import transaction
@@ -21,7 +22,9 @@ from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import planner
 from apps.scheduling.models import PlannedLesson
-from apps.scheduling.occurrences import CANCELLED, DONE, MOVED, OVERDUE, PENDING, Slot, _step_for
+from apps.scheduling.occurrences import (
+    CANCELLED, DONE, MOVED, OVERDUE, PENDING, Slot, _step_for, _walk,
+)
 from apps.scheduling.planner import Fact, PlannedRow
 
 
@@ -955,28 +958,111 @@ def _relay_tail(
     )
 
 
+def _next_slot_after(
+    *,
+    after_date: datetime.date,
+    occupied: frozenset[datetime.date],
+    duration_minutes: int,
+    open_slots: list[Slot],
+) -> tuple[datetime.date, datetime.time] | None:
+    """Ближайшая (дата, время) слота СТРОГО после after_date, не входящая в
+    occupied. Время берётся из фактически найденного слота (мультислотовая
+    группа может иметь разное время по дням недели) — НЕ первого попавшегося.
+
+    None — нет открытого слота / не нашли (нельзя развернуть каденцию). Горизонт
+    поиска — запас в неделях сверх числа уже занятых дат (защита от вечного
+    цикла, если occupied аномально плотный)."""
+    if not open_slots:
+        return None
+    start = after_date + datetime.timedelta(days=1)
+    horizon = start + datetime.timedelta(weeks=len(occupied) + 4)
+    occ = _walk(start, open_slots, _step_for(duration_minutes), None, horizon, skip_dates=occupied)
+    return (occ[0].date, occ[0].time) if occ else None
+
+
+def _renumber_persist(
+    pending: list[PlannedLesson],
+    *,
+    start_seq: int,
+    start_number: Decimal,
+    step: Decimal,
+    now: datetime.datetime,
+) -> None:
+    """Двухфазная запись seq/lesson_number по возрастанию (scheduled_date,
+    scheduled_time) (обход UniqueConstraint(group, seq)): сначала временные
+    отрицательные seq, потом финальные — вычисленные через planner.renumber_by_date
+    (переиспользуем чистую функцию, не дублируем сортировку/нумерацию)."""
+    if not pending:
+        return
+    # Фаза 1: увести в отрицательный диапазон, чтобы не столкнуться с целевыми seq.
+    for i, p in enumerate(pending, start=1):
+        p.seq = -i
+    PlannedLesson.objects.bulk_update(pending, ['seq'])
+
+    # Фаза 2: финальные значения — считаем через renumber_by_date на пред-
+    # отсортированном списке, затем сопоставляем позиционно (тот же порядок
+    # сортировки внутри функции — сортировка детерминирована и одинакова).
+    ordered = sorted(pending, key=lambda p: (p.scheduled_date, p.scheduled_time))
+    rows = [_row_from_model(p) for p in ordered]
+    renumbered = planner.renumber_by_date(
+        rows, start_seq=start_seq, start_number=start_number, step=step)
+    for p, r in zip(ordered, renumbered):
+        p.seq = r.seq
+        p.lesson_number = r.lesson_number
+        p.updated_at = now
+    PlannedLesson.objects.bulk_update(ordered, ['seq', 'lesson_number', 'updated_at'])
+
+
 def cancel_lesson(
     group_id: int,
     from_date: datetime.date,
     *,
     marker_time: datetime.time,
     marker_teacher_id: int | None,
+    lesson_id: int,
 ) -> list[dict]:
     """
-    Отмена с релеем: непроведённые курсовые строки (status != 'done') с
-    scheduled_date >= from_date непрерывно перекладываются по слоту от
-    from_date, обходя занятые даты (relay); курс продлевается ровно на число
-    отменённых занятий, без дыр. На исходную дату вставляется НЕ-курсовой
-    маркер status='cancelled' (seq=NULL) — календарь показывает «отменённое»
-    занятие зачёркнутым. Маркер несёт время/преподавателя отменённого занятия
-    (чтобы попасть в нужный столбец/календарь).
+    Отмена «в конец курса»: (1) на исходную дату вставляется НЕ-курсовой маркер
+    status='cancelled' (seq=NULL) — календарь показывает «отменённое» занятие
+    зачёркнутым, несёт время/преподавателя отменённого занятия; (2) сама
+    отменённая строка (lesson_id) переезжает на ближайший свободный слот СТРОГО
+    после текущей последней курсовой даты группы — становится новым последним
+    занятием курса; замена (substitute_teacher) и moved_from_date сбрасываются
+    (разовая замена/перенос — свойство даты, не едет с содержимым); (3) ВСЕ
+    оставшиеся курсовые pending/overdue строки перенумеровываются подряд по
+    возрастанию (scheduled_date, scheduled_time), продолжая нумерацию от
+    последней 'done' строки (или с 1/0, если done нет) — см. _renumber_persist
+    (переиспользует planner.renumber_by_date).
 
-    Батч (без N+1): один SELECT + один bulk_update + один INSERT маркера. Абонемент
-    не трогаем. Возвращает новый план (get_plan).
+    Проведённые (done) строки не трогаются вовсе. Если свободного слота нет
+    (нет открытого слота у группы) — шаг (2) пропускается: строка остаётся на
+    месте, перенумерация всё равно проходит (тот же fallback, что раньше у
+    relay: «нельзя развернуть каденцию»). Абонемент/баланс не трогаем.
+
+    Возвращает новый план (get_plan).
     """
     now = msk_now()
     with transaction.atomic():
-        # Маркер отмены на исходной дате (seq=NULL): календарь показывает
+        g = Group.objects.filter(id=group_id).values('lesson_duration_minutes').first()
+        if g is None:
+            return get_plan(group_id)
+        step = _step_for(g['lesson_duration_minutes'])
+        open_slots = [
+            s for s in slots_by_group([group_id]).get(group_id, [])
+            if s.effective_to is None
+        ]
+
+        target = (
+            PlannedLesson.objects
+            .select_for_update()
+            .filter(group_id=group_id, id=lesson_id, seq__isnull=False,
+                    status__in=_MUTABLE_STATUSES)
+            .first()
+        )
+        if target is None:
+            raise ValueError('Отменить можно только активную курсовую строку.')
+
+        # (1) Маркер отмены на исходной дате (seq=NULL): календарь показывает
         # зачёркнутое занятие. Несёт время/преподавателя отменённого занятия.
         PlannedLesson.objects.create(
             group_id=group_id, seq=None, lesson_number=None,
@@ -984,9 +1070,51 @@ def cancel_lesson(
             teacher_id=marker_teacher_id, status=CANCELLED,
             created_at=now, updated_at=now,
         )
-        # Непрерывный пересчёт хвоста от from_date, обходя занятые даты (в т.ч.
-        # только что вставленный маркер). Заменяет прежний слепой сдвиг +7.
-        _relay_tail(group_id, from_date=from_date, now=now)
+
+        # (2) Переносим саму отменённую строку в конец курса — на первый
+        # свободный слот после текущей последней курсовой даты.
+        course_qs = PlannedLesson.objects.select_for_update().filter(
+            group_id=group_id, seq__isnull=False)
+        last_date = max(p.scheduled_date for p in course_qs)
+        occupied = frozenset(
+            PlannedLesson.objects.filter(group_id=group_id)
+            .values_list('scheduled_date', flat=True)
+        )
+        next_slot = _next_slot_after(
+            after_date=last_date, occupied=occupied,
+            duration_minutes=g['lesson_duration_minutes'], open_slots=open_slots,
+        )
+        if next_slot is not None:
+            new_date, new_time = next_slot
+            target.scheduled_date = new_date
+            target.scheduled_time = new_time
+            target.substitute_teacher_id = None  # замена — свойство даты, не едет
+            target.moved_from_date = None
+            target.updated_at = now
+            target.save(update_fields=[
+                'scheduled_date', 'scheduled_time', 'substitute_teacher',
+                'moved_from_date', 'updated_at',
+            ])
+
+        # (3) Перенумеровываем pending/overdue курсовые строки по дате,
+        # продолжая от последней 'done' (или с 1/0, если done нет).
+        last_done = (
+            PlannedLesson.objects
+            .filter(group_id=group_id, status=DONE, seq__isnull=False)
+            .order_by('-seq')
+            .values('seq', 'lesson_number')
+            .first()
+        )
+        start_seq = (last_done['seq'] + 1) if last_done else 1
+        start_number = last_done['lesson_number'] if last_done else Decimal('0')
+        pending = list(
+            PlannedLesson.objects
+            .select_for_update()
+            .filter(group_id=group_id, seq__isnull=False, status__in=_MUTABLE_STATUSES)
+            .order_by('scheduled_date', 'scheduled_time')
+        )
+        _renumber_persist(
+            pending, start_seq=start_seq, start_number=start_number, step=step, now=now)
 
     return get_plan(group_id)
 

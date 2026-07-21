@@ -543,28 +543,41 @@ class TestPermanentChange:
 
 
 class TestCancel:
-    def test_shifts_tail_relays_around_done_pin(self, manager_client, plan_group):
-        """Отмена пересчитывает хвост непрерывно, ОБХОДЯ проведённый (done) урок:
-        done — неподвижный пин, курсовая строка на его дату не наезжает, а встаёт
-        на следующий свободный слот. Голова до from_date не двигается."""
+    def test_cancel_pins_done_row_and_moves_anchor_to_course_end(self, manager_client, plan_group):
+        """Новая модель отмены: done — неподвижный пин (дата/seq не трогаются,
+        нумерация pending продолжается от него); прочие курсовые строки СОХРАНЯЮТ
+        свои даты (никакого relay), только seq пересчитывается по дате; отменённая
+        строка уезжает на первый свободный слот ПОСЛЕ текущей последней курсовой
+        даты — становится новым последним занятием курса."""
         gid = plan_group['group_id']
         plan = _generate(manager_client, gid).json()
         by_seq = _by_seq(plan)
-        anchor = by_seq[3]         # 2026-06-15
-        done_row = by_seq[4]       # 2026-06-22 — done, неподвижный пин
+        done_row = by_seq[1]       # 2026-06-01 — уже проведён (история)
+        anchor = by_seq[3]         # 2026-06-15 — отменяем
         with connection.cursor() as cur:
             cur.execute("UPDATE planned_lessons SET status='done' WHERE id=%s", [done_row['id']])
 
         resp = manager_client.post(f'/api/admin/groups/{gid}/plan/{anchor["id"]}/cancel', {}, format='json')
         assert resp.status_code == 200
-        after = _by_seq(resp.json())
-        assert after[1]['scheduled_date'] == '2026-06-01'   # < from_date — не тронут
-        assert after[2]['scheduled_date'] == '2026-06-08'   # < from_date — не тронут
-        assert after[4]['scheduled_date'] == '2026-06-22'   # done — не тронут
-        assert after[4]['status'] == 'done'
-        # seq3 обходит занятые 06-15 (маркер) и 06-22 (done) → 06-29; seq5 → 07-06.
-        assert after[3]['scheduled_date'] == '2026-06-29'
-        assert after[5]['scheduled_date'] == '2026-07-06'
+        after_list = resp.json()
+        after = _by_seq(after_list)
+
+        assert after[1]['scheduled_date'] == '2026-06-01'   # done — неподвижный пин
+        assert after[1]['status'] == 'done'
+        # Прочие курсовые сохранили ДАТЫ (никакого сдвига), только seq сместился
+        # (продолжение нумерации от done: seq2..7 вместо 2..8, т.к. одна строка ушла в конец).
+        assert after[2]['scheduled_date'] == '2026-06-08'    # был seq2
+        assert after[3]['scheduled_date'] == '2026-06-22'    # был seq4
+        assert after[4]['scheduled_date'] == '2026-06-29'    # был seq5
+        assert after[7]['scheduled_date'] == '2026-07-20'    # был seq8 — прежний конец курса
+        # Отменённая строка (была seq3, 06-15) — новый конец курса, сразу после 07-20.
+        assert after[8]['scheduled_date'] == '2026-07-27'
+        moved = next(r for r in after_list if r['id'] == anchor['id'])
+        assert moved['seq'] == 8
+        assert moved['scheduled_date'] == '2026-07-27'
+        # Маркер отмены на исходной дате.
+        marker = next(r for r in after_list if r['status'] == 'cancelled')
+        assert marker['scheduled_date'] == '2026-06-15'
 
     def test_double_cancel_is_contiguous_no_gap(self, manager_client, plan_group):
         """Две отмены (сначала поздняя, затем ранняя) НЕ создают ПУСТЫХ недель:
@@ -593,7 +606,7 @@ class TestCancel:
 
     def test_cancel_creates_cancelled_marker(self, manager_client, plan_group):
         """Отмена вставляет НЕ-курсовой маркер status='cancelled' на исходную дату
-        (календарь показывает зачёркнутое занятие); сам урок сдвигается +7."""
+        (календарь показывает зачёркнутое занятие); сам урок уезжает в конец курса."""
         gid = plan_group['group_id']
         plan = _generate(manager_client, gid).json()
         anchor = _by_seq(plan)[3]            # 2026-06-15

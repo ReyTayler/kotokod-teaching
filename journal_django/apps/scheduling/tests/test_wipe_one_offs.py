@@ -5,32 +5,7 @@ from apps.scheduling.models import PlannedLesson
 
 pytestmark = pytest.mark.django_db
 
-
-@pytest.fixture
-def group_with_group(db):
-    # Минимальная группа (direction total_lessons=4, слот вторник) + 4 pending строки.
-    with connection.cursor() as cur:
-        cur.execute("INSERT INTO directions (name,is_individual,total_lessons,active) "
-                    "VALUES ('__wipe_dir__',false,4,true) RETURNING id")
-        did = cur.fetchone()[0]
-        cur.execute("INSERT INTO teachers (name) VALUES ('__wipe_t__') RETURNING id")
-        tid = cur.fetchone()[0]
-        cur.execute("INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                    "lesson_duration_minutes,lessons_per_week,active) "
-                    "VALUES ('__wipe_g__',%s,%s,false,60,1,true) RETURNING id", [did, tid])
-        gid = cur.fetchone()[0]
-    now = datetime.datetime(2026, 7, 1, 12, 0)
-    for i, d in enumerate(['2026-07-07', '2026-07-14', '2026-07-21', '2026-07-28'], start=1):
-        PlannedLesson.objects.create(
-            group_id=gid, seq=i, lesson_number=i, scheduled_date=d,
-            scheduled_time=datetime.time(18, 0), teacher_id=tid, status='pending',
-            created_at=now, updated_at=now)
-    yield gid, tid
-    with connection.cursor() as cur:
-        cur.execute("DELETE FROM planned_lessons WHERE group_id=%s", [gid])
-        cur.execute("DELETE FROM groups WHERE id=%s", [gid])
-        cur.execute("DELETE FROM teachers WHERE id=%s", [tid])
-        cur.execute("DELETE FROM directions WHERE id=%s", [did])
+# group_with_group — общая фикстура из conftest.py (авто-доступна, без импорта).
 
 
 def test_wipe_one_offs_clears_reschedule_sub_and_marker(group_with_group):

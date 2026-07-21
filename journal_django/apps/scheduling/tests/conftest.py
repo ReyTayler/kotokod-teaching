@@ -6,12 +6,16 @@ managed-схема journal_test; чистим прямым DELETE в FK-безо
 """
 from __future__ import annotations
 
+import datetime
+
 import pytest
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.db import connection
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from apps.scheduling.models import PlannedLesson
 
 
 def _jwt_client(account_id: int) -> APIClient:
@@ -95,3 +99,37 @@ def sched_setup(db):
         cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])
         cur.execute('DELETE FROM accounts WHERE id = %s', [account_a])
         cur.execute('DELETE FROM teachers WHERE id IN (%s,%s)', [teacher_a, teacher_b])
+
+
+@pytest.fixture
+def group_with_group(db):
+    """Минимальная группа (direction total_lessons=4, слот вторник) + 4 pending
+    строки (07/14/21/28 июля 2026). Общая фикстура wipe_one_offs/cancel_lesson."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO directions (name,is_individual,total_lessons,active) "
+                    "VALUES ('__wipe_dir__',false,4,true) RETURNING id")
+        did = cur.fetchone()[0]
+        cur.execute("INSERT INTO teachers (name) VALUES ('__wipe_t__') RETURNING id")
+        tid = cur.fetchone()[0]
+        cur.execute("INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
+                    "lesson_duration_minutes,lessons_per_week,active) "
+                    "VALUES ('__wipe_g__',%s,%s,false,60,1,true) RETURNING id", [did, tid])
+        gid = cur.fetchone()[0]
+        # Открытый слот (Вс=0 → 2=вторник, 18:00), совпадает с датами строк ниже —
+        # нужен cancel_lesson для поиска следующего свободного слота в конце курса.
+        cur.execute(
+            "INSERT INTO group_schedule_slots (group_id,day_of_week,start_time,effective_from) "
+            "VALUES (%s,2,'18:00','2026-07-01')", [gid])
+    now = datetime.datetime(2026, 7, 1, 12, 0)
+    for i, d in enumerate(['2026-07-07', '2026-07-14', '2026-07-21', '2026-07-28'], start=1):
+        PlannedLesson.objects.create(
+            group_id=gid, seq=i, lesson_number=i, scheduled_date=d,
+            scheduled_time=datetime.time(18, 0), teacher_id=tid, status='pending',
+            created_at=now, updated_at=now)
+    yield gid, tid
+    with connection.cursor() as cur:
+        cur.execute("DELETE FROM planned_lessons WHERE group_id=%s", [gid])
+        cur.execute("DELETE FROM group_schedule_slots WHERE group_id=%s", [gid])
+        cur.execute("DELETE FROM groups WHERE id=%s", [gid])
+        cur.execute("DELETE FROM teachers WHERE id=%s", [tid])
+        cur.execute("DELETE FROM directions WHERE id=%s", [did])

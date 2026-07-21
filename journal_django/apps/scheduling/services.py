@@ -395,11 +395,12 @@ def permanent_change(group_id: int, data: dict, request) -> list[dict] | None:
 
 
 def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
-    """Отмена со сдвигом хвоста + аудит. from_date выводится из даты занятия lid.
+    """Отмена (перенос отменённого урока в конец курса + перенумерация) + аудит.
+    from_date выводится из даты занятия lid.
 
     None → строки нет (404). ValueError → якорь не курсовой/активный (view → 400):
     отмена определена только для курсовых строк в статусе pending/overdue; для
-    extra (seq IS NULL) и уже cancelled/moved сдвиг хвоста бессмыслен."""
+    extra (seq IS NULL) и уже cancelled/moved операция не определена."""
     anchor = repository.get_plan_lesson(group_id, lesson_id)
     if anchor is None:
         return None
@@ -419,6 +420,7 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
         group_id, from_date,
         marker_time=anchor['scheduled_time'],
         marker_teacher_id=marker_teacher_id,
+        lesson_id=lesson_id,
     )
     log_event(
         'plan_cancel',
