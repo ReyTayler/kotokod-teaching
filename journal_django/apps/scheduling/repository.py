@@ -818,6 +818,38 @@ def permanent_change(
     return get_plan(group_id)
 
 
+def wipe_one_offs(
+    group_id: int,
+    *,
+    date_from: datetime.date,
+    date_to: datetime.date | None = None,
+    from_seq: int | None = None,
+) -> None:
+    """Сбросить разовые операции в диапазоне (для чистой перегенерации хвоста):
+      - удалить маркеры отмен (seq IS NULL, status='cancelled');
+      - обнулить moved_from_date (разовые переносы);
+      - снять substitute_teacher (разовые замены).
+    Диапазон — по дате [date_from, date_to] и/или по позиции seq>=from_seq у
+    курсовых строк. done не трогаем. Вызывать внутри открытой транзакции."""
+    now = msk_now()
+    markers = PlannedLesson.objects.filter(
+        group_id=group_id, seq__isnull=True, status=CANCELLED,
+        scheduled_date__gte=date_from)
+    if date_to is not None:
+        markers = markers.filter(scheduled_date__lte=date_to)
+    markers.delete()
+
+    course = PlannedLesson.objects.filter(
+        group_id=group_id, seq__isnull=False, status__in=_MUTABLE_STATUSES)
+    if from_seq is not None:
+        course = course.filter(seq__gte=from_seq)
+    else:
+        course = course.filter(scheduled_date__gte=date_from)
+        if date_to is not None:
+            course = course.filter(scheduled_date__lte=date_to)
+    course.update(moved_from_date=None, substitute_teacher=None, updated_at=now)
+
+
 def _relay_tail(
     group_id: int,
     *,
