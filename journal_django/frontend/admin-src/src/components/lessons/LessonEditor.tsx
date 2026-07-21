@@ -89,11 +89,16 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
         });
         toast('Сохранено', 'ok');
       } else {
+        // slot — порядковый номер ЯЧЕЙКИ грида (1,2,3…), не lesson_number: для
+        // 45-мин групп каждая ячейка = полу-урок (step=0.5), поэтому пишем
+        // slot*step (0.5, 1.0, 1.5…) — обратное преобразование к тому, что
+        // LessonGrid делает при чтении (slot = round(lesson_number/step)).
+        const step = group.lesson_duration_minutes === 45 ? 0.5 : 1;
         await muts.create.mutateAsync({
           lesson_date: date,
           group_id: group.id,
           teacher_id: group.teacher_id,
-          lesson_number: slot,
+          lesson_number: slot * step,
           lesson_duration_minutes: group.lesson_duration_minutes,
           lesson_type: 'regular',
           record_url: url,
