@@ -44,20 +44,49 @@ export function useReschedule(groupId: number) {
   });
 }
 
+export interface PermanentChangeSlot {
+  day_of_week: number; // Вс=0..Сб=6
+  start_time: string;  // HH:MM
+}
+
 export interface PermanentChangePayload {
   from_seq: number;
-  new_day_of_week: number; // Вс=0..Сб=6
-  new_time?: string | null;
+  effective_from: string; // 'YYYY-MM-DD' — дата, с которой действует новое расписание
+  new_slots: PermanentChangeSlot[]; // набор из 1..N слотов (мультислот + расширение 1→N)
   new_teacher_id?: number | null;
 }
 
-/** POST /plan/permanent-change — перенос навсегда с позиции from_seq (effective_from сервер выводит сам). */
+/** Один разовый оператор расписания в хвосте, который будет сброшен при
+ * реальном применении permanent-change (см. preview ниже). */
+export interface AffectedOp {
+  kind: 'cancellation' | 'reschedule' | 'substitution';
+  seq?: number;
+  date: string;
+  time?: string;
+  from_date?: string;
+}
+
+/** POST /plan/permanent-change — перенос навсегда с позиции from_seq. */
 export function usePermanentChange(groupId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: PermanentChangePayload) =>
       api<PlanRow[]>('POST', `/api/admin/groups/${groupId}/plan/permanent-change`, body),
     onSuccess: () => invalidatePlan(qc, groupId),
+  });
+}
+
+/** POST /plan/permanent-change с preview:true — read-only, ничего не пишет и не
+ * инвалидирует кэш; возвращает список разовых операций хвоста, которые
+ * будут сброшены, если применить это изменение по-настоящему. */
+export function usePermanentChangePreview(groupId: number) {
+  return useMutation({
+    mutationFn: (body: PermanentChangePayload) =>
+      api<{ affected: AffectedOp[] }>(
+        'POST',
+        `/api/admin/groups/${groupId}/plan/permanent-change`,
+        { ...body, preview: true },
+      ),
   });
 }
 
