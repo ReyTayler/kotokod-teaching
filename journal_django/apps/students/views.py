@@ -311,8 +311,9 @@ class StudentManagerView(APIView):
 
     В отличие от общего PATCH /students/:id (IsManagerOrAdmin, редактирует
     любой manager/admin/superadmin), это поле доступно только admin/superadmin:
-    смена ответственного синхронно переписывает assignee ВСЕХ сделок продления
-    ученика (services.set_student_manager)."""
+    смена ответственного синхронно переписывает assignee активной (открытой)
+    сделки продления ученика — закрытые сделки не трогаются
+    (services.set_student_manager)."""
 
     permission_classes = [IsAdminOrSuperAdmin]
 

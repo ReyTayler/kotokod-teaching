@@ -102,9 +102,9 @@ def test_set_student_manager_returns_none_for_missing_student():
 
 
 @pytest.mark.django_db
-def test_set_student_manager_syncs_all_deals_open_and_closed():
-    """Жёсткая синхронизация: assignee меняется во ВСЕХ сделках ученика,
-    включая уже закрытую (won/lost), а не только в открытой."""
+def test_set_student_manager_syncs_only_open_deal():
+    """Синхронизация затрагивает только АКТИВНУЮ (открытую) сделку ученика —
+    закрытые (won/lost) сохраняют своего исторического ответственного."""
     sid = _make_student()
     old_manager = _make_account('manager')
     new_manager = _make_account('admin')
@@ -120,7 +120,7 @@ def test_set_student_manager_syncs_all_deals_open_and_closed():
         open_deal.refresh_from_db()
         closed_deal.refresh_from_db()
         assert open_deal.assignee_id == new_manager
-        assert closed_deal.assignee_id == new_manager
+        assert closed_deal.assignee_id == old_manager
     finally:
         _cleanup(sid, [old_manager, new_manager])
 

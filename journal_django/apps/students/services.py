@@ -261,10 +261,11 @@ def _actor_id(actor) -> Optional[int]:
 def set_student_manager(student_id: int, manager_id: Optional[int], *, actor=None) -> Optional[dict]:
     """
     Сменить ответственного менеджера ученика и синхронно переписать assignee
-    ВСЕХ сделок продления этого ученика (открытых и закрытых) — единый источник
-    правды вместо независимого назначения на каждой сделке. Возвращает None,
-    если ученика нет; ValueError, если manager_id указывает на неподходящую
-    учётку (не manager/admin/superadmin или неактивна).
+    АКТИВНОЙ (открытой) сделки продления этого ученика — единый источник правды
+    вместо независимого назначения на сделке. Закрытые (won/lost) сделки
+    сохраняют своего исторического ответственного и не трогаются. Возвращает
+    None, если ученика нет; ValueError, если manager_id указывает на
+    неподходящую учётку (не manager/admin/superadmin или неактивна).
 
     actor принят для единообразия сигнатуры с change_student_status/resume_student
     и на будущее (например, если появится RenewalActivity для смены менеджера), но
@@ -290,6 +291,8 @@ def set_student_manager(student_id: int, manager_id: Optional[int], *, actor=Non
 
     student.manager_id = manager_id
     student.save(update_fields=['manager'])
-    RenewalDeal.objects.filter(student_id=student_id).update(assignee_id=manager_id)
+    RenewalDeal.objects.filter(
+        student_id=student_id, outcome_at__isnull=True,
+    ).update(assignee_id=manager_id)
 
     return repository.get_student(student_id)

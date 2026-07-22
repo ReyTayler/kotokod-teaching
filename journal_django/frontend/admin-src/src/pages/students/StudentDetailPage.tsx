@@ -83,8 +83,8 @@ function StudentResumeDialog({ student, onClose }: { student: Student; onClose: 
 }
 
 // ── Диалог смены ответственного менеджера — только admin/superadmin.
-// Меняет Student.manager И синхронно ВСЕ сделки продления ученика (assignee),
-// включая уже закрытые — поэтому явное подтверждение перед сохранением. ──
+// Меняет Student.manager И синхронно активную (открытую) сделку продления
+// ученика (assignee) — закрытые сделки сохраняют исторического ответственного. ──
 function StudentManagerDialog({ student, onClose }: { student: Student; onClose: () => void }) {
   const { data: assignees } = useRenewalAssignees();
   const muts = useStudentMutations();
@@ -119,8 +119,8 @@ function StudentManagerDialog({ student, onClose }: { student: Student; onClose:
           />
         </Field>
         <div className="status-form__hint">
-          Смена менеджера сразу переставит ответственного во всех сделках продления
-          этого ученика в разделе «Продления» — включая уже закрытые.
+          Смена менеджера сразу переставит ответственного в активной сделке продления
+          этого ученика в разделе «Продления». Закрытые сделки не меняются.
         </div>
         <div className="status-form__footer">
           <button type="button" className="btn-cancel" onClick={onClose}>Отмена</button>
