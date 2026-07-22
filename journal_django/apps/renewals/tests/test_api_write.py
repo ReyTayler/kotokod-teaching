@@ -88,6 +88,31 @@ def test_move_to_won_before_cycle_completed_409(admin_client, make_student, make
 
 
 @pytest.mark.django_db
+def test_move_to_won_blocked_when_balance_not_positive(admin_client, make_student, make_direction):
+    """Цикл отработан, но баланс <= 0 (долг или ровно 0) — «Продлён» запрещён:
+    без положительного баланса продление не подкреплено оплатой на следующий
+    цикл. Ставим сделку на ручную decision-стадию («Думает»), цикл мокаем
+    завершённым — проверяем именно балансовый гейт, отдельно от cycle_completed."""
+    from unittest.mock import patch
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    deal.stage = RenewalStage.objects.get(key='thinking', pipeline=deal.pipeline)
+    deal.save(update_fields=['stage'])
+    with patch('apps.renewals.engine.cycle_completed', return_value=True), \
+         patch('apps.finances.repository.balance_for_student', return_value=0):
+        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                                 {'to_stage_id': _stage_id('renewed')}, format='json')
+    assert resp.status_code == 409
+    assert 'баланс' in resp.json()['error'].lower()
+
+    with patch('apps.renewals.engine.cycle_completed', return_value=True), \
+         patch('apps.finances.repository.balance_for_student', return_value=-3):
+        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                                 {'to_stage_id': _stage_id('renewed')}, format='json')
+    assert resp.status_code == 409
+
+
+@pytest.mark.django_db
 def test_move_to_stage_outside_pipeline_409(admin_client, make_student, make_direction):
     """to_stage_id, которого нет в воронке сделки → InvalidTransition → 409, не 500."""
     sid, did = make_student(), make_direction()
@@ -114,7 +139,8 @@ def test_move_to_won_respawns_next_cycle(admin_client, make_student, make_direct
     # с ручной decision-стадии. Ставим 'Думает' напрямую через ORM.
     deal.stage = RenewalStage.objects.get(key='thinking', pipeline=deal.pipeline)
     deal.save(update_fields=['stage'])
-    with patch('apps.renewals.engine.cycle_completed', return_value=True):
+    with patch('apps.renewals.engine.cycle_completed', return_value=True), \
+         patch('apps.finances.repository.balance_for_student', return_value=4):
         resp = admin_client.post(f'{BASE}/{deal.id}/move',
                                  {'to_stage_id': _stage_id('renewed')}, format='json')
     assert resp.status_code == 200
@@ -143,7 +169,8 @@ def test_move_to_won_skips_taken_closed_cycle(admin_client, make_student, make_d
     # На авто-стадии move→won запрещён (from_is_auto) — ставим 'Думает' через ORM.
     deal.stage = RenewalStage.objects.get(key='thinking', pipeline=pipe)
     deal.save(update_fields=['stage'])
-    with patch('apps.renewals.engine.cycle_completed', return_value=True):
+    with patch('apps.renewals.engine.cycle_completed', return_value=True), \
+         patch('apps.finances.repository.balance_for_student', return_value=4):
         resp = admin_client.post(f'{BASE}/{deal.id}/move',
                                  {'to_stage_id': _stage_id('renewed')}, format='json')
     assert resp.status_code == 200

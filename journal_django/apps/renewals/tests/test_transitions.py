@@ -43,3 +43,23 @@ def test_manual_decision_to_won_needs_completed_cycle():
 
 def test_from_terminal_never_allowed():
     assert not is_allowed(from_kind='won', to_kind='decision', cycle_completed=True)
+
+
+def test_move_to_won_requires_positive_balance():
+    # Цикл завершён, но баланс <= 0 (долг или ровно 0) — «Продлён» запрещён:
+    # продление должно быть подкреплено оплатой на следующий цикл.
+    assert not is_allowed(from_kind='decision', to_kind='won',
+                          cycle_completed=True, balance=0)
+    assert not is_allowed(from_kind='decision', to_kind='won',
+                          cycle_completed=True, balance=-2)
+    assert is_allowed(from_kind='decision', to_kind='won',
+                      cycle_completed=True, balance=0.5)
+
+
+def test_move_to_decision_or_lost_ignores_balance():
+    # Балансовый гейт относится только к «Продлён» — на прочие ручные стадии
+    # долг не влияет.
+    assert is_allowed(from_kind='decision', to_kind='decision',
+                      cycle_completed=True, balance=-5)
+    assert is_allowed(from_kind='decision', to_kind='lost',
+                      cycle_completed=True, balance=-5)

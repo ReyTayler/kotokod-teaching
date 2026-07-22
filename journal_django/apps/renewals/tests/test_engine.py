@@ -15,13 +15,16 @@ def _close_as_won(deal_id):
     стадии, откуда руками уйти нельзя (from_is_auto) — поэтому сперва ставим её
     на ручную «Думает» напрямую через ORM (реальный путь «Продлён» идёт именно
     с ручной decision-стадии), а cycle_completed мокаем вместо реальной
-    посещаемости на 4 урока (тесты этого файла — про респавн/reopen).
+    посещаемости на 4 урока (тесты этого файла — про респавн/reopen). Баланс
+    тоже мокаем положительным — с 2026-07-22 «Продлён» дополнительно требует
+    balance > 0 (не связано с тем, что тестируют файлы этого модуля).
     """
     deal = RenewalDeal.objects.get(id=deal_id)
     deal.stage = RenewalStage.objects.get(pipeline=deal.pipeline, key='thinking')
     deal.save(update_fields=['stage'])
     won_id = RenewalStage.objects.get(pipeline__is_default=True, kind='won').id
-    with patch('apps.renewals.engine.cycle_completed', return_value=True):
+    with patch('apps.renewals.engine.cycle_completed', return_value=True), \
+         patch('apps.finances.repository.balance_for_student', return_value=4):
         return repository.move_deal(deal_id, won_id, None, author_id=None)
 
 

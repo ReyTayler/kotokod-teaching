@@ -115,6 +115,7 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
     """Переместить сделку в стадию, записать активность, синхронизировать outcome/enrollment."""
     from django.db import transaction
     from django.utils import timezone
+    from apps.finances.repository import balance_for_student
     from apps.renewals import engine
     from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalStage
     from apps.renewals.transitions import assert_allowed, InvalidTransition
@@ -129,7 +130,8 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         from_stage = deal.stage
         assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind,
                        from_is_auto=from_stage.is_auto, to_is_auto=to_stage.is_auto,
-                       cycle_completed=engine.cycle_completed(deal))
+                       cycle_completed=engine.cycle_completed(deal),
+                       balance=float(balance_for_student(deal.student_id)))
 
         deal.stage = to_stage
         deal.stage_entered_at = timezone.now()
