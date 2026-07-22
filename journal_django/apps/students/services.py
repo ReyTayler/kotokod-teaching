@@ -255,3 +255,41 @@ def preview_freeze_schedule(membership_ids: list[int], *, frozen_from, frozen_un
 def _actor_id(actor) -> Optional[int]:
     """Account.id из actor (request.user) или None."""
     return getattr(actor, 'id', None)
+
+
+@transaction.atomic
+def set_student_manager(student_id: int, manager_id: Optional[int], *, actor=None) -> Optional[dict]:
+    """
+    Сменить ответственного менеджера ученика и синхронно переписать assignee
+    ВСЕХ сделок продления этого ученика (открытых и закрытых) — единый источник
+    правды вместо независимого назначения на каждой сделке. Возвращает None,
+    если ученика нет; ValueError, если manager_id указывает на неподходящую
+    учётку (не manager/admin/superadmin или неактивна).
+
+    actor принят для единообразия сигнатуры с change_student_status/resume_student
+    и на будущее (например, если появится RenewalActivity для смены менеджера), но
+    пока не используется — атрибуция pghistory для этого изменения уже берётся из
+    контекста middleware запроса, не из этого параметра.
+    """
+    from apps.accounts.models import Account
+    from apps.renewals.models import RenewalDeal
+    from apps.students.models import Student
+
+    student = Student.objects.filter(id=student_id).first()
+    if student is None:
+        return None
+
+    if manager_id is not None:
+        # Тот же критерий, что apps.renewals.services.list_assignees() —
+        # кандидат в ответственные по сделкам продления.
+        is_eligible = Account.objects.filter(
+            id=manager_id, role__in=['manager', 'admin', 'superadmin'], is_active=True,
+        ).exists()
+        if not is_eligible:
+            raise ValueError('manager account not found or not eligible')
+
+    student.manager_id = manager_id
+    student.save(update_fields=['manager'])
+    RenewalDeal.objects.filter(student_id=student_id).update(assignee_id=manager_id)
+
+    return repository.get_student(student_id)
