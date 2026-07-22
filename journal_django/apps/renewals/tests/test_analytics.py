@@ -58,3 +58,30 @@ def test_funnel_group_by_month(make_student, make_direction, make_teacher,
             cur.execute('DELETE FROM renewal_deal WHERE student_id = %s', [sid])
             cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [gid])
             cur.execute('DELETE FROM groups WHERE id = %s', [gid])
+
+
+@pytest.mark.django_db
+def test_funnel_month_uses_moscow_timezone_for_outcome_at(make_student, make_direction):
+    """Сделка, закрытая в 01:00 по Москве 1 августа (= 22:00 UTC 31 июля),
+    должна попасть в когорту августа — PostgreSQL-сессия сидит в UTC (Django
+    её не переключает), поэтому date_trunc('month', outcome_at) обязан явно
+    конвертировать в МСК, иначе событие уезжает в когорту июля."""
+    from datetime import datetime, timezone as dt_timezone
+    from django.db import connection
+    from apps.renewals.models import RenewalDeal, RenewalStage
+
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    lost_stage = RenewalStage.objects.filter(pipeline=deal.pipeline, kind='lost').first()
+    utc_instant = datetime(2026, 7, 31, 22, 0, tzinfo=dt_timezone.utc)
+    RenewalDeal.objects.filter(id=deal.id).update(stage=lost_stage, outcome_at=utc_instant)
+    try:
+        data = analytics.funnel(group_by='month')
+        row = next((m for m in data['months'] if m['month'] == '2026-08'), None)
+        assert row is not None, 'сделка должна попасть в когорту 2026-08, а не 2026-07'
+        assert row['lost'] >= 1
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM renewal_activity WHERE deal_id IN '
+                        '(SELECT id FROM renewal_deal WHERE student_id = %s)', [sid])
+            cur.execute('DELETE FROM renewal_deal WHERE student_id = %s', [sid])

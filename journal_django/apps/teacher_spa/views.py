@@ -32,6 +32,7 @@ from django.db.models import F
 
 from apps.core.pagination import StandardPagination
 from apps.core.permissions import IsTeacher
+from apps.core.utils.dates import msk_now
 from apps.groups.models import Group
 from apps.lessons.models import Lesson
 from apps.teacher_spa import repository, services
@@ -239,9 +240,11 @@ class ReportView(APIView):
         # 3. Заполненные уроки из журнала
         filled_map = repository.read_filled_lessons(week_start_str)
 
-        # Текущий момент (наивный datetime в локальном времени сервера — для сравнения
-        # с lessonDate, который тоже наивный / серверный локаль, как JS setHours)
-        now_local = datetime.datetime.now()
+        # Текущий момент по МСК, наивный (для сравнения с lessonDate — тоже
+        # наивный, построен из week_start_date/hour/minute как московское
+        # время). ВАЖНО: не datetime.datetime.now() — это часы СЕРВЕРА, не
+        # обязательно МСК (тот же класс бага, что был в engine.py due_at).
+        now_local = msk_now().replace(tzinfo=None)
 
         # Необязательный ?mine=true — вернуть ТОЛЬКО данные текущего преподавателя
         # (кабинет учителя не должен показывать чужие расписания). Скоуп на СЕРВЕРЕ:

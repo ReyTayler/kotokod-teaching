@@ -131,6 +131,32 @@ def test_cycle_complete_moves_to_awaiting_renewal(make_student, make_direction,
 
 
 @pytest.mark.django_db
+def test_due_at_uses_moscow_calendar_date_not_utc(make_student, make_direction,
+                                                  make_teacher, make_payment,
+                                                  make_attendance):
+    """due_at — календарная дата по МСК, а не по UTC-сессии PostgreSQL. Событие
+    в 01:00 по Москве 1 июля (= 22:00 UTC 30 июня) должно дать due_at=2026-07-01,
+    а не 2026-06-30 (был баг: engine брал timezone.now().date() — UTC-дату)."""
+    from datetime import datetime
+    from unittest.mock import patch
+    from zoneinfo import ZoneInfo
+
+    sid, did, tid = make_student(), make_direction(), make_teacher()
+    make_payment(sid, did, lessons=8)
+    gid = _make_group_with_membership(did, tid, sid)
+    try:
+        make_attendance(sid, gid, tid, count=4)
+        deal = engine.ensure_deal(sid, cycle_no=1)
+        fake_msk_now = datetime(2026, 7, 1, 1, 0, tzinfo=ZoneInfo('Europe/Moscow'))
+        with patch('apps.renewals.engine.msk_now', return_value=fake_msk_now):
+            engine.sync_lesson_stage(sid)
+        deal.refresh_from_db()
+        assert deal.due_at.isoformat() == '2026-07-01'
+    finally:
+        _cleanup_group(gid, sid)
+
+
+@pytest.mark.django_db
 def test_balance_zero_mid_cycle_moves_to_awaiting_payment(make_student, make_direction,
                                                           make_teacher, make_attendance):
     """Цикл не отработан (2 из 4), оплат нет (баланс ≤ 0) → «Ждём оплату»."""

@@ -15,6 +15,7 @@ from typing import Optional
 from django.db import transaction
 from django.utils import timezone
 
+from apps.core.utils.dates import msk_now
 from apps.renewals import cycle
 from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalPipeline, RenewalStage
 
@@ -182,7 +183,11 @@ def sync_lesson_stage(student_id: int) -> None:
 
     update_fields: list[str] = []
     if matured and deal.due_at is None:
-        deal.due_at = timezone.now().date()
+        # Календарная дата по МСК, не UTC — иначе события в окне 00:00–02:59
+        # по Москве (21:00–23:59 UTC предыдущих суток) уезжают на день/месяц
+        # назад. Тот же класс проблемы, что решает `AT TIME ZONE 'Europe/Moscow'`
+        # в apps/students/repository.py::student_stats.
+        deal.due_at = msk_now().date()
         update_fields.append('due_at')
     if target.id != deal.stage_id:
         from_stage = deal.stage

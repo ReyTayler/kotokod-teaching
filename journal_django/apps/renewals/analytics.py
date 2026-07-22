@@ -12,6 +12,14 @@ def funnel(group_by: str | None = None) -> dict:
     group_by='month' добавляет когорты по месяцам: месяц = когда цикл отработан
     (due_at); оплатившие заранее (закрыты до 4-го урока, due_at пуст) попадают
     в месяц закрытия. Каждый цикл — ровно в одном месяце.
+
+    Месяц считается по МСК, не по сессионному часовому поясу PostgreSQL
+    (session timezone — UTC, Django его не переключает даже при
+    TIME_ZONE='Europe/Moscow'): due_at — DATE без времени, безопасен сам по
+    себе (при условии что записан по МСК — см. engine.msk_now()); outcome_at —
+    timestamptz, поэтому явно конвертируется AT TIME ZONE 'Europe/Moscow'
+    перед date_trunc, иначе события в окне 00:00–02:59 по Москве уезжают
+    в предыдущий месяц.
     """
     with connection.cursor() as cur:
         cur.execute("""
@@ -36,7 +44,8 @@ def funnel(group_by: str | None = None) -> dict:
         if group_by == 'month':
             cur.execute("""
                 SELECT to_char(COALESCE(date_trunc('month', d.due_at::timestamp),
-                                        date_trunc('month', d.outcome_at)), 'YYYY-MM') AS month,
+                                        date_trunc('month', d.outcome_at AT TIME ZONE 'Europe/Moscow')),
+                               'YYYY-MM') AS month,
                        COUNT(*) AS matured,
                        COUNT(*) FILTER (WHERE st.kind = 'won') AS won,
                        COUNT(*) FILTER (WHERE st.kind = 'lost') AS lost,
