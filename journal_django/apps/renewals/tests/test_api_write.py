@@ -162,6 +162,24 @@ def test_patch_next_touch(admin_client, make_student, make_direction):
 
 
 @pytest.mark.django_db
+def test_patch_ignores_assignee_id(admin_client, make_student, make_direction):
+    """assignee_id больше не патчится напрямую на сделке — единственный путь
+    смены ответственного теперь через Student.manager (жёсткая синхронизация)."""
+    from apps.accounts.models import Account
+    from django.contrib.auth.hashers import make_password
+    import uuid
+
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    email = f'__test_patch_ignore_assignee__{uuid.uuid4().hex[:8]}@test.local'
+    acc = Account.objects.create(
+        email=email, password=make_password('x'), role='manager', is_active=True)
+    resp = admin_client.patch(f'{BASE}/{deal.id}', {'assignee_id': acc.id}, format='json')
+    assert resp.status_code == 200
+    assert resp.json()['assignee_id'] is None
+
+
+@pytest.mark.django_db
 def test_comment_then_activity(admin_client, make_student, make_direction):
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, cycle_no=1)

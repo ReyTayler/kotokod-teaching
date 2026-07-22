@@ -155,7 +155,7 @@ def patch_deal(deal_id: int, data: dict) -> dict | None:
     from django.utils import timezone
     from apps.renewals.models import RenewalDeal
     fields = {}
-    for k in ('assignee_id', 'next_touch_at', 'reason_code'):
+    for k in ('next_touch_at', 'reason_code'):
         if k in data:
             fields[k] = data[k]
     if not fields:
