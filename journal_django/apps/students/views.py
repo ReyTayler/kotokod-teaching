@@ -31,6 +31,7 @@ from apps.students.serializers import (
 )
 from apps.students.serializers import (
     StudentFreezePreviewSerializer,
+    StudentManagerSerializer,
     StudentResumeSerializer,
     StudentStatusSerializer,
     StudentUpdateSerializer,
@@ -303,3 +304,26 @@ class StudentResumeView(APIView):
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(services.get_student(pk))
+
+
+class StudentManagerView(APIView):
+    """PATCH /api/admin/students/:id/manager — сменить ответственного менеджера.
+
+    В отличие от общего PATCH /students/:id (IsManagerOrAdmin, редактирует
+    любой manager/admin/superadmin), это поле доступно только admin/superadmin:
+    смена ответственного синхронно переписывает assignee ВСЕХ сделок продления
+    ученика (services.set_student_manager)."""
+
+    permission_classes = [IsAdminOrSuperAdmin]
+
+    def patch(self, request: Request, pk: int) -> Response:
+        ser = StudentManagerSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            updated = services.set_student_manager(
+                pk, ser.validated_data['manager_id'], actor=request.user)
+        except ValueError as exc:
+            raise ValidationError({'error': str(exc)})
+        if updated is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(updated)

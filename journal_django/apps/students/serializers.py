@@ -194,3 +194,8 @@ class StudentFreezePreviewSerializer(serializers.Serializer):
 class StudentResumeSerializer(serializers.Serializer):
     """Ввод POST /students/:id/resume."""
     actual_resume_date = DateStringField()
+
+
+class StudentManagerSerializer(serializers.Serializer):
+    """Ввод PATCH /students/:id/manager. null — снять ответственного."""
+    manager_id = serializers.IntegerField(allow_null=True)

@@ -15,6 +15,7 @@ from apps.students.views import (
     StudentDetailView,
     StudentFreezePreviewView,
     StudentListCreateView,
+    StudentManagerView,
     StudentRefundView,
     StudentResumeView,
     StudentStatsView,
@@ -24,6 +25,7 @@ from apps.students.views import (
 urlpatterns = [
     path('', StudentListCreateView.as_view(), name='students-list-create'),
     path('/<int:pk>', StudentDetailView.as_view(), name='students-detail'),
+    path('/<int:pk>/manager', StudentManagerView.as_view(), name='students-manager'),
     path('/<int:pk>/stats', StudentStatsView.as_view(), name='students-stats'),
     path('/<int:pk>/balance', StudentBalanceView.as_view(), name='students-balance'),
     path('/<int:pk>/comments', StudentCommentListView.as_view(), name='students-comments'),
