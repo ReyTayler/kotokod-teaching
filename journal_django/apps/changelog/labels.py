@@ -34,6 +34,7 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/students/\d+/status$'), 'student.status'),
     ('POST', re.compile(r'^/api/admin/students/\d+/resume$'), 'student.resume'),
     ('POST', re.compile(r'^/api/admin/students$'), 'student.create'),
+    ('PATCH', re.compile(r'^/api/admin/students/\d+/manager$'), 'student.manager_update'),
     ('PATCH', re.compile(r'^/api/admin/students/\d+$'), 'student.update'),
     ('DELETE', re.compile(r'^/api/admin/students/\d+$'), 'student.delete'),
     ('POST', re.compile(r'^/api/admin/discounts$'), 'discount.create'),
