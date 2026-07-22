@@ -129,7 +129,8 @@ no-op; для сделок, закрытых оплатой ДО этой пра
 КАЖДОМ вызове и не имело покрытия тестами (грепом подтверждено: ни один тест
 не дёргал move→won до этой правки). Поскольку это теперь единственный путь
 закрытия сделки, исправлено в рамках той же правки: `move_deal` использует
-`engine.next_open_cycle_no` + `engine.ensure_deal(student, cycle_no, assignee_id)`.
+`engine.next_open_cycle_no` + `engine.ensure_deal(student, cycle_no)` (assignee
+теперь берётся движком из `Student.manager`, а не передаётся параметром).
 Добавлены тесты (`test_move_to_won_respawns_next_cycle`,
 `test_move_to_won_skips_taken_closed_cycle`), покрывающие и сам факт работы
 эндпоинта, и «дыру» P-3 (занятый закрытый номер цикла) на этом пути.
