@@ -37,6 +37,27 @@ def test_ensure_deal_is_idempotent(make_student):
 
 
 @pytest.mark.django_db
+def test_ensure_deal_picks_up_student_manager(make_student):
+    """Новая сделка сразу получает assignee = текущий менеджер ученика (без
+    передачи assignee_id вызывающим кодом — единый источник правды)."""
+    from apps.students import services as student_services
+    from apps.accounts.models import Account
+    from django.contrib.auth.hashers import make_password
+    import uuid
+
+    sid = make_student()
+    email = f'__test_engine_manager__{uuid.uuid4().hex[:8]}@test.local'
+    manager = Account.objects.create(
+        email=email, password=make_password('x'), role='manager',
+        is_active=True, full_name='__Test Engine Manager__',
+    )
+    student_services.set_student_manager(sid, manager.id)
+
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    assert deal.assignee_id == manager.id
+
+
+@pytest.mark.django_db
 def test_manual_close_won_respawns_next_cycle(make_student):
     """Ручное подтверждение продления (repository.move_deal → won) закрывает
     сделку и спавнит открытую сделку следующего цикла."""

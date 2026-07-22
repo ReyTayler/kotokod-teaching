@@ -79,15 +79,24 @@ def cycle_completed(deal: RenewalDeal) -> bool:
 
 
 @transaction.atomic
-def ensure_deal(student_id: int, cycle_no: int,
-                assignee_id: Optional[int] = None) -> RenewalDeal:
-    """Создать (или вернуть существующую) сделку цикла ученика. Идемпотентно по UNIQUE."""
+def ensure_deal(student_id: int, cycle_no: int) -> RenewalDeal:
+    """
+    Создать (или вернуть существующую) сделку цикла ученика. Идемпотентно по UNIQUE.
+
+    assignee новой сделки — ТЕКУЩИЙ Student.manager (единый источник правды,
+    см. apps.students.services.set_student_manager) — не принимается параметром,
+    чтобы не было двух путей его установки.
+    """
+    from apps.students.models import Student
+
     pipeline = _default_pipeline()
     progress_stages = _progress_stages(pipeline)
     progress = progress_stages[0] if progress_stages else _stage(pipeline, kind='progress')
+    manager_id = (Student.objects.filter(id=student_id)
+                  .values_list('manager_id', flat=True).first())
     deal, created = RenewalDeal.objects.get_or_create(
         student_id=student_id, cycle_no=cycle_no,
-        defaults={'pipeline': pipeline, 'stage': progress, 'assignee_id': assignee_id},
+        defaults={'pipeline': pipeline, 'stage': progress, 'assignee_id': manager_id},
     )
     if created:
         RenewalActivity.objects.create(

@@ -147,7 +147,7 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         # номера (переоткрытия/возвраты могли оставить «дыру»).
         if to_stage.kind == 'won':
             next_cycle = engine.next_open_cycle_no(deal.student_id, deal.cycle_no + 1)
-            engine.ensure_deal(deal.student_id, next_cycle, assignee_id=deal.assignee_id)
+            engine.ensure_deal(deal.student_id, next_cycle)
     return deal_computed(deal_id)
 
 
