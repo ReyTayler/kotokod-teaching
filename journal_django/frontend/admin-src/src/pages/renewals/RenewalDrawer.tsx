@@ -8,7 +8,7 @@ import { DateInput } from '../../components/form/DateInput';
 import { Textarea } from '../../components/form/Textarea';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import {
-  useRenewalActivity, useRenewalAssignees, useRenewalDeal, useRenewalMutations,
+  useRenewalActivity, useRenewalDeal, useRenewalMutations,
 } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useApiError } from '../../hooks/useApiError';
@@ -53,7 +53,6 @@ export function RenewalDrawer({ id, onClose }: Props) {
   const { data: deal, isLoading: dealLoading } = useRenewalDeal(id);
   const { data: activity, isLoading: activityLoading } = useRenewalActivity(id);
   const { data: stages } = useRenewalStages();
-  const { data: assignees } = useRenewalAssignees();
   const { comment, patch, move, reopen } = useRenewalMutations();
   const { open: openPayment } = usePaymentModal();
   const showError = useApiError();
@@ -244,14 +243,9 @@ export function RenewalDrawer({ id, onClose }: Props) {
                     />
                   </Field>
                   <Field label="Ответственный">
-                    <SelectInput
-                      value={deal.assignee_id != null ? String(deal.assignee_id) : ''}
-                      onChange={(e) => save({ assignee_id: e.target.value ? Number(e.target.value) : null })}
-                      options={[
-                        { value: '', label: '— не назначен —' },
-                        ...(assignees || []).map((a) => ({ value: String(a.id), label: a.full_name })),
-                      ]}
-                    />
+                    <div className="renewal-drawer__readonly-value" title="Меняется на странице ученика">
+                      {deal.assignee_name || '— не назначен —'}
+                    </div>
                   </Field>
                   <Field label="Следующее касание">
                     <DateInput

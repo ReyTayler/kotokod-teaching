@@ -546,6 +546,11 @@
   color: var(--text);
 }
 
+.renewal-drawer__readonly-value {
+  padding: 8px 12px;
+  color: var(--text);
+}
+
 .renewal-drawer__pay-btn {
   align-self: flex-start;
   border-radius: var(--r-lg);
