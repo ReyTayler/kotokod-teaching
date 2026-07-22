@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from django.db import connection
+from django.db.models import F
 from django.db.models.functions import Now
 
 from apps.core.utils.orm import dictrow, dictrows
@@ -46,12 +47,23 @@ _SORTABLE: dict[str, str] = {
 _DEFAULT_SORT_BY = 'full_name'
 _DEFAULT_SORT_DIR = 'asc'
 
+# Явный список колонок students для .values() — общий для list/get/create/update,
+# чтобы новое поле модели требовалось добавить только в одном месте. manager_name
+# везде добавляется отдельным kwarg-алиасом (F() несовместим с .values() без аргументов).
+_STUDENT_VALUES_FIELDS = (
+    'id', 'full_name', 'birth_date', 'platform_id', 'bitrix24_link',
+    'parent1_name', 'parent1_phone', 'parent1_email',
+    'parent2_name', 'parent2_phone', 'parent2_email',
+    'first_purchase_date', 'age', 'manager_id',
+    'enrollment_status', 'frozen_from', 'frozen_until', 'created_at',
+)
+
 
 def _apply_filters(qs, filters: dict[str, Any]):
     """
     Фильтры (мимикрируют F.*-билдеры services/pagination.js):
-      full_name (LIKE), parent1_phone/parent1_name/pm/platform_id (likeNullable),
-      enrollment_status (exact), age (num).
+      full_name (LIKE), parent1_phone/parent1_name/platform_id (likeNullable),
+      manager_id (exact), enrollment_status (exact), age (num).
 
     likeNullable (col IS NOT NULL AND LOWER(col) LIKE) выражается __icontains —
     NULL по col не матчится автоматически, поэтому IS NOT NULL избыточен.
@@ -68,9 +80,14 @@ def _apply_filters(qs, filters: dict[str, Any]):
     if parent1_name not in (None, ''):
         qs = qs.filter(parent1_name__icontains=str(parent1_name))
 
-    pm = filters.get('pm')
-    if pm not in (None, ''):
-        qs = qs.filter(pm__icontains=str(pm))
+    manager_id = filters.get('manager_id')
+    if manager_id not in (None, ''):
+        try:
+            manager_id = int(manager_id)
+        except (TypeError, ValueError):
+            pass  # невалидное значение — фильтр молча игнорируется, как age ниже
+        else:
+            qs = qs.filter(manager_id=manager_id)
 
     platform_id = filters.get('platform_id')
     if platform_id not in (None, ''):
@@ -111,7 +128,9 @@ def list_students(
 
     offset = max(0, (page - 1) * page_size)
     ordered = qs.order_by(f'{order_prefix}{sort_field}', '-id')
-    rows = dictrows(ordered[offset:offset + page_size].values())
+    rows = dictrows(ordered[offset:offset + page_size].values(
+        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
+    ))
 
     return {
         'rows': rows,
@@ -122,15 +141,17 @@ def list_students(
 
 
 def get_student(student_id: int) -> Optional[dict]:
-    """Возвращает одного ученика по id или None (SELECT * FROM students WHERE id=%s)."""
-    return dictrow(Student.objects.filter(id=student_id).values())
+    """Возвращает одного ученика по id или None."""
+    return dictrow(Student.objects.filter(id=student_id).values(
+        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
+    ))
 
 
 def create_student(data: dict) -> dict:
     """
     Создаёт ученика (INSERT ... RETURNING *).
 
-    NULLIF('', '') → пустая строка → None (platform_id/bitrix24_link/parent1_*/parent2_*/pm).
+    NULLIF('', '') → пустая строка → None (platform_id/bitrix24_link/parent1_*/parent2_*).
     enrollment_status по умолчанию 'enrolled'. created_at — DB DEFAULT now() через Now().
     """
     obj = Student.objects.create(
@@ -146,13 +167,14 @@ def create_student(data: dict) -> dict:
         parent2_email=data.get('parent2_email') or None,
         first_purchase_date=data.get('first_purchase_date') or None,
         age=data.get('age') if data.get('age') is not None else None,
-        pm=data.get('pm') or None,
         enrollment_status=data.get('enrollment_status') or 'enrolled',
         frozen_from=data.get('frozen_from') or None,
         frozen_until=data.get('frozen_until') or None,
         created_at=Now(),
     )
-    return dictrow(Student.objects.filter(pk=obj.pk).values())
+    return dictrow(Student.objects.filter(pk=obj.pk).values(
+        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
+    ))
 
 
 def update_student(student_id: int, data: dict) -> Optional[dict]:
@@ -191,8 +213,6 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
         obj.first_purchase_date = data['first_purchase_date']
     if data.get('age') is not None:
         obj.age = data['age']
-    if data.get('pm'):
-        obj.pm = data['pm']
     if data.get('enrollment_status'):
         obj.enrollment_status = data['enrollment_status']
     # frozen_from/frozen_until — всегда перезаписываем (absent → None-сброс),
@@ -201,7 +221,9 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
     obj.frozen_until = data.get('frozen_until') or None
 
     obj.save()
-    return dictrow(Student.objects.filter(id=student_id).values())
+    return dictrow(Student.objects.filter(id=student_id).values(
+        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
+    ))
 
 
 def soft_delete_student(student_id: int) -> bool:

@@ -48,7 +48,6 @@ def _make_student_data(**overrides) -> dict:
         'parent2_email': None,
         'first_purchase_date': None,
         'age': None,
-        'pm': None,
         'enrollment_status': 'enrolled',
         'frozen_from': None,
         'frozen_until': None,
@@ -116,6 +115,11 @@ class TestListStudents:
         result = repository.list_students(sort_by='id', sort_dir='asc', page_size=5)
         assert isinstance(result['rows'], list)
 
+    def test_filter_by_manager_id_no_match(self):
+        """Несуществующий manager_id → пустой список (не падает на приведении типа)."""
+        result = repository.list_students(filters={'manager_id': '999999999'})
+        assert result['rows'] == []
+
 
 # ---------------------------------------------------------------------------
 # TestGetStudent
@@ -147,8 +151,19 @@ class TestGetStudent:
         sid = student['id']
         try:
             result = repository.get_student(sid)
-            for field in ['id', 'full_name', 'enrollment_status', 'created_at']:
+            for field in ['id', 'full_name', 'enrollment_status', 'created_at', 'manager_id', 'manager_name']:
                 assert field in result
+        finally:
+            _cleanup_student(sid)
+
+    def test_manager_null_by_default(self):
+        data = _make_student_data(full_name='__test_get_manager_default__')
+        student = repository.create_student(data)
+        sid = student['id']
+        try:
+            result = repository.get_student(sid)
+            assert result['manager_id'] is None
+            assert result['manager_name'] is None
         finally:
             _cleanup_student(sid)
 

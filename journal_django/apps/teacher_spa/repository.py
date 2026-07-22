@@ -92,7 +92,7 @@ def read_all_students() -> dict:
             teacher_name=F('group__teacher__name'),
             student_name=F('student__full_name'),
             age=F('student__age'),
-            pm=F('student__pm'),
+            pm=F('student__manager__full_name'),
             membership_id=F('id'),
         )
     )

@@ -71,7 +71,6 @@ def extract_students_and_memberships(rows: list[list]) -> dict:
             students_map[name] = {
                 'full_name': name,
                 'age': parse_int(cell(row, 2)),
-                'pm': cell(row, 9) or None,
                 'birth_date': parse_start_date(cell(row, 7)),
                 'parent1_phone': cell(row, 6) or None,
                 'platform_id': cell(row, 4) or None,
@@ -118,15 +117,14 @@ def run(dry_run: bool = False) -> dict:
             cur.execute(
                 """
                 INSERT INTO students
-                    (full_name, age, pm, birth_date, parent1_phone, platform_id,
+                    (full_name, age, birth_date, parent1_phone, platform_id,
                      parent1_name, first_purchase_date, enrollment_status,
                      frozen_from, frozen_until)
-                VALUES (%(full_name)s, %(age)s, %(pm)s, %(birth_date)s, %(phone)s,
+                VALUES (%(full_name)s, %(age)s, %(birth_date)s, %(phone)s,
                         %(platform)s, %(parent)s, %(first_purchase)s, %(status)s,
                         %(frozen_from)s, %(frozen_until)s)
                 ON CONFLICT (full_name) DO UPDATE SET
                     age                 = EXCLUDED.age,
-                    pm                  = EXCLUDED.pm,
                     birth_date          = EXCLUDED.birth_date,
                     parent1_phone       = EXCLUDED.parent1_phone,
                     platform_id         = EXCLUDED.platform_id,
@@ -136,7 +134,6 @@ def run(dry_run: bool = False) -> dict:
                     frozen_from         = EXCLUDED.frozen_from,
                     frozen_until        = EXCLUDED.frozen_until
                 WHERE students.age IS DISTINCT FROM EXCLUDED.age
-                   OR students.pm  IS DISTINCT FROM EXCLUDED.pm
                    OR students.birth_date          IS DISTINCT FROM EXCLUDED.birth_date
                    OR students.parent1_phone       IS DISTINCT FROM EXCLUDED.parent1_phone
                    OR students.platform_id         IS DISTINCT FROM EXCLUDED.platform_id
@@ -148,7 +145,7 @@ def run(dry_run: bool = False) -> dict:
                 RETURNING (xmax = 0) AS inserted
                 """,
                 {
-                    'full_name': s['full_name'], 'age': s['age'], 'pm': s['pm'],
+                    'full_name': s['full_name'], 'age': s['age'],
                     'birth_date': s['birth_date'], 'phone': s['parent1_phone'],
                     'platform': s['platform_id'], 'parent': s['parent1_name'],
                     'first_purchase': s['first_purchase_date'], 'status': s['enrollment_status'],

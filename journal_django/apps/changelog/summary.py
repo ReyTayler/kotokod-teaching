@@ -188,7 +188,7 @@ FIELD_RU = {
     'parent1_email': 'email родителя 1',
     'parent2_name': 'родитель 2', 'parent2_phone': 'телефон родителя 2',
     'parent2_email': 'email родителя 2',
-    'pm': 'ПМ', 'platform_id': 'ID платформы',
+    'platform_id': 'ID платформы', 'manager_id': 'менеджер', 'assignee_id': 'ответственный менеджер',
     'vk_chat': 'VK-чат', 'note': 'комментарий', 'comment': 'комментарий',
     'record_url': 'ссылка на запись',
     'direction': 'направление', 'direction_id': 'направление',

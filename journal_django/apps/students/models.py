@@ -36,7 +36,10 @@ class Student(models.Model):
     parent2_email = models.TextField(null=True, blank=True)
     first_purchase_date = models.DateField(null=True, blank=True)
     age = models.IntegerField(null=True, blank=True)
-    pm = models.TextField(null=True, blank=True)
+    manager = models.ForeignKey(
+        'accounts.Account', on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='manager_id', related_name='managed_students',
+    )
     enrollment_status = models.TextField(default='enrolled')
     frozen_from = models.DateField(null=True, blank=True)
     frozen_until = models.DateField(null=True, blank=True)
