@@ -20,3 +20,4 @@ export const canSeeLessonPayroll = isSuper;   // зарплата за урок
 export const canRevertChangelog = isAdminUp;
 export const canWriteRenewalStages = isSuper; // конфиг стадий воронки продлений (Фаза 6)
 export const canDeleteStudentComments = isAdminUp; // удаление комментария к ученику
+export const canWriteStudentManager = isAdminUp; // назначение ответственного менеджера ученику

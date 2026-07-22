@@ -36,7 +36,7 @@ export const ENTITY_COLUMN_CATALOG: Record<EntityKey, ColumnMeta[]> = {
     { key: 'parent1_phone',       label: 'Телефон родителя 1' },
     { key: 'parent1_name',        label: 'Родитель 1' },
     { key: 'platform_id',         label: 'Platform ID' },
-    { key: 'pm',                  label: 'ПМ' },
+    { key: 'manager_name',        label: 'Менеджер' },
     { key: 'first_purchase_date', label: 'Первая оплата' },
     { key: 'enrollment_status',   label: 'Статус' },
   ],

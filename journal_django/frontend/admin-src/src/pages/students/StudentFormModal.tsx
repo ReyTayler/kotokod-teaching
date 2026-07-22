@@ -21,7 +21,6 @@ interface FormState {
   parent2_phone: string;
   parent2_email: string;
   first_purchase_date: string;
-  pm: string;
   platform_id: string;
   bitrix24_link: string;
 }
@@ -40,7 +39,6 @@ function toForm(s: Student | null): FormState {
     parent2_phone: s?.parent2_phone || '',
     parent2_email: s?.parent2_email || '',
     first_purchase_date: toYMD(s?.first_purchase_date),
-    pm: s?.pm || '',
     platform_id: s?.platform_id || '',
     bitrix24_link: s?.bitrix24_link || '',
   };
@@ -70,7 +68,6 @@ export default function StudentFormModal({ initial, onClose }: Props) {
       parent2_phone: form.parent2_phone || null,
       parent2_email: form.parent2_email || null,
       first_purchase_date: form.first_purchase_date || null,
-      pm: form.pm || null,
       platform_id: form.platform_id || null,
       bitrix24_link: form.bitrix24_link || null,
     };
@@ -148,9 +145,6 @@ export default function StudentFormModal({ initial, onClose }: Props) {
         <div className="modal-section-label">Обучение</div>
         <Field label="Дата первой оплаты">
           <DateInput value={form.first_purchase_date} onChange={(e) => set('first_purchase_date', e.target.value)} />
-        </Field>
-        <Field label="Менеджер (PM)">
-          <TextInput value={form.pm} onChange={(e) => set('pm', e.target.value)} />
         </Field>
 
         <div className="modal-section-label">Система</div>

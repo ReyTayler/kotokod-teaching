@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useParams, Navigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useStudent } from '../../hooks/useStudents';
+import { useStudent, useStudentMutations } from '../../hooks/useStudents';
 import { useGroupsAll } from '../../hooks/useGroups';
 import { useDirections } from '../../hooks/useDirections';
 import { useMemberships } from '../../hooks/useMemberships';
@@ -28,6 +28,10 @@ import { StudentBalanceBlock } from './StudentBalanceBlock';
 import StudentCommentsBlock from './StudentCommentsBlock';
 import { useLatestStudentComment } from '../../hooks/useStudentComments';
 import { StudentStatusModal } from './StudentStatusModal';
+import { useAuth } from '../../hooks/useAuth';
+import { canWriteStudentManager, type Role } from '../../lib/permissions';
+import { useRenewalAssignees } from '../../hooks/useRenewals';
+import { SelectInput } from '../../components/form/SelectInput';
 
 // ── Мини-диалог разморозки: POST /students/:id/resume, отдельно от общей
 // смены статуса (там действует запрет frozen→enrolled напрямую). ──
@@ -78,6 +82,62 @@ function StudentResumeDialog({ student, onClose }: { student: Student; onClose: 
   );
 }
 
+// ── Диалог смены ответственного менеджера — только admin/superadmin.
+// Меняет Student.manager И синхронно ВСЕ сделки продления ученика (assignee),
+// включая уже закрытые — поэтому явное подтверждение перед сохранением. ──
+function StudentManagerDialog({ student, onClose }: { student: Student; onClose: () => void }) {
+  const { data: assignees } = useRenewalAssignees();
+  const muts = useStudentMutations();
+  const showError = useApiError();
+  const { toast } = useToast();
+  const [managerId, setManagerId] = useState<string>(student.manager_id != null ? String(student.manager_id) : '');
+
+  const handleSave = async () => {
+    try {
+      await muts.setManager.mutateAsync({
+        id: student.id,
+        managerId: managerId ? Number(managerId) : null,
+      });
+      toast('Менеджер обновлён', 'ok');
+      onClose();
+    } catch (err) {
+      showError(err, 'Не удалось сменить менеджера');
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title="Сменить менеджера ученика">
+      <div className="status-form">
+        <Field label="Менеджер">
+          <SelectInput
+            value={managerId}
+            onChange={(e) => setManagerId(e.target.value)}
+            options={[
+              { value: '', label: '— не назначен —' },
+              ...(assignees || []).map((a) => ({ value: String(a.id), label: a.full_name })),
+            ]}
+          />
+        </Field>
+        <div className="status-form__hint">
+          Смена менеджера сразу переставит ответственного во всех сделках продления
+          этого ученика в разделе «Продления» — включая уже закрытые.
+        </div>
+        <div className="status-form__footer">
+          <button type="button" className="btn-cancel" onClick={onClose}>Отмена</button>
+          <button
+            type="button"
+            className="btn-save"
+            onClick={handleSave}
+            disabled={muts.setManager.isPending}
+          >
+            Сохранить
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 const STUDENT_TABS = ['learning', 'finance', 'comments'] as const;
 type StudentTab = (typeof STUDENT_TABS)[number];
 const DEFAULT_TAB: StudentTab = 'learning';
@@ -90,6 +150,7 @@ export default function StudentDetailPage() {
   const params = useParams();
   const id = Number(params.id);
   const { data: student, isLoading } = useStudent(id);
+  const { me } = useAuth();
   const { data: groups = [] } = useGroupsAll(true);
   const { data: directions = [] } = useDirections(true);
   const { data: lastComment } = useLatestStudentComment(id);
@@ -98,6 +159,7 @@ export default function StudentDetailPage() {
   const [transferMembership, setTransferMembership] = useState<GroupMembership | null>(null);
   const [changingStatus, setChangingStatus] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [managingManager, setManagingManager] = useState(false);
   const { open: openPaymentModal } = usePaymentModal();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -174,6 +236,11 @@ export default function StudentDetailPage() {
               Разморозить
             </button>
           )}
+          {canWriteStudentManager(me?.role as Role) && (
+            <button type="button" className="edit-btn" onClick={() => setManagingManager(true)}>
+              Сменить менеджера
+            </button>
+          )}
         </div>
       </div>
       <div className="student-hero__pills">
@@ -219,7 +286,7 @@ export default function StudentDetailPage() {
     { key: 'parent2_email', label: 'Email родителя 2' },
     { key: 'platform_id', label: 'Platform ID' },
     { key: 'bitrix24_link', label: 'Bitrix24' },
-    { key: 'pm', label: 'ПМ' },
+    { key: 'manager_name', label: 'Менеджер', cell: (r) => r.manager_name || '—' },
     { key: 'first_purchase_date', label: 'Первая оплата', cell: (r) => fmtDate(r.first_purchase_date) },
     { key: 'enrollment_status', label: 'Статус', cell: (r) => <StatusBadge row={r} /> },
     { key: 'created_at', label: 'Создан', cell: (r) => fmtDate(r.created_at) },
@@ -324,6 +391,9 @@ export default function StudentDetailPage() {
       )}
       {resuming && (
         <StudentResumeDialog student={student} onClose={() => setResuming(false)} />
+      )}
+      {managingManager && (
+        <StudentManagerDialog student={student} onClose={() => setManagingManager(false)} />
       )}
     </>
   );

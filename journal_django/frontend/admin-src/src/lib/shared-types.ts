@@ -91,7 +91,8 @@ export interface Student {
   parent2_email: string | null;
   first_purchase_date: string | null;
   age: number | null;
-  pm: string | null;
+  manager_id: ID | null;
+  manager_name: string | null;
   enrollment_status: EnrollmentStatus;
   frozen_from: string | null;
   frozen_until: string | null;

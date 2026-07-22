@@ -116,6 +116,14 @@ export function useStudentMutations() {
         api<Student>('PATCH', `/api/admin/students/${id}`, body),
       onSuccess: invalidate,
     }),
+    setManager: useMutation({
+      mutationFn: ({ id, managerId }: { id: number; managerId: number | null }) =>
+        api<Student>('PATCH', `/api/admin/students/${id}/manager`, { manager_id: managerId }),
+      onSuccess: () => {
+        invalidate();
+        qc.invalidateQueries({ queryKey: ['renewals'] });
+      },
+    }),
     remove: useMutation({
       mutationFn: (id: number) => api<void>('DELETE', `/api/admin/students/${id}`),
       onSuccess: invalidate,

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useStudents } from '../../hooks/useStudents';
+import { useRenewalAssignees } from '../../hooks/useRenewals';
 import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { Avatar } from '../../components/Avatar';
@@ -20,6 +21,7 @@ export default function StudentsListPage() {
   // URL-синхронизированный стейт пагинации и сортировки.
   const search = useListSearchParams({ sortBy: 'full_name', sortDir: 'asc' });
   const { page, pageSize, sortBy, sortDir, filters, setPage, setPageSize, setSort, setFilters } = search;
+  const { data: assignees } = useRenewalAssignees();
 
   // Debounce фильтров — не гоним запрос на каждый символ.
   const debouncedFilters = useDeferredValue(filters);
@@ -93,11 +95,12 @@ export default function StudentsListPage() {
       cell: (r) => r.platform_id || '—',
     },
     {
-      key: 'pm',
-      label: 'ПМ',
+      key: 'manager_id',
+      label: 'Менеджер',
       sortable: false,
       searchable: true,
-      cell: (r) => r.pm || '—',
+      searchOptions: (assignees || []).map((a) => ({ value: String(a.id), label: a.full_name })),
+      cell: (r) => r.manager_name || '—',
     },
     {
       key: 'first_purchase_date',
