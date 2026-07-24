@@ -12,6 +12,7 @@ import {
   type EntityColumnPrefs,
   type EntityKey,
 } from '../../lib/table-settings';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function SettingsPage() {
   const { data, isLoading } = useAdminSettings();
@@ -51,14 +52,14 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div className="section-header">
-        <span className="section-title">Настройки</span>
-        <div className="section-actions">
-          <button className="btn-add" onClick={onReset} disabled={save.isPending}>
+      <PageHeader
+        title="Настройки"
+        actions={
+          <button type="button" className="btn-secondary" onClick={onReset} disabled={save.isPending}>
             Сбросить раздел
           </button>
-        </div>
-      </div>
+        }
+      />
       <div className="settings-sub">
         Настройки применяются индивидуально для пользователя <strong>{me?.name || 'admin'}</strong>
         {' '}и синхронизируются между устройствами через сервер.

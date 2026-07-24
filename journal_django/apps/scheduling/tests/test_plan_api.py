@@ -9,7 +9,7 @@ API-тесты admin-операций плана (planned_lessons, шаг 4):
 Покрытие: RBAC (401/403), CSRF (session-auth без токена → 403), генерация плана,
 разовый перенос (+moved_from_date), перенос навсегда (пересчёт хвоста + версия
 слота), отмена со сдвигом (не трогает 'done'), конфликт переноса
-'done' (409, не 500), запись событий в security_audit_log.
+'done' (409, не 500), отсутствие записей в security_audit_log (журнал ИБ).
 
 Права: IsManagerOrAdmin. Аутентификация — JWT (root conftest клиенты).
 managed-схема journal_test; чистим прямым DELETE в FK-безопасном порядке.
@@ -41,13 +41,14 @@ def plan_group(db):
         cur.execute("INSERT INTO teachers (name, active) VALUES ('__plan_B__', true) RETURNING id")
         teacher_b = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name,is_individual,total_lessons,color,active) "
-            "VALUES ('__plan_dir__',false,8,'#4F59F9',true) RETURNING id"
+            "INSERT INTO directions (name,total_lessons,color,active) "
+            "VALUES ('__plan_dir__',8,'#4F59F9',true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,"
-            "group_start_date,active) VALUES ('__plan_g__',%s,%s,false,60,'2026-06-01',true) RETURNING id",
+            "group_start_date,active,lesson_number_offset) "
+            "VALUES ('__plan_g__',%s,%s,false,60,'2026-06-01',true,0) RETURNING id",
             [direction_id, teacher_a],
         )
         group_id = cur.fetchone()[0]
@@ -786,37 +787,36 @@ class TestCancel:
 
 
 # ---------------------------------------------------------------------------
-# 5. Аудит — каждая мутация пишет событие в security_audit_log
+# 5. Журнал ИБ — мутации плана в него НЕ пишутся
 # ---------------------------------------------------------------------------
 
 class TestAudit:
-    def test_events_written(self, manager_client, plan_group):
+    def test_plan_mutations_do_not_touch_security_log(self, manager_client, plan_group):
+        """security_audit_log — журнал событий БЕЗОПАСНОСТИ (вход/2FA/учётки).
+        Операции над планом — доменные, их место в «Журнале изменений»
+        (pghistory, правила plan.* в apps/changelog/labels.py). Раньше каждая
+        мутация плана писала сюда plan_* и топила события ИБ в шуме."""
         from apps.audit.models import SecurityAuditLog
 
         gid = plan_group['group_id']
+        before = SecurityAuditLog.objects.count()
 
         plan = _generate(manager_client, gid).json()
-        assert SecurityAuditLog.objects.filter(event='plan_generate', target_id=gid).exists()
-
         target = _by_seq(plan)[2]
         manager_client.post(
             f'/api/admin/groups/{gid}/plan/{target["id"]}/reschedule',
             {'new_date': '2026-06-10'}, format='json',
         )
-        assert SecurityAuditLog.objects.filter(event='plan_reschedule', target_id=gid).exists()
-
         manager_client.post(
             f'/api/admin/groups/{gid}/plan/permanent-change',
             {'from_seq': 5, 'effective_from': '2026-06-29',
              'new_slots': [{'day_of_week': 3, 'start_time': '14:00'}]},
             format='json',
         )
-        assert SecurityAuditLog.objects.filter(event='plan_permanent_change', target_id=gid).exists()
-
         manager_client.post(f'/api/admin/groups/{gid}/plan/{target["id"]}/cancel', {}, format='json')
-        assert SecurityAuditLog.objects.filter(event='plan_cancel', target_id=gid).exists()
 
-        # actor_email проставлен, секретов/PII в meta нет.
-        ev = SecurityAuditLog.objects.filter(event='plan_reschedule', target_id=gid).first()
-        assert ev.actor_email == '__root_manager__@test.local'
-        assert 'password' not in (ev.meta or {})
+        assert SecurityAuditLog.objects.count() == before
+        # Скоуп по target_id: journal_test общая и переживает прогоны, глобальный
+        # фильтр мог бы поймать строку от старого запуска и дать ложное падение.
+        assert not SecurityAuditLog.objects.filter(
+            event__startswith='plan_', target_id=gid).exists()

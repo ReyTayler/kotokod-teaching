@@ -1,6 +1,7 @@
 // journal_django/frontend/admin-src/src/pages/sync/SyncPage.tsx
 import { SYNC_ACTIONS } from '../../lib/sync';
 import { SyncActionCard } from './SyncActionCard';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function SyncPage() {
   const runAll = SYNC_ACTIONS.filter((a) => a.group === 'run-all');
@@ -9,9 +10,7 @@ export default function SyncPage() {
 
   return (
     <section className="page sync-page">
-      <div className="section-header">
-        <span className="section-title">Синхро</span>
-      </div>
+      <PageHeader title="Синхро" />
 
       {runAll.map((def) => <SyncActionCard key={def.action} def={def} />)}
 

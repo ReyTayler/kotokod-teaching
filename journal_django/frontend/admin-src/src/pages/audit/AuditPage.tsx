@@ -4,9 +4,13 @@ import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { fmtDateTime } from '../../lib/format';
 import type { AuditEntry } from '../../lib/types';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 // ─── Подписи событий ──────────────────────────────────────────────────────────
 
+// Журнал ИБ фиксирует только события безопасности (вход/2FA/учётки/инвайты) и
+// массовые операции с данными. Доменные действия (уроки, план, доп.уроки) сюда
+// НЕ пишутся — они в «Журнале изменений» (pghistory).
 const EVENT_LABELS: Record<string, string> = {
   login_success:       'Вход',
   login_fail:          'Неуспешный вход',
@@ -22,6 +26,14 @@ const EVENT_LABELS: Record<string, string> = {
   account_enabled:     'Учётка включена',
   account_deleted:     'Учётка удалена',
   locked:              'Блокировка',
+  invite_created:      'Инвайт выдан',
+  invite_revoked:      'Инвайт отозван',
+  invite_used:         'Инвайт активирован',
+  invite_accept_fail:  'Ошибка активации инвайта',
+  // Массовые операции с данными: импорт из Sheets и выгрузка отчёта — точки
+  // входа/выхода персональных данных, поэтому остаются в журнале ИБ.
+  'sync.run':          'Запуск синхронизации',
+  'report.run':        'Выгрузка отчёта',
 };
 
 const EVENT_OPTIONS = Object.entries(EVENT_LABELS).map(([value, label]) => ({ value, label }));
@@ -79,11 +91,16 @@ export default function AuditPage() {
           r.event === 'login_fail' ||
           r.event === '2fa_fail'   ||
           r.event === 'locked'     ||
+          r.event === 'invite_accept_fail'  ||
           r.event === 'account_deactivated' ||
           r.event === 'account_disabled'    ||
-          r.event === 'account_deleted';
+          r.event === 'account_deleted'     ||
+          r.event === 'invite_revoked';
         const isSecurity =
-          r.event.startsWith('2fa') ||
+          r.event.startsWith('2fa')    ||
+          r.event.startsWith('invite') ||
+          r.event.startsWith('sync.')  ||
+          r.event.startsWith('report.') ||
           r.event === 'password_reset' ||
           r.event === 'account_created';
         if (isFailure) {
@@ -120,10 +137,18 @@ export default function AuditPage() {
   const rows  = data?.rows  ?? [];
   const total = data?.total ?? 0;
 
-  if (isLoading) return <TableSkeleton rows={12} cols={4} />;
+  // Шапка рисуется и во время загрузки — иначе заголовок пропадает
+  // при каждом переходе в раздел.
+  const header = (
+    <PageHeader title="Журнал событий" count={isLoading ? undefined : total} />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={12} cols={4} /></>;
 
   return (
-    <DataTable<AuditEntry>
+    <>
+      {header}
+      <DataTable<AuditEntry>
       data={rows}
       columns={columns}
       title="Журнал событий"
@@ -140,6 +165,7 @@ export default function AuditPage() {
         onSortChange:     setSort,
         onFiltersChange:  setFilters,
       }}
-    />
+      />
+    </>
   );
 }

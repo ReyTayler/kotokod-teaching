@@ -24,8 +24,15 @@ export interface ProgressStudent {
   // Выровнен по cells: true — пропуск (cell=false) закрыт доп.уроком/сожжён,
   // такую ячейку матрица красит жёлтым («был через доп.урок / урок сожжён»).
   compensated: boolean[];
+  // Выровнен по cells: true — бесплатное занятие (cell=true, is_free) → серый.
+  free: boolean[];
+  // Выровнен по cells: true — неоплачиваемый пропуск (cell=false, unpaid_skip) → синий.
+  unpaid_skip: boolean[];
   transferred_lessons: number;
   transferred_from_group_name: string | null;
+  // Сырое B (cumulative_transferred_lessons), НЕ капается total_slots —
+  // используется только для текста тултипа «догоняем к уроку N».
+  locked_through: string | number;
 }
 
 export interface GroupProgress {

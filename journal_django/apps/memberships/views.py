@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import ReadStaffWriteSuperAdmin
+from apps.extra_lessons.exceptions import MembershipHasScheduledMakeups
 from apps.memberships import services
 from apps.memberships.exceptions import (
     DirectionMismatch,
@@ -31,6 +32,10 @@ from apps.memberships.serializers import (
     MembershipUpdateSerializer,
     MembershipWriteSerializer,
 )
+
+# Код конфликта для фронта: снятие членства заблокировано назначенными доп.уроками
+# (фронт показывает модалку по этому коду). str(e) — человеко-читаемое сообщение.
+_SCHEDULED_MAKEUPS_CODE = 'membership_has_scheduled_makeups'
 
 
 def _parse_int_param(qp, key: str):
@@ -92,13 +97,20 @@ class MembershipDetailView(APIView):
             updated = services.update_membership(pk, serializer.validated_data)
         except IndividualGroupFull as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        except MembershipHasScheduledMakeups as e:
+            return Response({'error': str(e), 'code': _SCHEDULED_MAKEUPS_CODE},
+                            status=status.HTTP_409_CONFLICT)
         if updated is None:
             raise NotFound({'error': 'Not found'})
 
         return Response(updated)
 
     def delete(self, request: Request, pk: int) -> Response:
-        ok = services.remove_membership(pk)
+        try:
+            ok = services.remove_membership(pk)
+        except MembershipHasScheduledMakeups as e:
+            return Response({'error': str(e), 'code': _SCHEDULED_MAKEUPS_CODE},
+                            status=status.HTTP_409_CONFLICT)
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -120,6 +132,9 @@ class MembershipTransferView(APIView):
             updated = services.transfer_membership(pk, serializer.validated_data['to_group_id'])
         except IndividualGroupFull as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        except MembershipHasScheduledMakeups as e:
+            return Response({'error': str(e), 'code': _SCHEDULED_MAKEUPS_CODE},
+                            status=status.HTTP_409_CONFLICT)
         except (DirectionMismatch, SameGroupTransfer, TargetGroupUnavailable) as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -127,3 +142,5 @@ class MembershipTransferView(APIView):
             raise NotFound({'error': 'Not found'})
 
         return Response(updated)
+
+

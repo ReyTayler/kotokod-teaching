@@ -1,3 +1,4 @@
+import { EntityLink } from '../../../components/EntityLink';
 import type { TodayStreamItem } from '../../../lib/types';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -21,7 +22,9 @@ export function TodayStreamCard({ items }: { items: TodayStreamItem[] }) {
           {items.map((it, i) => (
             <li key={i} className="reg-stream__row">
               <span className="reg-stream__time">{it.time || '—'}</span>
-              <span className="reg-stream__code">{it.group_code}</span>
+              <span className="reg-stream__code">
+                <EntityLink section="groups" id={it.group_id} text={it.group_code} />
+              </span>
               <span className={`reg-stream__status reg-stream__status--${it.status}`}>
                 {STATUS_LABEL[it.status] || it.status}
               </span>

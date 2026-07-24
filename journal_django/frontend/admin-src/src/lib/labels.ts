@@ -2,11 +2,10 @@ import type { EnrollmentStatus, LessonType, RegistryStatus } from './types';
 
 // ===== Enrollment status =====
 // Подписи в Title Case — используются и в badge, и в формах, и в фильтрах.
-// Бэк хранит коды (enrolled/frozen/not_enrolled/declined), UI показывает подписи.
+// Бэк хранит коды (enrolled/frozen/declined), UI показывает подписи.
 
 export const ENROLLMENT_STATUS_LABELS: Record<EnrollmentStatus, string> = {
   enrolled:     'Учится',
-  not_enrolled: 'Не учится',
   frozen:       'Заморожен',
   declined:     'Отказался',
 };
@@ -32,6 +31,7 @@ export const LESSON_TYPE_LABELS: Record<LessonType, string> = {
   regular:      'обычный',
   substitution: 'замена',
   reschedule:   'перенос',
+  extra:        'доп.урок',
 };
 
 export const LESSON_TYPE_OPTIONS: { value: LessonType; label: string }[] =
@@ -70,6 +70,7 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'discount.update':               'Правка скидки',
   'discount.delete':               'Скидка в архив',
   'membership.create':             'Зачисление',
+  'membership.place':              'Перевод / запись в группу',
   'membership.update':             'Правка членства',
   'membership.delete':             'Отчисление',
   'payment.create':                'Оплата',
@@ -84,6 +85,8 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'extra_lesson.delete':           'Удаление доп.урока',
   'extra_lesson.record':           'Проведение доп.урока',
   'extra_lesson.burn':             'Сгорание пропуска',
+  // Действие снято, но метка остаётся для показа исторических событий в журнале.
+  'extra_lesson.waive':            'Закрытие пропуска без денег',
   'payroll.update':                'Правка начисления',
   'settings.update':               'Настройки',
   'account.create':                'Новая учётка',
@@ -121,6 +124,7 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
   payment:        'Оплата',
   payroll:        'Начисление',
   absence_resolution: 'Пропуск (резолюция)',
+  lesson_skip:    'Неоплачиваемый пропуск',
 };
 
 export const CHANGELOG_ENTITY_OPTIONS: { value: string; label: string }[] =

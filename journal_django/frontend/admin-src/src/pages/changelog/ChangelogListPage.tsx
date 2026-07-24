@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import type { ReactElement } from 'react';
 import { useChangelogList } from '../../hooks/useChangelog';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useAuth } from '../../hooks/useAuth';
@@ -9,53 +8,14 @@ import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SelectInput } from '../../components/form/SelectInput';
 import { ChangelogDetailModal } from './ChangelogDetailModal';
 import { RevertConfirmDialog } from './RevertConfirmDialog';
-import { fmtDateTime, fmtDateTimeShort } from '../../lib/format';
+import { ACTION_ICONS, TimeCell, ActorCell, OperationCell } from '../../components/changelog/columnRenderers';
 import {
   CHANGELOG_ENTITY_LABELS,
   CHANGELOG_OPERATION_LABELS,
   CHANGELOG_OPERATION_OPTIONS,
 } from '../../lib/labels';
 import type { ChangelogOperation } from '../../lib/types';
-
-// ─── Иконки действий (16px, по стилю NAV_ICONS) ──────────────────────────────
-
-const svgProps = {
-  width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none',
-  stroke: 'currentColor', strokeWidth: 1.8,
-  strokeLinecap: 'round', strokeLinejoin: 'round',
-} as const;
-
-const ACTION_ICONS: Record<string, ReactElement> = {
-  move:   <svg {...svgProps}><polyline points="17 11 21 7 17 3"/><line x1="21" y1="7" x2="9" y2="7"/><polyline points="7 13 3 17 7 21"/><line x1="3" y1="17" x2="15" y2="17"/></svg>,
-  create: <svg {...svgProps}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
-  edit:   <svg {...svgProps}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>,
-  remove: <svg {...svgProps}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
-  done:   <svg {...svgProps}><polyline points="20 6 9 17 4 12"/></svg>,
-  cancel: <svg {...svgProps}><circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/></svg>,
-  revert: <svg {...svgProps}><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
-  other:  <svg {...svgProps}><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>,
-};
-
-function actionIcon(operation: string): ReactElement {
-  if (operation === 'changelog.revert') return ACTION_ICONS.revert;
-  if (operation === 'plan.reschedule' || operation.includes('schedule_change') ||
-      operation === 'plan.permanent_change') return ACTION_ICONS.move;
-  if (operation === 'plan.cancel') return ACTION_ICONS.cancel;
-  if (operation === 'lesson.submit') return ACTION_ICONS.done;
-  if (operation.endsWith('.create') || operation === 'plan.extra' ||
-      operation === 'plan.generate' || operation === 'payment.create') return ACTION_ICONS.create;
-  if (operation.endsWith('.delete')) return ACTION_ICONS.remove;
-  if (operation.endsWith('.update') || operation.startsWith('plan.')) return ACTION_ICONS.edit;
-  return ACTION_ICONS.other;
-}
-
-// ─── Роли по-русски (для колонки «Кто») ───────────────────────────────────────
-
-const ROLE_SHORT: Record<string, string> = {
-  teacher: 'преподаватель',
-  manager: 'менеджер',
-  admin:   'админ',
-};
+import { PageHeader } from '../../components/shell/PageHeader';
 
 // ─── buildQuery: сортировка ленты фиксирована на бэке (occurred_at DESC) ──────
 
@@ -99,21 +59,14 @@ export default function ChangelogListPage() {
       key: 'occurred_at',
       label: 'Время',
       width: '7rem',
-      cell: (r) => (
-        <span className="mono" style={{ color: 'var(--text2)', fontSize: '0.8125rem' }} title={fmtDateTime(r.occurred_at)}>
-          {fmtDateTimeShort(r.occurred_at)}
-        </span>
-      ),
+      cell: (r) => <TimeCell occurredAt={r.occurred_at} />,
     },
     {
       key: 'operation',
       label: 'Действие',
       width: '14rem',
       cell: (r) => (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--text1)' }}>
-          <span style={{ color: 'var(--text3)', display: 'inline-flex' }}>{actionIcon(r.operation)}</span>
-          {CHANGELOG_OPERATION_LABELS[r.operation] ?? r.operation}
-        </span>
+        <OperationCell operation={r.operation} label={CHANGELOG_OPERATION_LABELS[r.operation] ?? r.operation} />
       ),
     },
     {
@@ -125,15 +78,7 @@ export default function ChangelogListPage() {
       key: 'actor',
       label: 'Кто',
       width: '13rem',
-      cell: (r) =>
-        r.actor ? (
-          <span style={{ color: 'var(--text3)' }} title={r.actor.email ?? undefined}>
-            {r.actor.name}
-            {r.actor.role ? ` (${ROLE_SHORT[r.actor.role] ?? r.actor.role})` : ''}
-          </span>
-        ) : (
-          <span style={{ color: 'var(--text3)' }}>Система</span>
-        ),
+      cell: (r) => <ActorCell actor={r.actor} />,
     },
     {
       key: 'status',
@@ -167,47 +112,54 @@ export default function ChangelogListPage() {
   const rows  = data?.rows  ?? [];
   const total = data?.total ?? 0;
 
-  if (isLoading) return <TableSkeleton rows={12} cols={6} />;
-
   const entityFilterLabel = entity
     ? `${CHANGELOG_ENTITY_LABELS[entity] ?? entity}${entityId ? ` #${entityId}` : ''}`
     : null;
 
+  // Шапка рисуется и во время загрузки — иначе заголовок пропадает при переходе.
+  // Пояснение «все правки сохраняются…» переехало из ряда действий в подзаголовок:
+  // это описание раздела, а не элемент управления.
+  const header = (
+    <PageHeader
+      title="Журнал изменений"
+      count={isLoading ? undefined : total}
+      sub="Все правки сохраняются, любую операцию можно откатить."
+      actions={
+        <>
+          <div className="changelog-op-filter">
+            <SelectInput
+              options={[{ value: '', label: 'Все действия' }, ...CHANGELOG_OPERATION_OPTIONS]}
+              value={operation}
+              onChange={(e) => setExtras({ op: e.target.value || null })}
+            />
+          </div>
+          {entityFilterLabel && (
+            <span className="filter-chip">
+              {entityFilterLabel}
+              <button
+                type="button"
+                className="filter-chip__clear"
+                aria-label="Сбросить фильтр записи"
+                onClick={() => setExtras({ entity: null, entity_id: null })}
+              >×</button>
+            </span>
+          )}
+        </>
+      }
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={12} cols={6} /></>;
+
   return (
     <>
+      {header}
       <DataTable<ChangelogOperation>
         data={rows}
         columns={columns}
         title="Журнал изменений"
         isLoading={isFetching}
         onRowClick={(r) => setOpenedId(r.id)}
-        headerActions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <SelectInput
-              options={[{ value: '', label: 'Все действия' }, ...CHANGELOG_OPERATION_OPTIONS]}
-              value={operation}
-              onChange={(e) => setExtras({ op: e.target.value || null })}
-              style={{ minWidth: '13rem' }}
-            />
-            {entityFilterLabel && (
-              <span className="status-badge status-badge--info" style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-                {entityFilterLabel}
-                <button
-                  type="button"
-                  className="btn-link"
-                  aria-label="Сбросить фильтр записи"
-                  style={{ lineHeight: 1 }}
-                  onClick={() => setExtras({ entity: null, entity_id: null })}
-                >
-                  ×
-                </button>
-              </span>
-            )}
-            <span style={{ color: 'var(--text3)', fontSize: '0.8125rem', marginLeft: 'auto' }}>
-              {total} записей · все правки сохраняются с возможностью отката
-            </span>
-          </div>
-        }
         serverPagination={{
           page,
           pageSize,

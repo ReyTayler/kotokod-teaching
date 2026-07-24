@@ -5,6 +5,7 @@ import { Combobox } from '../../components/form/Combobox';
 import { NumberInput } from '../../components/form/NumberInput';
 import { DateInput } from '../../components/form/DateInput';
 import { Textarea } from '../../components/form/Textarea';
+import { Checkbox } from '../../components/form/Checkbox';
 import { useStudentsAll } from '../../hooks/useStudents';
 import { useDirections } from '../../hooks/useDirections';
 import { usePayments, usePaymentMutations } from '../../hooks/usePayments';
@@ -54,6 +55,9 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
   const [priceMode, setPriceMode] = useState<'per_block' | 'total'>('per_block');
   const [totalInput, setTotalInput] = useState<number | ''>('');
   const [prepaySum, setPrepaySum] = useState<number | ''>(''); // сумма предоплаты (ручная; дефолт — пропорционально)
+  // Доплата сверх курса (kind='extra'): деньги в реальном направлении, но МИМО
+  // лимита курса. Для случая, когда все абонементы оплачены, а нужен доп.урок.
+  const [isExtra, setIsExtra] = useState(false);
 
   // Reset при открытии
   useEffect(() => {
@@ -72,6 +76,7 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
       setPriceMode('per_block');
       setTotalInput('');
       setPrepaySum('');
+      setIsExtra(false);
     }
   }, [open, studentId, directionId]);
 
@@ -187,12 +192,13 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
     if (!dirId) e.direction = FILL_FIELD;
     else if (noCapacity) e.direction = 'У направления не задан total_lessons';
     if (dirId && !noCapacity) {
+      // Доплата сверх курса (isExtra) намеренно ИДЁТ мимо лимита — cap не проверяем.
       if (mode === 'prepay') {
         if (prepayLessons < 1 || prepayLessons > 3) e.count = FILL_FIELD;
-        else if (alreadyPurchasedLessons + prepayLessons > (direction?.total_lessons ?? 0)) e.count = 'Превышена ёмкость курса';
+        else if (!isExtra && alreadyPurchasedLessons + prepayLessons > (direction?.total_lessons ?? 0)) e.count = 'Превышена ёмкость курса';
       } else {
         if (count < 1) e.count = FILL_FIELD;
-        else if (alreadyPurchasedLessons + count * 4 > (direction?.total_lessons ?? 0)) e.count = 'Превышена ёмкость курса';
+        else if (!isExtra && alreadyPurchasedLessons + count * 4 > (direction?.total_lessons ?? 0)) e.count = 'Превышена ёмкость курса';
       }
     }
     if (!paidAt) e.date = FILL_FIELD;
@@ -227,6 +233,7 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
         total_amount: total,
         paid_at: paidAt,
         note: finalNote || null,
+        ...(isExtra ? { kind: 'extra' as const } : {}),
       });
       toast(`Оплата внесена: ${fmtRub(total)}`, 'ok');
       onClose();
@@ -334,6 +341,22 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
         </Field>
 
         {renderBlocksArea()}
+
+        {dirId && !noCapacity && (
+          <Field label="">
+            <Checkbox
+              checked={isExtra}
+              onChange={(e) => { setIsExtra(e.target.checked); clearError('count'); }}
+              label="Доплата сверх курса (мимо лимита)"
+            />
+            {isExtra && (
+              <div className="payment-form__hint" style={{ fontStyle: 'italic' }}>
+                Оплата за доп.урок сверх курса — в это направление, но без учёта лимита.
+                Для одного урока удобнее режим «Предоплата».
+              </div>
+            )}
+          </Field>
+        )}
 
         <Field label="Дата оплаты" error={errors.date}>
           <DateInput

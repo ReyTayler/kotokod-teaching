@@ -115,6 +115,7 @@ INSTALLED_APPS = [
     'apps.extra_lessons',
     'apps.changelog',
     'apps.sync',
+    'apps.reports',
 ]
 
 # SessionMiddleware и AuthenticationMiddleware убраны:

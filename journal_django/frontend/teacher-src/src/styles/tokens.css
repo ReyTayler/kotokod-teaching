@@ -103,11 +103,46 @@
   --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
 
   /* Border radius */
-  --r-sm: 6px; --r: 8px; --r-lg: 12px;
+  --r-sm: 6px; --r: 8px; --r-lg: 12px; --r-xl: 18px;
 
   /* Depth — borders-only + один shadow для модалок/поповеров */
   --shadow-modal:   0 8px 24px rgba(15,23,42,.08), 0 2px 6px rgba(15,23,42,.04);
   --shadow-popover: 0 4px 12px rgba(15,23,42,.08), 0 1px 3px rgba(15,23,42,.04);
+  --shadow-xs:      0 1px 2px rgba(15,23,42,.08);
+  --shadow-panel:   0 1px 2px rgba(15,23,42,.04), 0 6px 16px -6px rgba(15,23,42,.10);
+  /* Затемняющая подложка модалок */
+  --overlay: rgba(15, 23, 42, 0.45);
+
+  /* ── ОБЩИЙ КОНТРАКТ С ADMIN ──
+     Ниже — токены, которые обязаны существовать в ОБЕИХ SPA, потому что их
+     использует общий CSS: @shared/styles/components.css (тосты, пустые
+     состояния, кнопки) и @shared/shared/calendar|progress.
+     Если токен здесь пропустить, `var(--…)` станет невалидным и свойство
+     схлопнется в initial. Именно так модалка урока на календаре уехала ПОД
+     липкую шапку: z-index: var(--z-overlay) без объявления = z-index: auto.
+
+     Шкала кеглей — та же, что в admin. */
+  --fs-2xs:  11px;
+  --fs-xs:   12px;
+  --fs-sm:   13px;
+  --fs-md:   14px;
+  --fs-lg:   15px;
+  --fs-xl:   16px;
+  --fs-2xl:  18px;
+  --fs-3xl:  20px;
+  --fs-4xl:  22px;
+  --fs-5xl:  24px;
+  --fs-6xl:  30px;
+
+  /* Слои. --z-popover ВЫШЕ --z-modal: выпадающие списки рендерятся порталом
+     в body и обязаны перекрывать модалку, из которой открыты. */
+  --z-base:    1;
+  --z-sticky:  10;
+  --z-nav:     900;
+  --z-overlay: 1000;
+  --z-modal:   1010;
+  --z-popover: 1100;
+  --z-toast:   1200;
 
   /* Typography — те же семейства, что admin */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;

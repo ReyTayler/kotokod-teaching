@@ -1,4 +1,5 @@
-"""Оркестрация смены статуса: членства деактивируются, индив-хвост едет, сделка
+"""Оркестрация смены статуса: групповые членства деактивируются, индивидуальные
+ОСТАЮТСЯ активными (двигается только расписание — ученик остаётся в группе), сделка
 уходит в нужную стадию. Заморозка → deal 'frozen'; отказ → deal 'lost'."""
 import datetime
 
@@ -18,16 +19,16 @@ def group_student():
     """Групповой student + активный membership + открытая сделка."""
     ids = {}
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO directions (name, is_individual, active, total_lessons) "
-                    "VALUES ('__st_dir__', false, true, 8) RETURNING id")
+        cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                    "VALUES ('__st_dir__', true, 8) RETURNING id")
         ids['dir'] = cur.fetchone()[0]
         cur.execute("INSERT INTO teachers (name, active, created_at) "
                     "VALUES ('__st_t__', true, NOW()) RETURNING id")
         ids['teacher'] = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, active, created_at) "
-            "VALUES ('__st_g__', %s, %s, false, 90, 1, true, NOW()) RETURNING id",
+            "lesson_duration_minutes, lessons_per_week, active, created_at, lesson_number_offset) "
+            "VALUES ('__st_g__', %s, %s, false, 90, 1, true, NOW(), 0) RETURNING id",
             [ids['dir'], ids['teacher']])
         ids['group'] = cur.fetchone()[0]
     s = Student.objects.create(full_name='__st_stud__', enrollment_status='enrolled',
@@ -55,16 +56,16 @@ def indiv_student():
     индивидуального формата."""
     ids = {}
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO directions (name, is_individual, active, total_lessons) "
-                    "VALUES ('__ist_dir__', true, true, 8) RETURNING id")
+        cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                    "VALUES ('__ist_dir__', true, 8) RETURNING id")
         ids['dir'] = cur.fetchone()[0]
         cur.execute("INSERT INTO teachers (name, active, created_at) "
                     "VALUES ('__ist_t__', true, NOW()) RETURNING id")
         ids['teacher'] = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at) "
-            "VALUES ('__ist_g__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW()) RETURNING id",
+            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES ('__ist_g__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW(), 0) RETURNING id",
             [ids['dir'], ids['teacher']])
         ids['group'] = cur.fetchone()[0]
         cur.execute(
@@ -128,32 +129,25 @@ def test_decline_group_student(group_student):
 
 
 @pytest.mark.django_db
-def test_not_enrolled_group_student_leaves_deal_untouched(group_student):
-    """not_enrolled делит ветку с declined (отмена будущего плана + деактивация
-    членств), но, в отличие от declined, НЕ трогает сделку продления: это маркер
-    «сейчас нет активной группы», а не отток. Если кто-то по ошибке расширит гейт
-    `if new_status == 'declined':` на not_enrolled (или начнёт звать decline_deal
-    безусловно) — сделка уедет в 'lost' и тест упадёт."""
+@pytest.mark.parametrize('bad_status', ['not_enrolled', 'garbage'])
+def test_unknown_status_raises_and_changes_nothing(group_student, bad_status):
+    """Неизвестный статус (в т.ч. удалённый миграцией 0015 'not_enrolled') обязан
+    падать, а не молча зачислять ученика. Раньше финальная ветка была безусловным
+    `else: enrollment_status = 'enrolled'`, поэтому любая опечатка/легаси-код
+    тихо возвращали ушедшего ученика в обучение вместе с открытой сделкой."""
     sid = group_student['student']
-    # Слепок сделки ДО вызова: стадия и outcome_at должны остаться нетронутыми.
     deal_before = RenewalDeal.objects.get(student_id=sid)
-    stage_id_before = deal_before.stage_id
-    stage_key_before = deal_before.stage.key
-    assert deal_before.outcome_at is None  # свежая открытая сделка
 
-    services.change_student_status(
-        sid, 'not_enrolled', membership_ids=[group_student['membership']], actor=None)
+    with pytest.raises(ValueError):
+        services.change_student_status(
+            sid, bad_status, membership_ids=[group_student['membership']], actor=None)
 
+    # Транзакция откатилась: ни статус, ни членство, ни сделка не поехали.
     s = Student.objects.get(id=sid)
-    assert s.enrollment_status == 'not_enrolled'
-    assert s.frozen_from is None and s.frozen_until is None
-    # Членство деактивировано так же, как при declined.
-    assert GroupMembership.objects.get(id=group_student['membership']).active is False
-
-    # КЛЮЧЕВОЕ: сделка НЕ тронута — та же стадия, outcome_at по-прежнему None.
+    assert s.enrollment_status == 'enrolled'
+    assert GroupMembership.objects.get(id=group_student['membership']).active is True
     deal_after = RenewalDeal.objects.get(student_id=sid)
-    assert deal_after.stage_id == stage_id_before
-    assert deal_after.stage.key == stage_key_before
+    assert deal_after.stage_id == deal_before.stage_id
     assert deal_after.outcome_at is None
 
 
@@ -178,11 +172,10 @@ def test_resume_student_reenrolls(group_student):
 
 @pytest.mark.django_db
 def test_resume_ignores_unrelated_individual_group(group_student):
-    """resume_student берёт индив-членства БЕЗ фильтра active — значит цепляет и
-    давно-неактивную индив-группу, где ученик был раньше (перевёлся/бросил). В
-    реалистичном случае это no-op: relay трогает только pending/overdue строки с
-    scheduled_date >= frozen_from, а у заброшенной группы таких нет. Проверяем, что
-    ничего не падает и её строки (done / прошедшая pending) остаются на месте."""
+    """resume_student берёт только АКТИВНЫЕ индив-курсы. Давно-неактивная индив-группа,
+    где ученик был раньше (перевёлся/бросил, членство active=False), в разморозку не
+    попадает вообще — её строки (done / прошедшая pending) остаются на месте, ничего
+    не падает."""
     from apps.scheduling.models import PlannedLesson
 
     sid = group_student['student']
@@ -191,8 +184,8 @@ def test_resume_ignores_unrelated_individual_group(group_student):
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, active, created_at) "
-            "VALUES ('__st_g2_indiv__', %s, %s, true, 60, 1, true, NOW()) RETURNING id",
+            "lesson_duration_minutes, lessons_per_week, active, created_at, lesson_number_offset) "
+            "VALUES ('__st_g2_indiv__', %s, %s, true, 60, 1, true, NOW(), 0) RETURNING id",
             [group_student['dir'], group_student['teacher']])
         other['group'] = cur.fetchone()[0]
         # Неактивное членство того же ученика в этой индив-группе (перевёлся ранее).
@@ -228,8 +221,7 @@ def test_resume_ignores_unrelated_individual_group(group_student):
         assert done.status == 'done'
         assert past.scheduled_date == datetime.date(2026, 6, 1)
         assert past.status == 'pending'
-        # Заброшенная индив-группа НЕ участвовала в этой заморозке (нет хвоста в
-        # окне → resume_individual_group вернул 0) → её членство НЕ воскрешается.
+        # Заброшенная индив-группа неактивна — ни freeze, ни resume её не касаются.
         assert GroupMembership.objects.get(id=other['membership']).active is False
     finally:
         with connection.cursor() as cur:
@@ -239,75 +231,83 @@ def test_resume_ignores_unrelated_individual_group(group_student):
 
 
 @pytest.mark.django_db
-def test_resume_reactivates_individual_membership(indiv_student):
-    """Индив-членство деактивируется при заморозке и ДОЛЖНО реактивироваться при
-    разморозке — иначе у личного курса ученика 0 активных членств и никто не может
-    записать урок, несмотря на свежепереложенный хвост (регресс Task 9)."""
+def test_freeze_individual_keeps_membership_active(indiv_student):
+    """Регресс: при заморозке ИНДИВИДУАЛЬНОГО ученика он ОСТАЁТСЯ в группе (членство
+    active=True) — двигается только расписание, не членство. Раньше freeze ошибочно
+    деактивировал и индив-членства (remove_membership вызывался для всех подряд),
+    выкидывая ученика из его личного курса. Разморозка тоже сохраняет членство
+    активным (индив-членство вообще не покидает группу)."""
+    from apps.scheduling.models import PlannedLesson
     sid = indiv_student['student']
     mid = indiv_student['membership']
+    gid = indiv_student['group']
     services.change_student_status(
         sid, 'frozen', frozen_from=datetime.date(2026, 7, 8),
         frozen_until=datetime.date(2026, 8, 5),
         membership_ids=[mid], actor=None)
-    # При заморозке индив-членство деактивировано.
-    assert GroupMembership.objects.get(id=mid).active is False
+    # КЛЮЧЕВАЯ проверка бага: индив-членство ОСТАЛОСЬ активным (ученик в группе).
+    assert GroupMembership.objects.get(id=mid).active is True
+    # При этом хвост курса переложен от frozen_until: seq1 (до окна) неподвижен,
+    # seq2 уехал на 2026-08-05 — расписание сдвинуто, членство нет.
+    rows = {r.seq: r for r in PlannedLesson.objects.filter(group_id=gid, seq__isnull=False)}
+    assert rows[1].scheduled_date == datetime.date(2026, 7, 1)
+    assert rows[2].scheduled_date == datetime.date(2026, 8, 5)
 
     services.resume_student(sid, actual_resume_date=datetime.date(2026, 8, 5), actor=None)
     s = Student.objects.get(id=sid)
     assert s.enrollment_status == 'enrolled'
-    # Ключевая проверка регресса: индив-членство снова активно.
+    # Членство по-прежнему активно — оно никогда не покидало группу.
     assert GroupMembership.objects.get(id=mid).active is True
 
 
 @pytest.mark.django_db
-def test_resume_reactivates_only_genuinely_frozen_indiv_group(indiv_student):
-    """resume_student реактивирует ТОЛЬКО те индив-членства, чей курс реально был
-    заморожен (хвост переложился, resume_individual_group вернул >0). Давно-
-    завершённый индив-курс (active=False по окончании, без pending-хвоста в окне)
-    воскрешать нельзя — иначе он ошибочно всплыл бы в ростерах/student_names_by_group.
-    """
-    from apps.scheduling.models import PlannedLesson  # noqa: F401
+def test_freeze_ignores_inactive_individual_course(indiv_student):
+    """Давно-завершённый индив-курс (членство active=False) не участвует ни в
+    заморозке, ни в разморозке: и freeze, и resume берут только АКТИВНЫЕ индив-курсы.
+    Завершённый курс остаётся неактивным и с нетронутым расписанием — иначе он
+    ошибочно всплыл бы в ростерах/student_names_by_group."""
+    from apps.scheduling.models import PlannedLesson
 
     sid = indiv_student['student']
-    frozen_mid = indiv_student['membership']  # настоящий замораживаемый индив-курс
+    frozen_mid = indiv_student['membership']  # активный индив-курс — его и замораживаем
 
     # Второй, ДАВНО ЗАВЕРШЁННЫЙ индив-курс того же ученика: членство неактивно,
-    # единственное занятие done → pending-хвоста в окне заморозки нет.
+    # единственное занятие done.
     done_grp = {}
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, active, created_at) "
-            "VALUES ('__ist_done_g__', %s, %s, true, 60, 1, true, NOW()) RETURNING id",
+            "lesson_duration_minutes, lessons_per_week, active, created_at, lesson_number_offset) "
+            "VALUES ('__ist_done_g__', %s, %s, true, 60, 1, true, NOW(), 0) RETURNING id",
             [indiv_student['dir'], indiv_student['teacher']])
         done_grp['group'] = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO group_memberships (group_id, student_id, active) "
             "VALUES (%s, %s, false) RETURNING id", [done_grp['group'], sid])
         done_grp['membership'] = cur.fetchone()[0]
-        # DONE-занятие ВНУТРИ окна (>= frozen_from) — не pending/overdue, не двигается.
         cur.execute(
             "INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, "
             "scheduled_time, teacher_id, status, created_at, updated_at) "
-            "VALUES (%s, 1, 1.0, %s, '18:00', %s, 'done', NOW(), NOW())",
+            "VALUES (%s, 1, 1.0, %s, '18:00', %s, 'done', NOW(), NOW()) RETURNING id",
             [done_grp['group'], datetime.date(2026, 7, 15), indiv_student['teacher']])
+        done_grp['pl'] = cur.fetchone()[0]
 
     try:
         services.change_student_status(
             sid, 'frozen', frozen_from=datetime.date(2026, 7, 8),
             frozen_until=datetime.date(2026, 8, 5),
             membership_ids=[frozen_mid], actor=None)
-        # Заморожен только настоящий индив-курс (по membership_ids); завершённый
-        # как был неактивен, так и остаётся.
-        assert GroupMembership.objects.get(id=frozen_mid).active is False
+        # Активный курс заморожен, но остался в группе (active=True); завершённый —
+        # не тронут (был и остаётся неактивным).
+        assert GroupMembership.objects.get(id=frozen_mid).active is True
         assert GroupMembership.objects.get(id=done_grp['membership']).active is False
+        assert PlannedLesson.objects.get(id=done_grp['pl']).scheduled_date == datetime.date(2026, 7, 15)
 
         services.resume_student(sid, actual_resume_date=datetime.date(2026, 8, 5), actor=None)
 
-        # Настоящий замороженный курс — реактивирован (хвост переложился → >0).
-        assert GroupMembership.objects.get(id=frozen_mid).active is True
-        # Завершённый курс — НЕ воскрешён (resume_individual_group вернул 0).
+        # Завершённый курс так и не тронут: членство неактивно, урок на месте.
         assert GroupMembership.objects.get(id=done_grp['membership']).active is False
+        assert PlannedLesson.objects.get(id=done_grp['pl']).scheduled_date == datetime.date(2026, 7, 15)
     finally:
         with connection.cursor() as cur:
             cur.execute("DELETE FROM planned_lessons WHERE group_id=%s", [done_grp['group']])
@@ -316,52 +316,44 @@ def test_resume_reactivates_only_genuinely_frozen_indiv_group(indiv_student):
 
 
 @pytest.mark.django_db
-def test_resume_leaves_active_never_frozen_indiv_group_untouched(indiv_student):
-    """Заморозка выбранного подмножества членств (wizard, per-membership чекбоксы):
-    у ученика ДВА активных индив-курса, замораживают ТОЛЬКО один (membership_ids).
-    Второй остаётся active=True — его расписание идёт своим чередом. resume_student
-    НЕ должен трогать этот второй курс: он никогда не был заморожен (заморозка всегда
-    деактивирует то, что трогает → active=True = не участвовал ни в какой заморозке).
-
-    Без фильтра active=False resume_individual_group отменил бы легальный будущий
-    extra в окне (шаг «а») и переложил бы курсовой хвост (шаг «б») ни в чём не
-    повинного, параллельно идущего курса — реальная порча расписания. Red/green:
-    без active=False этот тест падает, с ним — проходит."""
+def test_freeze_freezes_all_active_individual_courses_together(indiv_student):
+    """Заморозка ученика замораживает ВСЕ его активные индив-курсы разом, даже если в
+    мастере выбран только один (membership_ids к индивидуальным не применяется —
+    ученик уходит на паузу целиком). Оба курса: членство остаётся активным, хвост
+    сдвигается. Так на разморозке нет неоднозначности «какой курс был заморожен» —
+    все активные индив-курсы замороженного ученика = замороженные."""
     from apps.scheduling.models import PlannedLesson
 
     sid = indiv_student['student']
-    frozen_mid = indiv_student['membership']  # курс A — его и замораживаем
-    ff = datetime.date(2026, 7, 8)            # frozen_from заморозки курса A
+    a_mid = indiv_student['membership']  # курс A — единственный в membership_ids
+    ff = datetime.date(2026, 7, 8)
 
-    # Курс B — ВТОРОЙ активный индив-курс того же ученика (открытый слот ср 18:00),
-    # который НЕ замораживают. У него есть будущий extra (seq NULL) и курсовой хвост
-    # внутри окна заморозки A — оба должны остаться нетронутыми.
+    # Курс B — ВТОРОЙ активный индив-курс того же ученика (слот ср 18:00), НЕ выбран
+    # в мастере. Его extra и курсовой хвост тоже должны заморозиться вместе с A.
     b = {}
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at) "
-            "VALUES ('__ist_B_indiv__', %s, %s, true, 60, 1, DATE '2026-07-01', true, NOW()) "
+            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES ('__ist_B_indiv__', %s, %s, true, 60, 1, DATE '2026-07-01', true, NOW(), 0) "
             "RETURNING id",
             [indiv_student['dir'], indiv_student['teacher']])
         b['group'] = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO group_schedule_slots (group_id, day_of_week, start_time, effective_from) "
             "VALUES (%s, 3, TIME '18:00', DATE '2000-01-01')", [b['group']])
-        # АКТИВНОЕ членство — курс B идёт нормально, его не замораживали.
         cur.execute(
             "INSERT INTO group_memberships (group_id, student_id, active) "
             "VALUES (%s, %s, true) RETURNING id", [b['group'], sid])
         b['membership'] = cur.fetchone()[0]
-        # Будущий EXTRA (seq NULL + lesson_number NULL, CHECK seq_number_together)
-        # ВНУТРИ окна (>= frozen_from) — при баге отменяется (шаг «а»).
+        # Будущий EXTRA (seq NULL) внутри окна — заморозка его отменяет (шаг «а»).
         cur.execute(
             "INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, "
             "scheduled_time, teacher_id, status, created_at, updated_at) "
             "VALUES (%s, NULL, NULL, %s, '18:00', %s, 'pending', NOW(), NOW()) RETURNING id",
             [b['group'], datetime.date(2026, 7, 10), indiv_student['teacher']])
         b['extra'] = cur.fetchone()[0]
-        # Курсовой хвост (seq задан, pending, >= frozen_from) — при баге переезжает (шаг «б»).
+        # Курсовой хвост (pending, >= frozen_from) — заморозка его перекладывает (шаг «б»).
         for seq, d in [(1, '2026-07-15'), (2, '2026-07-22')]:
             cur.execute(
                 "INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, "
@@ -371,22 +363,24 @@ def test_resume_leaves_active_never_frozen_indiv_group_untouched(indiv_student):
             b[f'tail{seq}'] = cur.fetchone()[0]
 
     try:
-        # Замораживаем ТОЛЬКО курс A (по membership_ids). Курс B не трогаем.
+        # В membership_ids только курс A, но заморозиться должны ОБА индив-курса.
         services.change_student_status(
             sid, 'frozen', frozen_from=ff, frozen_until=datetime.date(2026, 8, 5),
-            membership_ids=[frozen_mid], actor=None)
-        # Курс B не участвовал в заморозке — членство осталось активным.
+            membership_ids=[a_mid], actor=None)
+        # Оба членства активны — индив-формат остаётся в группе.
+        assert GroupMembership.objects.get(id=a_mid).active is True
         assert GroupMembership.objects.get(id=b['membership']).active is True
+        # Курс B ТОЖЕ заморожен, хотя не был в membership_ids: extra отменён,
+        # хвост переложен от frozen_until (2026-08-05) по слоту ср 18:00.
+        assert PlannedLesson.objects.get(id=b['extra']).status == 'cancelled'
+        assert PlannedLesson.objects.get(id=b['tail1']).scheduled_date == datetime.date(2026, 8, 5)
+        assert PlannedLesson.objects.get(id=b['tail2']).scheduled_date == datetime.date(2026, 8, 12)
 
-        services.resume_student(sid, actual_resume_date=datetime.date(2026, 8, 5), actor=None)
-
-        # Членство B всё ещё активно — его никто не должен был деактивировать/касаться.
+        # Разморозка досрочно (07-29, ср) перекладывает хвост B обратно от этой даты.
+        services.resume_student(sid, actual_resume_date=datetime.date(2026, 7, 29), actor=None)
         assert GroupMembership.objects.get(id=b['membership']).active is True
-        # Будущий extra курса B НЕ отменён (при баге стал бы CANCELLED шагом «а»).
-        assert PlannedLesson.objects.get(id=b['extra']).status == 'pending'
-        # Курсовой хвост B на исходных датах (при баге переехал бы от 2026-08-05).
-        assert PlannedLesson.objects.get(id=b['tail1']).scheduled_date == datetime.date(2026, 7, 15)
-        assert PlannedLesson.objects.get(id=b['tail2']).scheduled_date == datetime.date(2026, 7, 22)
+        assert PlannedLesson.objects.get(id=b['tail1']).scheduled_date == datetime.date(2026, 7, 29)
+        assert PlannedLesson.objects.get(id=b['tail2']).scheduled_date == datetime.date(2026, 8, 5)
     finally:
         with connection.cursor() as cur:
             cur.execute("DELETE FROM planned_lessons WHERE group_id=%s", [b['group']])
@@ -396,63 +390,10 @@ def test_resume_leaves_active_never_frozen_indiv_group_untouched(indiv_student):
 
 
 @pytest.mark.django_db
-def test_resume_conflict_on_taken_indiv_slot_rolls_back_everything(indiv_student):
-    """Если за время заморозки в ту же индив-группу легально зашёл ДРУГОЙ ученик
-    (active=true, пока членство замороженного было active=false — add_membership
-    прошёл бы, активных членств было 0), разморозка обязана упасть на инварианте
-    ёмкости, а не создать двух активных. resume_student сам @transaction.atomic →
-    IndividualGroupFull откатывает ВСЮ операцию: статус, сделка, расписание и
-    частичные реактивации остаются в до-разморозочном состоянии."""
-    from apps.memberships.exceptions import IndividualGroupFull
-    from apps.scheduling.models import PlannedLesson
-
-    sid = indiv_student['student']
-    gid = indiv_student['group']
-    mid = indiv_student['membership']
-
-    services.change_student_status(
-        sid, 'frozen', frozen_from=datetime.date(2026, 7, 8),
-        frozen_until=datetime.date(2026, 8, 5),
-        membership_ids=[mid], actor=None)
-    assert GroupMembership.objects.get(id=mid).active is False
-
-    # Пока ученик заморожен, в ту же индив-группу легально заходит другой ученик.
-    other = Student.objects.create(full_name='__ist_other__', enrollment_status='enrolled',
-                                   created_at=Now())
-    other_m = GroupMembership.objects.create(group_id=gid, student_id=other.id, active=True)
-
-    # До-разморозочное состояние для проверки полного отката.
-    stage_before = RenewalDeal.objects.get(
-        student_id=sid, outcome_at__isnull=True).stage.key
-    seq2_before = PlannedLesson.objects.get(group_id=gid, seq=2).scheduled_date
-
-    try:
-        with pytest.raises(IndividualGroupFull):
-            services.resume_student(
-                sid, actual_resume_date=datetime.date(2026, 8, 26), actor=None)
-
-        # ПОЛНЫЙ откат: ничего из разморозки не закоммитилось.
-        s = Student.objects.get(id=sid)
-        assert s.enrollment_status == 'frozen'
-        assert s.frozen_from == datetime.date(2026, 7, 8)
-        assert s.frozen_until == datetime.date(2026, 8, 5)
-        assert GroupMembership.objects.get(id=mid).active is False
-        assert RenewalDeal.objects.get(
-            student_id=sid, outcome_at__isnull=True).stage.key == stage_before == 'frozen'
-        # Расписание НЕ переложено на actual_resume_date=08-26 — осталось на 08-05.
-        assert PlannedLesson.objects.get(group_id=gid, seq=2).scheduled_date == seq2_before
-        assert seq2_before == datetime.date(2026, 8, 5)
-    finally:
-        with connection.cursor() as cur:
-            cur.execute("DELETE FROM group_memberships WHERE id=%s", [other_m.id])
-            cur.execute("DELETE FROM students WHERE id=%s", [other.id])
-
-
-@pytest.mark.django_db
 def test_change_status_enrolled_on_frozen_is_rejected(group_student):
     """Прямая смена frozen→enrolled через change_student_status запрещена: она
-    минует каскад resume_student (хвост расписания, реактивация членств, стадия
-    сделки) → тихий рассинхрон. Разморозка только через resume_student()."""
+    минует каскад resume_student (перекладка хвоста расписания, стадия сделки) →
+    тихий рассинхрон. Разморозка только через resume_student()."""
     sid = group_student['student']
     services.change_student_status(
         sid, 'frozen', frozen_from=datetime.date(2026, 7, 8),

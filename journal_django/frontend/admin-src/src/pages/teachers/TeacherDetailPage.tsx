@@ -49,6 +49,13 @@ export default function TeacherDetailPage() {
     } catch (err) { showError(err); }
   };
 
+  const handleRestore = async () => {
+    try {
+      await muts.update.mutateAsync({ id: teacher.id, body: { active: true } });
+      toast('Разархивировано', 'ok');
+    } catch (err) { showError(err); }
+  };
+
   return (
     <>
       <DetailShell<Teacher>
@@ -59,7 +66,10 @@ export default function TeacherDetailPage() {
         cardTitle="Данные преподавателя"
         onEdit={canWrite ? () => setEditing(true) : undefined}
         onDelete={canWrite ? handleDelete : undefined}
+        archived={!teacher.active}
+        onRestore={canWrite ? handleRestore : undefined}
         backTo="/admin/teachers"
+        parentLabel="Преподаватели"
       >
         <div className="sub-header">Группы <span className="count-badge">{myGroups.length}</span></div>
         {myGroups.length === 0 ? (

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 
 from rest_framework import serializers
 
@@ -37,6 +38,38 @@ class ExtraLessonCreateSerializer(StrictSerializer):
     scheduled_date = DateStringField()
     scheduled_time = serializers.CharField()
     duration_minutes = serializers.ChoiceField(choices=VALID_DURATIONS)
+
+    def validate_scheduled_time(self, value):
+        if not value or not _TIME_RE.match(value):
+            raise serializers.ValidationError('Время должно быть в формате HH:MM или HH:MM:SS.')
+        return value
+
+    def validate_student_ids(self, value):
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError('Ученики не должны повторяться.')
+        return value
+
+
+class ManualExtraLessonCreateSerializer(StrictSerializer):
+    """POST /api/admin/extra-lessons/manual — назначить доп.урок СВЕРХ курса
+    (kind='extra') вручную: без пропуска, с явной группой и опц. номером урока.
+
+    lesson_number («за какой урок») необязателен — если не задан, при проведении
+    берётся следующая позиция ученика в группе.
+    """
+
+    group_id = serializers.IntegerField(min_value=1)
+    teacher_id = serializers.IntegerField(min_value=1)
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), allow_empty=False,
+    )
+    scheduled_date = DateStringField()
+    scheduled_time = serializers.CharField()
+    duration_minutes = serializers.ChoiceField(choices=VALID_DURATIONS)
+    lesson_number = serializers.DecimalField(
+        max_digits=5, decimal_places=1, min_value=Decimal('0.5'),
+        required=False, allow_null=True,
+    )
 
     def validate_scheduled_time(self, value):
         if not value or not _TIME_RE.match(value):

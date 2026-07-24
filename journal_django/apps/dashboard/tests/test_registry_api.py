@@ -112,7 +112,7 @@ def test_summary_shape(role):
 
     assert isinstance(body['today_stream'], list)
     for occ in body['today_stream']:
-        assert set(occ.keys()) == {'time', 'group_code', 'teacher_name', 'student_names', 'status'}
+        assert set(occ.keys()) == {'time', 'group_id', 'group_code', 'teacher_name', 'student_names', 'status'}
 
 
 def test_summary_kpi_consistency():

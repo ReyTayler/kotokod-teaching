@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { useRenewalAnalytics, useRenewalMonths } from '../../hooks/useRenewalAnalytics';
 import { KpiCard } from '../dashboard/KpiCard';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 // '2026-07' → «июль 2026»
 function fmtMonth(ym: string): string {
@@ -34,10 +35,10 @@ export default function RenewalAnalyticsPage() {
 
   return (
     <div className="renewals-page">
-      <header className="renewals-page__head">
-        <h1 className="renewals-page__title">Аналитика продлений</h1>
-        <Link to="/admin/renewals" className="btn-secondary">← К воронке</Link>
-      </header>
+      <PageHeader
+        title="Аналитика продлений"
+        crumbs={[{ label: 'Продления', to: '/admin/renewals' }, { label: 'Аналитика' }]}
+      />
 
       {isLoading || !data ? (
         <div className="renewal-board--loading">Загружаем аналитику…</div>

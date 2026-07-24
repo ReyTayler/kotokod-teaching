@@ -97,13 +97,13 @@ export function DiscountsView() {
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-        {canWrite && !showAdd && (
+      {canWrite && !showAdd && (
+        <div className="view-actions">
           <button type="button" className="btn-add" onClick={() => setShowAdd(true)}>
             + Новая скидка
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {showAdd && (
         <div className="discount-add">
@@ -133,7 +133,9 @@ export function DiscountsView() {
         </div>
       )}
 
-      <table className="data-table">
+      <div className="table-panel">
+        <div className="table-wrap">
+        <table className="data-table">
         <thead>
           <tr>
             <th>Название</th>
@@ -197,7 +199,9 @@ export function DiscountsView() {
             );
           })}
         </tbody>
-      </table>
+        </table>
+        </div>
+      </div>
     </>
   );
 }

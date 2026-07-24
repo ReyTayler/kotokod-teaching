@@ -38,28 +38,15 @@
  *  DASHBOARD PAGE
  * ============================================================ */
 
+/* Поля и потолок ширины задаёт .page (base.css) — дашборд больше не раздаёт
+   свой padding и не отменяет max-width. */
 .dashboard {
-  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  max-width: none;
+  gap: var(--section-gap);
 }
 
-.dashboard__head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
 
-.dashboard__title {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--text);
-}
 
 .dashboard__month {
   font-family: var(--font-mono);
@@ -95,9 +82,9 @@
 /* ── KPI card ── */
 .kpi-card {
   background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-panel);
   padding: var(--space-5);
   display: flex;
   flex-direction: column;
@@ -139,9 +126,9 @@
 /* ── Shared dash-card shell ── */
 .dash-card {
   background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-panel);
   overflow: hidden;
 }
 

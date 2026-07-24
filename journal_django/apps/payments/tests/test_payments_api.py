@@ -140,7 +140,7 @@ def test_post_no_capacity_returns_400(admin_client, student_fixture):
     """Направление без total_lessons → no_capacity."""
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, is_individual, active) VALUES ('__api_nocap__', false, true) RETURNING id",
+            "INSERT INTO directions (name, active) VALUES ('__api_nocap__', true) RETURNING id",
         )
         dir_id = cur.fetchone()[0]
     try:

@@ -18,7 +18,7 @@ def _create_direction(client):
     # генератор события в этих тестах — superadmin_client; сам revert
     # проверяется отдельным клиентом (admin/manager/teacher/superadmin).
     resp = client.post('/api/admin/directions', {
-        'name': '__chg_api_rev__', 'is_individual': False,
+        'name': '__chg_api_rev__',
     }, format='json')
     assert resp.status_code in (200, 201)
 
@@ -30,8 +30,9 @@ def test_revert_endpoint_success(admin_client, superadmin_client):
     resp = admin_client.post(f'/api/admin/changelog/{op_id}/revert')
     assert resp.status_code == 200, resp.content
     assert resp.json()['reverted_events'] == 1
-    # аудит-событие безопасности записано
-    assert SecurityAuditLog.objects.filter(event='changelog_revert').exists()
+    # Откат — доменное действие: в журнал ИБ он не пишется (фиксируется самим
+    # «Журналом изменений» операцией 'changelog.revert' в metadata.operation).
+    assert not SecurityAuditLog.objects.filter(event='changelog_revert').exists()
 
 
 def test_revert_endpoint_superadmin_allowed(superadmin_client):

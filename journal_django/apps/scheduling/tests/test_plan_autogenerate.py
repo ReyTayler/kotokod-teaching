@@ -3,7 +3,8 @@
 
 repository.plan_exists — guard first-time-only (+active).
 services.autogenerate_plan_on_setup — оркестратор: генерит план ОДИН раз, когда
-у активной группы впервые есть старт+слот+total; пишет аудит plan_auto_generate.
+у активной группы впервые есть старт+слот+total. В журнал ИБ не пишет (доменное
+действие — см. «Журнал изменений»), поэтому проверяем только эффект на плане.
 
 Опора на фикстуру sched_setup (conftest): group_a активна, старт 2026-06-01,
 слот Пн 10:00, total_lessons=8 → 8 курсовых строк.
@@ -21,13 +22,9 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture
 def autogen_setup(sched_setup):
-    """sched_setup + очистка аудита plan_auto_generate перед удалением групп."""
-    yield sched_setup
-    with connection.cursor() as cur:
-        cur.execute(
-            'DELETE FROM security_audit_log WHERE target_id IN (%s, %s)',
-            [sched_setup['group_a'], sched_setup['group_b']],
-        )
+    """Прежняя пост-очистка security_audit_log больше не нужна: автогенерация
+    плана в журнал ИБ не пишет."""
+    return sched_setup
 
 
 class TestPlanExists:
@@ -48,43 +45,40 @@ class TestPlanExists:
 
 
 class TestAutogenerate:
-    def _audit(self, gid):
-        from apps.audit.models import SecurityAuditLog
-        return SecurityAuditLog.objects.filter(event='plan_auto_generate', target_id=gid)
-
-    def test_generates_plan_and_audits(self, autogen_setup):
+    def test_generates_plan(self, autogen_setup):
         gid = autogen_setup['group_a']
-        services.autogenerate_plan_on_setup(gid, source='group_create')
+        services.autogenerate_plan_on_setup(gid)
         assert PlannedLesson.objects.filter(group_id=gid).count() == 8
-        ev = self._audit(gid).first()
-        assert ev is not None
-        assert ev.meta['source'] == 'group_create'
-        assert ev.meta['written'] == 8
+
+    def test_does_not_write_security_log(self, autogen_setup):
+        """Генерация плана — доменное действие: журнал ИБ она не трогает."""
+        from apps.audit.models import SecurityAuditLog
+        gid = autogen_setup['group_a']
+        before = SecurityAuditLog.objects.count()
+        services.autogenerate_plan_on_setup(gid)
+        assert SecurityAuditLog.objects.count() == before
 
     def test_noop_when_plan_already_exists(self, autogen_setup):
         gid = autogen_setup['group_a']
         repository.generate_for_group(gid)
-        services.autogenerate_plan_on_setup(gid, source='group_update')
+        services.autogenerate_plan_on_setup(gid)
         assert PlannedLesson.objects.filter(group_id=gid).count() == 8  # без дублей
-        assert not self._audit(gid).exists()                            # без события
 
     def test_noop_for_inactive_group(self, autogen_setup):
         gid = autogen_setup['group_a']
         with connection.cursor() as cur:
             cur.execute('UPDATE groups SET active=false WHERE id=%s', [gid])
-        services.autogenerate_plan_on_setup(gid, source='group_create')
+        services.autogenerate_plan_on_setup(gid)
         assert PlannedLesson.objects.filter(group_id=gid).count() == 0
-        assert not self._audit(gid).exists()
 
     def test_noop_when_no_slots_yet(self, autogen_setup):
-        """Старт есть, слота ещё нет → generate вернёт reason, план пуст, аудита нет
+        """Старт есть, слота ещё нет → generate вернёт reason, план пуст
         (сработает позже, когда слот появится)."""
         gid = autogen_setup['group_a']
         with connection.cursor() as cur:
             cur.execute('DELETE FROM group_schedule_slots WHERE group_id=%s', [gid])
-        services.autogenerate_plan_on_setup(gid, source='schedule_change')
+        services.autogenerate_plan_on_setup(gid)
         assert PlannedLesson.objects.filter(group_id=gid).count() == 0
-        assert not self._audit(gid).exists()
 
 
 class TestAutogenerateWiring:
@@ -215,3 +209,22 @@ class TestAutogenerateWiring:
         )
         assert len(rows) == 16  # 2 × total_lessons(8) направления sched_setup
         assert str(rows[0].scheduled_date) == '2026-07-24'
+
+
+def test_generate_for_group_honors_lesson_number_offset(autogen_setup):
+    """
+    Группе (total_lessons=8, ещё без плана) выставлен lesson_number_offset=6 —
+    план должен начинаться с lesson_number=7.0 (первый урок ПОСЛЕ офсета),
+    seq=1 (первая созданная строка), и содержать оставшиеся 8-6=2 строки, а не 8.
+    """
+    from decimal import Decimal
+    from apps.groups.models import Group
+
+    gid = autogen_setup['group_a']
+    Group.objects.filter(id=gid).update(lesson_number_offset=Decimal('6'))
+    result = repository.generate_for_group(gid)
+    assert result['written'] == 2
+    rows = sorted(result['plan'], key=lambda r: r['seq'])
+    assert rows[0]['seq'] == 1
+    assert float(rows[0]['lesson_number']) == 7.0
+    assert float(rows[-1]['lesson_number']) == 8.0

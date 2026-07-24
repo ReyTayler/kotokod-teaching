@@ -7,10 +7,9 @@ import { useDirections } from '../../hooks/useDirections';
 import { useMemberships } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
 import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
+import { EntityHero, HeroChip, monogramOf, type HeroFact } from '../../components/detail/EntityHero';
+import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
 import { StatusBadge } from '../../components/StatusBadge';
-import { MembershipsBlock } from '../../components/memberships/MembershipsBlock';
-import { TransferMembershipModal } from '../../components/memberships/TransferMembershipModal';
-import { DirTag } from '../../components/ui/DirTag';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { Dialog } from '../../components/ui/Dialog';
@@ -19,17 +18,18 @@ import { Field } from '../../components/form/Field';
 import { useToast } from '../../components/ui/Toast';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import { api, ApiError, extractErrorDetail } from '../../lib/api';
-import { fmtDate, fmtDateTime } from '../../lib/format';
-import type { GroupMembership, Student } from '../../lib/types';
+import { fmtDate, fmtDateTime, fmtAge } from '../../lib/format';
+import type { Student } from '../../lib/types';
 import StudentFormModal from './StudentFormModal';
-import StudentStatsBlock from './StudentStatsBlock';
+import StudentLearningBlock from './StudentLearningBlock';
 import StudentKpiRow from './StudentKpiRow';
 import { StudentBalanceBlock } from './StudentBalanceBlock';
 import StudentCommentsBlock from './StudentCommentsBlock';
 import { useLatestStudentComment } from '../../hooks/useStudentComments';
 import { StudentStatusModal } from './StudentStatusModal';
 import { useAuth } from '../../hooks/useAuth';
-import { canWriteStudentManager, type Role } from '../../lib/permissions';
+import { canSeeChangelog, canWriteStudentManager, type Role } from '../../lib/permissions';
+import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
 import { useRenewalAssignees } from '../../hooks/useRenewals';
 import { SelectInput } from '../../components/form/SelectInput';
 
@@ -138,7 +138,7 @@ function StudentManagerDialog({ student, onClose }: { student: Student; onClose:
   );
 }
 
-const STUDENT_TABS = ['learning', 'finance', 'comments'] as const;
+const STUDENT_TABS = ['learning', 'finance', 'comments', 'history'] as const;
 type StudentTab = (typeof STUDENT_TABS)[number];
 const DEFAULT_TAB: StudentTab = 'learning';
 
@@ -156,7 +156,6 @@ export default function StudentDetailPage() {
   const { data: lastComment } = useLatestStudentComment(id);
   const { data: activeMemberships = [] } = useMemberships({ student_id: id });
   const [editing, setEditing] = useState(false);
-  const [transferMembership, setTransferMembership] = useState<GroupMembership | null>(null);
   const [changingStatus, setChangingStatus] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [managingManager, setManagingManager] = useState(false);
@@ -187,37 +186,55 @@ export default function StudentDetailPage() {
   if (isLoading) return <PageLoading />;
   if (!student) return <Navigate to="/admin/students" replace />;
 
-  const initials = (() => {
-    const parts = String(student.full_name || '').trim().split(/\s+/);
-    return (parts.length >= 2 ? parts[0][0] + parts[1][0] : (student.full_name || '??').slice(0, 2)).toUpperCase();
-  })();
-  const hue = [...String(student.full_name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+  // Цвет личности ученика — устойчивый хеш имени (тот же приём, что в Avatar).
+  const identityColor = `hsl(${[...String(student.full_name || '')]
+    .reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 52%, 45%)`;
 
-  const pills: Array<{ label: string; value: string }> = [];
-  if (student.age) pills.push({ label: 'Возраст', value: `${student.age} лет` });
-  if (student.parent1_phone) pills.push({ label: 'Телефон', value: student.parent1_phone });
-  if (student.parent1_name) pills.push({ label: 'Родитель 1', value: student.parent1_name });
+  // Короткие факты справа: раньше это были акцентно-синие «пилюли» — цвет акцента
+  // тратился на декорацию, хотя по токенам он зарезервирован за смыслом.
+  const facts: HeroFact[] = [];
+  const ageLabel = fmtAge(student.birth_date);
+  if (ageLabel !== '—') facts.push({ label: 'Возраст', value: ageLabel });
+  if (student.parent1_name) facts.push({ label: 'Родитель', value: student.parent1_name });
+  if (student.parent1_phone) {
+    facts.push({
+      label: 'Телефон',
+      value: <a href={`tel:${student.parent1_phone.replace(/[^\d+]/g, '')}`}>{student.parent1_phone}</a>,
+    });
+  }
+  facts.push({ label: 'Менеджер', value: student.manager_name || '—' });
+
+  // Вторичные действия уезжают в «…»: пять равновесных кнопок в ряд читались
+  // как список без приоритета, теперь видно основное действие и «Редактировать».
+  const menuItems: ActionMenuItem[] = [
+    { label: 'Изменить статус', onSelect: () => setChangingStatus(true) },
+  ];
+  if (student.enrollment_status === 'frozen') {
+    menuItems.push({ label: 'Разморозить', onSelect: () => setResuming(true) });
+  }
+  if (canWriteStudentManager(me?.role as Role)) {
+    menuItems.push({ label: 'Сменить менеджера', onSelect: () => setManagingManager(true) });
+  }
 
   const customHero = (
-    <div className="student-hero">
-      <div
-        className="student-hero__avatar"
-        style={{
-          background: `hsl(${hue},55%,92%)`,
-          borderColor: `hsl(${hue},50%,80%)`,
-          color: `hsl(${hue},55%,35%)`,
-        }}
-      >{initials}</div>
-      <div className="student-hero__info">
-        <div className="student-hero__name-row">
-          <h2 className="student-hero__name">{student.full_name}</h2>
-          <StatusBadge row={student} />
-        </div>
-        {student.parent1_name && (
-          <div className="student-hero__sub">Родитель: {student.parent1_name}</div>
-        )}
-        <div className="student-hero__id">id {student.id}</div>
-        <div className="student-hero__actions">
+    <EntityHero
+      monogram={monogramOf(student.full_name)}
+      color={identityColor}
+      title={student.full_name}
+      badge={<StatusBadge row={student} />}
+      meta={
+        <>
+          <HeroChip mono>id {student.id}</HeroChip>
+          {activeMemberships.slice(0, 3).map((m) => (
+            <HeroChip key={m.id}>{m.group_name || `#${m.group_id}`}</HeroChip>
+          ))}
+          {activeMemberships.length > 3 && (
+            <HeroChip mono>+{activeMemberships.length - 3}</HeroChip>
+          )}
+        </>
+      }
+      actions={
+        <>
           <button type="button" className="btn-save" onClick={() => openPaymentModal({ studentId: student.id })}>
             + Внести оплату
           </button>
@@ -228,56 +245,39 @@ export default function StudentDetailPage() {
             </svg>
             Редактировать
           </button>
-          <button type="button" className="edit-btn" onClick={() => setChangingStatus(true)}>
-            Изменить статус
-          </button>
-          {student.enrollment_status === 'frozen' && (
-            <button type="button" className="edit-btn" onClick={() => setResuming(true)}>
-              Разморозить
-            </button>
-          )}
-          {canWriteStudentManager(me?.role as Role) && (
-            <button type="button" className="edit-btn" onClick={() => setManagingManager(true)}>
-              Сменить менеджера
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="student-hero__pills">
-        {pills.map((p) => (
-          <div key={p.label} className="student-pill">
-            <span className="student-pill__label">{p.label}:</span>{' '}
-            <span className="student-pill__value">{p.value}</span>
-          </div>
-        ))}
-        {lastComment && (
-          <button
-            type="button"
-            className="student-hero__last-comment"
-            onClick={() => setActiveTab('comments')}
-            title="Открыть все комментарии"
-          >
-            <span className="student-hero__last-comment-head">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-              Последний комментарий
-            </span>
-            <span className="student-hero__last-comment-text">{lastComment.body}</span>
-            <span className="student-hero__last-comment-meta">
-              {lastComment.author_name || 'Неизвестный автор'} · {fmtDateTime(lastComment.created_at)}
-            </span>
-          </button>
-        )}
-      </div>
-    </div>
+          <ActionMenu items={menuItems} />
+        </>
+      }
+      facts={facts}
+      aside={lastComment && (
+        <button
+          type="button"
+          className="hero-comment"
+          onClick={() => setActiveTab('comments')}
+          title="Открыть все комментарии"
+        >
+          <span className="hero-comment-head">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            Последний комментарий
+          </span>
+          <span className="hero-comment-text">{lastComment.body}</span>
+          <span className="hero-comment-meta">
+            {lastComment.author_name || 'Неизвестный автор'} · {fmtDateTime(lastComment.created_at)}
+          </span>
+        </button>
+      )}
+    />
   );
 
   const fields: DetailField<Student>[] = [
     { key: 'id', label: 'ID' },
     { key: 'full_name', label: 'ФИО' },
     { key: 'birth_date', label: 'Дата рожд.', cell: (r) => fmtDate(r.birth_date) },
-    { key: 'age', label: 'Возраст', cell: (r) => r.age ? `${r.age} лет` : '—' },
+    // Ключ 'age' — просто идентификатор строки (не поле модели): возраст
+    // вычисляется из birth_date, отдельного столбца age больше нет.
+    { key: 'age', label: 'Возраст', cell: (r) => fmtAge(r.birth_date) },
     { key: 'parent1_name', label: 'Родитель 1' },
     { key: 'parent1_phone', label: 'Телефон родителя 1' },
     { key: 'parent1_email', label: 'Email родителя 1' },
@@ -287,51 +287,30 @@ export default function StudentDetailPage() {
     { key: 'platform_id', label: 'Platform ID' },
     { key: 'bitrix24_link', label: 'Bitrix24' },
     { key: 'manager_name', label: 'Менеджер', cell: (r) => r.manager_name || '—' },
-    { key: 'first_purchase_date', label: 'Первая оплата', cell: (r) => fmtDate(r.first_purchase_date) },
     { key: 'enrollment_status', label: 'Статус', cell: (r) => <StatusBadge row={r} /> },
     { key: 'created_at', label: 'Создан', cell: (r) => fmtDate(r.created_at) },
   ];
 
-  const groupOptions = groups.map((g) => ({ value: g.id, label: g.name, disabled: !g.active }));
+  // То, чего НЕТ в шапке: возраст, родитель 1, телефон, менеджер и статус уже
+  // показаны там, повторять их в карточке полей незачем.
+  const HERO_KEYS = new Set(['id', 'full_name', 'age', 'parent1_name', 'parent1_phone',
+    'manager_name', 'enrollment_status']);
+  const otherFields = fields.filter((f) => !HERO_KEYS.has(f.key));
 
   const tabs: TabItem[] = [
     {
       value: 'learning',
       label: 'Обучение',
       content: (
-        <div className="student-learning-grid">
-          <div className="student-learning-grid__main">
-            <div className="sub-header">Статистика посещаемости</div>
-            <StudentStatsBlock studentId={student.id} />
-          </div>
-          <div className="student-learning-grid__side">
-            <EntityCard title="Данные ученика" row={student} fields={fields} />
-            <div className="sub-header">Группы ученика</div>
-            <MembershipsBlock
-              config={{
-                mode: 'byStudent',
-                studentId: student.id,
-                pickerOptions: groupOptions,
-                pickerLabel: 'Выберите группу',
-              }}
-              emptyText="Не записан ни в одну группу"
-              onTransfer={(m) => setTransferMembership(m)}
-              renderCard={(m) => {
-                const g = groups.find((x) => x.id === m.group_id);
-                const dir = g ? directions.find((d) => d.id === g.direction_id) : null;
-                return {
-                  title: m.group_name || `#${m.group_id}`,
-                  meta: (
-                    <>
-                      {dir && <DirTag direction={dir} />}
-                      {g && !g.active && <span className="archive-tag">Архив</span>}
-                    </>
-                  ),
-                  navigateTo: `/admin/groups/${m.group_id}`,
-                };
-              }}
-            />
-          </div>
+        <div className="student-learning">
+          <StudentLearningBlock
+            studentId={student.id}
+            groups={groups}
+            directions={directions}
+          />
+          {/* Паспортные поля — под основным содержимым и свёрнуты: возраст,
+              родитель, телефон, менеджер и статус теперь живут в шапке. */}
+          <EntityCard title="Прочие данные ученика" row={student} fields={otherFields} />
         </div>
       ),
     },
@@ -347,6 +326,14 @@ export default function StudentDetailPage() {
     },
   ];
 
+  if (canSeeChangelog(me?.role as Role)) {
+    tabs.push({
+      value: 'history',
+      label: 'История',
+      content: <EntityChangelogPanel entity="student" entityId={student.id} />,
+    });
+  }
+
   return (
     <>
       <DetailShell<Student>
@@ -356,6 +343,7 @@ export default function StudentDetailPage() {
         cardTitle="Данные ученика"
         customHero={customHero}
         backTo="/admin/students"
+        parentLabel="Ученики"
         hideCard
       >
         <StudentKpiRow studentId={student.id} />
@@ -364,22 +352,6 @@ export default function StudentDetailPage() {
       {editing && (
         <StudentFormModal initial={student} onClose={() => setEditing(false)} />
       )}
-      {transferMembership && (() => {
-        const currentGroup = groups.find((g) => g.id === transferMembership.group_id);
-        const targetOptions = currentGroup
-          ? groups
-              .filter((g) => g.active && g.direction_id === currentGroup.direction_id && g.id !== currentGroup.id)
-              .map((g) => ({ value: g.id, label: g.name }))
-          : [];
-        return (
-          <TransferMembershipModal
-            membershipId={Number(transferMembership.id)}
-            currentGroupName={currentGroup?.name || `#${transferMembership.group_id}`}
-            targetOptions={targetOptions}
-            onClose={() => setTransferMembership(null)}
-          />
-        );
-      })()}
       {changingStatus && (
         <StudentStatusModal
           studentId={student.id}

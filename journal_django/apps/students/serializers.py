@@ -16,8 +16,9 @@ from rest_framework import serializers
 
 from apps.core.fields import DateStringField
 
-# Допустимые значения enrollment_status (из shared/schemas.js enrollmentStatus)
-ENROLLMENT_STATUS_CHOICES = ('enrolled', 'not_enrolled', 'frozen', 'declined')
+# Допустимые значения enrollment_status. Зеркалит CHECK students_enrollment_status_check
+# (apps/students/models.py) — статус 'not_enrolled' удалён из домена (миграция 0015).
+ENROLLMENT_STATUS_CHOICES = ('enrolled', 'frozen', 'declined')
 
 
 class StudentReadSerializer(serializers.Serializer):
@@ -38,8 +39,6 @@ class StudentReadSerializer(serializers.Serializer):
     parent2_name = serializers.CharField(allow_null=True, allow_blank=True)
     parent2_phone = serializers.CharField(allow_null=True, allow_blank=True)
     parent2_email = serializers.CharField(allow_null=True, allow_blank=True)
-    first_purchase_date = DateStringField(allow_null=True)
-    age = serializers.IntegerField(allow_null=True)
     manager_id = serializers.IntegerField(allow_null=True)
     manager_name = serializers.CharField(allow_null=True, allow_blank=True)
     enrollment_status = serializers.CharField()
@@ -66,8 +65,6 @@ class StudentWriteSerializer(serializers.Serializer):
     parent2_name = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_phone = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_email = serializers.EmailField(allow_null=True, allow_blank=True, required=False)
-    first_purchase_date = DateStringField(allow_null=True, required=False)
-    age = serializers.IntegerField(min_value=0, max_value=120, allow_null=True, required=False)
     enrollment_status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES, required=False)
     frozen_from = DateStringField(allow_null=True, required=False)
     frozen_until = DateStringField(allow_null=True, required=False)
@@ -105,8 +102,6 @@ class StudentUpdateSerializer(serializers.Serializer):
     parent2_name = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_phone = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_email = serializers.EmailField(allow_null=True, allow_blank=True, required=False)
-    first_purchase_date = DateStringField(allow_null=True, required=False)
-    age = serializers.IntegerField(min_value=0, max_value=120, allow_null=True, required=False)
     enrollment_status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES, required=False)
     frozen_from = DateStringField(allow_null=True, required=False)
     frozen_until = DateStringField(allow_null=True, required=False)

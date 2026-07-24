@@ -15,13 +15,14 @@ from __future__ import annotations
 
 from django.db import IntegrityError
 from rest_framework import status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import IsManagerOrAdmin
 from apps.groups import services
+from apps.lessons import services as lessons_services
 from apps.groups.exceptions import ImmutableGroupFormat
 from apps.groups.serializers import (
     GroupReadSerializer, GroupUpdateSerializer, GroupWriteSerializer,
@@ -71,12 +72,19 @@ def _parse_list_params(request: Request) -> dict:
             filter_key = key[7:-1]
             filters[filter_key] = value
 
+    # По умолчанию список — только активные группы (архив скрыт, как у
+    # teachers/directions). include_inactive=1 возвращает и архивные (напр.
+    # useGroupsAll(true) для маппинга имён групп на detail-страницах); явный
+    # filter[active] имеет приоритет над обоими (см. repository._apply_filters).
+    include_inactive = qp.get('include_inactive') == '1'
+
     return {
         'page': page,
         'page_size': page_size,
         'sort_by': sort_by,
         'sort_dir': sort_dir,
         'filters': filters,
+        'include_inactive': include_inactive,
     }
 
 
@@ -129,8 +137,15 @@ class GroupDetailView(APIView):
         serializer = GroupUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        data = dict(serializer.validated_data)
+        # Архивация/разархивация группы (смена active) — только суперадмин.
+        # Обычную правку менеджерам/админам оставляем, но поле active игнорируем,
+        # чтобы они не могли (раз)архивировать группу через PATCH.
+        if getattr(request.user, 'role', None) != 'superadmin':
+            data.pop('active', None)
+
         try:
-            updated = services.update_group(pk, serializer.validated_data)
+            updated = services.update_group(pk, data)
         except ImmutableGroupFormat as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if updated is None:
@@ -139,6 +154,9 @@ class GroupDetailView(APIView):
         return Response(updated)
 
     def delete(self, request: Request, pk: int) -> Response:
+        # Архивация группы (soft-delete) — только суперадмин.
+        if getattr(request.user, 'role', None) != 'superadmin':
+            raise PermissionDenied('Архивировать группу может только суперадмин.')
         ok = services.soft_delete_group(pk)
         if not ok:
             raise NotFound({'error': 'Not found'})
@@ -158,6 +176,41 @@ class GroupProgressView(APIView):
         if data is None:
             raise NotFound({'error': 'Not found'})
         return Response(data)
+
+
+class GroupLessonSkipView(APIView):
+    """
+    GET   /api/admin/groups/:id/lesson-skips?lesson_number=N — student_id с пометкой
+          «неоплачиваемый пропуск» на слот N (в т.ч. ещё не проведённый).
+    PATCH /api/admin/groups/:id/lesson-skips — поставить/снять пометку на слот.
+          Body: {student_id, lesson_number, value}. Работает и на будущем слоте
+          (урока-записи/даты не требуется). См. Вариант A lesson-outcomes-spec.
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        raw = request.query_params.get('lesson_number')
+        if raw is None:
+            raise ValidationError({'error': 'lesson_number required'})
+        try:
+            num = float(raw)
+        except (TypeError, ValueError):
+            raise ValidationError({'error': 'lesson_number must be a number'})
+        return Response({'student_ids': lessons_services.list_lesson_skips(pk, num)})
+
+    def patch(self, request: Request, pk: int) -> Response:
+        data = request.data
+        try:
+            student_id = int(data['student_id'])
+            lesson_number = float(data['lesson_number'])
+            value = bool(data['value'])
+        except (KeyError, TypeError, ValueError):
+            raise ValidationError({'error': 'student_id, lesson_number, value required'})
+        # В журнал ИБ не пишем — доменное действие покрыто «Журналом изменений»
+        # (правило group.lesson_skip в apps/changelog/labels.py).
+        lessons_services.set_lesson_skip(pk, student_id, lesson_number, value)
+        return Response({'ok': True})
 
 
 class GroupScheduleView(APIView):

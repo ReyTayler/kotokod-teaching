@@ -21,16 +21,16 @@ def indiv_student():
     индив-формата через реальный HTTP-эндпоинт /status."""
     ids = {}
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO directions (name, is_individual, active, total_lessons) "
-                    "VALUES ('__api_ist_dir__', true, true, 8) RETURNING id")
+        cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                    "VALUES ('__api_ist_dir__', true, 8) RETURNING id")
         ids['dir'] = cur.fetchone()[0]
         cur.execute("INSERT INTO teachers (name, active, created_at) "
                     "VALUES ('__api_ist_t__', true, NOW()) RETURNING id")
         ids['teacher'] = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at) "
-            "VALUES ('__api_ist_g__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW()) "
+            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES ('__api_ist_g__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW(), 0) "
             "RETURNING id",
             [ids['dir'], ids['teacher']])
         ids['group'] = cur.fetchone()[0]
@@ -146,3 +146,8 @@ def test_freeze_individual_student_relays_tail_200(admin_client, indiv_student):
     assert rows[2].scheduled_date == datetime.date(2026, 8, 5)
     assert rows[3].scheduled_date == datetime.date(2026, 8, 12)
     assert rows[4].scheduled_date == datetime.date(2026, 8, 19)
+
+    # Индив-формат ОСТАЁТСЯ в группе при заморозке — членство не деактивируется
+    # (двигается только расписание). Регресс: раньше выкидывало из группы.
+    from apps.memberships.models import GroupMembership
+    assert GroupMembership.objects.get(id=mid).active is True

@@ -41,9 +41,9 @@ function pluralizeGroups(n: number): string {
 
 function Kpi({ value, label, tone }: { value: number | string; label: string; tone?: 'accent' | 'warn' | 'ok' }) {
   return (
-    <div className="kpi-card">
-      <div className={`kpi-value${tone ? ` kpi-value--${tone}` : ''}`}>{value}</div>
-      <div className="kpi-label">{label}</div>
+    <div className="cal-kpi">
+      <div className={`cal-kpi__value${tone ? ` cal-kpi__value--${tone}` : ''}`}>{value}</div>
+      <div className="cal-kpi__label">{label}</div>
     </div>
   );
 }
@@ -89,6 +89,13 @@ export interface CalendarViewProps {
   onOccurrenceMenu?: (occ: Occurrence, pos: { x: number; y: number }) => void;
   /** Кнопка «Открыть группу» в LessonPopup (см. LessonPopup.onOpenGroup) — используется admin-календарём раздела «Календарь». */
   onOpenGroup?: (occ: Occurrence) => void;
+  /**
+   * Показывать ли строку KPI над календарём. По умолчанию true (разделы
+   * «Календарь» в teacher/admin). Календарь плана конкретной группы
+   * (GroupDetailPage) передаёт false — там нужны только переключатели
+   * неделя/месяц/список.
+   */
+  showKpi?: boolean;
 }
 
 /**
@@ -110,6 +117,7 @@ export function CalendarView({
   onAction,
   onOccurrenceMenu,
   onOpenGroup,
+  showKpi = true,
 }: CalendarViewProps) {
   const [monday, setMonday] = useState(() => currentMondayMsk());
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonthMsk());
@@ -248,20 +256,33 @@ export function CalendarView({
     return items;
   }, [occAll]);
 
+  /**
+   * Занятия, по которым считаются KPI. В виде «Месяц» окно запроса — сетка из
+   * 42 дней (6 недель), поэтому в него попадают «хвосты» соседних месяцев;
+   * KPI обязаны считаться СТРОГО по выбранному месяцу, иначе «Уроков в месяце»
+   * включает чужие уроки. Для week/list окно совпадает с видимым — фильтр no-op.
+   */
+  const kpiLessons = useMemo(() => {
+    if (effectiveView !== 'month') return lessons;
+    const monthFrom = isoDate(monthAnchor);
+    const monthTo = isoDate(addDays(addMonths(monthAnchor, 1), -1));
+    return lessons.filter((o) => o.date >= monthFrom && o.date <= monthTo);
+  }, [lessons, effectiveView, monthAnchor]);
+
   /** total включает все статусы (в т.ч. cancelled/moved); в overdue/pending они не попадают — статус сравнивается строго. */
   const kpi = useMemo(() => {
     const todayIso = isoDate(today);
     const students = new Set<string>();
     let done = 0, overdue = 0, pending = 0, todayCount = 0;
-    for (const occ of lessons) {
+    for (const occ of kpiLessons) {
       if (occ.status === 'done') done++;
       else if (occ.status === 'overdue') overdue++;
       else if (occ.status === 'pending') pending++;
       if (occ.date === todayIso) todayCount++;
       for (const s of occ.students) students.add(s.name);
     }
-    return { total: lessons.length, todayCount, done, overdue, pending, students: students.size };
-  }, [lessons, today]);
+    return { total: kpiLessons.length, todayCount, done, overdue, pending, students: students.size };
+  }, [kpiLessons, today]);
 
   return (
     <div className="cal-page">
@@ -292,15 +313,17 @@ export function CalendarView({
         </div>
       </div>
 
-      {/* KPI */}
-      <div className="kpi-grid">
-        <Kpi value={kpi.total} label={effectiveView === 'month' ? 'Уроков в месяце' : 'Уроков на неделе'} tone="accent" />
-        <Kpi value={kpi.todayCount} label="Уроков сегодня" />
-        <Kpi value={kpi.done} label="Заполнено" tone="ok" />
-        <Kpi value={kpi.overdue} label="Надо заполнить" tone="warn" />
-        <Kpi value={kpi.pending} label="Ещё не было" />
-        <Kpi value={kpi.students} label="Учеников" />
-      </div>
+      {/* KPI (скрываются в календаре плана группы — showKpi={false}) */}
+      {showKpi && (
+        <div className="cal-kpi-grid">
+          <Kpi value={kpi.total} label={effectiveView === 'month' ? 'Уроков в месяце' : 'Уроков на неделе'} tone="accent" />
+          <Kpi value={kpi.todayCount} label="Уроков сегодня" />
+          <Kpi value={kpi.done} label="Заполнено" tone="ok" />
+          <Kpi value={kpi.overdue} label="Надо заполнить" tone="warn" />
+          <Kpi value={kpi.pending} label="Ещё не было" />
+          <Kpi value={kpi.students} label="Учеников" />
+        </div>
+      )}
 
       {/* Легенда направлений (динамическая; клик = фильтр) + data-quality бейдж unscheduled */}
       <div className="legend">

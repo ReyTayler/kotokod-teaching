@@ -10,7 +10,7 @@ Unit/integration тесты для StudentsRepository.
   - get_student: существующий/несуществующий
   - create_student: RETURNING * работает, поля заполнены
   - update_student: COALESCE обновление, frozen_from/frozen_until могут стать NULL
-  - soft_delete_student: статус 'not_enrolled', frozen_from/until=NULL, повторный → False
+  - update_student: смена статуса; удалённый 'not_enrolled' отбивается CHECK-ом
   - student_stats: форма ответа (keys: student_id, directions, groups, overall)
   - get_student_balance: форма ответа (keys: paid_by_direction, attended_by_direction, total_balance, total_paid_amount, payments)
 """
@@ -46,8 +46,6 @@ def _make_student_data(**overrides) -> dict:
         'parent2_name': None,
         'parent2_phone': None,
         'parent2_email': None,
-        'first_purchase_date': None,
-        'age': None,
         'enrollment_status': 'enrolled',
         'frozen_from': None,
         'frozen_until': None,
@@ -206,7 +204,7 @@ class TestCreateStudent:
         finally:
             _cleanup_student(student['id'])
 
-    def test_create_with_parent_contacts_and_age(self):
+    def test_create_with_parent_contacts_and_birth_date(self):
         data = _make_student_data(
             full_name='__test_create_full__',
             parent1_name='Иван Петров',
@@ -216,7 +214,7 @@ class TestCreateStudent:
             parent2_phone='+79007654321',
             parent2_email='parent2@example.com',
             bitrix24_link='https://bitrix24.example/crm/deal/1',
-            age=11,
+            birth_date='2013-05-20',
         )
         student = repository.create_student(data)
         try:
@@ -227,7 +225,9 @@ class TestCreateStudent:
             assert student['parent2_phone'] == '+79007654321'
             assert student['parent2_email'] == 'parent2@example.com'
             assert student['bitrix24_link'] == 'https://bitrix24.example/crm/deal/1'
-            assert student['age'] == 11
+            # repository отдаёт сырой ORM-объект date; строкой станет в сериализаторе
+            assert student['birth_date'] == datetime.date(2013, 5, 20)
+            assert 'age' not in student
         finally:
             _cleanup_student(student['id'])
 
@@ -273,13 +273,13 @@ class TestUpdateStudent:
         """Если поля не переданы — старые значения сохраняются."""
         data = _make_student_data(
             full_name='__test_coalesce__',
-            age=13,
+            birth_date='2012-01-15',
         )
         student = repository.create_student(data)
         sid = student['id']
         try:
             updated = repository.update_student(sid, {'full_name': '__test_coalesce_new__'})
-            assert updated['age'] == 13
+            assert updated['birth_date'] == datetime.date(2012, 1, 15)
         finally:
             _cleanup_student(sid)
 
@@ -315,62 +315,23 @@ class TestUpdateStudent:
         student = repository.create_student(data)
         sid = student['id']
         try:
-            updated = repository.update_student(sid, {'enrollment_status': 'not_enrolled'})
-            assert updated['enrollment_status'] == 'not_enrolled'
+            updated = repository.update_student(sid, {'enrollment_status': 'declined'})
+            assert updated['enrollment_status'] == 'declined'
         finally:
             _cleanup_student(sid)
 
-
-# ---------------------------------------------------------------------------
-# TestSoftDeleteStudent
-# ---------------------------------------------------------------------------
-
-@pytest.mark.django_db
-class TestSoftDeleteStudent:
-    """Тесты soft_delete_student()."""
-
-    def test_soft_delete_existing_returns_true(self):
-        data = _make_student_data(full_name='__test_softdel__')
+    def test_update_rejects_removed_not_enrolled(self):
+        """CHECK students_enrollment_status_check больше не знает 'not_enrolled'
+        (миграция 0015) — запись такого статуса в обход API падает на уровне БД."""
+        from django.db import IntegrityError, transaction
+        data = _make_student_data(full_name='__test_upd_status_gone__')
         student = repository.create_student(data)
         sid = student['id']
         try:
-            result = repository.soft_delete_student(sid)
-            assert result is True
+            with pytest.raises(IntegrityError), transaction.atomic():
+                repository.update_student(sid, {'enrollment_status': 'not_enrolled'})
         finally:
             _cleanup_student(sid)
-
-    def test_soft_delete_sets_not_enrolled(self):
-        data = _make_student_data(full_name='__test_softdel_status__')
-        student = repository.create_student(data)
-        sid = student['id']
-        try:
-            repository.soft_delete_student(sid)
-            fetched = repository.get_student(sid)
-            assert fetched['enrollment_status'] == 'not_enrolled'
-        finally:
-            _cleanup_student(sid)
-
-    def test_soft_delete_clears_frozen_dates(self):
-        """soft_delete сбрасывает frozen_from/frozen_until в NULL."""
-        data = _make_student_data(
-            full_name='__test_softdel_frozen__',
-            enrollment_status='frozen',
-            frozen_from='2026-06-01',
-            frozen_until='2026-08-01',
-        )
-        student = repository.create_student(data)
-        sid = student['id']
-        try:
-            repository.soft_delete_student(sid)
-            fetched = repository.get_student(sid)
-            assert fetched['frozen_from'] is None
-            assert fetched['frozen_until'] is None
-        finally:
-            _cleanup_student(sid)
-
-    def test_soft_delete_nonexistent_returns_false(self):
-        result = repository.soft_delete_student(999_999_999)
-        assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +395,115 @@ class TestStudentStats:
         finally:
             _cleanup_student(sid)
 
+    def test_half_lesson_weighting_45min(self):
+        """45-мин занятие = 0.5 урока: 3 занятия по 45 мин → attended 1.5 урока, а не 3.
+        Прогресс считается против плана курса в уроках (denominator), поэтому
+        pct = 1.5 / 8 = 18.75 → 18.8, а не 3/8=37.5 (был баг сырого COUNT)."""
+        data = _make_student_data(full_name='__test_stats_half__')
+        student = repository.create_student(data)
+        sid = student['id']
+        gid = did = tid = None
+        try:
+            with connection.cursor() as cur:
+                cur.execute("INSERT INTO teachers (name, active) VALUES ('__half_teacher__', true) RETURNING id")
+                tid = cur.fetchone()[0]
+                cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                            "VALUES ('__half_dir__', true, 8) RETURNING id")
+                did = cur.fetchone()[0]
+                cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+                            "lesson_duration_minutes, active, lesson_number_offset) "
+                            "VALUES ('__half_group__', %s, %s, true, 45, true, 0) RETURNING id",
+                            [did, tid])
+                gid = cur.fetchone()[0]
+                cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                            "VALUES (%s, %s, 1.5, true)", [gid, sid])
+                # 3 проведённых 45-мин урока, на всех ученик присутствовал.
+                for i in range(1, 4):
+                    cur.execute("INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+                                "lesson_duration_minutes, lesson_type, submitted_at, submitted_by_token) "
+                                "VALUES (%s, %s, %s, %s, 45, 'regular', now(), %s) RETURNING id",
+                                [gid, tid, f'2026-05-0{i}', i * 0.5, f'__half_tok_{i}__'])
+                    lid = cur.fetchone()[0]
+                    cur.execute("INSERT INTO lesson_attendance (lesson_id, student_id, present) "
+                                "VALUES (%s, %s, true)", [lid, sid])
+
+            result = repository.student_stats(sid)
+            grp = result['groups'][0]
+            assert grp['attended_count'] == 1.5      # 3 × 0.5, а не 3
+            assert grp['lessons_recorded'] == 1.5
+            assert grp['denominator'] == 8           # план курса в уроках
+            assert grp['attendance_pct'] == 18.8     # 1.5/8, не 37.5
+            assert result['overall']['attended_count'] == 1.5
+        finally:
+            with connection.cursor() as cur:
+                if gid is not None:
+                    cur.execute("DELETE FROM lesson_attendance WHERE student_id = %s", [sid])
+                    cur.execute("DELETE FROM lessons WHERE group_id = %s", [gid])
+                    cur.execute("DELETE FROM group_memberships WHERE group_id = %s", [gid])
+                    cur.execute("DELETE FROM groups WHERE id = %s", [gid])
+                if did is not None:
+                    cur.execute("DELETE FROM directions WHERE id = %s", [did])
+                if tid is not None:
+                    cur.execute("DELETE FROM teachers WHERE id = %s", [tid])
+            _cleanup_student(sid)
+
+    def test_progress_capped_at_100_over_plan(self):
+        """Доп.урок сверх плана (проведено больше, чем total_lessons курса): completion
+        курса зажат на 100%, не 125%. План 4 урока, проведено/присутствовал 5 (5-й —
+        сверх курса, lesson_type='extra'). attended_count=5 (сырое число честное),
+        denominator=4, но attendance_pct=100.0, не 125. «Сверх курса» (attended−denom=1)
+        выводит фронт из этих же полей."""
+        data = _make_student_data(full_name='__test_stats_over__')
+        student = repository.create_student(data)
+        sid = student['id']
+        gid = did = tid = None
+        try:
+            with connection.cursor() as cur:
+                cur.execute("INSERT INTO teachers (name, active) VALUES ('__over_teacher__', true) RETURNING id")
+                tid = cur.fetchone()[0]
+                cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                            "VALUES ('__over_dir__', true, 4) RETURNING id")
+                did = cur.fetchone()[0]
+                cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+                            "lesson_duration_minutes, active, lesson_number_offset) "
+                            "VALUES ('__over_group__', %s, %s, true, 60, true, 0) RETURNING id",
+                            [did, tid])
+                gid = cur.fetchone()[0]
+                cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                            "VALUES (%s, %s, 5, true)", [gid, sid])
+                # 4 плановых урока + 1 сверх курса (lesson_type='extra'), на всех присутствовал.
+                for i in range(1, 6):
+                    ltype = 'extra' if i == 5 else 'regular'
+                    cur.execute("INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+                                "lesson_duration_minutes, lesson_type, submitted_at, submitted_by_token) "
+                                "VALUES (%s, %s, %s, %s, 60, %s, now(), %s) RETURNING id",
+                                [gid, tid, f'2026-05-0{i}', i, ltype, f'__over_tok_{i}__'])
+                    lid = cur.fetchone()[0]
+                    cur.execute("INSERT INTO lesson_attendance (lesson_id, student_id, present) "
+                                "VALUES (%s, %s, true)", [lid, sid])
+
+            result = repository.student_stats(sid)
+            grp = result['groups'][0]
+            assert grp['attended_count'] == 5        # честное число сохраняется
+            assert grp['denominator'] == 4           # план курса
+            assert grp['attendance_pct'] == 100.0    # зажат, не 125
+            assert max(grp['attended_count'] - grp['denominator'], 0) == 1  # «+1 сверх курса»
+            direction = result['directions'][0]
+            assert direction['attendance_pct'] == 100.0
+            assert result['overall']['attendance_pct'] == 100.0
+        finally:
+            with connection.cursor() as cur:
+                if gid is not None:
+                    cur.execute("DELETE FROM lesson_attendance WHERE student_id = %s", [sid])
+                    cur.execute("DELETE FROM lessons WHERE group_id = %s", [gid])
+                    cur.execute("DELETE FROM group_memberships WHERE group_id = %s", [gid])
+                    cur.execute("DELETE FROM groups WHERE id = %s", [gid])
+                if did is not None:
+                    cur.execute("DELETE FROM directions WHERE id = %s", [did])
+                if tid is not None:
+                    cur.execute("DELETE FROM teachers WHERE id = %s", [tid])
+            _cleanup_student(sid)
+
 
 # ---------------------------------------------------------------------------
 # TestStudentStatsRemaining
@@ -458,14 +528,14 @@ class TestStudentStatsRemaining:
                 )
                 teacher_id = cur.fetchone()[0]
                 cur.execute(
-                    "INSERT INTO directions (name, is_individual, active) "
-                    "VALUES ('__stats_rem_dir__', false, true) RETURNING id"
+                    "INSERT INTO directions (name, active) "
+                    "VALUES ('__stats_rem_dir__', true) RETURNING id"
                 )
                 direction_id = cur.fetchone()[0]
                 cur.execute(
                     "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-                    "lesson_duration_minutes, active) "
-                    "VALUES ('__stats_rem_group__', %s, %s, false, 60, true) RETURNING id",
+                    "lesson_duration_minutes, active, lesson_number_offset) "
+                    "VALUES ('__stats_rem_group__', %s, %s, false, 60, true, 0) RETURNING id",
                     [direction_id, teacher_id],
                 )
                 group_id = cur.fetchone()[0]

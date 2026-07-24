@@ -66,9 +66,8 @@ def test_describe_event_never_empty_for_unknown_entity():
 @pytest.fixture
 def group():
     t = Teacher.objects.create(name='__sum_t__', created_at=timezone.now())
-    d = Direction.objects.create(name='__sum_d__', is_individual=False)
-    return Group.objects.create(name='ПИ1012', direction=d, teacher=t,
-                                is_individual=False, created_at=timezone.now())
+    d = Direction.objects.create(name='__sum_d__')
+    return Group.objects.create(name='ПИ1012', direction=d, teacher=t, is_individual=False, created_at=timezone.now())
 
 
 def _feed_top(client):
@@ -110,8 +109,7 @@ def test_summary_membership(admin_client, group):
 
 def test_summary_membership_transfer(admin_client, group):
     target_group = Group.objects.create(
-        name='ПИ1013', direction=group.direction, teacher=group.teacher,
-        is_individual=False, created_at=timezone.now(),
+        name='ПИ1013', direction=group.direction, teacher=group.teacher, is_individual=False, created_at=timezone.now(),
     )
     s = Student.objects.create(full_name='Иван Тестов', created_at=timezone.now())
     old = GroupMembership.objects.create(group=group, student=s, active=True, lessons_done=32)
@@ -129,8 +127,7 @@ def test_summary_membership_transfer_reactivation(admin_client, group):
     Обе стороны перевода — 'update'-события, а не insert/update — проверяет,
     что old/new различаются по diff направления, а не по pgh_label."""
     target_group = Group.objects.create(
-        name='ПИ1014', direction=group.direction, teacher=group.teacher,
-        is_individual=False, created_at=timezone.now(),
+        name='ПИ1014', direction=group.direction, teacher=group.teacher, is_individual=False, created_at=timezone.now(),
     )
     s = Student.objects.create(full_name='Мария Тестова', created_at=timezone.now())
     GroupMembership.objects.create(group=target_group, student=s, active=False, lessons_done=4)
@@ -144,7 +141,7 @@ def test_summary_membership_transfer_reactivation(admin_client, group):
 
 
 def test_summary_generic_update(admin_client):
-    d = Direction.objects.create(name='__sum_gen__', is_individual=False)
+    d = Direction.objects.create(name='__sum_gen__')
     with pghistory.context(url='/api/admin/directions/1', method='PATCH'):
         Direction.objects.filter(id=d.id).update(name='__sum_gen2__')
     row = _feed_top(admin_client)
@@ -153,7 +150,7 @@ def test_summary_generic_update(admin_client):
 
 
 def test_summary_soft_delete_reads_as_archive(admin_client):
-    d = Direction.objects.create(name='__sum_arch__', is_individual=False)
+    d = Direction.objects.create(name='__sum_arch__')
     with pghistory.context(url='/api/admin/directions/1', method='DELETE'):
         Direction.objects.filter(id=d.id).update(active=False)
     row = _feed_top(admin_client)

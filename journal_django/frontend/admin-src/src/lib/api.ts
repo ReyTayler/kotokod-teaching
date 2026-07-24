@@ -1,10 +1,14 @@
 export class ApiError extends Error {
   status: number;
   details?: unknown;
-  constructor(status: number, message: string, details?: unknown) {
+  /** Машиночитаемый код ошибки из тела ответа (`{code: '...'}`) — для UI-ветвлений
+   *  (например, показать модалку по конкретному конфликту, а не generic-тост). */
+  code?: string;
+  constructor(status: number, message: string, details?: unknown, code?: string) {
     super(message);
     this.status = status;
     this.details = details;
+    this.code = code;
   }
 }
 
@@ -22,6 +26,20 @@ export function extractErrorDetail(details: unknown): string | undefined {
     if (Array.isArray(v) && v.length > 0) return String(v[0]);
   }
   return undefined;
+}
+
+// Код конфликта бэкенда (apps.*.views): снятие членства ученика в группе
+// заблокировано назначенными, но не проведёнными доп.уроками. Фронт показывает по
+// нему блокирующую модалку, а не generic-тост.
+export const MEMBERSHIP_HAS_SCHEDULED_MAKEUPS = 'membership_has_scheduled_makeups';
+
+/** Если ошибка — именно блок «есть назначенные доп.уроки», вернуть её текст для
+ *  модалки, иначе null (обрабатывать как обычную ошибку через useApiError). */
+export function scheduledMakeupsBlockMessage(err: unknown): string | null {
+  if (err instanceof ApiError && err.code === MEMBERSHIP_HAS_SCHEDULED_MAKEUPS) {
+    return err.message || 'Нельзя снять ученика из группы: есть назначенные доп.уроки.';
+  }
+  return null;
 }
 
 // Методы, не требующие CSRF-токена (RFC 7231 safe methods).
@@ -121,7 +139,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     if (res.status === 401 && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('admin:auth-expired'));
     }
-    throw new ApiError(res.status, json?.error || res.statusText, json?.details);
+    throw new ApiError(res.status, json?.error || res.statusText, json?.details, json?.code);
   }
   return json as T;
 }

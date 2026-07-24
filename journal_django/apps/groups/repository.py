@@ -14,10 +14,11 @@ services/pagination.js (для admin SPA). create/update возвращают с
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 from django.db.models.functions import Now
 
 from apps.core.utils.dates import msk_today
@@ -32,10 +33,14 @@ from .models import Group, GroupScheduleSlot
 # ---------------------------------------------------------------------------
 
 # Поля строки группы (соответствуют g.* / RETURNING *), в порядке схемы.
+# lesson_number_offset — сдвиг нумерации курса для групп-продолжений (перевод в
+# пустую персональную группу, Phase 1b): курс начинается не с урока №1, а с
+# offset+step. Нужен фронту (LessonGrid), чтобы не рисовать «отсутствующие»
+# ячейки 1..offset, на которых переведённый ученик заблокирован.
 _GROUP_FIELDS = (
     'id', 'name', 'direction_id', 'teacher_id', 'is_individual',
     'lesson_duration_minutes', 'lessons_per_week', 'group_start_date',
-    'vk_chat', 'active', 'created_at',
+    'vk_chat', 'active', 'created_at', 'lesson_number_offset',
 )
 
 # Whitelist sort_by → ORM-поле. g.id DESC — вторичная сортировка.
@@ -94,11 +99,18 @@ def _slots_by_group(group_ids: list[int]) -> dict[int, list[dict]]:
     return result
 
 
-def _apply_filters(qs, filters: dict[str, Any]):
+def _apply_filters(qs, filters: dict[str, Any], include_inactive: bool = False):
     """
     Применяет фильтры (мимикрирует F.*-билдеры services/pagination.js):
       name (LIKE, регистронезависимо), direction_id, teacher_id,
       is_individual (bool), active (bool).
+
+    Архив по умолчанию скрыт (как teachers/directions): если явного фильтра
+    filter[active] нет и не передан include_inactive — выборка сужается до
+    active=True. Приоритет: явный filter[active] → include_inactive (все) →
+    дефолт active-only. Архивные группы доступны в разделе «Архив»
+    (filter[active]=false) или через include_inactive=1 (напр. useGroupsAll(true)
+    для маппинга имён/счётчиков групп на detail-страницах).
     """
     name = filters.get('name')
     if name not in (None, ''):
@@ -121,6 +133,8 @@ def _apply_filters(qs, filters: dict[str, Any]):
     if active not in (None, ''):
         val = active is True or str(active).lower() == 'true'
         qs = qs.filter(active=val)
+    elif not include_inactive:
+        qs = qs.filter(active=True)
 
     return qs
 
@@ -140,9 +154,12 @@ def list_groups(
     sort_by: str = _DEFAULT_SORT_BY,
     sort_dir: str = _DEFAULT_SORT_DIR,
     filters: Optional[dict] = None,
+    include_inactive: bool = False,
 ) -> dict:
     """
     Возвращает пагинированный список групп со слотами и именами справочников.
+    По умолчанию — только активные (архив скрыт); include_inactive=True или явный
+    filter[active] расширяют выборку (см. _apply_filters).
 
     Контракт ответа: { rows, total, page, page_size }.
     """
@@ -152,15 +169,22 @@ def list_groups(
     sort_field = _SORTABLE.get(sort_by) or _SORTABLE[_DEFAULT_SORT_BY]
     order_prefix = '' if sort_dir == 'asc' else '-'
 
-    qs = _apply_filters(Group.objects.all(), filters)
+    qs = _apply_filters(Group.objects.all(), filters, include_inactive=include_inactive)
 
     total = qs.count()  # COUNT(*) без JOIN/агрегатов — как _GROUPS_COUNT_FROM
 
     offset = max(0, (page - 1) * page_size)
-    ordered = qs.order_by(f'{order_prefix}{sort_field}', '-id')
+    # members_count — «Состав группы»: число АКТИВНЫХ членств (учеников сейчас в
+    # группе). Одна агрегация с GROUP BY, без N+1. Аннотируем на пагинированной
+    # выборке, а не на qs для total (чтобы COUNT(*) групп не превращать в группировку).
+    ordered = (
+        qs.order_by(f'{order_prefix}{sort_field}', '-id')
+        .annotate(members_count=Count('memberships', filter=Q(memberships__active=True)))
+    )
     rows = dictrows(
         ordered[offset:offset + page_size].values(
             *_GROUP_FIELDS,
+            'members_count',
             direction_name=F('direction__name'),
             direction_color=F('direction__color'),
             teacher_name=F('teacher__name'),
@@ -223,10 +247,14 @@ def create_group(data: dict) -> dict:
 
 def update_group(group_id: int, data: dict) -> Optional[dict]:
     """
-    Обновляет группу (PATCH через COALESCE) + опционально перезаписывает слоты.
+    Обновляет поля группы (PATCH через COALESCE). Расписание НЕ трогает.
 
     Если строки нет — возвращает None.
-    Если data содержит 'slots' (list) — старые слоты удаляются, вставляются новые.
+    Слоты через этот путь НЕ меняются: их версионированием ведает
+    apply_schedule_change (закрыть старые / открыть новые с effective_from).
+    Приём slots здесь стирал бы версионную историю (delete+recreate на sentinel-
+    дате) и разъезжался с материализованным планом — поэтому даже если 'slots'
+    попадёт в data, он игнорируется.
     is_individual/active могут быть False (sentinel "ключ присутствует").
     Возвращает строку группы (g.*) БЕЗ slots — как RETURNING * оригинала.
     """
@@ -247,17 +275,21 @@ def update_group(group_id: int, data: dict) -> Optional[dict]:
 
         if data.get('name'):
             obj.name = data['name']
-        if data.get('direction_id'):
-            obj.direction_id = data['direction_id']
-        if data.get('teacher_id'):
-            obj.teacher_id = data['teacher_id']
+        # Неизменяемы после создания (фронт-форма блокирует эти поля при правке;
+        # серилайзер их принимает, но PATCH игнорирует): направление,
+        # преподаватель, длительность урока. В create они всегда заданы, поэтому
+        # обычной смены нет. Преподаватель меняется только операцией «смена
+        # преподавателя на все уроки» (apps.scheduling.change_teacher_permanent →
+        # напрямую groups.teacher_id), НЕ через update_group.
         if data.get('is_individual') is not None and 'is_individual' in data:
-            obj.is_individual = data['is_individual']
-        if data.get('lesson_duration_minutes'):
-            obj.lesson_duration_minutes = data['lesson_duration_minutes']
+            obj.is_individual = data['is_individual']   # формат: ImmutableGroupFormat выше запрещает СМЕНУ
         if data.get('lessons_per_week'):
             obj.lessons_per_week = data['lessons_per_week']
-        if data.get('group_start_date'):
+        # Дата начала: разрешена ТОЛЬКО первичная установка (было NULL) — она
+        # завершает настройку группы и запускает автоген плана
+        # (scheduling.autogenerate_plan_on_setup). Уже заданную дату менять нельзя
+        # (форма её блокирует и не присылает).
+        if data.get('group_start_date') and obj.group_start_date is None:
             obj.group_start_date = data['group_start_date']
         if data.get('vk_chat'):                       # NULLIF: пустая строка → не трогаем
             obj.vk_chat = data['vk_chat']
@@ -265,19 +297,6 @@ def update_group(group_id: int, data: dict) -> Optional[dict]:
             obj.active = data['active']
 
         obj.save()
-
-        # Перезаписываем слоты если переданы
-        if 'slots' in data and isinstance(data['slots'], list):
-            GroupScheduleSlot.objects.filter(group_id=group_id).delete()
-            if data['slots']:
-                GroupScheduleSlot.objects.bulk_create([
-                    GroupScheduleSlot(
-                        group_id=group_id,
-                        day_of_week=s['day_of_week'],
-                        start_time=s['start_time'],
-                    )
-                    for s in data['slots']
-                ])
 
     return _group_row(group_id)
 
@@ -389,11 +408,18 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     в % не попадает. В боевых данных lesson_number уникален на группу (проверено
     SELECT'ом), поэтому на практике коллапс безопасен; зеркалит LessonGrid.
 
-    Ячейка ученика по слоту:
-      True  — был (есть запись посещаемости present=true),
-      False — не был (запись present=false),
+    Ячейка ученика по слоту (cells[i]) + параллельные флаги исходов для раскраски:
+      True  — был (present=true); free[i]=true → бесплатное занятие (серый),
+              иначе зелёный,
+      False — не был (present=false); compensated[i]=true → закрыт доп.уроком/
+              сожжён (жёлтый); unpaid_skip[i]=true → неоплачиваемый пропуск (синий);
+              иначе красный,
       None  — урок не проведён (плановый слот) ИЛИ ученик не входил в состав на тот
-              урок (нет записи посещаемости) — не учитывается в held/present/pct.
+              урок (нет записи посещаемости).
+    Статистика held/present/pct: как ПОСЕЩЕНИЕ засчитываются был, бесплатное занятие
+    и компенсированный пропуск (доп.урок/сгорание) — все идут в present (тянут % вверх).
+    Обычный «не был» — held без present. Неоплачиваемый пропуск в held НЕ входит (не
+    обязательство посещения — как перевод/плановый слот).
 
     transferred_lessons / transferred_from_group_name — если у ученика есть
     GroupMembership.transferred_from (перевод из другой группы, apps.memberships),
@@ -463,16 +489,17 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     total_lessons = grp['total_lessons'] or 0
     slot_count = max(max_slot, round(total_lessons / step))
 
-    # Посещаемость всех уроков группы разом: (lesson_id, student_id) → present.
+    # Посещаемость всех уроков группы разом: (lesson_id, student_id) →
+    # (present, is_free, unpaid_skip) — исходы для раскраски матрицы.
     lesson_ids = [lesson['id'] for lesson in lesson_by_slot.values()]
-    att_map: dict[tuple[int, int], bool] = {}
+    att_map: dict[tuple[int, int], tuple[bool, bool, bool]] = {}
     if lesson_ids:
-        for lid, sid, present in (
+        for lid, sid, present, is_free, unpaid_skip in (
             LessonAttendance.objects
             .filter(lesson_id__in=lesson_ids)
-            .values_list('lesson_id', 'student_id', 'present')
+            .values_list('lesson_id', 'student_id', 'present', 'is_free', 'unpaid_skip')
         ):
-            att_map[(lid, sid)] = present
+            att_map[(lid, sid)] = (present, is_free, unpaid_skip)
 
     # Компенсированные пропуски: (missed_lesson_id, student_id), по которым пропуск
     # закрыт доп.уроком (makeup_done) или сожжён (burned). Ячейку такого пропуска
@@ -507,29 +534,63 @@ def get_group_progress(group_id: int) -> Optional[dict]:
         sid = member['student_id']
         cells: list[Optional[bool]] = []
         compensated: list[bool] = []
+        free: list[bool] = []
+        skip_cells: list[bool] = []
         present = 0
         held = 0
         for col in slots:
             if not col['held']:
                 cells.append(None)
                 compensated.append(False)
+                free.append(False)
+                skip_cells.append(False)
                 continue
             key = (col['lesson_id'], sid)
-            if key not in att_map:      # ученик не входил в состав на тот урок
-                cells.append(None)
-                compensated.append(False)
+            if key not in att_map:
+                # Строки-посещения на исходном уроке нет. Но если по этому уроку у
+                # ученика есть ЗАКРЫТАЯ резолюция (makeup_done/burned) — пропуск
+                # отработан доп.уроком/сожжён (ученик добавлен в группу после
+                # проведения урока и догоняет его доп.уроком) → жёлтая ячейка, а не
+                # «Не проведён». Иначе — ученик действительно не входил в состав.
+                if (col['lesson_id'], sid) in compensated_map:
+                    cells.append(False)
+                    compensated.append(True)
+                    free.append(False)
+                    skip_cells.append(False)
+                    # Отработан доп.уроком/сожжён — засчитывается как посещение.
+                    held += 1
+                    present += 1
+                else:
+                    cells.append(None)
+                    compensated.append(False)
+                    free.append(False)
+                    skip_cells.append(False)
                 continue
-            is_present = bool(att_map[key])
-            held += 1
-            if is_present:
+            is_present, is_free_c, is_skip_c = att_map[key]
+            is_present = bool(is_present)
+            is_free_c = bool(is_free_c)
+            is_skip_c = bool(is_skip_c)
+            is_comp = (not is_present) and (col['lesson_id'], sid) in compensated_map
+            # Засчитываются как ПОСЕЩЕНИЕ (present, тянут % вверх): был, бесплатное
+            # занятие (is_present=true), доп.урок/сгорание (is_comp). Обычный «не был»
+            # — held без present. Неоплачиваемый пропуск — вне held (не обязательство
+            # посещения, как перевод/плановый слот).
+            if is_present or is_comp:
+                held += 1
                 present += 1
+            elif not is_skip_c:
+                held += 1
             cells.append(is_present)
-            # Жёлтая ячейка: пропуск (present=false), закрытый доп.уроком/сожжённый.
-            compensated.append(not is_present and (col['lesson_id'], sid) in compensated_map)
+            free.append(is_present and is_free_c)
+            # Жёлтая ячейка приоритетнее синей (компенсированный пропуск ≠ неопл.).
+            skip_cells.append((not is_present) and is_skip_c and not is_comp)
+            compensated.append(is_comp)
         transferred_lessons = 0
         transferred_from_group_name = None
+        locked_through = Decimal('0')
         if member['transferred_from_id']:
             cumulative = cumulative_transferred_lessons(member['transferred_from_id'])
+            locked_through = cumulative
             transferred_lessons = min(math.floor(float(cumulative)), slot_count)
             if transferred_lessons > 0:
                 transferred_from_group_name = member['transferred_from_group_name']
@@ -542,8 +603,11 @@ def get_group_progress(group_id: int) -> Optional[dict]:
             'pct': round(present / held * 100) if held else 0,
             'cells': cells,
             'compensated': compensated,
+            'free': free,
+            'unpaid_skip': skip_cells,
             'transferred_lessons': transferred_lessons,
             'transferred_from_group_name': transferred_from_group_name,
+            'locked_through': locked_through,
         })
 
     return {

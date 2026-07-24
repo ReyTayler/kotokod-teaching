@@ -4,11 +4,14 @@ import { useGroup, useGroupMutations } from '../../hooks/useGroups';
 import { useTeachers } from '../../hooks/useTeachers';
 import { useDirections } from '../../hooks/useDirections';
 import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
+import { EntityHero, HeroChip, monogramOf } from '../../components/detail/EntityHero';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 import { Avatar } from '../../components/Avatar';
 import { DirTag } from '../../components/ui/DirTag';
 import { EntityLink } from '../../components/EntityLink';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
+import { Dialog } from '../../components/ui/Dialog';
 import { LessonGrid } from '../../components/lessons/LessonGrid';
 import { LessonEditor } from '../../components/lessons/LessonEditor';
 import { directionColor } from '../../lib/direction-color';
@@ -18,6 +21,9 @@ import { useToast } from '../../components/ui/Toast';
 import { useApiError } from '../../hooks/useApiError';
 import { useGroupPlanCalendar } from '../../hooks/useGroupPlanCalendar';
 import { CalendarView } from '../../shared/calendar/CalendarView';
+import { useAuth } from '../../hooks/useAuth';
+import { canSeeChangelog, canArchiveEntities, type Role } from '../../lib/permissions';
+import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
 import GroupMembersBlock from './GroupMembersBlock';
@@ -25,8 +31,9 @@ import GroupScheduleBlock from './GroupScheduleBlock';
 import GroupPlanActions, { type GroupPlanActionsHandle } from './GroupPlanActions';
 import GroupPlanTable from './GroupPlanTable';
 import GroupProgressBlock from './GroupProgressBlock';
+import GroupKpiRow from './GroupKpiRow';
 
-const GROUP_TABS = ['overview', 'students', 'lessons', 'progress', 'schedule'] as const;
+const GROUP_TABS = ['overview', 'students', 'lessons', 'progress', 'schedule', 'history'] as const;
 type GroupTab = (typeof GROUP_TABS)[number];
 const DEFAULT_TAB: GroupTab = 'overview';
 
@@ -39,12 +46,14 @@ export default function GroupDetailPage() {
   const id = Number(params.id);
   const navigate = useNavigate();
   const { data: group, isLoading } = useGroup(id);
+  const { me } = useAuth();
   const { data: teachers = [] } = useTeachers(true);
   const { data: directions = [] } = useDirections(true);
   const muts = useGroupMutations();
   const { toast } = useToast();
   const showError = useApiError();
   const [editing, setEditing] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [selected, setSelected] = useState<{ slot: number; lessonId: number | null } | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const planActionsRef = useRef<GroupPlanActionsHandle>(null);
@@ -96,6 +105,89 @@ export default function GroupDetailPage() {
     } catch (err) { showError(err); }
   };
 
+  const handleRestore = async () => {
+    try {
+      await muts.update.mutateAsync({ id: group.id, body: { active: true } });
+      toast('Разархивировано', 'ok');
+    } catch (err) { showError(err); }
+  };
+
+  const slotsLabel = (group.slots || []).map(formatSlot).join(' · ');
+
+  // Шапка группы: раньше это был дефолтный заголовок DetailShell (имя + строка
+  // «#90 · Групповая · 90 мин»), тогда как у ученика — своя богатая карточка.
+  // Теперь обе страницы используют один EntityHero.
+  const customHero = (
+    <EntityHero
+      monogram={monogramOf(direction?.name || group.name)}
+      color={color}
+      title={group.name}
+      badge={
+        group.active
+          ? <span className="status-badge status-badge--positive">Активна</span>
+          : <span className="status-badge status-badge--muted">Архив</span>
+      }
+      meta={
+        <>
+          <HeroChip mono>#{group.id}</HeroChip>
+          {direction && <HeroChip>{direction.name}</HeroChip>}
+          <HeroChip>{group.is_individual ? 'Индивидуальная' : 'Групповая'}</HeroChip>
+          <HeroChip mono>{group.lesson_duration_minutes} мин</HeroChip>
+          {slotsLabel && <HeroChip mono>{slotsLabel}</HeroChip>}
+        </>
+      }
+      actions={
+        <>
+          <button type="button" className="edit-btn" onClick={() => setEditing(true)}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            Редактировать
+          </button>
+          {canArchiveEntities(me?.role as Role) && (
+            <ActionMenu
+              items={group.active
+                // Архивация необратима одним кликом — подтверждаем диалогом
+                // (в DetailShell эту роль играло состояние «Точно?» у кнопки).
+                ? [{ label: 'Архивировать группу', onSelect: () => setConfirmArchive(true), danger: true }]
+                : [{ label: 'Разархивировать группу', onSelect: () => { void handleRestore(); } }]}
+            />
+          )}
+        </>
+      }
+      facts={[
+        { label: 'Старт курса', value: fmtDate(group.group_start_date) },
+        { label: 'В неделю', value: `${group.lessons_per_week} зан.` },
+        ...(group.vk_chat
+          ? [{ label: 'Чат ВК', value: <a href={group.vk_chat} target="_blank" rel="noreferrer">открыть</a> }]
+          : []),
+      ]}
+      // Преподаватель — не строка в списке фактов, а отдельная кликабельная
+      // карточка: это второй по важности объект на странице после самой группы.
+      aside={
+        <div
+          className="teacher-info-card teacher-info-card--link"
+          role="link"
+          tabIndex={0}
+          onClick={() => navigate(`/admin/teachers/${group.teacher_id}`)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              navigate(`/admin/teachers/${group.teacher_id}`);
+            }
+          }}
+        >
+          <Avatar name={teacher?.name || '?'} size={34} />
+          <div style={{ minWidth: 0 }}>
+            <div className="teacher-info-card__name">{teacher?.name || `#${group.teacher_id}`}</div>
+            {teacher?.email && <div className="teacher-info-card__mail">{teacher.email}</div>}
+          </div>
+        </div>
+      }
+    />
+  );
+
   const tabs: TabItem[] = [
     {
       value: 'overview',
@@ -103,16 +195,6 @@ export default function GroupDetailPage() {
       content: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           <EntityCard title="Данные группы" row={group} fields={fields} />
-          {teacher && (
-            <div className="teacher-info-card">
-              <Avatar name={teacher.name} size={42} />
-              <div>
-                <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 3 }}>Преподаватель</div>
-                <div style={{ fontWeight: 700, color: 'var(--text)' }}>{teacher.name}</div>
-                {teacher.email && <div style={{ fontSize: 14, color: 'var(--text3)' }}>{teacher.email}</div>}
-              </div>
-            </div>
-          )}
           <GroupPlanTable groupId={group.id} />
         </div>
       ),
@@ -172,6 +254,7 @@ export default function GroupDetailPage() {
             isError={planCalendar.isError}
             isFetching={planCalendar.isFetching}
             onVisibleRangeChange={() => {}}
+            showKpi={false}
             role="admin"
             onAction={(kind, occ) => planActionsRef.current?.quickAction(kind, occ)}
           />
@@ -181,24 +264,56 @@ export default function GroupDetailPage() {
     },
   ];
 
+  if (canSeeChangelog(me?.role as Role)) {
+    tabs.push({
+      value: 'history',
+      label: 'История',
+      content: <EntityChangelogPanel entity="group" entityId={group.id} />,
+    });
+  }
+
   return (
     <>
       <DetailShell<Group>
         title={`Группа ${group.name}`}
-        subtitle={`#${group.id} · ${group.is_individual ? 'Индивидуальная' : 'Групповая'} · ${group.lesson_duration_minutes} мин`}
         row={group}
         fields={fields}
         cardTitle="Данные группы"
-        onEdit={() => setEditing(true)}
-        onDelete={handleDelete}
+        customHero={customHero}
         backTo="/admin/groups"
+        parentLabel="Группы"
         hideCard
       >
+        <GroupKpiRow groupId={group.id} isIndividual={group.is_individual} color={color} />
         <Tabs items={tabs} value={activeTab} onChange={setActiveTab} />
       </DetailShell>
       {editing && (
         <GroupFormModal initial={group} onClose={() => setEditing(false)} />
       )}
+      <Dialog
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        title="Архивировать группу?"
+        footer={
+          <>
+            <button type="button" className="btn-cancel" onClick={() => setConfirmArchive(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn-delete is-confirming"
+              onClick={() => { setConfirmArchive(false); void handleDelete(); }}
+            >
+              Архивировать
+            </button>
+          </>
+        }
+      >
+        <p className="status-form__hint">
+          Группа «{group.name}» уйдёт в архив: пропадёт из списков и подборов, но данные
+          и история занятий сохранятся. Разархивировать можно здесь же.
+        </p>
+      </Dialog>
     </>
   );
 }

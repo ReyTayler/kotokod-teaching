@@ -6,15 +6,22 @@ import { useToast } from '../../components/ui/Toast';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { AssignExtraLessonModal } from '../../components/lessons/AssignExtraLessonModal';
+import { ManualExtraLessonModal } from '../../components/lessons/ManualExtraLessonModal';
 import { fmtDate } from '../../lib/format';
 import type { AbsenceResolution } from '../../lib/types';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Ждёт решения',
   makeup_scheduled: 'Назначен',
   makeup_done: 'Проведён',
   burned: 'Сгорел',
+  // Действие «закрыть без денег» снято, но статус остаётся: в БД есть старые
+  // waived-записи, которые надо отображать и фильтровать. Новых не создать.
+  waived: 'Закрыт без денег',
 };
+
+const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
 
 export default function ExtraLessonsListPage() {
   const search = useListSearchParams({ sortBy: 'scheduled_date', sortDir: 'desc' });
@@ -31,6 +38,8 @@ export default function ExtraLessonsListPage() {
   // возврат в «ждёт решения»); makeup_done → откат факта (разрушительно —
   // откатывает Payroll/посещаемость исходного урока), поэтому по подтверждению.
   const [assigning, setAssigning] = useState<AbsenceResolution | null>(null);
+  // Ручной доп.урок сверх курса (kind='extra') — открывается кнопкой в шапке.
+  const [manualOpen, setManualOpen] = useState(false);
   const [confirmingRollbackId, setConfirmingRollbackId] = useState<number | null>(null);
   const [confirmingBurnId, setConfirmingBurnId] = useState<number | null>(null);
 
@@ -72,14 +81,30 @@ export default function ExtraLessonsListPage() {
 
   const columns: Column<AbsenceResolution>[] = [
     { key: 'scheduled_date', label: 'Дата доп.урока', sortable: true, searchable: false, cell: (r) => (r.scheduled_date ? fmtDate(r.scheduled_date) : '—') },
-    { key: 'missed_lesson_group_name', label: 'Группа (пропуск)', sortable: false, searchable: false },
+    {
+      key: 'missed_lesson_group_name', label: 'Группа', sortable: false, searchable: true,
+      cell: (r) => r.resolution_group_name || r.missed_lesson_group_name || '—',
+    },
     {
       key: 'missed_lesson', label: 'За какой урок', sortable: false, searchable: false,
-      cell: (r) => `Урок №${Number(r.missed_lesson_number)} · ${fmtDate(r.missed_lesson_date)}`,
+      cell: (r) => {
+        // extra (сверх курса): пропуска нет — показываем выбранный номер (или «—»)
+        // с пометкой «доп.»; makeup — номер+дата пропущенного урока.
+        if (r.kind === 'extra') {
+          return r.target_lesson_number != null
+            ? `Урок №${Number(r.target_lesson_number)} · доп.`
+            : 'Доп.урок сверх курса';
+        }
+        return `Урок №${Number(r.missed_lesson_number)} · ${fmtDate(r.missed_lesson_date ?? '')}`;
+      },
     },
     { key: 'teacher_name', label: 'Преподаватель', sortable: true, searchable: false, cell: (r) => r.teacher_name || '—' },
-    { key: 'student_name', label: 'Ученик', sortable: true, searchable: false },
-    { key: 'status', label: 'Статус', sortable: true, searchable: false, cell: (r) => STATUS_LABELS[r.status] || r.status },
+    { key: 'student_name', label: 'Ученик', sortable: true, searchable: true },
+    {
+      key: 'status', label: 'Статус', sortable: true, searchable: true,
+      searchOptions: STATUS_OPTIONS,
+      cell: (r) => STATUS_LABELS[r.status] || r.status,
+    },
     {
       key: 'actions', label: '', sortable: false, searchable: false,
       cell: (r) => {
@@ -88,7 +113,7 @@ export default function ExtraLessonsListPage() {
           return (
             <div className="table-actions">
               <button type="button" className="btn-primary" onClick={() => setAssigning(r)}>
-                Назначить доп.урок
+                Назначить
               </button>
               <button
                 type="button"
@@ -136,10 +161,26 @@ export default function ExtraLessonsListPage() {
     },
   ];
 
-  if (isLoading) return <TableSkeleton rows={8} cols={columns.length} />;
+  // Шапка рисуется и во время загрузки: раньше страница возвращала
+  // скелетон ДО неё, и заголовок пропадал при каждом переходе.
+  const header = (
+    <PageHeader
+      title="Доп.уроки"
+      count={isLoading ? undefined : total}
+      sub="Незакрытые пропуски: назначить отработку или сжечь урок."
+      actions={
+        <button type="button" className="btn-add" onClick={() => setManualOpen(true)}>
+          + Назначить вручную
+        </button>
+      }
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={8} cols={columns.length} /></>;
 
   return (
     <>
+      {header}
       <DataTable<AbsenceResolution>
         data={rows}
         columns={columns}
@@ -151,7 +192,7 @@ export default function ExtraLessonsListPage() {
           onSortChange: setSort, onFiltersChange: setFilters,
         }}
       />
-      {assigning && (
+      {assigning && assigning.missed_lesson_id != null && (
         <AssignExtraLessonModal
           missedLessonId={assigning.missed_lesson_id}
           candidates={[{ student_id: assigning.student_id, student_name: assigning.student_name }]}
@@ -159,6 +200,7 @@ export default function ExtraLessonsListPage() {
           onClose={() => setAssigning(null)}
         />
       )}
+      {manualOpen && <ManualExtraLessonModal onClose={() => setManualOpen(false)} />}
     </>
   );
 }

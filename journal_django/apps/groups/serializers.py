@@ -64,6 +64,11 @@ class GroupReadSerializer(serializers.Serializer):
     vk_chat = serializers.CharField(allow_null=True, allow_blank=True)
     active = serializers.BooleanField()
     created_at = serializers.DateTimeField()
+    # Сдвиг нумерации курса (Phase 1b: перевод в пустую персональную группу).
+    # coerce_to_string=False → рендерится числом, а не строкой (фронт ждёт number).
+    lesson_number_offset = serializers.DecimalField(
+        max_digits=6, decimal_places=1, required=False, coerce_to_string=False,
+    )
     # Поля из JOIN — присутствуют только в списке (listGroups)
     direction_name = serializers.CharField(allow_null=True, required=False)
     direction_color = serializers.CharField(allow_null=True, required=False)
@@ -101,6 +106,12 @@ class GroupUpdateSerializer(serializers.Serializer):
 
     Все поля необязательны (partial по Zod .partial()).
     Дополнительно: active (boolean) — для ручной активации/деактивации.
+
+    Расписание (slots) через PATCH НЕ принимается: смена слотов идёт только через
+    schedule-change (ScheduleChangeSerializer / apply_schedule_change), который
+    версионирует слоты (effective_from/to) и релеит план. Приём slots здесь стирал
+    бы версионную историю (delete+recreate без effective_from → sentinel 2000-01-01)
+    и разъезжался с материализованным планом — особенно на мультислотовых группах.
     """
 
     name = serializers.CharField(min_length=1, required=False)
@@ -113,7 +124,6 @@ class GroupUpdateSerializer(serializers.Serializer):
     lessons_per_week = serializers.IntegerField(min_value=1, max_value=7, required=False)
     group_start_date = DateStringField(allow_null=True, required=False)
     vk_chat = serializers.CharField(allow_null=True, allow_blank=True, required=False)
-    slots = GroupScheduleSlotSerializer(many=True, required=False)
     active = serializers.BooleanField(required=False)
 
     def validate_name(self, value: str) -> str:

@@ -1,6 +1,6 @@
 # journal-backend
 
-Сервер учёта посещаемости для школы KOTOKOD. Единый вход `/login` с выбором роли + 2FA; teacher SPA `/teacher` (vanilla JS) и admin SPA `/admin` (React 19 + TanStack Query v5 + React Router v7). Всё на PostgreSQL.
+Сервер учёта посещаемости для школы KOTOKOD. Единый вход `/login` с выбором роли + 2FA; teacher SPA `/teacher` и admin SPA `/admin` (React 19 + TanStack Query v5 + React Router v7). Всё на PostgreSQL.
 
 > **⚠️ Бэкенд перенесён на Python Django+DRF (`journal_django/`). Express и Nest-каркас УДАЛЕНЫ** (2026-06-11, раздел 08 миграции). Историческое описание Express/routes/Nest ниже — для справки по доменным инвариантам, но самих файлов (`server.js`, `routes/`, `src/`) больше нет. Актуальный бэкенд — `journal_django/` (см. `docs/python-plan/`, `deploy/`). В корне остались только: admin SPA-сборка (`web/`, `public/`) и Node dev-инструменты backfill Sheets→PG (`scripts/`, `services/{db,sheets,auth,calculator,pagination,repo/accounts}.js`).
 
@@ -9,6 +9,7 @@
 **Полный свод правил: [`docs/security-guidelines.md`](docs/security-guidelines.md)** — читать перед добавлением ЛЮБОЙ фичи/правки; там же чеклист для PR.
 
 Самое критичное (нарушение = блокер):
+
 - **RBAC**: DRF default = `AllowAny`. КАЖДАЯ новая вьюха ОБЯЗАНА задать `permission_classes` (`IsAdmin`/`IsManagerOrAdmin`/`IsTeacher`). Забыл → эндпоинт открыт всем. Доступ проверяется на API, не только на фронте (фронт-guard = UX/defense-in-depth).
 - **Auth**: JWT только в HttpOnly-cookie (не в JS/localStorage); токены — через `issue_tokens_for`/`set_auth_cookies`. Отзыв — инкремент `token_version` (при смене/сбросе пароля и 2FA). Свою аутентификацию не изобретать.
 - **CSP `script-src 'self'`**: НИКАКИХ inline-`<script>`, `onclick=`, `eval`. Весь JS — внешним файлом same-origin. Внешний origin (CDN/API/шрифты) — только с обновлением CSP.
@@ -86,6 +87,9 @@ JOURNAL_SPREADSHEET_ID=       # нужен для backfill-payments
 ## Производительность (учитывать при любой правке)
 
 VPS 2 CPU / 2 ГБ под 50–100 учителей и 10–15 admin. Не читать «всё» там, где нужна часть. Индексы под реальные предикаты (PG не индексирует FK). Пагинация везде.
+
+Каждую новую добавляемую или изменяемую фичу проверяй на производительность и способы оптимизации. В проекте уже используется Celery и Redis если что.
+
 
 ## Pre-deployment / Backlog
 

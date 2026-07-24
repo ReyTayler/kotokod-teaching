@@ -1,7 +1,7 @@
 """
 GET /api/admin/changelog — лента операций (1 строка = 1 контекст).
 Контракт пагинации проекта: { rows, total, page, page_size }.
-RBAC: просмотр — manager/admin/superadmin; teacher/anon — без доступа.
+RBAC: просмотр — admin/superadmin; manager/teacher/anon — без доступа.
 """
 from __future__ import annotations
 
@@ -14,17 +14,18 @@ def _mutate(client, name='__chg_list_dir__'):
     # Запись направлений — только superadmin (ReadStaffWriteSuperAdmin), поэтому
     # генератор событий в этих тестах — superadmin_client.
     resp = client.post('/api/admin/directions', {
-        'name': name, 'is_individual': False,
+        'name': name,
     }, format='json')
     assert resp.status_code in (200, 201), resp.content
     return resp
 
 
 def test_rbac_view(admin_client, manager_client, superadmin_client, teacher_client, anon_client):
-    """Просмотр ленты — manager/admin/superadmin; teacher/anon — без доступа."""
+    """Просмотр ленты — admin/superadmin; manager/teacher/anon — без доступа
+    (журнал изменений закрыт для manager)."""
     assert admin_client.get('/api/admin/changelog').status_code == 200
-    assert manager_client.get('/api/admin/changelog').status_code == 200
     assert superadmin_client.get('/api/admin/changelog').status_code == 200
+    assert manager_client.get('/api/admin/changelog').status_code == 403
     assert teacher_client.get('/api/admin/changelog').status_code == 403
     assert anon_client.get('/api/admin/changelog').status_code in (401, 403)
 

@@ -11,63 +11,6 @@
   gap: var(--space-6);
 }
 
-.renewals-page__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-
-.renewals-page__head-links {
-  display: flex;
-  gap: var(--space-2);
-  margin-left: auto;
-}
-
-.renewals-page__title {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--text);
-}
-
-.view-toggle {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-}
-
-.view-toggle__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 30px;
-  padding: 0 var(--space-3);
-  background: transparent;
-  border: none;
-  border-radius: calc(var(--r-sm) - 2px);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text3);
-  cursor: pointer;
-}
-
-.view-toggle__btn:hover {
-  color: var(--text);
-}
-
-.view-toggle__btn.active {
-  background: var(--bg2);
-  color: var(--text);
-  box-shadow: var(--shadow-xs);
-}
-
 .renewals-page__kpis {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -262,7 +205,7 @@
 /* Пометка на колонке прогресс-стадии — сюда нельзя перетащить карточку
    вручную, двигает только движок. */
 .renewal-col__auto-badge {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -428,11 +371,6 @@
   align-items: center;
   gap: var(--space-2);
   margin-top: 2px;
-}
-
-.renewal-card__touch {
-  font-size: 11px;
-  color: var(--text3);
 }
 
 /* Пилюли вместо прямоугольных бейджей — только в этом разделе (страницы со
@@ -664,17 +602,92 @@
   gap: var(--space-3);
 }
 
-/* ===== Панель фильтров раздела ===== */
-
-.renewals-page__filters {
+/* ===== Тулбар фильтров раздела =====
+   Мягкая панель в общей стилистике: крупный радиус + тень, контролы одной
+   высоты (34px). Прежний вид (голый flex с Field-подписями сверху и min-width
+   200px) выбивался из остальных страниц. */
+.rnl-toolbar {
   display: flex;
   align-items: flex-end;
-  gap: var(--space-3);
+  justify-content: space-between;
+  gap: var(--space-4);
   flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-panel);
+}
+.rnl-toolbar__fields { display: flex; align-items: flex-end; gap: var(--space-3); flex-wrap: wrap; min-width: 0; }
+.rnl-toolbar__aside { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+
+.rnl-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rnl-field--sm { width: 92px; }
+.rnl-field--grow { flex: 1 1 200px; min-width: 180px; }
+.rnl-field__label {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text3);
+  white-space: nowrap;
+}
+/* Единая высота/рамка для нативного инпута и триггера SelectInput (тот кладёт
+   класс на обёртку, поэтому вид триггера задаём вложенным селектором). */
+.rnl-field__input,
+.rnl-field__select .select-input__trigger {
+  box-sizing: border-box;
+  width: 176px;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.rnl-field--sm .rnl-field__input { width: 100%; }
+.rnl-field--grow .rnl-field__input { width: 100%; }
+.rnl-field__input::placeholder { color: var(--text4); }
+.rnl-field__input:focus,
+.rnl-field__select .select-input__trigger:focus,
+.rnl-field__select.is-open .select-input__trigger {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.rnl-field__select { width: 176px; }
+.rnl-field__select .select-input__value { font-size: var(--fs-sm); }
+
+@media (max-width: 720px) {
+  .rnl-toolbar { align-items: stretch; }
+  .rnl-field, .rnl-field__input, .rnl-field__select { width: 100%; }
+  .rnl-field--grow, .rnl-field--sm { flex-basis: auto; width: 100%; }
 }
 
-.renewals-page__filters .field {
-  min-width: 200px;
+/* ===== Список: направления-чипы и «дней в стадии» ===== */
+.rnl-dirs { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.rnl-dir-chip {
+  display: inline-flex; align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--fs-2xs); font-weight: 600;
+  white-space: nowrap;
+}
+.rnl-days {
+  display: inline-flex; align-items: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text2);
+}
+.rnl-days.is-overdue {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-weight: 600;
 }
 
 /* ===== Аналитика: таблица «Продления по месяцам» ===== */

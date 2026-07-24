@@ -45,11 +45,6 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
     return repository.update_student(student_id, data)
 
 
-def soft_delete_student(student_id: int) -> bool:
-    """Мягкое удаление (enrollment_status='not_enrolled'). Возвращает False если не найден."""
-    return repository.soft_delete_student(student_id)
-
-
 def student_stats(student_id: int) -> dict:
     """Сводка посещаемости ученика."""
     return repository.student_stats(student_id)
@@ -86,6 +81,17 @@ def _affected_memberships(student_id: int, membership_ids):
     return list(qs.values('id', 'group_id', is_individual=F('group__is_individual')))
 
 
+def _active_individual_group_ids(student_id: int):
+    """group_id всех АКТИВНЫХ индивидуальных курсов ученика (не ограничено выбором
+    в мастере). Заморозка двигает расписание ВСЕХ индив-курсов разом — ученик уходит
+    на паузу целиком, поэтому выбор membership_ids к индивидуальным курсам не
+    применяется (в отличие от групповых, где выбор решает, из каких групп убрать)."""
+    from apps.memberships.models import GroupMembership
+    return list(GroupMembership.objects
+                .filter(student_id=student_id, active=True, group__is_individual=True)
+                .values_list('group_id', flat=True))
+
+
 @transaction.atomic
 def change_student_status(
     student_id: int,
@@ -103,7 +109,6 @@ def change_student_status(
     active=False; статус+даты проставляются; сделка → 'frozen' (engine.freeze_deal).
     declined: все выбранные членства → active=False, будущие pending отменяются;
     статус; сделка → 'lost' (engine.decline_deal).
-    not_enrolled: как declined по членствам, но сделку не трогаем.
 
     Разморозка (frozen→enrolled) через эту функцию ЗАПРЕЩЕНА (ValueError): она не
     перекладывает хвост расписания и не реактивирует членства — для выхода из
@@ -122,97 +127,95 @@ def change_student_status(
 
     memberships = _affected_memberships(student_id, membership_ids)
 
+    from apps.extra_lessons import services as extra_lessons_services
+
     if new_status == 'frozen':
+        # Групповой формат: убираем из выбранных групп (членство active=False).
+        # Снятие членства = гейт доп.уроков: блок при назначенных, авто-удаление
+        # pending (заморозка тоже снимает членство и не реактивирует его на resume).
         for m in memberships:
-            if m['is_individual']:
-                sched_repo.freeze_individual_group(
-                    m['group_id'], frozen_from=frozen_from, resume_date=frozen_until)
-            memberships_repo.remove_membership(m['id'])
+            if not m['is_individual']:
+                extra_lessons_services.enforce_membership_cancellation(student_id, m['group_id'])
+                memberships_repo.remove_membership(m['id'])
+        # Индивидуальный формат: ученик ОСТАЁТСЯ в группе (членство активно) —
+        # двигаем только расписание. Замораживаем ВСЕ активные индив-курсы ученика
+        # разом (не только выбранные): ученик уходит на паузу целиком, поэтому на
+        # разморозке все его активные индив-курсы = замороженные, без неоднозначности.
+        for gid in _active_individual_group_ids(student_id):
+            sched_repo.freeze_individual_group(
+                gid, frozen_from=frozen_from, resume_date=frozen_until)
         student.enrollment_status = 'frozen'
         student.frozen_from = frozen_from
         student.frozen_until = frozen_until
         student.save(update_fields=['enrollment_status', 'frozen_from', 'frozen_until'])
         engine.freeze_deal(student_id, author_id=_actor_id(actor))
 
-    elif new_status in ('declined', 'not_enrolled'):
+    elif new_status == 'declined':
+        # Уход снимает членство во всех выбранных группах → по каждой
+        # гейт доп.уроков: блок при назначенных (makeup_scheduled), авто-удаление
+        # pending. makeup_done/burned не трогаются (факт + payroll). Гейт ДО
+        # remove_membership, чтобы блок откатил всю смену статуса (одна транзакция).
         for m in memberships:
+            extra_lessons_services.enforce_membership_cancellation(student_id, m['group_id'])
             if m['is_individual']:
                 sched_repo.cancel_future_planned(m['group_id'])
             memberships_repo.remove_membership(m['id'])
-        student.enrollment_status = new_status
+        student.enrollment_status = 'declined'
         student.frozen_from = None
         student.frozen_until = None
         student.save(update_fields=['enrollment_status', 'frozen_from', 'frozen_until'])
-        if new_status == 'declined':
-            engine.decline_deal(student_id, author_id=_actor_id(actor))
-        # Уход/архивация: снять «пропуски, требующие решения» — pending +
-        # назначенные, но не проведённые доп.уроки (факта/денег нет). makeup_done
-        # не трогаем (есть факт-урок + payroll). Только declined/not_enrolled,
-        # НЕ frozen (заморозка временна — ученик вернётся).
-        from apps.extra_lessons import services as extra_lessons_services
-        extra_lessons_services.cleanup_on_student_leave(student_id)
+        engine.decline_deal(student_id, author_id=_actor_id(actor))
 
-    else:  # enrolled — прямой возврат без каскада расписания (используйте resume_student)
+    elif new_status == 'enrolled':
+        # Прямой возврат без каскада расписания (для выхода из заморозки — resume_student).
         student.enrollment_status = 'enrolled'
         student.frozen_from = None
         student.frozen_until = None
         student.save(update_fields=['enrollment_status', 'frozen_from', 'frozen_until'])
+
+    else:
+        # Раньше здесь был безусловный else → enrolled: неизвестный статус (и, до
+        # миграции 0015, удалённый 'not_enrolled') молча зачислял ученика обратно.
+        # На API это закрыто ChoiceField, но сервис зовут и напрямую — падаем явно.
+        raise ValueError(f'unknown enrollment status: {new_status!r}')
 
     return True
 
 
 @transaction.atomic
 def resume_student(student_id: int, *, actual_resume_date, actor=None) -> bool:
-    """Выход из заморозки (плановый/досрочный). Заново перекладывает индив-хвост от
-    actual_resume_date, возвращает статус в enrolled, а сделку — на расчётную
-    авто-стадию (engine.resume_from_freeze). False, если ученика нет / не заморожен.
-
-    Реактивируется только то индив-членство, чей хвост реально переложился
-    (resume_individual_group вернул >0) — так «давно завершённый курс» не
-    воскресает. Известное ограничение: если у группы нет открытого слота
-    (рассинхрон данных, не штатный путь), хвост не переложится и membership
-    не реактивируется, даже если pending-уроки формально есть."""
-    from apps.memberships import repository as memberships_repo
+    """Выход из заморозки (плановый/досрочный). Заново перекладывает хвост всех
+    активных индив-курсов от actual_resume_date, возвращает статус в enrolled, а
+    сделку — на расчётную авто-стадию (engine.resume_from_freeze). False, если
+    ученика нет / не заморожен."""
     from apps.memberships.models import GroupMembership
     from apps.renewals import engine
     from apps.scheduling import repository as sched_repo
     from apps.students.models import Student
+
+    # Нормализуем тип actual_resume_date
+    if isinstance(actual_resume_date, str):
+        from datetime import datetime
+        actual_resume_date = datetime.strptime(actual_resume_date, '%Y-%m-%d').date()
 
     student = Student.objects.filter(id=student_id).first()
     if student is None or student.enrollment_status != 'frozen':
         return False
     frozen_from = student.frozen_from
 
-    # Индив-членства были деактивированы при заморозке (change_student_status) —
-    # берём все, где группа индивидуальная, перекладываем хвост от фактической
-    # даты и реактивируем сами членства (это личный курс ученика, а не общий
-    # класс, куда его пере-записывают вручную — групповые НЕ реактивируем, см.
-    # спеку student-status-lifecycle).
-    #
-    # ВАЖНО: берём ТОЛЬКО неактивные (active=False) индив-членства. Заморозка
-    # (change_student_status 'frozen') всегда деактивирует то, что реально трогает
-    # (remove_membership для каждого выбранного членства), а wizard позволяет
-    # заморозить лишь ПОДМНОЖЕСТВО членств (per-membership чекбоксы). Значит
-    # членство, оставшееся active=True, в этой заморозке НЕ участвовало — его курс
-    # идёт своим чередом, и разморозка не имеет права ни отменять его будущие extra
-    # (шаг «а» freeze_individual_group), ни перекладывать его хвост (шаг «б»). Без
-    # active=False resume_student испортил бы расписание постороннего, параллельно
-    # активного индив-курса.
-    #
-    # Среди active=False групп ещё остаётся давно-завершённый курс (active=False по
-    # окончанию, а не по этой заморозке). Его отсекает не фильтр, а условие relaid>0
-    # ниже: у завершённого курса хвоста в окне нет (все done / нет строк) →
-    # resume_individual_group вернёт 0 → членство не воскрешаем.
+    # Индив-членства при заморозке НЕ деактивируются — ученик остаётся в группе,
+    # двигается только расписание (исходное требование: индивид остаётся в группе).
+    # Заморозка сдвигает хвост ВСЕХ активных индив-курсов разом, поэтому здесь
+    # перекладываем обратно ровно этот же набор — все активные индив-курсы. Флаг
+    # active тут не сигнал «что заморожено» (индив всегда остаются active): все
+    # активные индив-курсы замороженного ученика и есть замороженные. Реактивация
+    # не нужна — членства не покидали группу.
     indiv = list(GroupMembership.objects
-                 .filter(student_id=student_id, group__is_individual=True, active=False)
-                 .values('id', 'group_id'))
-    to_reactivate = []
+                 .filter(student_id=student_id, group__is_individual=True, active=True)
+                 .values('group_id'))
     for m in indiv:
-        relaid = sched_repo.resume_individual_group(
+        sched_repo.resume_individual_group(
             m['group_id'], actual_resume_date=actual_resume_date, frozen_from=frozen_from)
-        if relaid:
-            to_reactivate.append(m['id'])
-    memberships_repo.reactivate_memberships(to_reactivate)
 
     student.enrollment_status = 'enrolled'
     student.frozen_from = None

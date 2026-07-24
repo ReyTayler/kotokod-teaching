@@ -15,7 +15,6 @@ class MoveSerializer(serializers.Serializer):
 
 
 class DealPatchSerializer(serializers.Serializer):
-    next_touch_at = serializers.DateField(required=False, allow_null=True)
     reason_code = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 

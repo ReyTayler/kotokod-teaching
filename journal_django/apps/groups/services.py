@@ -22,14 +22,16 @@ def list_groups(
     sort_by: str = 'name',
     sort_dir: str = 'asc',
     filters: Optional[dict] = None,
+    include_inactive: bool = False,
 ) -> dict:
-    """Делегирует список групп в repository."""
+    """Делегирует список групп в repository (архив скрыт по умолчанию)."""
     return repository.list_groups(
         page=page,
         page_size=page_size,
         sort_by=sort_by,
         sort_dir=sort_dir,
         filters=filters,
+        include_inactive=include_inactive,
     )
 
 
@@ -85,12 +87,30 @@ def get_schedule(group_id: int) -> Optional[dict]:
 
 
 def apply_schedule_change(group_id: int, data: dict) -> Optional[dict]:
-    """Постоянная смена расписания. None если группы нет."""
+    """Задать/сменить расписание группы (endpoint schedule-change) — единая точка
+    первичной настройки расписания (кнопка «Задать расписание» на карточке группы).
+
+    Помимо версионной вставки слотов (repository) держит согласованными
+    производные поля группы:
+      - lessons_per_week = число слотов;
+      - при первичной настройке (group_start_date ещё NULL) проставляет дату
+        начала = дате начала расписания (update_group ставит её только NULL→значение,
+        уже заданную не трогает).
+    Затем автоген плана. None, если группы нет.
+
+    ВАЖНО: enhance только в СЕРВИСЕ (endpoint), не в repository.apply_schedule_change,
+    который переиспользуют внутренние scheduling-флоу (permanent-change/resume) —
+    те сами ведут lessons_per_week и не должны трогать group_start_date."""
     result = repository.apply_schedule_change(
         group_id, data['effective_from'], data['slots'],
     )
-    if result is not None:
-        _autogenerate_plan(group_id, 'schedule_change')
+    if result is None:
+        return None
+    repository.update_group(group_id, {
+        'lessons_per_week': len(data['slots']),
+        'group_start_date': data['effective_from'],
+    })
+    _autogenerate_plan(group_id, 'schedule_change')
     return result
 
 
@@ -108,7 +128,7 @@ def _autogenerate_plan(group_id: int, source: str) -> None:
     создание/правку группы (guard/идемпотентность/аудит — в оркестраторе)."""
     from apps.scheduling import services as scheduling_services  # локальный импорт (цикл groups↔scheduling)
     try:
-        scheduling_services.autogenerate_plan_on_setup(group_id, source=source)
+        scheduling_services.autogenerate_plan_on_setup(group_id)
     except Exception:  # noqa: BLE001 — side-effect не должен ронять запрос
         logger.exception('autogenerate plan failed for group %s (%s)', group_id, source)
 

@@ -63,3 +63,32 @@ class TargetGroupUnavailable(Exception):
 
     def __init__(self, message: Optional[str] = None) -> None:
         super().__init__(message or self.default_message)
+
+
+class SourceMembershipInvalid(Exception):
+    """
+    Источник перевода (from_membership_id) не найден или принадлежит другому
+    ученику.
+
+    Бросается универсальной place_student_in_group, когда указан явный источник
+    истории, но он не проходит проверку принадлежности. View отдаёт 400.
+    """
+
+    default_message = 'Источник перевода не найден или принадлежит другому ученику.'
+
+    def __init__(self, message: Optional[str] = None) -> None:
+        super().__init__(message or self.default_message)
+
+
+class AlreadyActiveInGroup(Exception):
+    """
+    Ученик уже активен в целевой группе — переводить/записывать некуда.
+
+    Защищает от перезаписи transferred_from/start_date у уже активной membership
+    (см. аудит 2026-07-20). View отдаёт 409 Conflict.
+    """
+
+    default_message = 'Ученик уже состоит в этой группе.'
+
+    def __init__(self, message: Optional[str] = None) -> None:
+        super().__init__(message or self.default_message)

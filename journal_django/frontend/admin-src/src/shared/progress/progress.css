@@ -9,19 +9,21 @@
   flex-wrap: wrap; gap: var(--space-3);
   margin-bottom: var(--space-4);
 }
-.progress-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: 12.5px; color: var(--text2); }
+.progress-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: var(--fs-sm); color: var(--text2); }
 .progress-legend__item { display: inline-flex; align-items: center; gap: 7px; }
 .progress-chip { width: 14px; height: 14px; border-radius: 4px; flex: none; border: 1.5px solid transparent; }
 .progress-chip.is-present { background: color-mix(in oklch, var(--success) 16%, transparent); border-color: color-mix(in oklch, var(--success) 45%, transparent); }
 .progress-chip.is-absent  { background: color-mix(in oklch, var(--danger) 15%, transparent);  border-color: color-mix(in oklch, var(--danger) 42%, transparent); }
 .progress-chip.is-planned { background: var(--bg3); border: 1.5px dashed var(--border-strong); }
 .progress-chip.is-compensated { background: color-mix(in oklch, var(--warning) 18%, transparent); border-color: color-mix(in oklch, var(--warning) 48%, transparent); }
+.progress-chip.is-free { background: color-mix(in oklch, var(--text4) 22%, transparent); border-color: color-mix(in oklch, var(--text4) 50%, transparent); }
+.progress-chip.is-skip { background: color-mix(in oklch, var(--info) 16%, transparent); border-color: color-mix(in oklch, var(--info) 46%, transparent); }
 .progress-chip.is-transferred { background: var(--accent-soft); border-color: color-mix(in oklch, var(--accent) 45%, transparent); }
 
 .progress-view__summary { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .progress-summary-pill {
   display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12.5px; color: var(--text2); font-weight: 500;
+  font-size: var(--fs-sm); color: var(--text2); font-weight: 500;
   background: var(--bg3); border: 1px solid var(--border);
   padding: 5px 11px; border-radius: 20px;
 }
@@ -38,7 +40,7 @@
 
 .progress-row__who { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .progress-row__name {
-  font-size: 13.5px; font-weight: 550; color: var(--text);
+  font-size: var(--fs-md); font-weight: 600; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -52,6 +54,8 @@
 .progress-sq.is-absent  { background: color-mix(in oklch, var(--danger) 15%, transparent);  border-color: color-mix(in oklch, var(--danger) 40%, transparent); }
 .progress-sq.is-planned { background: var(--bg3); border: 1.5px dashed var(--border-strong); }
 .progress-sq.is-compensated { background: color-mix(in oklch, var(--warning) 20%, transparent); border-color: color-mix(in oklch, var(--warning) 46%, transparent); }
+.progress-sq.is-free { background: color-mix(in oklch, var(--text4) 22%, transparent); border-color: color-mix(in oklch, var(--text4) 44%, transparent); }
+.progress-sq.is-skip { background: color-mix(in oklch, var(--info) 16%, transparent); border-color: color-mix(in oklch, var(--info) 42%, transparent); }
 .progress-sq.is-transferred { background: var(--accent-soft); border-color: color-mix(in oklch, var(--accent) 42%, transparent); }
 .progress-sq:hover {
   transform: translateY(-2px) scale(1.14); position: relative; z-index: 2;
@@ -60,13 +64,15 @@
 .progress-sq.is-present:hover { border-color: var(--success); }
 .progress-sq.is-absent:hover  { border-color: var(--danger); }
 .progress-sq.is-compensated:hover { border-color: var(--warning); }
+.progress-sq.is-free:hover { border-color: var(--text4); }
+.progress-sq.is-skip:hover { border-color: var(--info); }
 .progress-sq.is-transferred:hover { border-color: var(--accent); }
 
 .progress-row__stat { display: flex; align-items: center; gap: var(--space-3); justify-self: end; }
 .progress-bar { display: block; width: 80px; height: 7px; border-radius: 4px; background: var(--bg4); overflow: hidden; border: 1px solid var(--border2); }
 .progress-bar > i { display: block; height: 100%; border-radius: 4px; }
-.progress-pct { font-size: 14.5px; font-weight: 700; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
-.progress-cnt { font-size: 11.5px; color: var(--text3); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.progress-pct { font-size: var(--fs-md); font-weight: 700; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.progress-cnt { font-size: var(--fs-xs); color: var(--text3); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Плавающий тултип: номер урока + дата + статус (position: fixed по курсору) */
 .progress-tip {
@@ -77,9 +83,9 @@
   padding: 8px 11px; border-radius: var(--r-sm);
   box-shadow: var(--shadow-popover); min-width: 128px; white-space: nowrap;
 }
-.progress-tip__lesson { font-weight: 700; font-size: 12.5px; }
+.progress-tip__lesson { font-weight: 700; font-size: var(--fs-sm); }
 .progress-tip__date { color: var(--text3); font-size: 11px; }
-.progress-tip__status { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11.5px; font-weight: 600; }
+.progress-tip__status { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: var(--fs-xs); font-weight: 600; }
 .progress-tip__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .progress-tip.is-present .progress-tip__status { color: var(--success); }
 .progress-tip.is-present .progress-tip__dot { background: var(--success); }
@@ -89,6 +95,10 @@
 .progress-tip.is-planned .progress-tip__dot { background: var(--text4); }
 .progress-tip.is-compensated .progress-tip__status { color: var(--warning); }
 .progress-tip.is-compensated .progress-tip__dot { background: var(--warning); }
+.progress-tip.is-free .progress-tip__status { color: var(--text4); }
+.progress-tip.is-free .progress-tip__dot { background: var(--text4); }
+.progress-tip.is-skip .progress-tip__status { color: var(--info); }
+.progress-tip.is-skip .progress-tip__dot { background: var(--info); }
 .progress-tip.is-transferred .progress-tip__status { color: var(--accent); }
 .progress-tip.is-transferred .progress-tip__dot { background: var(--accent); }
 .progress-tip::after {

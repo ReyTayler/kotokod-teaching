@@ -470,6 +470,106 @@ def test_delete_nonexistent_returns_404(superadmin_client):
 
 
 # ---------------------------------------------------------------------------
+# DELETE — гейт доп.уроков при снятии членства (см. apps.extra_lessons):
+# назначенный доп.урок блокирует (409 + code), pending удаляется автоматически.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def student_in_group():
+    """Самодостаточный сетап (свои direction/teacher/group/student + активное
+    членство) — не зависит от seed-данных БД. Отдаёт
+    (membership_id, student_id, group_id, teacher_id)."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO directions (name, total_lessons, active) "
+                    "VALUES ('__mem_guard_dir__', 8, true) RETURNING id")
+        direction_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO teachers (name) VALUES ('__mem_guard_teacher__') RETURNING id")
+        teacher_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active, lesson_number_offset) "
+            "VALUES ('__mem_guard_group__', %s, %s, false, 60, true, 0) RETURNING id",
+            [direction_id, teacher_id])
+        group_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__mem_guard_student__', 'enrolled') RETURNING id")
+        student_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true) RETURNING id", [group_id, student_id])
+        membership_id = cur.fetchone()[0]
+    yield membership_id, student_id, group_id, teacher_id
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+        cur.execute('DELETE FROM students WHERE id = %s', [student_id])
+        cur.execute('DELETE FROM groups WHERE id = %s', [group_id])
+        cur.execute('DELETE FROM teachers WHERE id = %s', [teacher_id])
+        cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])
+
+
+def _insert_missed_lesson(group_id, teacher_id, token):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+            "lesson_duration_minutes, lesson_type, submitted_at, submitted_by_token) "
+            "VALUES (%s, %s, '2026-05-01', 1, 90, 'regular', now(), %s) RETURNING id",
+            [group_id, teacher_id, token])
+        return cur.fetchone()[0]
+
+
+def _insert_resolution(missed_lesson_id, student_id, status):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO absence_resolutions (missed_lesson_id, student_id, status, created_at) "
+            "VALUES (%s, %s, %s, now()) RETURNING id",
+            [missed_lesson_id, student_id, status])
+        return cur.fetchone()[0]
+
+
+@pytest.mark.django_db
+def test_delete_blocked_by_scheduled_makeup(superadmin_client, student_in_group):
+    """Назначенный доп.урок (makeup_scheduled) по пропуску в группе блокирует
+    снятие членства: 409 + code, членство остаётся активным."""
+    membership_id, student_id, group_id, teacher_id = student_in_group
+    lesson_id = _insert_missed_lesson(group_id, teacher_id, '__mem_guard_sched__')
+    try:
+        _insert_resolution(lesson_id, student_id, 'makeup_scheduled')
+
+        resp = superadmin_client.delete(f'{BASE_URL}/{membership_id}')
+        assert resp.status_code == 409
+        assert resp.json()['code'] == 'membership_has_scheduled_makeups'
+
+        with connection.cursor() as cur:
+            cur.execute('SELECT active FROM group_memberships WHERE id = %s', [membership_id])
+            assert cur.fetchone()[0] is True  # членство не снято
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])  # CASCADE резолюции
+
+
+@pytest.mark.django_db
+def test_delete_auto_deletes_pending(superadmin_client, student_in_group):
+    """pending («Ждёт решения») по пропуску в группе удаляется автоматически при
+    снятии членства: 204, членство снято, резолюция исчезла."""
+    membership_id, student_id, group_id, teacher_id = student_in_group
+    lesson_id = _insert_missed_lesson(group_id, teacher_id, '__mem_guard_pending__')
+    try:
+        _insert_resolution(lesson_id, student_id, 'pending')
+
+        resp = superadmin_client.delete(f'{BASE_URL}/{membership_id}')
+        assert resp.status_code == 204
+
+        with connection.cursor() as cur:
+            cur.execute('SELECT active FROM group_memberships WHERE id = %s', [membership_id])
+            assert cur.fetchone()[0] is False  # членство снято
+            cur.execute('SELECT COUNT(*) FROM absence_resolutions '
+                        'WHERE missed_lesson_id = %s AND student_id = %s', [lesson_id, student_id])
+            assert cur.fetchone()[0] == 0  # pending удалён
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+
+
+# ---------------------------------------------------------------------------
 # RBAC: чтение — manager/admin/superadmin; запись — только superadmin
 # ---------------------------------------------------------------------------
 

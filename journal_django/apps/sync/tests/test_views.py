@@ -77,6 +77,20 @@ def test_run_rebuild_planned_lessons_action_reachable(superadmin_client, monkeyp
 
 
 @pytest.mark.django_db
+def test_run_rebuild_renewals_action_reachable(superadmin_client, monkeypatch):
+    """rebuild-renewals подключён end-to-end через URL (destructive-действие)."""
+    monkeypatch.setattr(
+        'apps.sync.backfills.rebuild_renewals.run',
+        lambda dry_run=False: {'entity': 'renewals-rebuild', 'dry_run': dry_run},
+    )
+    run_resp = superadmin_client.post(
+        '/api/admin/sync/rebuild-renewals/run', {'dry_run': True}, format='json',
+    )
+    assert run_resp.status_code == 202
+    assert run_resp.data['task_id']
+
+
+@pytest.mark.django_db
 def test_status_reports_failure(superadmin_client, monkeypatch):
     def boom(dry_run=False):
         raise RuntimeError('лист не найден')

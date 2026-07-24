@@ -1,10 +1,6 @@
 import { useDraggable } from '@dnd-kit/core';
 import { Avatar } from '../../components/Avatar';
-import { fmtDate } from '../../lib/format';
-import type { RenewalCard } from '../../lib/renewals';
-
-// Порог «сделка зависла в стадии» — подсвечиваем SLA-бейдж красным.
-const SLA_OVERDUE_DAYS = 5;
+import { SLA_OVERDUE_DAYS, type RenewalCard } from '../../lib/renewals';
 
 /**
  * Разметка карточки без drag-обвязки — переиспользуется и в самой колонке,
@@ -40,9 +36,6 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
           <span className="status-badge status-badge--negative" title="Баланс ученика отрицательный">
             Долг
           </span>
-        )}
-        {card.next_touch_at && (
-          <span className="renewal-card__touch">{fmtDate(card.next_touch_at)}</span>
         )}
       </div>
     </>

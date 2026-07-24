@@ -120,10 +120,14 @@
 
 /* ============================================================
  *  DESIGN TOKENS
- *  Personality: Precision (Linear) × Sophistication (Stripe)
- *  Palette: cool slate · single teal accent
- *  Depth: borders-only + one subtle modal shadow
- *  Grid: 4px base scale, technical 6/8/12 radius
+ *  Личность: «мягкая оболочка — плотные данные».
+ *  Панели, шапки и пустые состояния мягкие: крупный радиус, тень
+ *  вместо жёсткой рамки, щедрые поля вокруг. Данные внутри панелей
+ *  остаются плотными: строка таблицы по-прежнему 8px по вертикали,
+ *  потому что этот интерфейс смотрят сменами, и каждая потерянная
+ *  строка на экране = лишний скролл.
+ *  Палитра: холодный слейт · один акцент.
+ *  Сетка: 4px, радиусы 6/10/14/18.
  * ============================================================ */
 :root {
   /* Surface hierarchy (light) — cool slate */
@@ -137,11 +141,22 @@
   --border2:   rgba(15, 23, 42, 0.05);
   --border-strong: rgba(15, 23, 42, 0.14);
 
-  /* Text contrast hierarchy */
+  /* Text contrast hierarchy — все четыре уровня проходят WCAG AA (4.5:1) на
+     любой светлой поверхности (bg/bg2/bg3/bg4), потому что подписи в интерфейсе
+     набраны 11–12px, а это «обычный», не «крупный» текст.
+     Замеры на bg2 / bg3 / bg4:
+       text  17.85 / 16.30 / 15.17
+       text2 10.35 /  9.45 /  8.80
+       text3  6.20 /  5.66 /  5.27
+       text4  5.31 /  4.85 /  4.51
+     Приглушённый конец шкалы сжат намеренно: text3 и text4 отличаются слабее,
+     чем раньше (было 4.76 и 2.56 — последний не читался). Дальше разводить их
+     цветом нельзя, не уронив контраст, поэтому разницу между ними держим
+     весом и кеглем, а не яркостью. */
   --text:      #0f172a;   /* primary */
   --text2:     #334155;   /* secondary */
-  --text3:     #64748b;   /* muted */
-  --text4:     #94a3b8;   /* faint */
+  --text3:     #556274;   /* muted */
+  --text4:     #5f6c82;   /* faint */
 
   /* Single accent — indigo, unified with teacher SPA brand (#4F59F9) */
   --accent:        #4F59F9;
@@ -149,12 +164,51 @@
   --accent-soft:   rgba(79, 89, 249, 0.10);
   --accent-soft-h: rgba(79, 89, 249, 0.16);
 
-  /* Semantic — for meaning only, never decoration */
-  --success: #16a34a;
-  --warning: #d97706;
+  /* Semantic — for meaning only, never decoration.
+     success/warning затемнены до 700-й ступени: в прежнем виде (#16a34a / #d97706)
+     они давали 3.30:1 и 3.19:1 — годится для заливки, но не для текста, а именно
+     текстом они и используются («Оплачено», «2 не заполнено вовремя», суммы).
+     Сейчас оба 5.02:1 на bg2 и 4.58:1 на bg3. Заливки, построенные от них через
+     color-mix, стали ровно настолько же темнее — оттенок сохранён. */
+  --success: #15803d;
+  --warning: #b45309;
   --danger:  #dc2626;
   --info:    #2563eb;
   --green: var(--success); --amber: var(--warning); --red: var(--danger); --blue: var(--info);
+
+  /* Type scale.
+     До этого шкалы не было вовсе: в системе жили 20 разных кеглей, включая
+     9px и половинные 10.5 / 11.5 / 12.5 / 13.5 / 14.5 — верный признак подбора
+     на глаз. Ступени ниже — это те значения, что реально несут смысл; всё
+     остальное сведено к ближайшей ступени.
+     --fs-2xs (11px) — пол шкалы: uppercase-микрометки и mono-подписи. Ниже не
+     опускаться: на 9–10px кириллица теряет различимость строчных. */
+  --fs-2xs:  11px;
+  --fs-xs:   12px;
+  --fs-sm:   13px;
+  --fs-md:   14px;   /* база интерфейса */
+  --fs-lg:   15px;
+  --fs-xl:   16px;
+  --fs-2xl:  18px;
+  --fs-3xl:  20px;
+  --fs-4xl:  22px;
+  --fs-5xl:  24px;
+  --fs-6xl:  30px;
+
+  /* Слои. Раньше в системе было 19 разных z-index (от 1 до 10000) при семи
+     реальных уровнях наложения — числа назначались «с запасом», а не по месту
+     в иерархии, и порядок держался случайно. Новый код обязан брать значение
+     отсюда.
+     Ключевое: --z-popover ВЫШЕ --z-modal. Выпадающие списки и календари
+     рендерятся порталом в body (см. Floating UI в forms.css) и обязаны
+     перекрывать модалку, из которой открыты, иначе список уедет под неё. */
+  --z-base:    1;     /* приподнятые элементы внутри потока */
+  --z-sticky:  10;    /* липкие шапки таблиц, строка фильтров, гаттер календаря */
+  --z-nav:     900;   /* мобильная навигация, бургер, плавающие кнопки экрана */
+  --z-overlay: 1000;  /* затемняющая подложка модалки */
+  --z-modal:   1010;  /* сама модалка, диалоги */
+  --z-popover: 1100;  /* поповеры и меню — поверх модалки (портал в body) */
+  --z-toast:   1200;  /* тосты — поверх всего */
 
   /* Spacing scale — 4px grid */
   --space-1: 4px;
@@ -166,20 +220,44 @@
   --space-8: 32px;
   --space-10: 40px;
 
-  /* Border radius — technical sharp (6/8 on grid) */
-  --r-sm: 6px;
-  --r:    8px;
-  --r-lg: 12px;
+  /* Радиусы. Управляющие элементы (кнопки, поля, чипы) остаются собранными —
+     мягкость приходит от ПАНЕЛЕЙ, а не от каждой кнопки: если скруглить всё
+     подряд, интерфейс читается как игрушечный, а не как рабочий. */
+  --r-sm: 6px;    /* поля ввода, мелкие чипы */
+  --r:    10px;   /* кнопки, строки списков */
+  --r-lg: 14px;   /* карточки, вложенные блоки */
+  --r-xl: 18px;   /* панели верхнего уровня, модалки */
 
-  /* Depth — borders-only philosophy, one shadow for modal lift */
+  /* Глубина. Прежняя философия была borders-only: панели различались только
+     рамкой 8%-чёрного, отчего экран выглядел как чертёж. Теперь панель
+     отделяется от холста мягкой тенью, а рамка становится почти незаметной
+     подсказкой края. Тени короткие и широкие — так поверхность «лежит» на
+     фоне, а не висит над ним. */
+  --shadow-panel: 0 1px 2px rgba(15, 23, 42, 0.04),
+                  0 6px 16px -6px rgba(15, 23, 42, 0.10);
+  --shadow-raised: 0 2px 4px rgba(15, 23, 42, 0.04),
+                   0 12px 28px -8px rgba(15, 23, 42, 0.14);
   --shadow-modal: 0 8px 24px rgba(15, 23, 42, 0.08),
                   0 2px 6px  rgba(15, 23, 42, 0.04);
   --shadow-popover: 0 4px 12px rgba(15, 23, 42, 0.08),
                     0 1px 3px  rgba(15, 23, 42, 0.04);
   --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.08);
-  --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-card: var(--shadow-panel);
   /* Затемняющая подложка модалок/оверлеев */
   --overlay: rgba(15, 23, 42, 0.45);
+
+  /* Раскладка страницы.
+     --content-max — потолок ширины колонки контента. Без него таблица на 9
+     колонок растягивалась на всю ширину монитора, и на обратном ходе глаз
+     терял строку. 1440px — примерно 12–14 слов на строку в текстовых блоках
+     и комфортный горизонтальный ход для таблиц.
+     --section-gap — единственная величина вертикального ритма между секциями
+     страницы (раньше её роль играл случайный margin-bottom: 20px). */
+  --content-max:  1440px;
+  --page-pad-x:   32px;
+  --page-pad-y:   24px;
+  --section-gap:  var(--space-6);
+  --header-h:     60px;   /* высота липкой шапки страницы */
 
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -206,10 +284,17 @@
   --border2:   rgba(255, 255, 255, 0.05);
   --border-strong: rgba(255, 255, 255, 0.14);
 
+  /* Тёмная тема: та же правка приглушённого конца — text4 давал 3.80:1 на bg2
+     и 3.12:1 на bg4 (pressed/inset), то есть тоже не дотягивал до AA на мелком
+     тексте. Замеры теперь на bg2 / bg3 / bg4:
+       text  14.51 / 13.11 / 11.93
+       text2  9.72 /  8.78 /  7.99
+       text3  7.03 /  6.35 /  5.78
+       text4  5.49 /  4.96 /  4.51 */
   --text:      #e8edf5;
   --text2:     #b8c4dc;
-  --text3:     #8b99b3;
-  --text4:     #6a7793;
+  --text3:     #9aa7bf;
+  --text4:     #8593ab;
 
   --accent:        #50DCFE;
   --accent-hover:  #7ae4fe;
@@ -221,17 +306,24 @@
   --danger:  #f87171;
   --info:    #60a5fa;
 
+  /* В тёмной теме тень почти не работает как разделитель (чёрное на чёрном),
+     поэтому панель отделяется в первую очередь СВЕТЛЕЕ-фоном (--bg2 против
+     --bg), а тень лишь добавляет глубины. */
+  --shadow-panel:  0 1px 2px rgba(0, 0, 0, 0.30),
+                   0 6px 16px -6px rgba(0, 0, 0, 0.45);
+  --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.35),
+                   0 12px 28px -8px rgba(0, 0, 0, 0.55);
   --shadow-modal:   0 12px 32px rgba(0, 0, 0, 0.5),
                     0 4px 8px   rgba(0, 0, 0, 0.3);
   --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.4),
                     0 1px 4px  rgba(0, 0, 0, 0.2);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.28);
+  --shadow-card: var(--shadow-panel);
   --overlay: rgba(0, 0, 0, 0.6);
 }
 /* Dark theme: boost font-weight on small label-like text so contrast compensates for size */
 [data-theme="dark"] .entity-card__label { font-weight: 700; }
-[data-theme="dark"] thead th { font-weight: 800; font-size: 10.5px; }
+[data-theme="dark"] thead th { font-weight: 800; font-size: var(--fs-2xs); }
 [data-theme="dark"] .stat-label { font-weight: 800; }
 [data-theme="dark"] .progress-card-label { font-weight: 800; }
 [data-theme="dark"] .dir-card-name { letter-spacing: .07em; }
@@ -239,8 +331,6 @@
 /* sidebar dark theme: handled by token var(--bg) — no override needed */
 /* modal dark theme: handled by tokens var(--bg2), var(--border) — no override needed */
 [data-theme="dark"] .field input[type="date"] { color-scheme: dark; }
-[data-theme="dark"] .toggle-row { background: #1e2433 !important; border-color: #3a4660 !important; }
-[data-theme="dark"] .toggle-slider { background: #3a4660 !important; }
 /* btn-* теперь полностью на токенах — dark overrides не нужны */
 /* thead bg and tbody hover теперь идут через token var(--bg3) — отдельных dark-override не нужно */
 [data-theme="dark"] .field input[type="date"] { color-scheme: dark; }

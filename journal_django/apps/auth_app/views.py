@@ -22,6 +22,7 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.views import TokenRefreshView as BaseTokenRefreshView
 
 from apps.accounts import repository as accounts_repo
+from apps.audit.services import log_event
 from apps.auth_app import services
 from apps.auth_app.serializers import (
     EmailSendSerializer,
@@ -84,6 +85,14 @@ class LogoutView(APIView):
         # даже перехваченный refresh после логаута станет невалидным
         # (CookieJWTAuthentication.get_user сверяет версию на каждом запросе).
         accounts_repo.bump_token_version(request.user.id)
+        # Событие ИБ: парная запись к login_success. Без неё в журнале виден вход,
+        # но не выход, и отзыв всех токенов (bump выше) остаётся неотражённым.
+        log_event(
+            'logout',
+            account_id=request.user.id,
+            actor_email=getattr(request.user, 'email', None),
+            request=request,
+        )
         response = Response({'ok': True})
         delete_auth_cookies(response)
         return response

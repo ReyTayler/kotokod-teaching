@@ -39,8 +39,8 @@ def direction_fixture():
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO directions (name, is_individual, total_lessons, active)
-            VALUES ('__pay_test_dir__', false, 8, true)
+            INSERT INTO directions (name, total_lessons, active)
+            VALUES ('__pay_test_dir__', 8, true)
             RETURNING id
             """,
         )
@@ -84,8 +84,8 @@ def group_fixture(direction_fixture, teacher_id_fixture):
         cur.execute(
             """
             INSERT INTO groups (name, direction_id, teacher_id, is_individual,
-                                lesson_duration_minutes, active)
-            VALUES ('__pay_test_group__', %s, %s, false, 60, true)
+                                lesson_duration_minutes, active, lesson_number_offset)
+            VALUES ('__pay_test_group__', %s, %s, false, 60, true, 0)
             RETURNING id
             """,
             [direction_fixture, teacher_id_fixture],

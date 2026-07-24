@@ -11,6 +11,7 @@ import type { Teacher } from '../../lib/types';
 import TeacherFormModal from './TeacherFormModal';
 import { useAuth } from '../../hooks/useAuth';
 import { canWriteTeachers, type Role } from '../../lib/permissions';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function TeachersListPage() {
   const { data, isLoading } = useTeachers();
@@ -45,16 +46,25 @@ export default function TeachersListPage() {
   ];
   const visibleColumns = useTableColumns('teachers', columns);
 
-  if (isLoading) return <TableSkeleton rows={6} cols={7} />;
+  // Шапка рисуется и во время загрузки: раньше страница возвращала
+  // скелетон ДО неё, и заголовок пропадал при каждом переходе.
+  const header = (
+    <PageHeader
+      title="Преподаватели"
+      actions={canWrite ? <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button> : undefined}
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={7} /></>;
 
   return (
     <>
+      {header}
       <DataTable<Teacher>
         data={rows}
         columns={visibleColumns}
         title="Преподаватели"
         onRowClick={(row) => navigate(`/admin/teachers/${row.id}`)}
-        headerActions={canWrite ? <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button> : undefined}
       />
       {modalOpen && (
         <TeacherFormModal initial={null} onClose={() => setModalOpen(false)} />

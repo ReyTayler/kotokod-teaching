@@ -140,8 +140,11 @@ def _pair_cols(base: int, i: int) -> tuple[int, int]:
     return base + 2 * i, base + 2 * i + 1
 
 
-def write_report_xlsx(rows: list[MonthlyReportRow], path: str | Path) -> None:
-    """Пишет rows в один лист «Отчёт»: один ученик = одна строка."""
+def build_report_workbook(rows: list[MonthlyReportRow]):
+    """Собрать openpyxl.Workbook отчёта (один ученик = одна строка), без сохранения.
+
+    Общее ядро для write_report_xlsx (запись в файл, CLI-команда) и
+    render_report_bytes (байты для ReportJob в разделе «Отчёты»)."""
     import openpyxl
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
@@ -212,7 +215,21 @@ def write_report_xlsx(rows: list[MonthlyReportRow], path: str | Path) -> None:
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
     ws.freeze_panes = 'A2'
+    return wb
 
+
+def write_report_xlsx(rows: list[MonthlyReportRow], path: str | Path) -> None:
+    """Пишет rows в один лист «Отчёт»: один ученик = одна строка (файл на диск)."""
+    wb = build_report_workbook(rows)
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out_path))
+
+
+def render_report_bytes(rows: list[MonthlyReportRow]) -> bytes:
+    """Отчёт как xlsx-байты (для хранения в ReportJob.content)."""
+    import io
+    wb = build_report_workbook(rows)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

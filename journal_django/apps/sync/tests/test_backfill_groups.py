@@ -54,7 +54,7 @@ def test_run_inserts_group_and_slots(monkeypatch):
     with connection.cursor() as cur:
         cur.execute("INSERT INTO teachers (name) VALUES ('__test_sync_teacher_g__') RETURNING id")
         cur.execute(
-            "INSERT INTO directions (name, is_individual) VALUES (%s, false)",
+            "INSERT INTO directions (name) VALUES (%s)",
             [direction_name],
         )
 
@@ -98,7 +98,7 @@ def test_run_twice_skips_unchanged_slots(monkeypatch):
     with connection.cursor() as cur:
         cur.execute("INSERT INTO teachers (name) VALUES ('__test_sync_teacher_g2__') RETURNING id")
         cur.execute(
-            "INSERT INTO directions (name, is_individual) VALUES (%s, false)",
+            "INSERT INTO directions (name) VALUES (%s)",
             [direction_name],
         )
 

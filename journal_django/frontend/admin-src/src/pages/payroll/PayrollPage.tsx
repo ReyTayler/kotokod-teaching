@@ -8,6 +8,7 @@ import { EntityLink } from '../../components/EntityLink';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { fmtDate } from '../../lib/format';
 import type { PayrollEntry } from '../../lib/types';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function PayrollPage() {
   const search = useListSearchParams({ sortBy: 'lesson_date', sortDir: 'desc' });
@@ -16,21 +17,27 @@ export default function PayrollPage() {
 
   return (
     <>
-      <div className="section-header">
-        <span className="section-title">Зарплата</span>
-        <div className="section-actions">
-          <button
-            className="btn-secondary"
-            style={mode === 'list' ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
-            onClick={() => setMode('list')}
-          >Список</button>
-          <button
-            className="btn-secondary"
-            style={mode === 'summary' ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
-            onClick={() => setMode('summary')}
-          >Сводка</button>
-        </div>
-      </div>
+      {/* Шапка живёт во внешнем компоненте, а загрузку показывают вложенные
+          представления — поэтому заголовок не пропадает при переключении вида. */}
+      <PageHeader
+        title="Зарплата"
+        actions={
+          <div className="segmented" role="group" aria-label="Режим отображения">
+            <button
+              type="button"
+              className={`segmented__btn${mode === 'list' ? ' is-active' : ''}`}
+              aria-pressed={mode === 'list'}
+              onClick={() => setMode('list')}
+            >Список</button>
+            <button
+              type="button"
+              className={`segmented__btn${mode === 'summary' ? ' is-active' : ''}`}
+              aria-pressed={mode === 'summary'}
+              onClick={() => setMode('summary')}
+            >Сводка</button>
+          </div>
+        }
+      />
 
       {mode === 'list' ? (
         <PayrollListView search={search} />

@@ -7,6 +7,7 @@ import { TextInput } from '../../components/form/TextInput';
 import { ColorInput } from '../../components/form/ColorInput';
 import { ApiError } from '../../lib/api';
 import type { RenewalStage, StageKind } from '../../lib/renewals';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 const KIND_OPTIONS: { value: StageKind; label: string }[] = [
   { value: 'progress', label: 'Прогресс (авто)' },
@@ -63,10 +64,11 @@ export default function RenewalStagesSettings() {
 
   return (
     <div className="renewals-page">
-      <header className="renewals-page__head">
-        <h1 className="renewals-page__title">Стадии воронки продлений</h1>
-        <Link to="/admin/renewals" className="btn-secondary">← К воронке</Link>
-      </header>
+      <PageHeader
+        title="Стадии воронки продлений"
+        crumbs={[{ label: 'Продления', to: '/admin/renewals' }, { label: 'Стадии' }]}
+        sub="Порядок стадий определяет движение сделки по воронке."
+      />
 
       {isLoading || !stages ? (
         <div className="renewal-board--loading">Загружаем стадии…</div>

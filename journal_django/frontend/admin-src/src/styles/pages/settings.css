@@ -92,7 +92,7 @@
 .col-row__label input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: var(--accent, #6366f1);
+  accent-color: var(--accent);
 }
 .col-row__lock {
   color: var(--text3);

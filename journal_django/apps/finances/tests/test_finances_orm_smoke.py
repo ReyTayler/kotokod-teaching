@@ -25,7 +25,7 @@ from apps.teachers.models import Teacher
 
 def _seed():
     d = Direction.objects.create(
-        name='FIN-DIR', is_individual=False, total_lessons=40,
+        name='FIN-DIR', total_lessons=40,
         color='#abcdef',
     )
     t = Teacher.objects.create(name='FIN-T', created_at=Now())

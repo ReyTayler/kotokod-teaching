@@ -50,15 +50,15 @@ def sched_setup(db):
         account_a = cur.fetchone()[0]
 
         cur.execute(
-            "INSERT INTO directions (name,is_individual,total_lessons,color,active) "
-            "VALUES ('__sched_dir__',false,8,'#4F59F9',true) RETURNING id"
+            "INSERT INTO directions (name,total_lessons,color,active) "
+            "VALUES ('__sched_dir__',8,'#4F59F9',true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
 
         cur.execute(
             "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,"
-            "group_start_date,active,vk_chat) "
-            "VALUES ('__sched_group_A__',%s,%s,false,60,'2026-06-01',true,'https://vk.me/join/sched_a') RETURNING id",
+            "group_start_date,active,vk_chat,lesson_number_offset) "
+            "VALUES ('__sched_group_A__',%s,%s,false,60,'2026-06-01',true,'https://vk.me/join/sched_a',0) RETURNING id",
             [direction_id, teacher_a],
         )
         group_a = cur.fetchone()[0]
@@ -70,7 +70,8 @@ def sched_setup(db):
 
         cur.execute(
             "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,"
-            "group_start_date,active) VALUES ('__sched_group_B__',%s,%s,false,60,'2026-06-01',true) RETURNING id",
+            "group_start_date,active,lesson_number_offset) "
+            "VALUES ('__sched_group_B__',%s,%s,false,60,'2026-06-01',true,0) RETURNING id",
             [direction_id, teacher_b],
         )
         group_b = cur.fetchone()[0]
@@ -106,14 +107,14 @@ def group_with_group(db):
     """Минимальная группа (direction total_lessons=4, слот вторник) + 4 pending
     строки (07/14/21/28 июля 2026). Общая фикстура wipe_one_offs/cancel_lesson."""
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO directions (name,is_individual,total_lessons,active) "
-                    "VALUES ('__wipe_dir__',false,4,true) RETURNING id")
+        cur.execute("INSERT INTO directions (name,total_lessons,active) "
+                    "VALUES ('__wipe_dir__',4,true) RETURNING id")
         did = cur.fetchone()[0]
         cur.execute("INSERT INTO teachers (name) VALUES ('__wipe_t__') RETURNING id")
         tid = cur.fetchone()[0]
         cur.execute("INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                    "lesson_duration_minutes,lessons_per_week,active) "
-                    "VALUES ('__wipe_g__',%s,%s,false,60,1,true) RETURNING id", [did, tid])
+                    "lesson_duration_minutes,lessons_per_week,active,lesson_number_offset) "
+                    "VALUES ('__wipe_g__',%s,%s,false,60,1,true,0) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
         # Открытый слот (Вс=0 → 2=вторник, 18:00), совпадает с датами строк ниже —
         # нужен cancel_lesson для поиска следующего свободного слота в конце курса.

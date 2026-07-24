@@ -99,7 +99,6 @@ class RenewalDeal(models.Model):
         db_column='assignee_id', related_name='renewal_deals',
         null=True, blank=True,
     )
-    next_touch_at = models.DateField(null=True, blank=True)
     # Дата «созревания» продления: 4-й урок цикла отработан (ставит движок).
     # Основа когортной аналитики по месяцам. NULL — цикл ещё не отработан.
     due_at = models.DateField(null=True, blank=True)

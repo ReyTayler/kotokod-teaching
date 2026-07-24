@@ -161,10 +161,11 @@ function summarizeEntities(events: ChangelogEvent[]): ChangelogEntitySummary[] {
   return [...acc.values()];
 }
 
-export function ChangelogDetailModal({ contextId, onClose, onRevert }: {
+export function ChangelogDetailModal({ contextId, onClose, onRevert, readOnly = false }: {
   contextId: string;
   onClose: () => void;
-  onRevert: (op: ChangelogOperation) => void;
+  onRevert?: (op: ChangelogOperation) => void;
+  readOnly?: boolean;
 }) {
   const { me } = useAuth();
   const { data, isLoading, error } = useChangelogDetail(contextId);
@@ -199,12 +200,12 @@ export function ChangelogDetailModal({ contextId, onClose, onRevert }: {
           <button type="button" className="btn-cancel" onClick={onClose}>
             Закрыть
           </button>
-          {data && canRevertChangelog(me?.role as Role) && data.revertable && (
+          {!readOnly && data && canRevertChangelog(me?.role as Role) && data.revertable && (
             <button
               type="button"
               className="btn-danger"
               onClick={() =>
-                onRevert({
+                onRevert?.({
                   ...data,
                   entities: summarizeEntities(data.events),
                   events_total: data.events.length,

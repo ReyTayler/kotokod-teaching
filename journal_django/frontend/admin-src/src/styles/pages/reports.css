@@ -1,0 +1,63 @@
+/* journal_django/frontend/admin-src/src/styles/pages/reports.css */
+/* Раздел «Отчёты»: карточки генерации (без истории — отчёты не хранятся). */
+
+.report-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-4);
+}
+
+.report-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.report-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.report-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.report-card__desc {
+  font-size: 13px;
+  color: var(--text3);
+  max-width: 60ch;
+  line-height: 1.5;
+}
+
+.report-card__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.report-card__controls > * {
+  min-width: 140px;
+}
+
+.report-card__controls .btn-add {
+  min-width: auto;
+}
+
+.report-card__hint {
+  font-size: 13px;
+  color: var(--text3);
+}
+
+.report-card__hint--warn { color: var(--warning); }
+.report-card__hint--error { color: var(--danger); }
+.report-card__hint--ok { color: var(--success); }
+
+[data-theme="dark"] .report-card__hint--ok { color: #4ade80; }

@@ -25,6 +25,6 @@
 - **`group_schedule_slots`** — отдельная таблица, UNIQUE(group_id, day_of_week, start_time)
 - **`enrollment_status` + `frozen_until_month` CHECK**: `((status='frozen') = (frozen_until_month IS NOT NULL))`
 - **`submitted_by_token`** — text, не FK
-- **Soft-delete**: `active=false` (teachers/groups/directions/tokens/discounts), `enrollment_status='not_enrolled'` (students)
+- **Soft-delete**: `active=false` (teachers/groups/directions/tokens/discounts). Для students soft-delete удалён: `enrollment_status ∈ ('enrolled','frozen','declined')`, уход = `declined`
 - **ON DELETE RESTRICT** на FK payments→students/directions
 - **DATE type-parser** в `services/db.js`: `setTypeParser(1082, v => v)` — даты приходят строкой YYYY-MM-DD

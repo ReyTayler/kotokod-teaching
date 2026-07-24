@@ -4,12 +4,11 @@ import { ENROLLMENT_STATUS_LABELS } from '../lib/labels';
 const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 
 // Color stays on a single semantic axis: enrolled = positive, declined = negative,
-// frozen = informational (info), not_enrolled = muted (neutral).
-const STATUS_TONE: Record<EnrollmentStatus, 'positive' | 'negative' | 'info' | 'muted'> = {
+// frozen = informational (info).
+const STATUS_TONE: Record<EnrollmentStatus, 'positive' | 'negative' | 'info'> = {
   enrolled:     'positive',
   declined:     'negative',
   frozen:       'info',
-  not_enrolled: 'muted',
 };
 
 interface StudentLike { enrollment_status?: string; frozen_until?: string | null; }

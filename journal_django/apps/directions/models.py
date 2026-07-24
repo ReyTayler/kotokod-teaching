@@ -28,7 +28,6 @@ class Direction(models.Model):
 
     id = models.AutoField(primary_key=True)
     name = models.TextField(unique=True)
-    is_individual = models.BooleanField()
     total_lessons = models.IntegerField(null=True, blank=True)
     color = models.TextField(null=True, blank=True)
     subscription_price = models.DecimalField(

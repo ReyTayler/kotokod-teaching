@@ -4,7 +4,10 @@ import { useMemberships, useMembershipMutations } from '../../hooks/useMembershi
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../ui/Toast';
 import { SelectInput } from '../form/SelectInput';
+import { scheduledMakeupsBlockMessage } from '../../lib/api';
+import { ScheduledMakeupsBlockModal } from './ScheduledMakeupsBlockModal';
 import type { GroupMembership } from '../../lib/types';
+import { BlockLoading } from '../ui/Skeleton';
 
 type PickerOption = { value: number; label: string; disabled?: boolean };
 type Mode =
@@ -16,11 +19,12 @@ interface Props {
   config: Mode;
   renderCard: (m: GroupMembership) => { title: string; meta: React.ReactNode; navigateTo?: string };
   emptyText: string;
-  /** Если передан — на каждой карточке появляется кнопка «⇄ Перевести». */
-  onTransfer?: (m: GroupMembership) => void;
+  /** Показывать пикер «+Добавить». Профиль ученика этот блок больше не использует
+   *  (см. StudentLearningBlock — там свой пикер), остался вход byGroup. */
+  showAddPicker?: boolean;
 }
 
-export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: Props) {
+export function MembershipsBlock({ config, renderCard, emptyText, showAddPicker = true }: Props) {
   const navigate = useNavigate();
   const filter = config.mode === 'byStudent'
     ? { student_id: config.studentId }
@@ -30,6 +34,8 @@ export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: 
   const { toast } = useToast();
   const showError = useApiError();
   const [selectedId, setSelectedId] = useState<number | ''>('');
+  // Текст блокировки «есть назначенные доп.уроки» — показываем модалкой (не тостом).
+  const [blockMsg, setBlockMsg] = useState<string | null>(null);
 
   const usedIds = useMemo(() => {
     if (config.mode === 'byStudent') return new Set(memberships.map((m) => m.group_id));
@@ -62,11 +68,14 @@ export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: 
     try {
       await muts.remove.mutateAsync(id);
       toast('Убран', 'ok');
-    } catch (err) { showError(err); }
+    } catch (err) {
+      const msg = scheduledMakeupsBlockMessage(err);
+      if (msg) setBlockMsg(msg); else showError(err);
+    }
   };
 
   if (isLoading) {
-    return <div className="memberships__empty">Загружаем…</div>;
+    return <BlockLoading rows={3} />;
   }
 
   return (
@@ -83,11 +92,11 @@ export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: 
               tabIndex={0}
               role="button"
               onClick={(e) => {
-                if ((e.target as HTMLElement).closest('[data-mremove]') || (e.target as HTMLElement).closest('[data-mtransfer]')) return;
+                if ((e.target as HTMLElement).closest('[data-mremove]')) return;
                 if (card.navigateTo) navigate(card.navigateTo);
               }}
               onKeyDown={(e) => {
-                if ((e.target as HTMLElement).closest('[data-mremove]') || (e.target as HTMLElement).closest('[data-mtransfer]')) return;
+                if ((e.target as HTMLElement).closest('[data-mremove]')) return;
                 if ((e.key === 'Enter' || e.key === ' ') && card.navigateTo) {
                   e.preventDefault();
                   navigate(card.navigateTo);
@@ -100,16 +109,6 @@ export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: 
                   <div className="link-card-meta">{card.meta}</div>
                 </div>
                 <div className="membership-card__actions">
-                  {onTransfer && (
-                    <button
-                      type="button"
-                      className="membership-card__transfer-btn"
-                      data-mtransfer
-                      aria-label="Перевести"
-                      title="Перевести в другую группу"
-                      onClick={() => onTransfer(m)}
-                    >⇄</button>
-                  )}
                   <button
                     type="button"
                     className="membership-card__remove"
@@ -135,7 +134,7 @@ export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: 
         })
       )}
 
-      {atCapacity ? (
+      {showAddPicker && (atCapacity ? (
         config.capacityNote && <div className="memberships__note">{config.capacityNote}</div>
       ) : (
         <div className="memberships__add">
@@ -152,6 +151,10 @@ export function MembershipsBlock({ config, renderCard, emptyText, onTransfer }: 
             disabled={!selectedId || muts.create.isPending}
           >+ Добавить</button>
         </div>
+      ))}
+
+      {blockMsg && (
+        <ScheduledMakeupsBlockModal message={blockMsg} onClose={() => setBlockMsg(null)} />
       )}
     </div>
   );

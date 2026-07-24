@@ -34,7 +34,6 @@ class DirectionReadSerializer(serializers.Serializer):
 
     id = serializers.IntegerField()
     name = serializers.CharField()
-    is_individual = serializers.BooleanField()
     total_lessons = serializers.IntegerField(allow_null=True)
     color = serializers.CharField(allow_null=True)
     subscription_price = serializers.DecimalField(
@@ -49,14 +48,12 @@ class DirectionWriteSerializer(serializers.Serializer):
 
     createDirectionSchema:
       name: z.string().trim().min(1)
-      is_individual: z.boolean()
       total_lessons: z.number().int().min(0).nullable().optional()
       color: hexColor.nullable().optional().or(z.literal(''))
       subscription_price: z.coerce.number().min(0).nullable().optional()
     """
 
     name = serializers.CharField(min_length=1)
-    is_individual = serializers.BooleanField()
     total_lessons = serializers.IntegerField(min_value=0, allow_null=True, required=False)
     color = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     subscription_price = serializers.DecimalField(
@@ -79,7 +76,6 @@ class DirectionUpdateSerializer(serializers.Serializer):
     """
 
     name = serializers.CharField(min_length=1, required=False)
-    is_individual = serializers.BooleanField(required=False)
     total_lessons = serializers.IntegerField(min_value=0, allow_null=True, required=False)
     color = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     subscription_price = serializers.DecimalField(

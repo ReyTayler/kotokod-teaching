@@ -70,7 +70,7 @@ def deal_computed(deal_id: int) -> dict | None:
 
     sql = f"""
         SELECT d.id, d.student_id, d.cycle_no, d.stage_id,
-               d.assignee_id, d.next_touch_at, d.reason_code,
+               d.assignee_id, d.reason_code,
                d.due_at, d.stage_entered_at, d.outcome_at, d.created_at,
                s.full_name AS student_name,
                {DIRECTIONS_AGG_SQL} AS directions,
@@ -130,6 +130,7 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         from_stage = deal.stage
         assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind,
                        from_is_auto=from_stage.is_auto, to_is_auto=to_stage.is_auto,
+                       from_key=from_stage.key,
                        cycle_completed=engine.cycle_completed(deal),
                        balance=float(balance_for_student(deal.student_id)))
 
@@ -150,6 +151,10 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         if to_stage.kind == 'won':
             next_cycle = engine.next_open_cycle_no(deal.student_id, deal.cycle_no + 1)
             engine.ensure_deal(deal.student_id, next_cycle)
+            # Спавн ставит новый цикл на «Не было урока». Если ученик уже отходил
+            # в него (посещения сверх рубежа), сразу двигаем на верную авто-стадию
+            # — тот же sync, что и при ручном создании сделки (services.create_deal).
+            engine.sync_lesson_stage(deal.student_id)
     return deal_computed(deal_id)
 
 
@@ -157,7 +162,7 @@ def patch_deal(deal_id: int, data: dict) -> dict | None:
     from django.utils import timezone
     from apps.renewals.models import RenewalDeal
     fields = {}
-    for k in ('next_touch_at', 'reason_code'):
+    for k in ('reason_code',):
         if k in data:
             fields[k] = data[k]
     if not fields:
@@ -210,8 +215,6 @@ def _board_where(filters: dict) -> tuple[str, list]:
             WHERE fm.student_id = d.student_id AND fm.active = true
               AND fg.direction_id = %s)""")
         params.append(int(filters['direction_id']))
-    if filters.get('overdue') == 'true':
-        where.append("d.next_touch_at IS NOT NULL AND d.next_touch_at < now()::date")
     if filters.get('student'):
         # Поиск по имени ученика (per-column search в канбане). ILIKE — регистр
         # и раскладку не различаем; % экранировать не нужно (параметризованный %s).
@@ -264,7 +267,7 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
             SELECT d.id, d.student_id, s.full_name AS student_name,
                    {DIRECTIONS_AGG_SQL} AS directions,
                    d.cycle_no,
-                   d.next_touch_at, d.due_at, a.full_name AS assignee_name,
+                   d.due_at, a.full_name AS assignee_name,
                    EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage,
                    COALESCE((
                        SELECT SUM(CASE WHEN l.lesson_duration_minutes = 45
@@ -276,7 +279,7 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
             JOIN students s ON s.id = d.student_id
             LEFT JOIN accounts a ON a.id = d.assignee_id
             WHERE {where_sql} AND d.stage_id = %s
-            ORDER BY d.next_touch_at NULLS LAST, d.stage_entered_at
+            ORDER BY d.stage_entered_at
             LIMIT %s OFFSET %s
         """, base_params + [stage_id, limit, offset])
         cols = [c[0] for c in cur.description]
@@ -431,23 +434,33 @@ def list_deals(page: int, page_size: int, sort_by: str, sort_dir: str, filters: 
         params.append(int(filters['direction_id']))
     if filters.get('stage_id'):
         where.append('d.stage_id = %s'); params.append(int(filters['stage_id']))
+    if filters.get('cycle_no'):
+        where.append('d.cycle_no = %s'); params.append(int(filters['cycle_no']))
+    if filters.get('student'):
+        # Поиск по имени ученика — тот же ILIKE, что в _board_where (регистр/раскладку
+        # не различаем; % экранировать не нужно — параметризованный %s).
+        where.append('s.full_name ILIKE %s'); params.append(f"%{filters['student']}%")
     where_sql = ' AND '.join(where)
 
     sort_col = {
-        'next_touch_at': 'd.next_touch_at', 'stage_entered_at': 'd.stage_entered_at',
+        'stage_entered_at': 'd.stage_entered_at',
         'cycle_no': 'd.cycle_no', 'student_name': 's.full_name',
     }.get(sort_by, 'd.stage_entered_at')
     direction = 'DESC' if sort_dir == 'desc' else 'ASC'
 
     with connection.cursor() as cur:
-        cur.execute(f"SELECT COUNT(*) FROM renewal_deal d WHERE {where_sql}", params)
+        # JOIN students нужен и в COUNT — фильтр по имени ученика (student ILIKE)
+        # ссылается на s.full_name. FK 1:1, на total не влияет.
+        cur.execute(
+            f"SELECT COUNT(*) FROM renewal_deal d "
+            f"JOIN students s ON s.id = d.student_id WHERE {where_sql}", params)
         total = cur.fetchone()[0]
         cur.execute(f"""
             SELECT d.id, s.full_name AS student_name,
                    {DIRECTIONS_AGG_SQL} AS directions,
                    d.cycle_no, st.label AS stage_label,
                    st.kind AS stage_kind, st.color AS stage_color,
-                   d.next_touch_at, d.due_at, a.full_name AS assignee_name,
+                   d.due_at, a.full_name AS assignee_name,
                    EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage
             FROM renewal_deal d
             JOIN students s ON s.id = d.student_id

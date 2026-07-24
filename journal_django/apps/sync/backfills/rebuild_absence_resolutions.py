@@ -7,10 +7,15 @@
 Охват (осознанно узкий, «как есть сейчас»):
   - `present=false` на уроке `lesson_type='regular'` (сами extra/burned пропусков
     не порождают);
+  - `unpaid_skip=false` — реальный пропуск, а НЕ «неоплачиваемый пропуск». Последний
+    (present=false + unpaid_skip=true) — терминальный прощённый исход (перевод /
+    начал не с 1-го урока), доп.урока не требует; `record_lesson` его тоже исключает
+    из авто-создания pending, бэкфилл обязан вести себя так же (иначе поднимет
+    ложную очередь по прощённым урокам);
   - группа активна (`groups.active`);
   - ученик реально СОСТОИТ в этой группе сейчас (`group_memberships.active`);
-  - ученик не ушёл (`enrollment_status NOT IN ('declined','not_enrolled')` —
-    у ушедших очередь как раз чистится cleanup_on_student_leave, поднимать её
+  - ученик не ушёл (`enrollment_status <> 'declined'` — у ушедших очередь как раз
+    чистится при снятии членства (enforce_membership_cancellation), поднимать её
     обратно нельзя);
   - у этого пропуска ещё нет НИКАКОЙ резолюции.
 
@@ -29,10 +34,11 @@ _FROM_WHERE = """
       JOIN group_memberships gm ON gm.group_id = l.group_id AND gm.student_id = la.student_id
       JOIN students s ON s.id = la.student_id
      WHERE la.present = false
+       AND la.unpaid_skip = false
        AND l.lesson_type = 'regular'
        AND g.active = true
        AND gm.active = true
-       AND s.enrollment_status NOT IN ('declined', 'not_enrolled')
+       AND s.enrollment_status <> 'declined'
        AND NOT EXISTS (
              SELECT 1 FROM absence_resolutions ar
               WHERE ar.missed_lesson_id = la.lesson_id

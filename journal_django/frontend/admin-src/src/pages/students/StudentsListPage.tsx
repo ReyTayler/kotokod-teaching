@@ -9,9 +9,10 @@ import { DataTable, type Column } from '../../components/table/DataTable';
 import { Avatar } from '../../components/Avatar';
 import { StatusBadge } from '../../components/StatusBadge';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { fmtDate } from '../../lib/format';
+import { fmtDate, fmtAge } from '../../lib/format';
 import { ENROLLMENT_STATUS_OPTIONS } from '../../lib/labels';
 import type { Student } from '../../lib/types';
+import { PageHeader } from '../../components/shell/PageHeader';
 import StudentFormModal from './StudentFormModal';
 
 export default function StudentsListPage() {
@@ -67,11 +68,15 @@ export default function StudentsListPage() {
       cell: (r) => fmtDate(r.birth_date),
     },
     {
+      // Возраст вычисляется из даты рождения (поле age удалено). Сортируем по
+      // birth_date — он монотонно связан с возрастом; фильтра нет (вычисляемое
+      // поле нельзя фильтровать на сервере без пересчёта в диапазон дат).
       key: 'age',
       label: 'Возраст',
+      sortKey: 'birth_date',
       sortable: true,
-      searchable: true,
-      cell: (r) => r.age ? `${r.age} лет` : '—',
+      searchable: false,
+      cell: (r) => fmtAge(r.birth_date),
     },
     {
       key: 'parent1_phone',
@@ -103,13 +108,6 @@ export default function StudentsListPage() {
       cell: (r) => r.manager_name || '—',
     },
     {
-      key: 'first_purchase_date',
-      label: 'Первая оплата',
-      sortable: true,
-      searchable: false,
-      cell: (r) => fmtDate(r.first_purchase_date),
-    },
-    {
       key: 'enrollment_status',
       label: 'Статус',
       sortable: true,
@@ -120,16 +118,27 @@ export default function StudentsListPage() {
   ];
   const visibleColumns = useTableColumns('students', columns);
 
-  if (isLoading) return <TableSkeleton rows={6} cols={9} />;
+  // Шапка рисуется и во время загрузки: раньше страница возвращала скелетон
+  // ДО неё, и при каждом переходе между разделами заголовок пропадал и
+  // появлялся заново — экран «моргал» названием.
+  const header = (
+    <PageHeader
+      title="Ученики"
+      count={isLoading ? undefined : total}
+      actions={<button type="button" className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={9} /></>;
 
   return (
     <>
+      {header}
       <DataTable<Student>
         data={rows}
         columns={visibleColumns}
         title="Ученики"
         onRowClick={(row) => navigate(`/admin/students/${row.id}`)}
-        headerActions={<button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
         isLoading={isFetching}
         serverPagination={{
           page,

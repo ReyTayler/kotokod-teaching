@@ -18,7 +18,8 @@ Teacher (IsTeacher, скоуп — своё назначение):
                                          раскрываем существование чужих назначений)
   POST /api/extra-lessons/:id/record  → 200 | 404 | 403 (чужое) | 409 (не
                                          scheduled) | 400 (present, но у ученика
-                                         balance<=0)
+                                         balance<=0, ИЛИ present=false — неявку
+                                         оформляют «Отменой», а не записью)
 """
 from __future__ import annotations
 
@@ -33,10 +34,12 @@ from apps.core.permissions import IsManagerOrAdmin, IsTeacher
 from apps.core.utils.dates import msk_today
 from apps.extra_lessons import repository, services
 from apps.extra_lessons.exceptions import (
-    DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
+    AbsentStudentNotRecordable, DuplicateAssignment, GroupNotFound, MissedLessonNotFound,
+    NotTeachersAssignment, StudentNotAbsent, StudentNotInGroup, StudentWasPresent,
 )
 from apps.extra_lessons.serializers import (
     ExtraLessonCreateSerializer, ExtraLessonRecordSerializer,
+    ManualExtraLessonCreateSerializer,
 )
 from apps.lessons.exceptions import UnpaidAttendanceBlocked
 
@@ -64,6 +67,10 @@ def _parse_list_params(request: Request) -> dict:
         filters['status'] = qp['status']
     if qp.get('teacher_id'):
         filters['teacher_id'] = qp['teacher_id']
+    if qp.get('student_name'):
+        filters['student_name'] = qp['student_name']
+    if qp.get('missed_lesson_group_name'):
+        filters['missed_lesson_group_name'] = qp['missed_lesson_group_name']
     return {'page': page, 'page_size': page_size, 'sort_by': sort_by, 'sort_dir': sort_dir, 'filters': filters}
 
 
@@ -91,6 +98,26 @@ class ExtraLessonListCreateView(APIView):
                 {'error': 'Доп.урок для этого ученика за этот пропуск уже назначен.'},
                 status=status.HTTP_409_CONFLICT,
             )
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class ExtraLessonManualCreateView(APIView):
+    """POST /api/admin/extra-lessons/manual — назначить доп.урок СВЕРХ курса
+    (kind='extra') вручную одному/нескольким ученикам группы. 201 |
+    400 (нет группы / кто-то не в группе / у кого-то balance<=0)."""
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def post(self, request: Request) -> Response:
+        serializer = ManualExtraLessonCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = services.create_extra_assignment(serializer.validated_data, request)
+        except (GroupNotFound, StudentNotInGroup, StudentWasPresent, UnpaidAttendanceBlocked) as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except DuplicateAssignment as e:
+            # Уже есть активный доп.урок за этот урок у ученика (в т.ч. по авто-заявке).
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -184,7 +211,7 @@ class TeacherExtraLessonRecordView(APIView):
             )
         except NotTeachersAssignment as e:
             return Response({'error': str(e)}, status=status.HTTP_403_FORBIDDEN)
-        except UnpaidAttendanceBlocked as e:
+        except (AbsentStudentNotRecordable, UnpaidAttendanceBlocked) as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)

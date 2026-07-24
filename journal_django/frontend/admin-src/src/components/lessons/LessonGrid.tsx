@@ -22,10 +22,24 @@ export function LessonGrid({ group, selectedSlot, onSelectSlot }: Props) {
   // без схлопывания пары половинок в одну ячейку (был баг: ceil(0.5)===ceil(1)).
   const step = group.lesson_duration_minutes === 45 ? 0.5 : 1;
 
+  // Группа-продолжение (перевод в пустую персональную группу, Phase 1b): курс
+  // начинается не с урока №1, а с offset+step — уроки 1..offset ученик отработал в
+  // прежней группе, в этой группе их физически нет. Сетка не рисует эти ячейки:
+  // иначе первый клик открывал бы урок, на котором переведённый ученик
+  // заблокирован (isLockedByTransfer в LessonEditor), и сохранить его нельзя.
+  // Для обычных групп offset=0 → поведение прежнее (нумерация с 1).
+  const offsetSlots = Math.round(Number(group.lesson_number_offset || 0) / step);
+
   const byNumber = useMemo(() => {
     const map = new Map<number, Lesson>();
     let max = 0;
     for (const l of lessons) {
+      // Доп.уроки (сгорание/отработка) — это Lesson(lesson_type='extra') с тем же
+      // group_id и lesson_number, что и пропущенный урок. Слот сетки = групповое
+      // занятие, поэтому extra-уроки его не занимают: иначе клик по слоту открыл
+      // бы пер-ученический доп.урок вместо исходного (сортировка списка по дате
+      // desc делает проведённый позже extra «победителем» first-wins-коллапса).
+      if (['extra', 'burned'].includes(l.lesson_type)) continue;
       const slot = Math.max(1, Math.round(Number(l.lesson_number) / step));
       if (!map.has(slot)) map.set(slot, l);
       if (slot > max) max = slot;
@@ -36,12 +50,16 @@ export function LessonGrid({ group, selectedSlot, onSelectSlot }: Props) {
   const totalSlots = direction?.total_lessons != null
     ? Math.round(Number(direction.total_lessons) / step)
     : null;
-  const slotCount = totalSlots ? Math.max(totalSlots, byNumber.max) : Math.max(byNumber.max, 12);
+  const slotCount = totalSlots
+    ? Math.max(totalSlots, byNumber.max)
+    : Math.max(byNumber.max, offsetSlots + 12);
+  // Рисуем ячейки offsetSlots+1 .. slotCount (для offset=0 — как раньше, 1..slotCount).
+  const visibleCount = Math.max(0, slotCount - offsetSlots);
 
   return (
     <div className="lesson-grid">
-      {Array.from({ length: slotCount }, (_, i) => {
-        const num = i + 1;
+      {Array.from({ length: visibleCount }, (_, i) => {
+        const num = offsetSlots + i + 1;
         const lesson = byNumber.map.get(num);
         const filled = !!lesson;
         const isSelected = selectedSlot === num;

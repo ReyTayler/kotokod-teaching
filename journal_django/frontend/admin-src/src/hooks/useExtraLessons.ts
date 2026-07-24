@@ -60,6 +60,13 @@ export function useExtraLessonMutations() {
         api<ExtraLessonCreateResult>('POST', '/api/admin/extra-lessons', body),
       onSuccess: invalidate,
     }),
+    // Ручной доп.урок СВЕРХ курса (kind='extra') — без пропуска, с явной группой
+    // и опц. номером урока. Кейс: переведённому догнать прогресс группы.
+    createManual: useMutation({
+      mutationFn: (body: Record<string, unknown>) =>
+        api<ExtraLessonCreateResult>('POST', '/api/admin/extra-lessons/manual', body),
+      onSuccess: invalidate,
+    }),
     cancel: useMutation({
       mutationFn: (id: number) =>
         api<AbsenceResolution>('POST', `/api/admin/extra-lessons/${id}/cancel`),

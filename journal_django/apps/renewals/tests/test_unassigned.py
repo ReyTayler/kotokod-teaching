@@ -11,8 +11,9 @@ BASE = '/api/admin/renewals'
 
 def _make_group_membership(did, tid, sid, name='__un_group__'):
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-                    "VALUES (%s, %s, %s, false, true, now()) RETURNING id", [name, did, tid])
+        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "
+                    "lesson_number_offset) "
+                    "VALUES (%s, %s, %s, false, true, now(), 0) RETURNING id", [name, did, tid])
         gid = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s,%s,0,true)", [gid, sid])

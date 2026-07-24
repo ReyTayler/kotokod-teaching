@@ -87,12 +87,11 @@ _MAX_INT4 = 2_147_483_647
 
 class AdminCalendarView(APIView):
     """
-    GET /api/admin/calendar — плановые занятия ПРОИЗВОЛЬНОГО преподавателя за
-    окно [from, to] (role=manager/admin/superadmin). Используется разделом
-    «Календарь» admin SPA. teacher_id обязателен параметром запроса — без
-    него build_calendar() вернул бы пустой конверт, а не ошибку, поэтому
-    валидируем явно (400), не полагаясь на то, что фронт не даст открыть
-    сетку без выбранного преподавателя.
+    GET /api/admin/calendar — плановые занятия за окно [from, to]
+    (role=manager/admin/superadmin). Используется разделом «Календарь» admin SPA.
+    teacher_id — НЕОБЯЗАТЕЛЕН: без него отдаём занятия ВСЕХ преподавателей (вся
+    школа), с ним — одного (фильтр по преподавателю). Если teacher_id передан, но
+    невалиден — 400 (не молча игнорируем «мусорный» ввод).
     """
 
     permission_classes = [IsManagerOrAdmin]
@@ -104,15 +103,18 @@ class AdminCalendarView(APIView):
         d_from, d_to = window
 
         raw_teacher_id = request.query_params.get('teacher_id')
-        # isdecimal (не isdigit) — isdigit пропускает юникод-цифры вроде '²',
-        # которые int() не парсит (ValueError → 500 вместо 400).
-        if not raw_teacher_id or not raw_teacher_id.isdecimal() or int(raw_teacher_id) > _MAX_INT4:
-            return Response(
-                {'error': 'Обязателен параметр teacher_id (целое число).'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        teacher_id: int | None = None
+        if raw_teacher_id:
+            # isdecimal (не isdigit) — isdigit пропускает юникод-цифры вроде '²',
+            # которые int() не парсит (ValueError → 500 вместо 400).
+            if not raw_teacher_id.isdecimal() or int(raw_teacher_id) > _MAX_INT4:
+                return Response(
+                    {'error': 'Параметр teacher_id должен быть целым числом.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            teacher_id = int(raw_teacher_id)
 
-        result = services.build_calendar(d_from, d_to, teacher_id=int(raw_teacher_id))
+        result = services.build_calendar(d_from, d_to, teacher_id=teacher_id)
         return Response(result)
 
 
@@ -121,7 +123,8 @@ class AdminCalendarView(APIView):
 # (generate/reschedule/permanent-change/cancel). Смонтированы под
 # /api/admin/groups (ДО teacher-guard /api) → доступ проверяется на API, а не
 # только на фронте. Мутации проходят DRF SessionAuthentication/CookieJWT →
-# требуют X-CSRFToken (@csrf_exempt не ставим). Аудит — log_event в services.
+# требуют X-CSRFToken (@csrf_exempt не ставим). След мутаций — в «Журнале
+# изменений» (pghistory, правила plan.*), НЕ в журнале ИБ.
 # ---------------------------------------------------------------------------
 
 def _is_unique_violation(exc: Exception) -> bool:

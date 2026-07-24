@@ -22,11 +22,11 @@ def preview_setup(db):
     + extra) и групповым членством — для проверки исключения групповых из превью."""
     ids = {}
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO directions (name, is_individual, active, total_lessons) "
-                    "VALUES ('__pvapi_idir__', true, true, 8) RETURNING id")
+        cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                    "VALUES ('__pvapi_idir__', true, 8) RETURNING id")
         ids['idir'] = cur.fetchone()[0]
-        cur.execute("INSERT INTO directions (name, is_individual, active, total_lessons) "
-                    "VALUES ('__pvapi_gdir__', false, true, 8) RETURNING id")
+        cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                    "VALUES ('__pvapi_gdir__', true, 8) RETURNING id")
         ids['gdir'] = cur.fetchone()[0]
         cur.execute("INSERT INTO teachers (name, active, created_at) "
                     "VALUES ('__pvapi_t__', true, NOW()) RETURNING id")
@@ -39,8 +39,8 @@ def preview_setup(db):
         # индив-группа + слот ср 10:00
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at) "
-            "VALUES ('__pvapi_ig__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW()) RETURNING id",
+            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES ('__pvapi_ig__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW(), 0) RETURNING id",
             [ids['idir'], ids['teacher']])
         ids['igroup'] = cur.fetchone()[0]
         cur.execute(
@@ -54,8 +54,8 @@ def preview_setup(db):
         # групповая группа + членство
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, group_start_date, active, created_at) "
-            "VALUES ('__pvapi_gg__', %s, %s, false, 60, DATE '2026-07-01', true, NOW()) RETURNING id",
+            "lesson_duration_minutes, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES ('__pvapi_gg__', %s, %s, false, 60, DATE '2026-07-01', true, NOW(), 0) RETURNING id",
             [ids['gdir'], ids['teacher']])
         ids['ggroup'] = cur.fetchone()[0]
         cur.execute(

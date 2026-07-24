@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useStudentBalance } from '../../hooks/useStudentBalance';
 import { usePaymentMutations } from '../../hooks/usePayments';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
@@ -95,7 +95,7 @@ function HistoryRow({
       </td>
       <td className="fin-history__author">{p.created_by || <span className="muted">—</span>}</td>
       <td className="fin-history__note">
-        {p.note ? <span title={p.note}>{p.note}</span> : <span className="muted">—</span>}
+        {p.note ? <NoteCell text={p.note} /> : <span className="muted">—</span>}
       </td>
       <td className="fin-history__action">
         <button
@@ -253,5 +253,50 @@ export function StudentBalanceBlock({ studentId }: Props) {
         remainingLessons={data.total_balance}
       />
     </section>
+  );
+}
+
+/**
+ * Комментарий к оплате.
+ *
+ * Раньше текст обрезался одной строкой с многоточием, а целиком его показывал
+ * только нативный тултип — то есть комментарий фактически нельзя было прочитать
+ * (и нельзя было выделить/скопировать). Расширять строку нельзя: в таблице уже
+ * семь колонок, длинный комментарий сломал бы остальные.
+ *
+ * Решение: две строки по умолчанию и раскрытие по месту. Кнопка появляется
+ * только когда текст реально не поместился — это измеряется, а не угадывается
+ * по длине строки, потому что ширина колонки зависит от содержимого таблицы.
+ */
+function NoteCell({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setClamped(el.scrollHeight > el.clientHeight + 1);
+    check();
+    // Ширина колонки меняется от содержимого таблицы и размера окна.
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+
+  return (
+    <div className="note-cell">
+      <p ref={ref} className={`note-cell__text${expanded ? ' is-expanded' : ''}`}>{text}</p>
+      {(clamped || expanded) && (
+        <button
+          type="button"
+          className="note-cell__toggle"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Свернуть' : 'Показать полностью'}
+        </button>
+      )}
+    </div>
   );
 }

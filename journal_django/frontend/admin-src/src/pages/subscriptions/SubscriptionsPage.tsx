@@ -1,6 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { SubscriptionsView } from './SubscriptionsView';
 import { DiscountsView } from './DiscountsView';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 type Tab = 'subscriptions' | 'discounts';
 
@@ -15,26 +16,27 @@ export default function SubscriptionsPage() {
   };
 
   return (
-    <section className="page">
-      <div className="section-head">
-        <h2>Абонементы и скидки</h2>
-        <div className="section-actions">
-          <button
-            type="button"
-            className="btn-secondary"
-            style={tab === 'subscriptions' ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
-            onClick={() => setTab('subscriptions')}
-          >Абонементы</button>
-          <button
-            type="button"
-            className="btn-secondary"
-            style={tab === 'discounts' ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : undefined}
-            onClick={() => setTab('discounts')}
-          >Скидки</button>
-        </div>
-      </div>
-
+    <>
+      <PageHeader
+        title="Абонементы и скидки"
+        actions={
+          <div className="segmented" role="group" aria-label="Раздел">
+            <button
+              type="button"
+              className={`segmented__btn${tab === 'subscriptions' ? ' is-active' : ''}`}
+              aria-pressed={tab === 'subscriptions'}
+              onClick={() => setTab('subscriptions')}
+            >Абонементы</button>
+            <button
+              type="button"
+              className={`segmented__btn${tab === 'discounts' ? ' is-active' : ''}`}
+              aria-pressed={tab === 'discounts'}
+              onClick={() => setTab('discounts')}
+            >Скидки</button>
+          </div>
+        }
+      />
       {tab === 'subscriptions' ? <SubscriptionsView /> : <DiscountsView />}
-    </section>
+    </>
   );
 }

@@ -2,8 +2,8 @@
 Models for students — managed=False, поверх существующей БД.
 
 Таблица students из db/migrations/001_initial_schema.sql.
-DATE-поля (birth_date, first_purchase_date) хранятся как CharField(max_length=10)
-для защиты от timezone drift — та же стратегия что в services/db.js setTypeParser(1082, v=>v).
+DATE-поля (birth_date) хранятся как CharField(max_length=10) для защиты от
+timezone drift — та же стратегия что в services/db.js setTypeParser(1082, v=>v).
 """
 from __future__ import annotations
 
@@ -34,8 +34,6 @@ class Student(models.Model):
     parent2_name = models.TextField(null=True, blank=True)
     parent2_phone = models.TextField(null=True, blank=True)
     parent2_email = models.TextField(null=True, blank=True)
-    first_purchase_date = models.DateField(null=True, blank=True)
-    age = models.IntegerField(null=True, blank=True)
     manager = models.ForeignKey(
         'accounts.Account', on_delete=models.SET_NULL, null=True, blank=True,
         db_column='manager_id', related_name='managed_students',
@@ -52,7 +50,7 @@ class Student(models.Model):
             models.CheckConstraint(
                 name='students_enrollment_status_check',
                 condition=models.Q(enrollment_status__in=[
-                    'enrolled', 'not_enrolled', 'frozen', 'declined']),
+                    'enrolled', 'frozen', 'declined']),
             ),
             # frozen ⟺ обе даты заданы; иначе обе NULL.
             models.CheckConstraint(

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 export interface DetailField<T> {
   key: string;
@@ -66,7 +66,14 @@ interface Props<T> {
   onEdit?: () => void;
   onDelete?: () => Promise<void>;
   deleteLabel?: string;
+  /** Сущность в архиве (active=false). Тогда вместо «Архивировать» показываем
+   *  «Разархивировать» (onRestore) — архивировать уже архивную нелогично. */
+  archived?: boolean;
+  onRestore?: () => Promise<void>;
+  restoreLabel?: string;
   backTo?: string;
+  /** Подпись родительского раздела в крошках («Ученики», «Группы»). */
+  parentLabel?: string;
   /** Скрыть карточку полей (entity-card) — например, когда она вынесена в отдельный таб. */
   hideCard?: boolean;
   children?: ReactNode;
@@ -82,7 +89,11 @@ export function DetailShell<T>({
   onEdit,
   onDelete,
   deleteLabel = 'Архивировать',
+  archived = false,
+  onRestore,
+  restoreLabel = 'Разархивировать',
   backTo,
+  parentLabel,
   hideCard,
   children,
 }: Props<T>) {
@@ -95,17 +106,29 @@ export function DetailShell<T>({
   };
 
   return (
-    <div style={{ animation: 'fadeIn .18s ease' }}>
-      <button
-        type="button"
-        className="back-btn"
-        onClick={() => backTo ? navigate(backTo) : navigate(-1)}
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
-        Назад
-      </button>
+    <div className="detail-page">
+      {/* Крошки вместо голого «← Назад»: кнопка возвращала на шаг, но не
+          отвечала на вопрос «где я» — на карточке ученика, открытой из группы,
+          раздел был неочевиден. Стрелка «назад» осталась первым элементом. */}
+      <nav className="crumbs detail-crumbs" aria-label="Хлебные крошки">
+        <button
+          type="button"
+          className="crumbs__back"
+          onClick={() => backTo ? navigate(backTo) : navigate(-1)}
+          aria-label="Назад"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+        {backTo && (
+          <span className="crumbs__item">
+            <Link to={backTo} className="crumbs__link">{parentLabel ?? 'Назад'}</Link>
+            <span className="crumbs__sep" aria-hidden="true">/</span>
+          </span>
+        )}
+        <span className="crumbs__item"><span aria-current="page">{title}</span></span>
+      </nav>
 
       {customHero ? customHero : (
         <div className="detail-head">
@@ -123,14 +146,28 @@ export function DetailShell<T>({
                 Редактировать
               </button>
             )}
-            {onDelete && (
-              <button
-                type="button"
-                className={`delete-btn${confirmingDelete ? ' is-confirming' : ''}`}
-                onClick={() => { void handleDelete(); }}
-              >
-                {confirmingDelete ? 'Точно?' : deleteLabel}
-              </button>
+            {/* Архивная сущность → «Разархивировать» (восстановление),
+                иначе → «Архивировать» (с подтверждением). */}
+            {archived ? (
+              onRestore && (
+                <button
+                  type="button"
+                  className="restore-btn"
+                  onClick={() => { void onRestore(); }}
+                >
+                  {restoreLabel}
+                </button>
+              )
+            ) : (
+              onDelete && (
+                <button
+                  type="button"
+                  className={`delete-btn${confirmingDelete ? ' is-confirming' : ''}`}
+                  onClick={() => { void handleDelete(); }}
+                >
+                  {confirmingDelete ? 'Точно?' : deleteLabel}
+                </button>
+              )
             )}
           </div>
         </div>

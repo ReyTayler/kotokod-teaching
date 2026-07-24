@@ -103,6 +103,22 @@ class LessonAttendance(models.Model):
         related_name='attendance',
     )
     present = models.BooleanField()
+    # Исход «бесплатное занятие»: ученик присутствовал (present=true), но занятие
+    # бесплатно И для ученика, И для школы. Не трогается баланс ученика (списание
+    # не идёт, в FIFO-потребление не входит по флагу is_free, см. finances) И
+    # зарплата преподавателя (из headcount payroll исключён — за бесплатное занятие
+    # выплаты нет, решение 2026-07-24). Прогресс курса идёт (lessons_done растёт),
+    # сделка продления двигается (present=true). См.
+    # docs/superpowers/specs/2026-07-23-lesson-outcomes-spec.md, исход «Бесплатное занятие».
+    is_free = models.BooleanField(default=False, db_default=False)
+    # Исход «неоплачиваемый пропуск»: ученик этот урок НЕ посещает (перевели /
+    # начал не с 1-го урока). present=false + unpaid_skip=true. Терминально: денег
+    # ноль, из зарплаты преподавателя исключён, в очередь «ждёт решения» (пропуск,
+    # требующий отработки/сжигания) НЕ попадает. Ставится вручную по каждому
+    # ученику, в т.ч. на уже проведённом уроке. Отличается от обычного «не был»
+    # (present=false, unpaid_skip=false), который порождает pending-резолюцию.
+    # См. docs/superpowers/specs/2026-07-23-lesson-outcomes-spec.md.
+    unpaid_skip = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         managed = True
@@ -110,4 +126,46 @@ class LessonAttendance(models.Model):
         unique_together = (('lesson', 'student'),)
         indexes = [
             models.Index(fields=['student'], name='lesson_attendance_student_idx'),
+        ]
+
+
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
+class LessonSkip(models.Model):
+    """
+    Пометка «неоплачиваемый пропуск» на СЛОТ группы (group × student × lesson_number),
+    НЕЗАВИСИМО от того, проведён ли урок этого слота. Нужна, чтобы ставить пропуск на
+    ЕЩЁ НЕ ПРОВЕДЁННЫЕ уроки (будущие слоты), где строки lesson_attendance ещё нет
+    (её негде создать без даты). См. Вариант A в lesson-outcomes-spec.
+
+    Семантика: ученик этот слот НЕ посещает (перевод / начал не с 1-го). Когда группа
+    реально проведёт урок этого слота, record_lesson исключит помеченных учеников из
+    посещаемости/зарплаты (материализует в lesson_attendance.unpaid_skip). На уже
+    проведённом уроке пометка материализуется сразу. Денег ноль, pending не порождает.
+
+    Трекается pghistory: раньше след действия писался в журнал ИБ через
+    log_event('lesson_skip_set') на эндпоинте, но security_audit_log — журнал
+    событий БЕЗОПАСНОСТИ. Пометка пропуска — доменное действие, поэтому её место
+    в «Журнале изменений» (правило group.lesson_skip в apps/changelog/labels.py
+    существовало и раньше, но без трекинга модели не давало ни одной записи).
+    managed=True: таблицу создаёт Django-миграция.
+    """
+    id = models.AutoField(primary_key=True)
+    group = models.ForeignKey('groups.Group', on_delete=models.CASCADE, related_name='lesson_skips')
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='lesson_skips')
+    lesson_number = models.DecimalField(max_digits=5, decimal_places=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'lesson_skips'
+        constraints = [
+            models.UniqueConstraint(fields=['group', 'student', 'lesson_number'],
+                                    name='lesson_skips_group_student_number_key'),
+        ]
+        indexes = [
+            models.Index(fields=['group', 'lesson_number'], name='lesson_skips_group_num_idx'),
         ]

@@ -34,7 +34,6 @@ export default function DirectionDetailPage() {
   const fields: DetailField<Direction>[] = [
     { key: 'id', label: 'ID' },
     { key: 'name', label: 'Название' },
-    { key: 'is_individual', label: 'Индивидуальное', cell: (r) => r.is_individual ? 'да' : 'нет' },
     { key: 'total_lessons', label: 'Уроков на направление',
       cell: (r) => r.total_lessons == null ? '—' : String(r.total_lessons) },
     { key: 'color', label: 'Цвет',
@@ -55,17 +54,26 @@ export default function DirectionDetailPage() {
     } catch (err) { showError(err); }
   };
 
+  const handleRestore = async () => {
+    try {
+      await muts.update.mutateAsync({ id: direction.id, body: { active: true } });
+      toast('Разархивировано', 'ok');
+    } catch (err) { showError(err); }
+  };
+
   return (
     <>
       <DetailShell<Direction>
         title={direction.name}
-        subtitle={direction.is_individual ? 'Индивидуальное направление' : 'Групповое направление'}
         row={direction}
         fields={fields}
         cardTitle="Данные направления"
         onEdit={canWrite ? () => setEditing(true) : undefined}
         onDelete={canWrite ? handleDelete : undefined}
+        archived={!direction.active}
+        onRestore={canWrite ? handleRestore : undefined}
         backTo="/admin/directions"
+        parentLabel="Направления"
       >
         <div className="sub-header">Группы <span className="count-badge">{myGroups.length}</span></div>
         {myGroups.length === 0 ? (

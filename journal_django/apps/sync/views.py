@@ -24,6 +24,8 @@ ACTIONS = {
     'rebuild-counters': tasks.rebuild_counters_task,
     'rebuild-planned-lessons': tasks.rebuild_planned_lessons_task,
     'rebuild-absence-resolutions': tasks.rebuild_absence_resolutions_task,
+    'rebuild-renewals': tasks.rebuild_renewals_task,
+    'rebuild-renewal-dates': tasks.rebuild_renewal_dates_task,
     'run-all': tasks.run_all_task,
 }
 

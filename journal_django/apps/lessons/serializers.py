@@ -26,10 +26,16 @@ VALID_LESSON_TYPES = ('regular', 'substitution', 'reschedule')
 
 
 class AttendanceItemSerializer(serializers.Serializer):
-    """Элемент посещаемости (attendanceItemSchema): student_id + present."""
+    """Элемент посещаемости (attendanceItemSchema): student_id + present + is_free.
+
+    is_free — исход «бесплатное занятие» (present=true, но денег ноль: из зарплаты
+    исключён, баланс/FIFO не трогаются, прогресс/продление идут). Опционален,
+    по умолчанию False. См. lesson-outcomes-spec.
+    """
 
     student_id = serializers.IntegerField(min_value=1)
     present = serializers.BooleanField()
+    is_free = serializers.BooleanField(required=False, default=False)
 
 
 class LessonCreateSerializer(serializers.Serializer):
@@ -75,9 +81,22 @@ class LessonUpdateSerializer(serializers.Serializer):
 
 
 class AttendanceUpdateSerializer(serializers.Serializer):
-    """Вход для toggle посещаемости (updateAttendanceSchema): только present."""
+    """Вход для toggle посещаемости (updateAttendanceSchema): present + is_free.
+
+    is_free — исход «бесплатное занятие» на уже проведённом уроке (present=true,
+    но денег ноль). Опционален, по умолчанию False; при present=false игнорируется
+    (отсутствовавший не может быть «бесплатным»). Позволяет проставить бесплатный
+    урок постфактум — типовой результат разрешения спора после занятия.
+    """
 
     present = serializers.BooleanField()
+    is_free = serializers.BooleanField(required=False, default=False)
+
+
+class UnpaidSkipUpdateSerializer(serializers.Serializer):
+    """Вход для исхода «неоплачиваемый пропуск»: value=true поставить, false снять."""
+
+    value = serializers.BooleanField()
 
 
 class LessonReadSerializer(serializers.Serializer):

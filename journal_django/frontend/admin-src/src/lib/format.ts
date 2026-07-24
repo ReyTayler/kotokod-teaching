@@ -81,3 +81,34 @@ export function fmtLessons(value: number): string {
   if (Number.isInteger(n)) return String(n);
   return n.toFixed(1).replace('.', ',');
 }
+
+/**
+ * Полных лет по дате рождения ('YYYY-MM-DD'), по МСК. null — если даты нет или
+ * она не разобралась.
+ *
+ * Поле `age` удалено из модели ученика: возраст — производное от даты рождения,
+ * а хранить снимок значит держать его вечно устаревающим. Считаем на клиенте,
+ * чтобы не гонять вычисление на сервере (по просьбе).
+ */
+export function ageFromBirthDate(birthDate: string | null | undefined): number | null {
+  if (!birthDate) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(birthDate).trim());
+  if (!m) return null;
+  const by = +m[1], bm = +m[2], bd = +m[3];
+  // «Сегодня» по МСК, чтобы возраст не прыгал в день рождения из-за пояса машины.
+  const [ty, tm, td] = todayMSK().split('-').map(Number);
+  let age = ty - by;
+  if (tm < bm || (tm === bm && td < bd)) age -= 1;
+  return age >= 0 && age < 150 ? age : null;
+}
+
+/** «14 лет» / «21 год» / «2 года» — возраст с правильным словом, или '—'. */
+export function fmtAge(birthDate: string | null | undefined): string {
+  const a = ageFromBirthDate(birthDate);
+  if (a == null) return '—';
+  const mod10 = a % 10, mod100 = a % 100;
+  const word = (mod10 === 1 && mod100 !== 11) ? 'год'
+    : ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) ? 'года'
+    : 'лет';
+  return `${a} ${word}`;
+}

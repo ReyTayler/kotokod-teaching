@@ -23,10 +23,14 @@ _SERVER_DERIVED_FIELDS = {
 
 
 class StudentAttendanceSerializer(serializers.Serializer):
-    """Элемент списка студентов в submitLesson: {name: str, present: bool}."""
+    """Элемент списка студентов в submitLesson: {name, present, is_free?}.
+
+    is_free — исход «бесплатное занятие» (опц., по умолчанию False). См.
+    lesson-outcomes-spec."""
 
     name = serializers.CharField()
     present = serializers.BooleanField()
+    is_free = serializers.BooleanField(required=False, default=False)
 
 
 class SubmitLessonSerializer(serializers.Serializer):

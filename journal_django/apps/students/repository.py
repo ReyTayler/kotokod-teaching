@@ -35,12 +35,14 @@ def _dictfetchall(cursor) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 # Whitelist sort_by → ORM-поле. id DESC — вторичная сортировка.
+# «age» → «birth_date»: возраст удалён из модели и считается на фронте из даты
+# рождения, а birth_date монотонно связан с возрастом (раньше дата рождения =
+# старше = больше возраст), поэтому сортировка по нему = сортировка по возрасту.
 _SORTABLE: dict[str, str] = {
     'id':                  'id',
     'full_name':           'full_name',
-    'age':                 'age',
+    'birth_date':          'birth_date',
     'enrollment_status':   'enrollment_status',
-    'first_purchase_date': 'first_purchase_date',
     'created_at':          'created_at',
 }
 
@@ -54,7 +56,7 @@ _STUDENT_VALUES_FIELDS = (
     'id', 'full_name', 'birth_date', 'platform_id', 'bitrix24_link',
     'parent1_name', 'parent1_phone', 'parent1_email',
     'parent2_name', 'parent2_phone', 'parent2_email',
-    'first_purchase_date', 'age', 'manager_id',
+    'manager_id',
     'enrollment_status', 'frozen_from', 'frozen_until', 'created_at',
 )
 
@@ -63,7 +65,7 @@ def _apply_filters(qs, filters: dict[str, Any]):
     """
     Фильтры (мимикрируют F.*-билдеры services/pagination.js):
       full_name (LIKE), parent1_phone/parent1_name/platform_id (likeNullable),
-      manager_id (exact), enrollment_status (exact), age (num).
+      manager_id (exact), enrollment_status (exact).
 
     likeNullable (col IS NOT NULL AND LOWER(col) LIKE) выражается __icontains —
     NULL по col не матчится автоматически, поэтому IS NOT NULL избыточен.
@@ -85,7 +87,7 @@ def _apply_filters(qs, filters: dict[str, Any]):
         try:
             manager_id = int(manager_id)
         except (TypeError, ValueError):
-            pass  # невалидное значение — фильтр молча игнорируется, как age ниже
+            pass  # невалидное значение — фильтр молча игнорируется
         else:
             qs = qs.filter(manager_id=manager_id)
 
@@ -97,10 +99,8 @@ def _apply_filters(qs, filters: dict[str, Any]):
     if enrollment_status not in (None, ''):
         qs = qs.filter(enrollment_status=str(enrollment_status))
 
-    age = filters.get('age')
-    if age not in (None, ''):
-        qs = qs.filter(age=int(age))
-
+    # Фильтра по возрасту нет: поле удалено, возраст считается на фронте из
+    # birth_date (вычисляемое → не фильтруется SQL-ом без пересчёта в диапазон дат).
     return qs
 
 
@@ -165,8 +165,6 @@ def create_student(data: dict) -> dict:
         parent2_name=data.get('parent2_name') or None,
         parent2_phone=data.get('parent2_phone') or None,
         parent2_email=data.get('parent2_email') or None,
-        first_purchase_date=data.get('first_purchase_date') or None,
-        age=data.get('age') if data.get('age') is not None else None,
         enrollment_status=data.get('enrollment_status') or 'enrolled',
         frozen_from=data.get('frozen_from') or None,
         frozen_until=data.get('frozen_until') or None,
@@ -209,10 +207,6 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
         obj.parent2_phone = data['parent2_phone']
     if data.get('parent2_email'):
         obj.parent2_email = data['parent2_email']
-    if data.get('first_purchase_date'):
-        obj.first_purchase_date = data['first_purchase_date']
-    if data.get('age') is not None:
-        obj.age = data['age']
     if data.get('enrollment_status'):
         obj.enrollment_status = data['enrollment_status']
     # frozen_from/frozen_until — всегда перезаписываем (absent → None-сброс),
@@ -226,12 +220,6 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
     ))
 
 
-def soft_delete_student(student_id: int) -> bool:
-    """Мягкое удаление: enrollment_status='not_enrolled', frozen_from/until=NULL."""
-    updated = Student.objects.filter(id=student_id).update(
-        enrollment_status='not_enrolled', frozen_from=None, frozen_until=None,
-    )
-    return updated > 0
 
 
 def student_stats(student_id: int) -> dict:
@@ -272,19 +260,31 @@ def student_stats(student_id: int) -> dict:
                     d.total_lessons AS course_total_lessons,
                     te.name  AS teacher_name,
                     te.id    AS teacher_id,
-                    COUNT(la.*) FILTER (WHERE la.present)::int                                  AS attended_count,
-                    COUNT(DISTINCT l.id)::int                                                   AS lessons_recorded,
+                    -- Взвешивание half-lesson: 45-мин занятие = 0.5 урока, иначе 1.
+                    -- Раньше здесь был сырой COUNT(*), из-за чего 39 занятий по 45 мин
+                    -- показывались как «39 из 56», хотя это 19.5 урока. Вес берём из
+                    -- длительности САМОГО урока (l.lesson_duration_minutes) — ровно как
+                    -- в балансе (apps/finances), чтобы прогресс и баланс совпадали.
+                    -- Одна la на (урок, ученик) [UNIQUE], поэтому SUM по строкам = SUM
+                    -- по уникальным урокам (COUNT DISTINCT больше не нужен).
+                    COALESCE(SUM(CASE WHEN la.present
+                                      THEN CASE WHEN l.lesson_duration_minutes = 45 THEN 0.5 ELSE 1 END
+                                 END), 0)                                                        AS attended_count,
+                    COALESCE(SUM(CASE WHEN l.id IS NOT NULL
+                                      THEN CASE WHEN l.lesson_duration_minutes = 45 THEN 0.5 ELSE 1 END
+                                 END), 0)                                                        AS lessons_recorded,
                     MIN(CASE WHEN la.present THEN l.lesson_date END)                            AS first_attended,
                     MAX(CASE WHEN la.present THEN l.lesson_date END)                            AS last_attended,
-                    COUNT(DISTINCT l.id) FILTER (
-                      WHERE l.lesson_date >= (SELECT m_start FROM msk_month)
-                        AND l.lesson_date <  (SELECT m_end   FROM msk_month)
-                    )::int                                                                       AS month_lessons,
-                    COUNT(la.*) FILTER (
-                      WHERE la.present
-                        AND l.lesson_date >= (SELECT m_start FROM msk_month)
-                        AND l.lesson_date <  (SELECT m_end   FROM msk_month)
-                    )::int                                                                       AS month_attended
+                    COALESCE(SUM(CASE WHEN l.id IS NOT NULL
+                                       AND l.lesson_date >= (SELECT m_start FROM msk_month)
+                                       AND l.lesson_date <  (SELECT m_end   FROM msk_month)
+                                      THEN CASE WHEN l.lesson_duration_minutes = 45 THEN 0.5 ELSE 1 END
+                                 END), 0)                                                        AS month_lessons,
+                    COALESCE(SUM(CASE WHEN la.present
+                                       AND l.lesson_date >= (SELECT m_start FROM msk_month)
+                                       AND l.lesson_date <  (SELECT m_end   FROM msk_month)
+                                      THEN CASE WHEN l.lesson_duration_minutes = 45 THEN 0.5 ELSE 1 END
+                                 END), 0)                                                        AS month_attended
                FROM group_memberships gm
                JOIN groups g    ON g.id = gm.group_id
                JOIN directions d ON d.id = g.direction_id
@@ -314,16 +314,21 @@ def student_stats(student_id: int) -> dict:
 
     student_balance = balance_for_student(student_id)
 
-    # Строим список статистики по группам (аналог JS groupStats.map())
+    # Строим список статистики по группам (аналог JS groupStats.map()).
+    # recorded/attended теперь ДРОБНЫЕ (взвешены half-lesson) — держим float, не int
+    # (int(19.5) обрезал бы до 19). Веса кратны 0.5, float точен.
     group_stats: list[dict] = []
     for r in groups_raw:
-        recorded = int(r['lessons_recorded'] or 0)
-        attended = int(r['attended_count'] or 0)
+        recorded = float(r['lessons_recorded'] or 0)
+        attended = float(r['attended_count'] or 0)
         plan = int(r['course_total_lessons']) if r['course_total_lessons'] is not None else None
         denom = plan if (plan is not None and plan > 0) else recorded
-        pct = _js_round(attended / denom) if denom > 0 else None
-        month_lessons = int(r['month_lessons'] or 0)
-        month_attended = int(r['month_attended'] or 0)
+        # Прогресс курса не превышает 100%: доп.уроки сверх плана (kind='extra')
+        # реально проведены и наращивают attended, но completion курса зажат планом.
+        # «Сверх курса» (attended − denom) показывает фронт отдельной пометкой.
+        pct = min(_js_round(attended / denom), 100.0) if denom > 0 else None
+        month_lessons = float(r['month_lessons'] or 0)
+        month_attended = float(r['month_attended'] or 0)
 
         group_stats.append({
             'membership_id':           r['membership_id'],
@@ -401,7 +406,8 @@ def student_stats(student_id: int) -> dict:
         directions.append({
             **d,
             'denominator':    denom,
-            'attendance_pct': _js_round(d['attended_count'] / denom) if denom > 0 else None,
+            # Прогресс курса зажат на 100% (доп.уроки сверх плана не раздувают completion).
+            'attendance_pct': min(_js_round(d['attended_count'] / denom), 100.0) if denom > 0 else None,
             'this_month': {
                 **d['this_month'],
                 'attendance_pct': _js_round(month_attended / month_lessons) if month_lessons > 0 else None,
@@ -429,7 +435,7 @@ def student_stats(student_id: int) -> dict:
         totals['month_attended']   += g['this_month']['attended_count']
 
     overall_pct = (
-        _js_round(totals['attended_count'] / totals['denominator'])
+        min(_js_round(totals['attended_count'] / totals['denominator']), 100.0)
         if totals['denominator'] > 0 else None
     )
     month_pct = (

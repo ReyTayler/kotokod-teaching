@@ -44,8 +44,13 @@ export function AppShell() {
           {/* Сброс boundary по pathname (смена раздела), НЕ по location.key —
               key меняется на каждый setSearchParams (фильтр/пагинация/сортировка)
               и ремоунтил бы всю страницу на каждый символ фильтра. */}
+          {/* .app-page задаёт потолок ширины и вертикальный ритм секций.
+              Липкая шапка страницы (PageHeader) рендерится страницей ВНУТРИ
+              .page и выравнивается по той же колонке. */}
           <ErrorBoundary key={location.pathname}>
-            <Outlet />
+            <div className="app-page">
+              <Outlet />
+            </div>
           </ErrorBoundary>
         </main>
         {showBurger && (

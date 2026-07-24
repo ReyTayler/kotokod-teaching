@@ -7,8 +7,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
 import { TextInput } from '../../components/form/TextInput';
 import { NumberInput } from '../../components/form/NumberInput';
-import { Checkbox } from '../../components/form/Checkbox';
-import { ColorInput } from '../../components/form/ColorInput';
+import { ColorField } from '../../components/form/ColorField';
 import type { Direction } from '../../lib/types';
 
 interface Props { initial: Direction | null; onClose: () => void; }
@@ -24,8 +23,6 @@ export default function DirectionFormModal({ initial, onClose }: Props) {
     initial?.total_lessons != null ? String(initial.total_lessons) : '',
   );
   const [color, setColor] = useState(initial?.color || '#0d9488');
-  const [isIndividual, setIsIndividual] = useState(initial?.is_individual || false);
-  const [active, setActive] = useState(initial?.active ?? true);
   const [subscriptionPrice, setSubscriptionPrice] = useState<string>(
     initial?.subscription_price != null ? String(initial.subscription_price) : '',
   );
@@ -37,9 +34,7 @@ export default function DirectionFormModal({ initial, onClose }: Props) {
       total_lessons: totalLessons === '' ? null : Number(totalLessons),
       subscription_price: subscriptionPrice.trim() === '' ? null : Number(subscriptionPrice),
       color: color || null,
-      is_individual: isIndividual,
     };
-    if (!isNew) body.active = active;
 
     try {
       if (isNew) {
@@ -82,17 +77,9 @@ export default function DirectionFormModal({ initial, onClose }: Props) {
             placeholder="не настроена"
           />
         </Field>
-        <Field label="Цвет направления">
-          <ColorInput value={color} onChange={(e) => setColor(e.target.value)} />
+        <Field label="Цвет направления" full>
+          <ColorField value={color} onChange={setColor} />
         </Field>
-        <Field label="Индивидуальное">
-          <Checkbox checked={isIndividual} onChange={(e) => setIsIndividual(e.target.checked)} />
-        </Field>
-        {!isNew && (
-          <Field label="Активен">
-            <Checkbox checked={active} onChange={(e) => setActive(e.target.checked)} />
-          </Field>
-        )}
       </form>
     </Dialog>
   );

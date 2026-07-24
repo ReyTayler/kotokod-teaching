@@ -30,8 +30,8 @@ def graph():
     }
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, is_individual, total_lessons, active) "
-            "VALUES ('__reg_bal_dir__', false, 16, true) RETURNING id"
+            "INSERT INTO directions (name, total_lessons, active) "
+            "VALUES ('__reg_bal_dir__', 16, true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
         created['directions'].append(direction_id)
@@ -42,7 +42,8 @@ def graph():
 
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, active) VALUES ('__reg_bal_group__', %s, %s, false, 60, true) "
+            "lesson_duration_minutes, active, lesson_number_offset) "
+            "VALUES ('__reg_bal_group__', %s, %s, false, 60, true, 0) "
             "RETURNING id",
             [direction_id, teacher_id],
         )

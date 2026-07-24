@@ -63,11 +63,9 @@ interface Props {
   initialStatus?: EnrollmentStatus;
 }
 
-// Короткие пояснения под селектом — снимают путаницу «Не учится» vs «Заморожен».
+// Короткие пояснения под селектом — снимают путаницу «Отказался» vs «Заморожен».
 const STATUS_HELP: Record<EnrollmentStatus, string> = {
   enrolled: 'Ученик учится в обычном режиме — посещаемость и оплаты идут как раньше.',
-  not_enrolled: 'Ученик отчислен без сохранения места. Это НЕ то же самое, что «Заморожен»: '
-    + 'выбранные членства закрываются насовсем, а не приостанавливаются на срок.',
   frozen: 'Учёба приостановлена на период. Индивидуальные занятия сдвигаются на дату '
     + 'возврата, групповые членства закрываются на время заморозки — вернуть их можно '
     + 'кнопкой «Разморозить».',
@@ -121,7 +119,7 @@ export function StudentStatusModal({ studentId, open, onClose, memberships, init
   }, [frozenFrom]);
 
   const needsDates = status === 'frozen';
-  const needsMemberships = status === 'frozen' || status === 'declined' || status === 'not_enrolled';
+  const needsMemberships = status === 'frozen' || status === 'declined';
 
   const individualMemberships = useMemo(
     () => memberships.filter((m) => m.is_individual), [memberships],

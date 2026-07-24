@@ -31,6 +31,8 @@ h4 { font-size: 14px; }
 .shell { display: flex; min-height: 100vh; }
 .sidebar {
   width: var(--sidebar-w);
+  flex-shrink: 0;
+  min-width: var(--sidebar-w);
   min-height: 100vh;
   background: var(--bg);
   border-right: 1px solid var(--border);
@@ -42,4 +44,51 @@ h4 { font-size: 14px; }
   height: 100vh;
   flex-shrink: 0;
 }
-.main { flex: 1; padding: 28px 32px; min-width: 0; overflow-y: auto; }
+/* Колонка контента. Внешние поля задаёт .main, а ширину ограничивает
+   внутренний .page — иначе липкая шапка страницы не смогла бы растянуться
+   на всю ширину области, оставаясь выровненной по контенту. */
+.main { flex: 1; min-width: 0; overflow-y: auto; }
+
+/* Рамка страницы: единственное место, где живут поля и потолок ширины.
+   Имя с префиксом app-: короткое «page» уже использовалось как класс-пустышка
+   на странице абонементов, и глобальное правило внезапно к ней применилось —
+   контент оказался ограничен и отцентрован дважды.
+   До этого .main раздавал padding напрямую и ширина не ограничивалась ничем —
+   на широком мониторе строка таблицы из 9 колонок растягивалась через весь
+   экран, и на обратном ходе взгляд терял строку. */
+.app-page {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 0 var(--page-pad-x) var(--space-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+}
+@media (max-width: 900px) {
+  .app-page { padding: 0 var(--space-4) var(--space-8); }
+}
+
+
+/* ============================================================
+ *  ФОКУС — единое кольцо для всего интерфейса.
+ *  Жило в overrides.css, файле-«догонялке», который импортировался
+ *  последним и переспоривал каскад. Файл расформирован: правила
+ *  переехали к своим владельцам, это — сюда, к глобальным.
+ *  outline снимается только для мыши; :focus-visible всегда виден.
+ * ============================================================ */
+*:focus { outline: none; }
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.nav-btn:focus-visible { outline-offset: -2px; }
+/* Карточки, работающие кнопками (role="button" + tabIndex). */
+.dir-card:focus-visible,
+.link-card:focus-visible,
+.student-row-card:focus-visible,
+.token-row:focus-visible,
+.modal-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

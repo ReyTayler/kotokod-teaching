@@ -76,6 +76,16 @@ export function useLessonFull(id: number | null) {
   });
 }
 
+/** student_id, помеченных «неоплачиваемый пропуск» на слот (в т.ч. ещё не проведённый). */
+export function useLessonSkips(groupId: number, lessonNumber: number, enabled = true) {
+  return useQuery({
+    queryKey: ['lesson-skips', groupId, lessonNumber],
+    queryFn: () => api<{ student_ids: number[] }>(
+      'GET', `/api/admin/groups/${groupId}/lesson-skips?lesson_number=${lessonNumber}`),
+    enabled: enabled && groupId > 0,
+  });
+}
+
 export function useLessonMutations() {
   const qc = useQueryClient();
   const invalidate = () => {
@@ -83,6 +93,7 @@ export function useLessonMutations() {
     qc.invalidateQueries({ queryKey: ['payroll'] });
     qc.invalidateQueries({ queryKey: ['memberships'] });
     qc.invalidateQueries({ queryKey: ['students'] });
+    qc.invalidateQueries({ queryKey: ['lesson-skips'] });
   };
   return {
     create: useMutation({
@@ -99,10 +110,30 @@ export function useLessonMutations() {
       mutationFn: (id: number) => api<void>('DELETE', `/api/admin/lessons/${id}`),
       onSuccess: invalidate,
     }),
+    // present + is_free: «бесплатно» = present:true, is_free:true. is_free
+    // необязателен (по умолчанию сервер трактует как false). Позволяет менять
+    // исход ячейки уже проведённого урока (в т.ч. проставить бесплатный постфактум).
     toggleAttendance: useMutation({
-      mutationFn: ({ lessonId, studentId, present }:
-        { lessonId: number; studentId: number; present: boolean }) =>
-        api<{ ok: true }>('PATCH', `/api/admin/lessons/${lessonId}/attendance/${studentId}`, { present }),
+      mutationFn: ({ lessonId, studentId, present, is_free }:
+        { lessonId: number; studentId: number; present: boolean; is_free?: boolean }) =>
+        api<{ ok: true }>('PATCH', `/api/admin/lessons/${lessonId}/attendance/${studentId}`,
+          { present, is_free: !!is_free }),
+      onSuccess: invalidate,
+    }),
+    // Исход «неоплачиваемый пропуск»: поставить/снять (в т.ч. на проведённом уроке).
+    setUnpaidSkip: useMutation({
+      mutationFn: ({ lessonId, studentId, value }:
+        { lessonId: number; studentId: number; value: boolean }) =>
+        api<{ ok: true }>('PATCH', `/api/admin/lessons/${lessonId}/unpaid-skip/${studentId}`, { value }),
+      onSuccess: invalidate,
+    }),
+    // Пометка «неоплачиваемый пропуск» на СЛОТ группы — работает и на ещё не
+    // проведённом уроке (без даты). Вариант A.
+    setGroupLessonSkip: useMutation({
+      mutationFn: ({ groupId, studentId, lessonNumber, value }:
+        { groupId: number; studentId: number; lessonNumber: number; value: boolean }) =>
+        api<{ ok: true }>('PATCH', `/api/admin/groups/${groupId}/lesson-skips`,
+          { student_id: studentId, lesson_number: lessonNumber, value }),
       onSuccess: invalidate,
     }),
   };

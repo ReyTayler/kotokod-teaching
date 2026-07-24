@@ -25,13 +25,14 @@ from apps.core.utils.orm import dictrow, dictrows
 from apps.groups.models import Group
 from apps.students.models import Student
 
-from .models import Lesson, LessonAttendance
+from .models import Lesson, LessonAttendance, LessonSkip
 from apps.payroll.models import Payroll
 from apps.payroll.calculator import calculate_payment
 from apps.memberships.models import GroupMembership
+from apps.memberships.repository import locked_through
 from apps.scheduling.repository import unlink_fact
 from apps.finances.repository import balances_for_students
-from .exceptions import LessonHasMakeupResolutions, UnpaidAttendanceBlocked
+from .exceptions import AttendanceLockedByTransfer, LessonHasMakeupResolutions, UnpaidAttendanceBlocked
 
 
 def _sync_renewal_stage(student_id: int, direction_id: int | None) -> None:
@@ -131,6 +132,12 @@ def insert_attendance(lesson_id: int, attendance: list[dict]) -> None:
                 lesson_id=lesson_id,
                 student_id=a['student_id'],
                 present=bool(a['present']),
+                # Исход «бесплатное занятие»: present=true, но деньги не трогаются
+                # (баланс/FIFO/зарплата исключают эту строку). См. lesson-outcomes-spec.
+                is_free=bool(a.get('is_free', False)),
+                # Исход «неоплачиваемый пропуск»: present=false, из зарплаты исключён,
+                # pending не порождает (в отличие от обычного «не был»).
+                unpaid_skip=bool(a.get('unpaid_skip', False)),
             )
             for a in attendance if a['student_id'] in valid
         ],
@@ -275,7 +282,8 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
         LessonAttendance.objects
         .filter(lesson_id=lesson_id)
         .order_by('student__full_name')
-        .values('student_id', 'present', student_name=F('student__full_name'))
+        .values('student_id', 'present', 'is_free', 'unpaid_skip',
+                student_name=F('student__full_name'))
     )
     # compensated=true — пропуск этого ученика уже закрыт доп.уроком (makeup_done)
     # или сожжён (burned): его ячейку нельзя флипать в present (двойной учёт),
@@ -380,16 +388,32 @@ def delete_lesson_full(lesson_id: int) -> bool:
     return details.get('lessons.Lesson', 0) > 0
 
 
-def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bool:
+def update_attendance_cell(
+    lesson_id: int, student_id: int, present: bool, is_free: bool = False,
+) -> bool:
     """
-    Toggle present одной ячейки (UPSERT) + корректировка lessons_done дельтой +
+    Toggle исхода одной ячейки (UPSERT) + корректировка lessons_done дельтой +
     пересчёт Payroll.present_count/payment (не penalty — она про своевременность
     исходной записи урока, не должна меняться от последующей правки посещаемости).
 
-    Бросает UnpaidAttendanceBlocked, если переключают В present:true ученика
-    без оплаченных уроков (assert_students_paid) — ДО любых изменений, но
-    ПОСЛЕ проверки существования урока (несуществующий lesson_id → False,
-    как и раньше, а не блокировка по балансу).
+    is_free — исход «бесплатное занятие»: present=true; денег «ноль» и у УЧЕНИКА
+    (баланс/FIFO не трогают по флагу is_free, см. finances), и у преподавателя
+    (из headcount зарплаты исключён — за бесплатное занятие выплаты нет, решение
+    2026-07-24). Позволяет проставить бесплатный урок ПОСТФАКТУМ (типовой результат
+    разрешения спора после занятия). is_free при present=false принудительно
+    сбрасывается (отсутствовавший «бесплатным» быть не может). Прогресс (lessons_done)
+    и сделку продления бесплатный урок двигает как обычное присутствие (следует present).
+
+    Бросает UnpaidAttendanceBlocked, если переключают В present:true ПЛАТНОГО
+    (не free) ученика без оплаченных уроков (assert_students_paid) — ДО любых
+    изменений, но ПОСЛЕ проверки существования урока (несуществующий lesson_id →
+    False, а не блокировка по балансу). Для free баланс не требуется (как в
+    record_lesson).
+
+    Бросает AttendanceLockedByTransfer (apps.memberships.repository.locked_through),
+    если ученик переведён в эту группу и урок с lesson_number <= уже отработанного
+    им в старой группе — ДО assert_students_paid (структурный запрет важнее баланса),
+    действует и на present:true, и на present:false (никак не отмечается).
 
     True→True (no-op) сохраняет прежнее значение. НЕ создаёт «сгораний» —
     ретроактивная отметка пропуска задним числом теперь идёт через раздел
@@ -406,13 +430,29 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
             Lesson.objects
             .select_for_update()
             .filter(id=lesson_id)
-            .values('group_id', 'lesson_duration_minutes')
+            .values('group_id', 'lesson_duration_minutes', 'lesson_number')
             .first()
         )
         if ctx is None:
             return False
 
-        if present:
+        step = _step(ctx['lesson_duration_minutes'])
+        # free только вместе с present; отсутствовавший «бесплатным» быть не может.
+        free_val = bool(is_free) and bool(present)
+
+        locked_b = locked_through(student_id, ctx['group_id'])
+        if locked_b > 0 and ctx['lesson_number'] <= locked_b:
+            # Наименьшее значение в шаг-сетке ЭТОЙ группы (шаг может отличаться от
+            # шага исходной группы при переводе между группами разной длительности),
+            # строго больше locked_b — иначе, например, при locked_b=3.5 (перевод из
+            # 45-мин группы) и step=1 (сюда, 60 мин) locked_b+step дал бы «4.5», хотя
+            # номера уроков этой группы — только целые.
+            unlocks_at = (locked_b // step + 1) * step
+            raise AttendanceLockedByTransfer(unlocks_at)
+
+        # Баланс нужен только платному present; бесплатное занятие (free) его не
+        # требует — так же, как record_lesson исключает free из assert_students_paid.
+        if present and not free_val:
             assert_students_paid([student_id])
 
         prev = (
@@ -423,14 +463,14 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
         )
         prev_present = prev['present'] if prev is not None else None
 
-        step = _step(ctx['lesson_duration_minutes'])
         nxt = bool(present)
 
         LessonAttendance.objects.bulk_create(
-            [LessonAttendance(lesson_id=lesson_id, student_id=student_id, present=nxt)],
+            [LessonAttendance(lesson_id=lesson_id, student_id=student_id,
+                              present=nxt, is_free=free_val)],
             update_conflicts=True,
             unique_fields=['lesson', 'student'],
-            update_fields=['present'],
+            update_fields=['present', 'is_free'],
         )
 
         delta = Decimal('0')
@@ -458,9 +498,14 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
         # и последний commit тихо затёр бы вклад первого (lost update).
         payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
         if payroll is not None:
-            total_students = LessonAttendance.objects.filter(lesson_id=lesson_id).count()
+            # Из headcount зарплаты исключены unpaid_skip (неоплачиваемый пропуск) И
+            # is_free (бесплатное занятие) — за бесплатное преподавателю не платят
+            # (решение 2026-07-24). См. lesson-outcomes-spec.
+            total_students = LessonAttendance.objects.filter(
+                lesson_id=lesson_id, unpaid_skip=False, is_free=False,
+            ).count()
             present_total = LessonAttendance.objects.filter(
-                lesson_id=lesson_id, present=True,
+                lesson_id=lesson_id, present=True, unpaid_skip=False, is_free=False,
             ).count()
             is_half = ctx['lesson_duration_minutes'] == 45
             payroll.total_students = total_students
@@ -469,3 +514,91 @@ def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bo
             payroll.save(update_fields=['total_students', 'present_count', 'payment'])
 
         return True
+
+
+def set_unpaid_skip(lesson_id: int, student_id: int, value: bool) -> bool:
+    """
+    Ставит/снимает исход «неоплачиваемый пропуск» для ученика на уроке — В ТОМ
+    ЧИСЛЕ на уже проведённом и ученику, которого тогда в группе не было (строка
+    создаётся задним числом). value=True → present=false, unpaid_skip=true (ученик
+    этот урок не посещает: денег ноль, из зарплаты исключён, pending НЕ порождает).
+    value=False → снимает пометку (удаляет строку). Пересчитывает Payroll. False →
+    урока нет.
+
+    Осознанный компромисс: если у ученика была реальная отметка present=true, upsert
+    её перезапишет (present→false). Кейс использования — пометка пропусков вновь
+    добавленному/переведённому ученику на уроках 1..N, где строки ещё нет.
+    """
+    with transaction.atomic():
+        ctx = (
+            Lesson.objects.select_for_update()
+            .filter(id=lesson_id)
+            .values('lesson_duration_minutes')
+            .first()
+        )
+        if ctx is None:
+            return False
+
+        if value:
+            LessonAttendance.objects.bulk_create(
+                [LessonAttendance(lesson_id=lesson_id, student_id=student_id,
+                                  present=False, unpaid_skip=True)],
+                update_conflicts=True,
+                unique_fields=['lesson', 'student'],
+                update_fields=['present', 'unpaid_skip'],
+            )
+        else:
+            LessonAttendance.objects.filter(
+                lesson_id=lesson_id, student_id=student_id, unpaid_skip=True,
+            ).delete()
+
+        payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
+        if payroll is not None:
+            # Вне зарплаты: unpaid_skip И is_free (за бесплатное занятие препод
+            # выплаты не получает, решение 2026-07-24).
+            total_students = LessonAttendance.objects.filter(
+                lesson_id=lesson_id, unpaid_skip=False, is_free=False).count()
+            present_total = LessonAttendance.objects.filter(
+                lesson_id=lesson_id, present=True, unpaid_skip=False, is_free=False).count()
+            is_half = ctx['lesson_duration_minutes'] == 45
+            payroll.total_students = total_students
+            payroll.present_count = present_total
+            payroll.payment = calculate_payment(total_students, present_total, is_half)
+            payroll.save(update_fields=['total_students', 'present_count', 'payment'])
+        return True
+
+
+def list_lesson_skips(group_id: int, lesson_number) -> list[int]:
+    """student_id учеников, помеченных «неоплачиваемый пропуск» на СЛОТ (group ×
+    lesson_number) — независимо от того, проведён ли урок. См. LessonSkip."""
+    return list(
+        LessonSkip.objects
+        .filter(group_id=group_id, lesson_number=Decimal(str(lesson_number)))
+        .values_list('student_id', flat=True)
+    )
+
+
+def set_lesson_skip(group_id: int, student_id: int, lesson_number, value: bool) -> None:
+    """Ставит/снимает пометку «неоплачиваемый пропуск» на СЛОТ группы — РАБОТАЕТ И
+    НА ЕЩЁ НЕ ПРОВЕДЁННОМ уроке (даты/урока-записи не требуется). Если урок этого
+    слота уже проведён — сразу материализует в lesson_attendance.unpaid_skip и
+    пересчитывает Payroll (через set_unpaid_skip). См. Вариант A в lesson-outcomes-spec."""
+    num = Decimal(str(lesson_number))
+    if value:
+        LessonSkip.objects.get_or_create(
+            group_id=group_id, student_id=student_id, lesson_number=num)
+    else:
+        LessonSkip.objects.filter(
+            group_id=group_id, student_id=student_id, lesson_number=num).delete()
+
+    # Материализация на уже проведённом уроке этого слота (regular/substitution/
+    # reschedule — не extra/burned, как в LessonGrid).
+    lesson_id = (
+        Lesson.objects
+        .filter(group_id=group_id, lesson_number=num)
+        .exclude(lesson_type__in=('extra', 'burned'))
+        .values_list('id', flat=True)
+        .first()
+    )
+    if lesson_id is not None:
+        set_unpaid_skip(lesson_id, student_id, value)

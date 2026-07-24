@@ -1,9 +1,19 @@
-/* ── TABLE ── */
+/* ── TABLE ──
+   Панель таблицы: мягкий крупный радиус + тень. Рамка осталась, но теперь она
+   почти неразличима (--border2) и служит краем, а не разделителем — глубину
+   даёт тень. Раньше панель отделялась только рамкой в 8% чёрного, отчего экран
+   читался как чертёж. */
+.table-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
 .table-wrap {
-  border-radius: var(--r);
-  border: 1px solid var(--border);
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
+  max-height: calc(100vh - 280px);
+  overscroll-behavior: contain;
 }
 table { width: 100%; min-width: max-content; border-collapse: collapse; }
 thead th {
@@ -33,37 +43,26 @@ tbody tr {
   border-bottom: 1px solid var(--border2);
 }
 tbody tr:last-child { border-bottom: none; }
+/* Наведение подсвечивает строку целиком — при плотных 8px это главный
+   ориентир «где я в таблице», поэтому фон заметнее прежнего. */
 tbody tr:hover { background: var(--bg3); }
 .data-table thead tr:nth-child(2) th { padding: 4px 8px; background: var(--bg3); border-bottom: 1px solid var(--border); }
 
-/* ── EMPTY ── */
-.empty { padding: 40px; text-align: center; color: var(--text3); font-size: 15px; }
 
-/* ── COLUMN FILTERS IN THEAD ── */
-.thead-filters th { padding: 4px 10px !important; background: var(--bg3) !important; border-bottom: 1px solid var(--border) !important; }
-.col-filter-cell { background: var(--bg3) !important; }
-.col-filter {
-  width: 100%; box-sizing: border-box; min-width: 0;
-  background: var(--bg2); border: 1px solid var(--border);
-  border-radius: var(--r-sm); color: var(--text2);
-  font: inherit; font-size: 13px; padding: 5px 8px;
-  outline: none; transition: border-color .15s, box-shadow .15s;
-  font-family: 'Steppe', 'Manrope', 'Inter', system-ui, sans-serif;
-}
-.col-filter::placeholder { color: var(--text4); }
-.col-filter:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 8%, transparent); }
-.col-filter--select { cursor: pointer; appearance: none; padding-right: 18px; background-image: linear-gradient(45deg, transparent 50%, var(--text3) 50%), linear-gradient(135deg, var(--text3) 50%, transparent 50%); background-position: calc(100% - 9px) 50%, calc(100% - 5px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
-[data-theme="dark"] .thead-filters th { background: #232a3a !important; border-bottom-color: #303d55 !important; }
-[data-theme="dark"] .col-filter-cell { background: #232a3a !important; }
-[data-theme="dark"] .col-filter { background: #1e2433; border-color: #3a4660; color: var(--text2); }
+/* Фильтры колонок переехали в тулбар над таблицей (FilterBar в DataTable.tsx),
+   их прежние стили .thead-filters/.col-filter удалены как оставшиеся без разметки. */
+/* Поверхности фильтров тянутся из токенов — отдельная тёмная тема не нужна
+   (var(--bg3)/var(--bg2) сами переключаются), поэтому три правила с хардкодом
+   #232a3a / #303d55 / #1e2433 / #3a4660 удалены.
+   Осталась только правка бордера, которой в светлой теме не видно. */
 
 /* ── ENTITY DATA CARD (collapsible) ── */
 .entity-card {
   background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-xl);
   overflow: hidden;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
   transition: box-shadow .2s, border-color .2s;
 }
 .entity-card:hover { box-shadow: 0 2px 12px rgba(15, 23, 42, .04); border-color: var(--border2); }
@@ -109,13 +108,13 @@ tbody tr:hover { background: var(--bg3); }
 .entity-card__row:last-child { border-bottom: none; }
 .entity-card__label {
   flex: 0 0 180px;
-  font-size: 10.5px; font-weight: 700;
+  font-size: var(--fs-2xs); font-weight: 700;
   text-transform: uppercase; letter-spacing: .07em;
   color: var(--text3);
 }
 .entity-card__value {
   flex: 1; min-width: 0;
-  font-size: 13.5px; color: var(--text);
+  font-size: var(--fs-md); color: var(--text);
   word-break: break-word; line-height: 1.5;
 }
 @media (max-width: 640px) {
@@ -129,26 +128,9 @@ tbody tr:hover { background: var(--bg3); }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
 /* ── EMPTY STATE ── */
-.empty-state {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 52px 24px; gap: 10px; text-align: center;
-}
-.empty-state__icon {
-  width: 48px; height: 48px; border-radius: 14px;
-  background: var(--bg3); border: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--text4); margin-bottom: 4px;
-}
-.empty-state__title { font-size: 16px; font-weight: 700; color: var(--text2); }
-.empty-state__sub { font-size: 14px; color: var(--text3); max-width: 260px; line-height: 1.5; }
+/* .empty-state переехал в components.css — это UI-компонент, не таблица. */
 
-/* Toast */
-.toast-container { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10000; }
-.toast { padding: 10px 14px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 15px; box-shadow: 0 4px 16px rgba(0,0,0,.1); animation: toastIn .2s ease; max-width: 340px; }
-.toast--ok { border-color: var(--green); color: var(--green); }
-.toast--error { border-color: var(--red); color: var(--red); }
-.toast--info { color: var(--text2); }
-@keyframes toastIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+/* Тосты переехали целиком в components.css — это UI-компонент, не таблица. */
 
 /* modal-close + modal-title defined in ── MODAL ── block above */
 
@@ -158,20 +140,23 @@ tbody tr:hover { background: var(--bg3); }
 /* Skeleton row height matches real tbody td (padding 8px top+bottom + 12px content = ~28-36px) */
 /* min-height на td игнорируется браузерами — высота управляется через td padding */
 
-/* Badge (enrollment status) */
-.badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 13px; font-weight: 700; }
+/* .badge живёт в components.css (там же, где остальные мелкие компоненты). */
 
-/* ── STICKY TABLE HEADER ── */
+/* ── STICKY TABLE HEADER ──
+   Липнет к верху .table-wrap (см. max-height выше), а не к странице: шапка
+   страницы тоже sticky top:0, и при общем скролл-контейнере они наезжали бы
+   друг на друга. Фон обязателен — иначе строки просвечивают сквозь заголовки.
+   Правило `.thead-filters th { top: 37px }` удалено: фильтры уехали из <thead>
+   в тулбар, а 37px были привязкой к высоте первого ряда. */
 .table-wrap { position: relative; }
-thead { position: sticky; top: 0; z-index: 5; }
-thead th { position: sticky; top: 0; }
-.thead-filters th { position: sticky; top: 37px; }
-
-/* ── MEMBERSHIPS EMPTY ── */
-.memberships__empty {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 24px; text-align: center; color: var(--text3); font-size: 14px; gap: 6px;
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--bg3);
 }
+
+/* .memberships__empty живёт в pages/detail.css (там же, где сам блок). */
 
 /* ── RESET FILTERS BUTTON ── */
 .btn-reset-filters {
@@ -266,13 +251,89 @@ thead th { position: sticky; top: 0; }
 /* ── DATA TABLE EMPTY STATE ── */
 .data-table__empty {
   text-align: center;
-  padding: var(--space-10) var(--space-4) !important;
+  padding: var(--space-10) var(--space-4);
   color: var(--text3);
   font-size: 14px;
 }
-.data-table__empty svg { display: block; margin: 0 auto var(--space-3); color: var(--text4); }
+.data-table__empty svg { display: block; margin: 0 auto var(--space-3); color: var(--text4); opacity: 0.6; }
 .data-table__empty-hint {
   margin-top: var(--space-2);
   font-size: 12px;
   color: var(--text4);
+}
+
+/* ============================================================
+ *  ТУЛБАР ФИЛЬТРОВ (FilterBar)
+ *  Раньше фильтры были вторым рядом <thead>: поля сжимались до
+ *  ширины колонки, шапка становилась двухэтажной, а sticky-смещение
+ *  приходилось задавать магическим `top: 37px`.
+ * ============================================================ */
+.table-block { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.filterbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-panel);
+}
+.filterbar__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.filterbar__field { position: relative; display: flex; min-width: 0; width: 150px; }
+/* Лупа внутри поля поиска — иначе непонятно, что в поле можно печатать. */
+.filterbar__icon {
+  position: absolute;
+  left: 10px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--text4);
+  pointer-events: none;
+}
+/* Текстовый фильтр и выпадающий список обязаны выглядеть одинаково: одна
+   высота, один радиус, одна рамка. Раньше на SelectInput вешался тот же класс,
+   что на <input>, но компонент кладёт className на ОБЁРТКУ — получались
+   вложенные рамки и разная высота, из-за чего селекты «съезжали» относительно
+   поля поиска и сжимались до ширины текста. */
+.filterbar__control,
+.filterbar__select .select-input__trigger {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+/* Ширину задаёт поле-контейнер, а не сам контрол — так текстовый поиск можно
+   сделать шире выпадающих списков. */
+.filterbar__field--text { width: 220px; }
+.filterbar__select { width: 100%; }
+
+.filterbar__control--search { padding-left: 30px; }
+.filterbar__control::placeholder { color: var(--text4); }
+.filterbar__control:focus,
+.filterbar__select .select-input__trigger:focus,
+.filterbar__select.is-open .select-input__trigger {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.filterbar__select .select-input__value { font-size: var(--fs-sm); }
+.filterbar__actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .filterbar__field,
+  .filterbar__field--text { width: auto; flex: 1 1 150px; }
 }

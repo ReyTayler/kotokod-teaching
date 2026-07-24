@@ -99,4 +99,4 @@ pages/
 - **`enrollment_status` + `frozen_until_month` CHECK**: `((status='frozen') = (frozen_until_month IS NOT NULL))`
 - **`submitted_by_token` в lessons** — text, не FK (исторический токен мог уйти)
 - **Auto-freeze**: при сохранении с `frozen|declined` фронт DELETE'ит memberships студента
-- **Soft-delete**: `active=false` для teachers/groups/directions/tokens/discounts; students — `enrollment_status='not_enrolled'`
+- **Soft-delete**: `active=false` для teachers/groups/directions/tokens/discounts. У students soft-delete НЕТ: статус `not_enrolled` и DELETE-эндпоинт удалены (миграция students/0015), уход оформляется статусом `declined`

@@ -37,10 +37,16 @@
 }
 .color-field input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 .color-field input[type="color"]::-webkit-color-swatch { border: none; border-radius: 4px; }
+/* HEX теперь редактируемый инпут, а не подпись: код цвета часто приходит
+   из макета, и вбить его быстрее, чем ловить пипеткой. */
 .color-field__hex {
-  flex: 1; font-family: 'JetBrains Mono', monospace;
-  font-size: 14px; color: var(--text2); letter-spacing: .02em;
+  flex: 1; min-width: 0;
+  border: none; background: transparent; outline: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-md); color: var(--text2); letter-spacing: .02em;
+  text-transform: lowercase;
 }
+.color-field__hex::placeholder { color: var(--text4); }
 .color-field__clear {
   background: transparent; border: none; cursor: pointer;
   color: var(--text3); font-size: 20px; line-height: 1;
@@ -49,15 +55,30 @@
 }
 .color-field__clear:hover { background: rgba(220,38,38,.1); color: var(--red); }
 
-/* ── COLOR FIELD DARK ── */
-[data-theme="dark"] .color-field { background: #1e2433; border-color: #3a4660; }
-[data-theme="dark"] .color-field__hex { color: var(--text2); }
+/* Готовая палитра под полем. */
+.color-field-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
+.color-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.color-presets__dot {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.color-presets__dot:hover { transform: scale(1.12); }
+.color-presets__dot.is-active { box-shadow: 0 0 0 2px var(--bg2), 0 0 0 4px var(--accent); }
+.color-presets__dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Тёмная тема поля цвета идёт через токены — отдельных хардкодов не нужно
+   (было #1e2433 / #3a4660). */
 
 /* ===== Floating popover surface (portaled dropdowns) ===== */
 /* Позицию (position:fixed + координаты) задаёт компонент Floating инлайном —
    здесь только внешний вид «плашки» и скролл содержимого. */
 .floating-popover {
-  z-index: 1200;
+  z-index: var(--z-popover);
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);

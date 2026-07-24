@@ -1,5 +1,6 @@
 import { GroupProgressView } from '../../shared/progress/GroupProgressView';
 import { useGroupProgress } from '../../hooks/useGroupProgress';
+import { BlockLoading } from '../../components/ui/Skeleton';
 
 /**
  * Вкладка «Прогресс»: обзорная матрица посещаемости группы. Данные — GET
@@ -9,7 +10,7 @@ import { useGroupProgress } from '../../hooks/useGroupProgress';
 export default function GroupProgressBlock({ groupId }: { groupId: number }) {
   const { data, isLoading, isError } = useGroupProgress(groupId);
 
-  if (isLoading) return <div className="memberships__empty">Загружаем прогресс…</div>;
+  if (isLoading) return <BlockLoading rows={4} label="Загружаем прогресс…" />;
   if (isError) return <div className="memberships__empty">Не удалось загрузить прогресс группы.</div>;
   if (!data) return null;
 

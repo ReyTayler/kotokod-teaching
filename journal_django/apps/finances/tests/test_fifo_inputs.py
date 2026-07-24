@@ -155,14 +155,14 @@ def test_fifo_inputs_pools_across_directions(
     from django.db import connection
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, is_individual, active) "
-            "VALUES ('__fifo_dir_b__', false, true) RETURNING id"
+            "INSERT INTO directions (name, active) "
+            "VALUES ('__fifo_dir_b__', true) RETURNING id"
         )
         direction_b = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, active) "
-            "VALUES ('__fifo_group_b__', %s, %s, false, 60, true) RETURNING id",
+            "lesson_duration_minutes, active, lesson_number_offset) "
+            "VALUES ('__fifo_group_b__', %s, %s, false, 60, true, 0) RETURNING id",
             [direction_b, teacher_id_fixture],
         )
         group_b = cur.fetchone()[0]

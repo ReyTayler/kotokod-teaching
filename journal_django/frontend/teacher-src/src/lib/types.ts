@@ -37,9 +37,16 @@ export interface TStudent {
   name: string;
   lessonsDone: number;
   remaining: number;
-  age: string;
+  // Дата рождения 'YYYY-MM-DD' | '' (поле age удалено; возраст teacher-фронт
+  // при необходимости считает сам). Сейчас нигде не отображается.
+  birthDate: string;
   sheetName: string;
   sheetRow: number;
+  locked: boolean;
+  lockedThrough: number | null;
+  // «Неоплачиваемый пропуск» на следующий урок группы (пометка LessonSkip): ученика
+  // отмечать нельзя, в зарплату не входит. Ставится менеджером (перевод/начал не с 1-го).
+  skip?: boolean;
 }
 
 export interface GroupData {

@@ -20,13 +20,13 @@ def sched_group(db):
         cur.execute("INSERT INTO teachers (name, active) VALUES ('__sch_t__', true) RETURNING id")
         teacher_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name,is_individual,total_lessons,active) "
-            "VALUES ('__sch_d__',false,8,true) RETURNING id"
+            "INSERT INTO directions (name,total_lessons,active) "
+            "VALUES ('__sch_d__',8,true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,"
-            "group_start_date,active) VALUES ('__sch_g__',%s,%s,false,60,'2026-06-01',true) RETURNING id",
+            "group_start_date,active,lesson_number_offset) VALUES ('__sch_g__',%s,%s,false,60,'2026-06-01',true,0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]

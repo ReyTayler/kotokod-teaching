@@ -2,7 +2,8 @@
 export type SyncAction =
   | 'teachers' | 'groups' | 'students' | 'lessons' | 'payments' | 'payroll'
   | 'rebuild-payroll' | 'rebuild-counters' | 'rebuild-planned-lessons'
-  | 'rebuild-absence-resolutions' | 'run-all';
+  | 'rebuild-absence-resolutions' | 'rebuild-renewals' | 'rebuild-renewal-dates'
+  | 'run-all';
 
 export interface SyncActionDef {
   action: SyncAction;
@@ -28,6 +29,16 @@ export const SYNC_ACTIONS: SyncActionDef[] = [
   {
     action: 'rebuild-absence-resolutions',
     label: 'Доп.уроки — создать пропуски в очередь (по пропущенным занятиям)',
+    group: 'rebuild',
+  },
+  {
+    action: 'rebuild-renewals',
+    label: '⚠️ Продления — ПОЛНЫЙ пересбор всех сделок из посещаемости (стирает ответственных, комментарии, напоминания)',
+    group: 'rebuild',
+  },
+  {
+    action: 'rebuild-renewal-dates',
+    label: 'Продления — восстановить реальные даты стадий открытых сделок (недеструктивно: стадии, ответственных, комментарии НЕ трогает)',
     group: 'rebuild',
   },
 ];

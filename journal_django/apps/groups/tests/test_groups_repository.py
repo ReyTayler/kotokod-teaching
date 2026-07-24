@@ -105,6 +105,60 @@ class TestListGroups:
         for row in result['rows']:
             assert row['active'] is False
 
+    def test_default_hides_archived_include_inactive_shows(self):
+        """Основной список по умолчанию — только активные (архив скрыт);
+        include_inactive=True возвращает и архивные; явный filter[active]=false —
+        только архивные."""
+        prefix = '__test_archdefault__'
+        active = repository.create_group(_make_group_data(name=prefix + 'active'))
+        archived = repository.create_group(_make_group_data(name=prefix + 'arch'))
+        repository.soft_delete_group(archived['id'])
+        try:
+            default = repository.list_groups(filters={'name': prefix}, page_size=100)
+            names = {r['name'] for r in default['rows']}
+            assert prefix + 'active' in names          # активная видна
+            assert prefix + 'arch' not in names        # архивная скрыта по умолчанию
+            assert all(r['active'] for r in default['rows'])
+
+            inc = repository.list_groups(
+                filters={'name': prefix}, include_inactive=True, page_size=100)
+            names_inc = {r['name'] for r in inc['rows']}
+            assert {prefix + 'active', prefix + 'arch'} <= names_inc  # обе
+
+            arch_only = repository.list_groups(
+                filters={'name': prefix, 'active': 'false'}, page_size=100)
+            assert {r['name'] for r in arch_only['rows']} == {prefix + 'arch'}
+        finally:
+            _cleanup_group(active['id'])
+            _cleanup_group(archived['id'])
+
+    def test_members_count_counts_only_active(self):
+        """members_count («Состав группы») = число АКТИВНЫХ членств группы;
+        неактивные (выбывшие) не считаются."""
+        grp = repository.create_group(_make_group_data(name='__test_members_count__'))
+        student_ids = []
+        try:
+            with connection.cursor() as cur:
+                for i, active in enumerate((True, True, False)):
+                    cur.execute(
+                        "INSERT INTO students (full_name, enrollment_status) "
+                        "VALUES (%s, 'enrolled') RETURNING id", [f'__mc_student_{i}__'])
+                    sid = cur.fetchone()[0]
+                    student_ids.append(sid)
+                    cur.execute(
+                        "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                        "VALUES (%s, %s, 0, %s)", [grp['id'], sid, active])
+
+            rows = repository.list_groups(filters={'name': '__test_members_count__'})['rows']
+            row = next(r for r in rows if r['id'] == grp['id'])
+            assert row['members_count'] == 2  # два активных, выбывший не в счёт
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [grp['id']])
+                if student_ids:
+                    cur.execute('DELETE FROM students WHERE id = ANY(%s)', [student_ids])
+            _cleanup_group(grp['id'])
+
     def test_page_size_respected(self):
         result = repository.list_groups(page=1, page_size=2)
         assert result['page_size'] == 2
@@ -251,7 +305,10 @@ class TestUpdateGroup:
         finally:
             _cleanup_group(group_id)
 
-    def test_update_replaces_slots(self):
+    def test_update_ignores_slots(self):
+        """update_group НЕ трогает расписание: слоты меняются только через
+        apply_schedule_change (версионный путь). Присланные в update slots
+        игнорируются — иначе стёрлась бы версионная история (Blocker-фикс)."""
         data = _make_group_data(
             name='__test_upd_slots__',
             slots=[{'day_of_week': 2, 'start_time': '11:00'}],
@@ -268,7 +325,7 @@ class TestUpdateGroup:
             )
             fetched = repository.get_group(group_id)
             days = sorted(s['day_of_week'] for s in fetched['slots'])
-            assert days == [4, 5]
+            assert days == [2]  # исходный слот не тронут
         finally:
             _cleanup_group(group_id)
 
@@ -281,6 +338,46 @@ class TestUpdateGroup:
             assert updated['active'] is False
         finally:
             _cleanup_group(group_id)
+
+    def test_update_ignores_immutable_fields(self):
+        """Направление, преподаватель, длительность неизменны после создания;
+        УЖЕ заданную дату начала тоже нельзя изменить. update_group игнорирует эти
+        поля (даже невалидные значения не применяются, иначе был бы FK-сбой на
+        save). Имя/чат ВК остаются изменяемыми."""
+        data = _make_group_data(
+            name='__test_upd_immutable__', lesson_duration_minutes=90,
+            group_start_date='2026-01-01')
+        group = repository.create_group(data)
+        gid = group['id']
+        orig_dir, orig_teacher = group['direction_id'], group['teacher_id']
+        try:
+            updated = repository.update_group(gid, {
+                'name': '__test_upd_immutable_new__',
+                'direction_id': 999_999_999,          # невалидный: применился бы → FK-сбой
+                'teacher_id': 999_999_999,
+                'lesson_duration_minutes': 45,
+                'group_start_date': '2030-01-01',
+            })
+            assert updated['name'] == '__test_upd_immutable_new__'     # имя меняется
+            assert updated['direction_id'] == orig_dir                 # направление закреплено
+            assert updated['teacher_id'] == orig_teacher               # преподаватель закреплён
+            assert updated['lesson_duration_minutes'] == 90            # длительность закреплена
+            assert str(updated['group_start_date']) == '2026-01-01'    # заданную дату не меняем
+        finally:
+            _cleanup_group(gid)
+
+    def test_update_allows_first_start_date_set(self):
+        """Первичная установка даты начала (было NULL) разрешена — завершает
+        настройку группы (и триггерит автоген плана в services). Уже заданную —
+        нельзя (см. test_update_ignores_immutable_fields)."""
+        data = _make_group_data(name='__test_upd_firststart__', group_start_date=None)
+        group = repository.create_group(data)
+        gid = group['id']
+        try:
+            updated = repository.update_group(gid, {'group_start_date': '2026-09-01'})
+            assert str(updated['group_start_date']) == '2026-09-01'
+        finally:
+            _cleanup_group(gid)
 
 
 @pytest.mark.django_db

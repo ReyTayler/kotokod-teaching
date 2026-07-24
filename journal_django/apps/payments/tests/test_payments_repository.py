@@ -86,8 +86,8 @@ class TestCreatePayment:
         with connection.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO directions (name, is_individual, active)
-                VALUES ('__no_cap_dir__', false, true)
+                INSERT INTO directions (name, active)
+                VALUES ('__no_cap_dir__', true)
                 RETURNING id
                 """,
             )
@@ -517,3 +517,79 @@ class TestRefundStudent:
 
     def test_nothing_to_refund(self, student_fixture):
         assert repository.refund_student(student_fixture, created_by='Админ') == {'error': 'nothing_to_refund'}
+
+
+# ---------------------------------------------------------------------------
+# Tests: доплата сверх курса (kind='extra') — мимо лимита, в реальном направлении
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestCreatePaymentExtra:
+
+    def test_extra_bypasses_cap_and_counts_in_balance_and_fifo(self, direction_fixture, student_fixture):
+        """Курс на 8 уроков выбран (2 блока по 4). Обычная покупка сверх лимита →
+        cap_exceeded, а доплата kind='extra' проходит: в том же направлении, растит
+        баланс на 1 и образует FIFO-партию (единичная оплата НЕ пропускается)."""
+        from apps.finances.repository import balance_for_student, student_fifo_remaining
+
+        created = []
+        try:
+            for _ in range(2):
+                r = repository.create_payment({
+                    'student_id': student_fixture, 'direction_id': direction_fixture,
+                    'lessons_count': 4, 'total_amount': '4000.00', 'paid_at': '2026-01-15',
+                })
+                assert 'payment' in r, f'Expected payment, got: {r}'
+                created.append(r['payment']['id'])
+
+            capped = repository.create_payment({
+                'student_id': student_fixture, 'direction_id': direction_fixture,
+                'lessons_count': 1, 'total_amount': '500.00', 'paid_at': '2026-01-16',
+            })
+            assert capped['error'] == 'cap_exceeded'
+            assert float(balance_for_student(student_fixture)) == 8.0
+
+            extra = repository.create_payment({
+                'student_id': student_fixture, 'direction_id': direction_fixture,
+                'lessons_count': 1, 'total_amount': '800.00', 'paid_at': '2026-01-16',
+                'kind': 'extra',
+            })
+            assert 'payment' in extra, f'Expected payment, got: {extra}'
+            created.append(extra['payment']['id'])
+            assert extra['payment']['kind'] == 'extra'
+            assert extra['payment']['direction_id'] == direction_fixture
+            assert float(extra['payment']['lessons_count']) == 1.0
+
+            # баланс вырос на 1 (extra учитывается в purchased)
+            assert float(balance_for_student(student_fixture)) == 9.0
+            # FIFO: единичная доплата образует партию (не пропущена) — 9 уроков, 8800₽
+            rem = student_fifo_remaining(student_fixture)
+            assert rem['remaining_lessons'] == 9
+            assert float(rem['remaining_value']) == 8800.0
+        finally:
+            with connection.cursor() as cur:
+                for pid in created:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [pid])
+
+    def test_extra_not_counted_toward_cap(self, direction_fixture, student_fixture):
+        """kind='extra' в cap не входит: после доплаты обычная покупка на весь лимит
+        всё ещё проходит (cap суммирует только kind='purchase')."""
+        created = []
+        try:
+            e = repository.create_payment({
+                'student_id': student_fixture, 'direction_id': direction_fixture,
+                'lessons_count': 1, 'total_amount': '800.00', 'paid_at': '2026-01-16', 'kind': 'extra',
+            })
+            assert 'payment' in e, f'Expected payment, got: {e}'
+            created.append(e['payment']['id'])
+
+            p = repository.create_payment({
+                'student_id': student_fixture, 'direction_id': direction_fixture,
+                'lessons_count': 8, 'total_amount': '8000.00', 'paid_at': '2026-01-17',
+            })
+            assert 'payment' in p, f'Expected payment, got: {p}'
+            created.append(p['payment']['id'])
+        finally:
+            with connection.cursor() as cur:
+                for pid in created:
+                    cur.execute('DELETE FROM payments WHERE id = %s', [pid])

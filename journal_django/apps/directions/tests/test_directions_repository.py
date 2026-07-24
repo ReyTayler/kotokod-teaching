@@ -17,7 +17,6 @@ def _cleanup_direction(direction_id: int) -> None:
 def _direction_data(**overrides) -> dict:
     return {
         'name': '__test_direction__',
-        'is_individual': False,
         **overrides,
     }
 
@@ -51,7 +50,6 @@ def test_create_and_get_direction():
         assert fetched is not None
         assert fetched['name'] == '__test_repo_dir__'
         assert fetched['active'] is True
-        assert fetched['is_individual'] is False
     finally:
         _cleanup_direction(did)
 

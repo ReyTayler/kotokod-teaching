@@ -1,6 +1,6 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGroupMutations, type GroupPayload } from '../../hooks/useGroups';
+import { useGroupMutations } from '../../hooks/useGroups';
 import { useTeachers } from '../../hooks/useTeachers';
 import { useDirections } from '../../hooks/useDirections';
 import { useApiError } from '../../hooks/useApiError';
@@ -8,31 +8,20 @@ import { useToast } from '../../components/ui/Toast';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
 import { TextInput } from '../../components/form/TextInput';
-import { DateInput } from '../../components/form/DateInput';
-import { Checkbox } from '../../components/form/Checkbox';
 import { SelectInput } from '../../components/form/SelectInput';
-import { DOW } from '../../lib/slots';
 import type { Group, LessonDuration } from '../../lib/types';
-
-interface Slot { day_of_week: number; start_time: string; }
-
-// «N раз в неделю» с русским склонением (1 раз, 2 раза, 5 раз).
-function timesPerWeekLabel(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  let word = 'раз';
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) word = 'раза';
-  return `${n} ${word} в неделю`;
-}
-
-// День недели даты 'YYYY-MM-DD' в конвенции day_of_week (0=Вс … 6=Сб).
-function weekdayOfISO(ymd: string): number {
-  const [y, m, d] = ymd.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-}
 
 interface Props { initial: Group | null; onClose: () => void; }
 
+/**
+ * Форма создания/редактирования «паспорта» группы: название, направление,
+ * преподаватель, чат ВК, формат, длительность. Расписание (дата начала занятий +
+ * слоты) здесь НЕ задаётся — это единая точка «Задать расписание» на карточке
+ * группы (вкладка «Расписание»), которая создаёт слоты, ставит дату начала и
+ * генерирует план. После создания направление/преподаватель/длительность/формат
+ * закреплены за группой (сервер игнорирует их смену в PATCH); преподаватель
+ * меняется только операцией «смена преподавателя на все уроки».
+ */
 export default function GroupFormModal({ initial, onClose }: Props) {
   const isNew = !initial;
   const navigate = useNavigate();
@@ -47,16 +36,8 @@ export default function GroupFormModal({ initial, onClose }: Props) {
   const [teacherId, setTeacherId] = useState<string>(initial?.teacher_id ? String(initial.teacher_id) : '');
   const [vkChat, setVkChat] = useState(initial?.vk_chat || '');
   const [duration, setDuration] = useState<LessonDuration>(initial?.lesson_duration_minutes || 90);
-  const [startDate, setStartDate] = useState((initial?.group_start_date || '').slice(0, 10));
   // Новая группа по умолчанию — индивидуальный формат; при редактировании берём значение группы.
   const [isIndividual, setIsIndividual] = useState(initial ? initial.is_individual : true);
-  const [active, setActive] = useState(initial?.active ?? true);
-  const [slots, setSlots] = useState<Slot[]>(() =>
-    (initial?.slots || []).map((s) => ({
-      day_of_week: s.day_of_week,
-      start_time: String(s.start_time).slice(0, 5),
-    })),
-  );
 
   const teacherOptions = [{ value: '', label: '— выберите —' }, ...teachers
     .filter((t) => t.active || (initial && initial.teacher_id === t.id))
@@ -65,36 +46,11 @@ export default function GroupFormModal({ initial, onClose }: Props) {
     .filter((d) => d.active || (initial && initial.direction_id === d.id))
     .map((d) => ({ value: d.id, label: d.name }))];
 
-  const updateSlot = (i: number, key: 'day_of_week' | 'start_time', value: string) => {
-    setSlots((arr) => {
-      const next = [...arr];
-      next[i] = { ...next[i], [key]: key === 'day_of_week' ? Number(value) : value };
-      return next;
-    });
-  };
-
-  // Групповой формат — максимум один слот; при переключении обрезаем лишние.
   // Формат закреплён за группой после создания — при редактировании смена запрещена.
   const chooseFormat = (individual: boolean) => {
     if (!isNew) return;
     setIsIndividual(individual);
-    if (!individual) setSlots((arr) => arr.slice(0, 1));
   };
-  const canAddSlot = isIndividual || slots.length < 1;
-
-  // «Уроков в неделю» больше не вводится вручную — это число слотов.
-  const lessonsPerWeek = slots.length;
-
-  // Дни недели, покрытые слотами (для подсказки).
-  const slotDays = useMemo(
-    () => Array.from(new Set(slots.map((s) => s.day_of_week))).sort((a, b) => a - b),
-    [slots],
-  );
-  // Дата старта не попадает на день ни одного слота. НЕ блокирует сохранение:
-  // генератор плана ставит первое занятие на ближайший день слота ≥ даты старта,
-  // а у существующих групп дата старта — исторический факт (слоты могли меняться).
-  // Показываем только как предупреждение-подсказку.
-  const startMismatch = startDate !== '' && slots.length > 0 && !slotDays.includes(weekdayOfISO(startDate));
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -102,31 +58,32 @@ export default function GroupFormModal({ initial, onClose }: Props) {
       toast('Направление и преподаватель обязательны', 'error');
       return;
     }
-    if (!isIndividual && slots.length > 1) {
-      toast('Групповой формат допускает только один слот', 'error');
-      return;
-    }
-    const payload: GroupPayload = {
-      name,
-      direction_id: Number(directionId),
-      teacher_id: Number(teacherId),
-      is_individual: isIndividual,
-      lesson_duration_minutes: duration,
-      lessons_per_week: lessonsPerWeek || 1,
-      group_start_date: startDate || null,
-      vk_chat: vkChat || null,
-      slots: slots.map((s) => ({ day_of_week: s.day_of_week, start_time: s.start_time })),
-    };
-    if (!isNew) payload.active = active;
-
     try {
       if (isNew) {
-        const created = await muts.create.mutateAsync(payload);
+        // Группа создаётся без расписания. Дата начала + слоты + план — на карточке
+        // группы («Задать расписание»). lessons_per_week — плейсхолдер (1), реальное
+        // число проставит schedule-change по количеству слотов.
+        const created = await muts.create.mutateAsync({
+          name,
+          direction_id: Number(directionId),
+          teacher_id: Number(teacherId),
+          is_individual: isIndividual,
+          lesson_duration_minutes: duration,
+          lessons_per_week: 1,
+          vk_chat: vkChat || null,
+          slots: [],
+        });
         toast('Создано', 'ok');
         onClose();
         navigate(`/admin/groups/${created.id}`);
       } else {
-        await muts.update.mutateAsync({ id: initial!.id, body: payload });
+        // Неизменны направление, преподаватель, длительность (сервер их игнорирует
+        // в PATCH). Расписание/дата начала задаются на карточке группы. Здесь —
+        // только название и чат ВК.
+        await muts.update.mutateAsync({ id: initial!.id, body: {
+          name,
+          vk_chat: vkChat || null,
+        } });
         toast('Сохранено', 'ok');
         onClose();
       }
@@ -151,10 +108,16 @@ export default function GroupFormModal({ initial, onClose }: Props) {
           <TextInput required value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Направление" required>
-          <SelectInput value={directionId} onChange={(e) => setDirectionId(e.target.value)} options={directionOptions} required />
+          <SelectInput value={directionId} onChange={(e) => setDirectionId(e.target.value)} options={directionOptions} required disabled={!isNew} />
+          {!isNew && (
+            <span className="field-hint">Направление закреплено за группой после создания</span>
+          )}
         </Field>
         <Field label="Преподаватель" required>
-          <SelectInput value={teacherId} onChange={(e) => setTeacherId(e.target.value)} options={teacherOptions} required />
+          <SelectInput value={teacherId} onChange={(e) => setTeacherId(e.target.value)} options={teacherOptions} required disabled={!isNew} />
+          {!isNew && (
+            <span className="field-hint">Сменить преподавателя можно только операцией «смена преподавателя на все уроки» на странице группы</span>
+          )}
         </Field>
         <Field label="Ссылка на чат ВК" full>
           <TextInput value={vkChat} onChange={(e) => setVkChat(e.target.value)} placeholder="https://vk.me/..." />
@@ -193,13 +156,6 @@ export default function GroupFormModal({ initial, onClose }: Props) {
             <span className="field-hint">Формат нельзя изменить после создания группы</span>
           )}
         </Field>
-        {!isNew && (
-          <Field label="Группа активна">
-            <Checkbox checked={active} onChange={(e) => setActive(e.target.checked)} />
-          </Field>
-        )}
-
-        <div className="modal-section-label">Дни и время занятий</div>
         <Field label="Длительность">
           <SelectInput
             value={String(duration)}
@@ -209,62 +165,20 @@ export default function GroupFormModal({ initial, onClose }: Props) {
               { value: 60, label: '60 мин' },
               { value: 90, label: '90 мин' },
             ]}
+            disabled={!isNew}
           />
-        </Field>
-        <Field label="Дата начала">
-          <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          {slots.length > 0 && (
-            <span className="field-hint">Дни слотов: {slotDays.map((d) => DOW[d]).join(', ')}</span>
-          )}
-          {startMismatch && (
-            <span className="field-hint field-hint--warn">
-              Дата старта не попадает на день слота — первое занятие встанет на ближайший день слота после этой даты.
-            </span>
+          {!isNew && (
+            <span className="field-hint">Длительность закреплена за группой после создания</span>
           )}
         </Field>
 
-        <div className="slots-block">
-          <div className="slots-block__head">
-            <span className="slots-block__label">Слоты</span>
-            {slots.length > 0 && (
-              <span className="slots-frequency">{timesPerWeekLabel(lessonsPerWeek)}</span>
-            )}
+        {isNew && (
+          <div className="field-hint" style={{ marginTop: 'var(--space-2)' }}>
+            Дни занятий и дату начала зададите после создания — кнопкой «Задать
+            расписание» на карточке группы (вкладка «Расписание»). Тогда же
+            сгенерируется план.
           </div>
-          <div id="slots-list">
-            {slots.map((s, i) => (
-              <div key={i} className="slot-row">
-                <SelectInput
-                  value={String(s.day_of_week)}
-                  onChange={(e) => updateSlot(i, 'day_of_week', e.target.value)}
-                  options={DOW.map((d, idx) => ({ value: idx, label: d }))}
-                />
-                <input
-                  type="time"
-                  value={s.start_time}
-                  onChange={(e) => updateSlot(i, 'start_time', e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="slot-row__remove"
-                  onClick={() => setSlots((arr) => arr.filter((_, idx) => idx !== i))}
-                  aria-label="Удалить слот"
-                >×</button>
-              </div>
-            ))}
-            {slots.length === 0 && (
-              <div className="slots-block__empty">Слоты не заданы</div>
-            )}
-          </div>
-          {canAddSlot ? (
-            <button
-              type="button"
-              className="slot-add"
-              onClick={() => setSlots((arr) => [...arr, { day_of_week: 1, start_time: '18:00' }])}
-            >+ Добавить слот</button>
-          ) : (
-            <span className="slots-block__hint">Групповой формат — только один слот</span>
-          )}
-        </div>
+        )}
       </form>
     </Dialog>
   );

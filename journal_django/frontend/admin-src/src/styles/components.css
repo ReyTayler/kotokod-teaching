@@ -9,16 +9,27 @@
 .entity-link--muted:hover { color: var(--accent); }
 .person-name { font-weight: 600; color: var(--text); }
 .person-sub { font-size: 13px; color: var(--text3); margin-top: 1px; }
-.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+/* Единственное определение. Раньше .badge объявлялся и здесь, и в table.css;
+   выигрывал table.css (inline-block, радиус 12px, вес 700), но gap/align-items/
+   nowrap продолжали приходить отсюда — при inline-block первые два не работают
+   вовсе. Ниже — фактический результат, без мёртвых свойств. */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+[data-theme="dark"] .badge { font-weight: 700; }
 .badge-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .dir-tag { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid; }
-.mono { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
-.id-cell {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text4);
-  font-size: 12px;
-}
+/* Начертание и tabular-nums для .mono/.id-cell заданы одним правилом в base.css
+   (там же code/kbd/samp) — здесь только размер и цвет, без повтора font-family.
+   В прежнем виде .mono дублировал шрифт хардкодом 'JetBrains Mono' в обход
+   токена --font-mono. */
+.mono { font-size: var(--fs-md); }
+.id-cell { color: var(--text4); font-size: var(--fs-xs); }
 .cell-num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -43,7 +54,7 @@
 .progress-labels { display: flex; justify-content: space-between; font-size: 12px; }
 
 /* ── STAT CARDS ── */
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 24px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px; }
 .stat-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px; }
 .stat-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); margin-bottom: 8px; }
 .stat-value { font-size: 22px; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
@@ -139,15 +150,23 @@
 .btn-cancel:disabled,
 .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Danger — та же форма, что btn-cancel, но красный текст (деструктивные
-   действия: откат операции и т.п.). До этого класс не имел стилей вовсе. */
-.btn-danger { color: var(--danger); }
-.btn-danger:hover:not(:disabled) {
-  background: var(--bg3);
+/* Danger — форма от .btn-cancel (см. общее правило выше) плюс красный контур:
+   деструктивные действия должны читаться до наведения.
+   Раньше класс объявлялся трижды — здесь и дважды в pages/detail.css — и вид
+   собирался из двух файлов: контур приходил из detail.css, а фон при наведении
+   отсюда (у :hover:not(:disabled) специфичность выше, чем у голого :hover).
+   Теперь одно место. */
+.btn-danger {
+  background: transparent;
   border-color: var(--danger);
   color: var(--danger);
 }
-.btn-danger:active:not(:disabled) { background: var(--bg4); }
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn-danger:active:not(:disabled) { background: color-mix(in oklab, var(--danger) 14%, transparent); }
 .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-delete {
@@ -281,11 +300,35 @@
 .tabs__panel { animation: fadeIn .15s ease; }
 .tabs__panel:focus-visible { outline: none; }
 
-/* ── TOASTS ── */
-#toast-host { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 2000; pointer-events: none; }
-.toast { background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid var(--red); border-radius: var(--r-sm); padding: 10px 14px; box-shadow: 0 4px 12px rgba(0,0,0,.1); font-size: 15px; color: var(--text); min-width: 240px; max-width: 360px; pointer-events: auto; animation: toast-in .15s ease; }
-.toast--ok { border-left-color: var(--green); }
-@keyframes toast-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+/* ── TOASTS ──
+   Единственное определение тостов. До этого их было два: здесь (под несуществующий
+   #toast-host — такого элемента в разметке нет, Toast.tsx рендерит .toast-container)
+   и в table.css. Побеждал импортированный позже table.css, но не целиком: левый
+   акцентный кант, min-width и цвет текста продолжали приходить отсюда, так что
+   фактический вид собирался из двух файлов сразу. Ниже — ровно то, что рисуется
+   сейчас, но в одном месте. */
+.toast-container {
+  position: fixed; top: 16px; right: 16px;
+  display: flex; flex-direction: column; gap: 8px;
+  z-index: var(--z-toast);
+}
+.toast {
+  padding: 10px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--red);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-lg);
+  color: var(--text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .1);
+  min-width: 240px;
+  max-width: 340px;
+  animation: toastIn .2s ease;
+}
+.toast--ok    { border-color: var(--green); color: var(--green); }
+.toast--error { border-color: var(--red);   color: var(--red); }
+.toast--info  { color: var(--text2); }
+@keyframes toastIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
 
 /* ── MONO BADGE ── */
 .mono-badge { font-family: 'JetBrains Mono', monospace; font-size: 14px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
@@ -311,8 +354,10 @@
   background-size: 600px 100%;
   animation: shimmer 1.4s infinite linear;
 }
+/* Тёмный вариант шёл хардкодом #2a3347/#303d55 — теперь тянется из токенов
+   поверхностей, как и светлый. */
 [data-theme="dark"] .skeleton-block {
-  background: linear-gradient(90deg, #2a3347 25%, #303d55 50%, #2a3347 75%);
+  background: linear-gradient(90deg, var(--bg3) 25%, var(--bg4) 50%, var(--bg3) 75%);
   background-size: 600px 100%;
 }
 .skeleton-avatar { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; }
@@ -341,12 +386,12 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   font: inherit;
-  background: var(--bg2, #fff);
+  background: var(--bg2);
   width: 100%;
   box-sizing: border-box;
 }
 .discount-add .field-error {
-  color: var(--red, #c44);
+  color: var(--red);
   font-size: 12px;
 }
 
@@ -368,7 +413,7 @@
 .discounts-picker__summary {
   margin-top: 4px;
   padding: 8px 12px;
-  background: color-mix(in oklab, var(--accent, #7c3aed) 8%, transparent);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
   border-radius: 6px;
   font-size: 14px;
 }
@@ -406,3 +451,133 @@
   color: var(--text3);
   border-color: var(--border);
 }
+
+
+/* ============================================================
+ *  Экранный ридер: подпись только для ассистивных технологий.
+ *  Нужна скелетонам — визуально форма контента понятна, а вслух
+ *  «Загружаем…» должно быть произнесено.
+ * ============================================================ */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── СКЕЛЕТОН СТРАНИЦЫ ──
+   Заменил текст «Загружаем…» на 24 страницах: контур будущего контента
+   держит высоту и не даёт вёрстке прыгнуть, когда данные приедут. */
+.page-skeleton { display: flex; flex-direction: column; gap: var(--space-5); }
+.page-skeleton__head { display: flex; flex-direction: column; gap: var(--space-2); }
+.page-skeleton__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+.page-skeleton__tile {
+  height: 84px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg2);
+}
+.page-skeleton__rows {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg2);
+  overflow: hidden;
+}
+.sk-w-40  { width: 40%; }
+.sk-w-25  { width: 25%; }
+.sk-h-20  { height: 20px; }
+
+/* ── СКЕЛЕТОН БЛОКА (внутри вкладки/карточки) ── */
+.block-skeleton { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) 0; }
+
+/* ── ПУСТОЕ СОСТОЯНИЕ ──
+   Единственное определение. Раньше набор .empty-state* лежал в table.css и был
+   осиротевшим: ни один компонент его не использовал, потому что EmptyState
+   рендерил чужой класс .memberships__empty. Плашка-рамка вокруг иконки — оттуда,
+   пунктирная граница «здесь пусто» — новая. */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-2);
+  padding: 52px var(--space-6);
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--r);
+}
+.empty-state__icon {
+  width: 48px; height: 48px;
+  border-radius: var(--r-lg);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text4);
+}
+.empty-state__icon svg { width: 22px; height: 22px; }
+.empty-state__title { font-size: var(--fs-xl); font-weight: 700; color: var(--text2); }
+.empty-state__hint { font-size: var(--fs-md); color: var(--text3); max-width: 300px; line-height: 1.5; }
+.empty-state__action { margin-top: var(--space-2); }
+
+/* ── СЕГМЕНТИРОВАННЫЙ ПЕРЕКЛЮЧАТЕЛЬ ──
+   Заменяет пару кнопок, где активная подсвечивалась инлайновым style. */
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+}
+.segmented__btn {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: calc(var(--r) - 3px);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              box-shadow var(--t-fast) var(--ease);
+}
+.segmented__btn:hover:not(.is-active) { color: var(--text); }
+.segmented__btn.is-active {
+  background: var(--bg2);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+/* Ряд действий над содержимым вкладки (кнопка справа). Заменяет инлайновую
+   обёртку с marginBottom/justifyContent. */
+.view-actions { display: flex; justify-content: flex-end; margin-bottom: var(--space-3); }
+
+/* Фильтр-чип с крестиком (активный фильтр сущности в журнале изменений).
+   Раньше собирался инлайновыми стилями поверх .status-badge. */
+.filter-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: 3px 6px 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--info) 12%, transparent);
+  color: var(--info);
+  font-size: var(--fs-xs); font-weight: 600;
+  white-space: nowrap;
+}
+.filter-chip__clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border: 0; border-radius: 50%;
+  background: transparent; color: inherit;
+  font-size: 15px; line-height: 1; cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.filter-chip__clear:hover { background: color-mix(in oklab, var(--info) 20%, transparent); }
+
+/* Селект фильтра операций в шапке журнала изменений. */
+.changelog-op-filter { width: 208px; }

@@ -18,15 +18,15 @@ def test_run_rebuilds_plan_for_group_with_facts_and_slots():
         )
         teacher_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name, is_individual, total_lessons) VALUES (%s, false, 8) "
+            "INSERT INTO directions (name, total_lessons) VALUES (%s, 8) "
             "RETURNING id",
             [direction_name],
         )
         direction_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, group_start_date, active, created_at) "
-            "VALUES (%s, %s, %s, false, 60, '2026-06-01', true, now()) RETURNING id",
+            "lesson_duration_minutes, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES (%s, %s, %s, false, 60, '2026-06-01', true, now(), 0) RETURNING id",
             [group_name, direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]
@@ -86,15 +86,15 @@ def test_run_dry_run_does_not_write():
         )
         teacher_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name, is_individual, total_lessons) VALUES (%s, false, 8) "
+            "INSERT INTO directions (name, total_lessons) VALUES (%s, 8) "
             "RETURNING id",
             [direction_name],
         )
         direction_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, group_start_date, active, created_at) "
-            "VALUES (%s, %s, %s, false, 60, '2026-06-01', true, now()) RETURNING id",
+            "lesson_duration_minutes, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES (%s, %s, %s, false, 60, '2026-06-01', true, now(), 0) RETURNING id",
             [group_name, direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]
@@ -140,15 +140,15 @@ def test_run_skips_group_without_start_date():
         )
         teacher_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name, is_individual, total_lessons) VALUES (%s, false, 8) "
+            "INSERT INTO directions (name, total_lessons) VALUES (%s, 8) "
             "RETURNING id",
             [direction_name],
         )
         direction_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, group_start_date, active, created_at) "
-            "VALUES (%s, %s, %s, false, 60, NULL, true, now()) RETURNING id",
+            "lesson_duration_minutes, group_start_date, active, created_at, lesson_number_offset) "
+            "VALUES (%s, %s, %s, false, 60, NULL, true, now(), 0) RETURNING id",
             [group_name, direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]

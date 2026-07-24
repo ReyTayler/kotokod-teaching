@@ -46,6 +46,8 @@ urlpatterns = [
     path('api/admin/calendar', include('apps.scheduling.admin_urls')),
     # Синхро — ручной запуск backfill/пересчётов из Google Sheets (только superadmin)
     path('api/admin/sync', include('apps.sync.urls')),
+    # Отчёты — генерация Excel-отчётов в Celery (role=manager/admin)
+    path('api/admin/reports', include('apps.reports.urls')),
     # Phase 10 — teacher SPA (/api, после /api/admin — admin стоит выше, как в Express)
     path('api', include('apps.teacher_spa.urls')),
     # Планирование занятий — календарь плановых occurrences (/api/calendar, role=teacher)

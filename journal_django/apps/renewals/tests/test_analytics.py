@@ -37,8 +37,9 @@ def test_funnel_group_by_month(make_student, make_direction, make_teacher,
     sid, did, tid = make_student(), make_direction(), make_teacher()
     make_payment(sid, did, lessons=8)
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-                    "VALUES ('__an_group__', %s, %s, false, true, now()) RETURNING id", [did, tid])
+        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "
+                    "lesson_number_offset) "
+                    "VALUES ('__an_group__', %s, %s, false, true, now(), 0) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s,%s,0,true)", [gid, sid])

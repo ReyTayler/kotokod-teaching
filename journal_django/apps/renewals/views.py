@@ -16,9 +16,10 @@ from apps.renewals.serializers import (
 )
 from apps.renewals.transitions import InvalidTransition
 
-SORT_FIELDS = ['next_touch_at', 'stage_entered_at', 'cycle_no', 'student_name']
+SORT_FIELDS = ['stage_entered_at', 'cycle_no', 'student_name']
 # числовые фильтры, попадающие в SQL как int — нечисловой ввод даёт 400, не 500.
-INT_FILTERS = ('assignee_id', 'direction_id', 'stage_id')
+# cycle_no — только для списочного вида (list_deals); board его игнорирует.
+INT_FILTERS = ('assignee_id', 'direction_id', 'stage_id', 'cycle_no')
 
 
 def _int_or_400(value, field: str) -> int:

@@ -24,6 +24,30 @@ def test_list_paginates(make_student, make_direction):
 
 
 @pytest.mark.django_db
+def test_list_filters_student_cycle_stage(make_student, make_direction):
+    """Списочные фильтры student (ILIKE) / cycle_no / stage_id сужают выборку."""
+    make_direction()
+    sid = make_student('__renew_flt_target__')
+    other = make_student('__renew_flt_other__')
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    engine.ensure_deal(other, cycle_no=1)
+
+    # По имени ученика (частичное, регистронезависимо)
+    res = repository.list_deals(1, 50, 'cycle_no', 'asc', {'student': 'flt_target'})
+    names = {r['student_name'] for r in res['rows']}
+    assert names == {'__renew_flt_target__'}
+
+    # По стадии сделки-цели — обе в одной стартовой стадии, но фильтр валиден
+    res = repository.list_deals(1, 50, 'cycle_no', 'asc', {'stage_id': deal.stage_id})
+    assert all(r['stage_label'] for r in res['rows'])
+    assert deal.id in {r['id'] for r in res['rows']}
+
+    # По номеру цикла: cycle_no=1 находит, cycle_no=99 — нет
+    assert repository.list_deals(1, 50, 'cycle_no', 'asc', {'cycle_no': 1})['total'] >= 2
+    assert repository.list_deals(1, 50, 'cycle_no', 'asc', {'cycle_no': 99})['total'] == 0
+
+
+@pytest.mark.django_db
 def test_column_cards_offset(make_student):
     """«Показать ещё»: offset поверх COLUMN_LIMIT, та же сортировка, что и в board()."""
     deal_ids = []

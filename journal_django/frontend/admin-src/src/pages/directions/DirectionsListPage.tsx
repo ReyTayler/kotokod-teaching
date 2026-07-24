@@ -8,6 +8,7 @@ import { directionColor } from '../../lib/direction-color';
 import DirectionFormModal from './DirectionFormModal';
 import { useAuth } from '../../hooks/useAuth';
 import { canWriteDirections, type Role } from '../../lib/permissions';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function DirectionsListPage() {
   const { data, isLoading } = useDirections();
@@ -17,20 +18,25 @@ export default function DirectionsListPage() {
   const { me } = useAuth();
   const canWrite = canWriteDirections(me?.role as Role);
 
-  if (isLoading) return <TableSkeleton rows={4} cols={4} />;
   const rows = (data || []).filter((r) => r.active);
+
+  // Шапка рисуется и во время загрузки — иначе заголовок пропадает
+  // при каждом переходе в раздел.
+  const header = (
+    <PageHeader
+      title="Направления"
+      count={isLoading ? undefined : rows.length}
+      actions={canWrite && (
+        <button type="button" className="btn-add" onClick={() => setModalOpen(true)}>+ Новое</button>
+      )}
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={4} cols={4} /></>;
 
   return (
     <>
-      <div className="section-header">
-        <span className="section-title">Направления</span>
-        <span className="count-badge">{rows.length}</span>
-        <div className="section-actions">
-          {canWrite && (
-            <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новое</button>
-          )}
-        </div>
-      </div>
+      {header}
       {rows.length === 0 ? (
         <EmptyState>Нет активных направлений. Создайте первое через «+ Новое».</EmptyState>
       ) : (
@@ -54,7 +60,6 @@ export default function DirectionsListPage() {
                 <div className="dir-card-color" style={{ background: color }} />
                 <div className="dir-card-name" style={{ color }}>
                   {d.name}
-                  {d.is_individual && <span className="dir-card-mark" title="Индивидуальное">∙ Индив</span>}
                 </div>
                 <div className="dir-card-count">{cnt}</div>
                 <div className="dir-card-sub">активных групп</div>

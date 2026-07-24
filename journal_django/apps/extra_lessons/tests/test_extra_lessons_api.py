@@ -246,6 +246,37 @@ def test_list_contract(admin_client):
     assert set(resp.json().keys()) == {'rows', 'total', 'page', 'page_size'}
 
 
+def test_list_filters_by_student_and_group_name(
+    admin_client, missed_lesson_fixture, student_fixture, group_fixture, cleanup_resolutions,
+):
+    """Фильтры шапки списка (?student_name / ?missed_lesson_group_name) — частичное
+    сравнение без регистра, сужают выборку до совпадающих резолюций.
+    missed_lesson_fixture авто-создал pending для __el_test_student__ в __el_test_group__."""
+    def _rid_present(url: str) -> bool:
+        rows = admin_client.get(url).json()['rows']
+        return any(r['missed_lesson_id'] == missed_lesson_fixture
+                   and r['student_id'] == student_fixture for r in rows)
+
+    # Совпадающий частичный (lower-case) фильтр по имени ученика — строка видна.
+    assert _rid_present(f'{ADMIN_URL}?student_name=el_test_student')
+    # Несовпадающий — строки нет.
+    assert not _rid_present(f'{ADMIN_URL}?student_name=__no_such_student__')
+    # Фильтр по имени группы пропуска.
+    assert _rid_present(f'{ADMIN_URL}?missed_lesson_group_name=el_test_group')
+    assert not _rid_present(f'{ADMIN_URL}?missed_lesson_group_name=__no_such_group__')
+
+
+def test_list_filter_by_status(admin_client, missed_lesson_fixture, student_fixture, cleanup_resolutions):
+    """?status=pending включает авто-созданный пропуск; ?status=makeup_done — нет."""
+    def _rid_present(url: str) -> bool:
+        rows = admin_client.get(url).json()['rows']
+        return any(r['missed_lesson_id'] == missed_lesson_fixture
+                   and r['student_id'] == student_fixture for r in rows)
+
+    assert _rid_present(f'{ADMIN_URL}?status=pending')
+    assert not _rid_present(f'{ADMIN_URL}?status=makeup_done')
+
+
 def test_get_detail_200(
     admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
     cleanup_resolutions,
@@ -552,6 +583,34 @@ def test_record_blocked_when_student_balance_dropped(
     )
     assert resp.status_code == 400
     assert 'error' in resp.data
+
+
+def test_record_absent_student_blocked_400(
+    admin_client, teacher_client_for, teacher_fixture, missed_lesson_fixture, student_fixture,
+    cleanup_resolutions,
+):
+    """present=false («ученик не пришёл») → 400, доп.урок не записывается: неявку
+    оформляют «Отменой» назначения, а не записью с present=false."""
+    create_resp = admin_client.post(
+        ADMIN_URL,
+        _create_payload(missed_lesson_fixture, teacher_fixture, student_fixture),
+        format='json',
+    )
+    rid = _created_id(create_resp)
+    owner_client = teacher_client_for(teacher_fixture, '__el_absent_record__@test.local')
+    resp = owner_client.post(
+        f'{TEACHER_URL}/{rid}/record',
+        {'present': False, 'record_url': None},
+        format='json',
+    )
+    assert resp.status_code == 400
+    assert 'error' in resp.data
+
+    # Резолюция осталась scheduled, факт-урок не создан.
+    get_resp = admin_client.get(f'{ADMIN_URL}/{rid}')
+    assert get_resp.status_code == 200
+    assert get_resp.data['status'] == 'makeup_scheduled'
+    assert get_resp.data['fact_lesson_id'] is None
 
 
 def test_record_invalid_body_400(teacher_client):

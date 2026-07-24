@@ -11,8 +11,8 @@ from celery import shared_task
 
 from apps.sync.backfills import (
     groups, lessons, payments, payroll, rebuild_absence_resolutions,
-    rebuild_counters, rebuild_payroll, rebuild_planned_lessons, run_all,
-    students, teachers,
+    rebuild_counters, rebuild_payroll, rebuild_planned_lessons, rebuild_renewal_dates,
+    rebuild_renewals, run_all, students, teachers,
 )
 
 
@@ -64,6 +64,16 @@ def rebuild_planned_lessons_task(dry_run: bool = False) -> dict:
 @shared_task(name='apps.sync.tasks.rebuild_absence_resolutions_task', time_limit=300)
 def rebuild_absence_resolutions_task(dry_run: bool = False) -> dict:
     return rebuild_absence_resolutions.run(dry_run=dry_run)
+
+
+@shared_task(name='apps.sync.tasks.rebuild_renewals_task', time_limit=300)
+def rebuild_renewals_task(dry_run: bool = False) -> dict:
+    return rebuild_renewals.run(dry_run=dry_run)
+
+
+@shared_task(name='apps.sync.tasks.rebuild_renewal_dates_task', time_limit=300)
+def rebuild_renewal_dates_task(dry_run: bool = False) -> dict:
+    return rebuild_renewal_dates.run(dry_run=dry_run)
 
 
 @shared_task(name='apps.sync.tasks.run_all_task', time_limit=600)

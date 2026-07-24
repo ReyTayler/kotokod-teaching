@@ -15,14 +15,15 @@ def test_run_computes_payment_from_attendance():
         created_direction = False
         if direction_row is None:
             cur.execute(
-                "INSERT INTO directions (name, is_individual) VALUES ('__test_sync_direction_rp__', false) RETURNING id"
+                "INSERT INTO directions (name) VALUES ('__test_sync_direction_rp__') RETURNING id"
             )
             direction_row = cur.fetchone()
             created_direction = True
         direction_id = direction_row[0]
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, lessons_per_week) "
-            "VALUES ('__test_sync_group_rp__', %s, %s, false, 90, 1) RETURNING id",
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, "
+            "lessons_per_week, lesson_number_offset) "
+            "VALUES ('__test_sync_group_rp__', %s, %s, false, 90, 1, 0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]
@@ -62,6 +63,70 @@ def test_run_computes_payment_from_attendance():
 
 
 @pytest.mark.django_db
+def test_run_excludes_free_and_skip_from_headcount():
+    """Пересчёт исключает is_free (бесплатное занятие) и unpaid_skip из headcount —
+    как боевой record_lesson (за free/skip преподавателю не платят). Два present-ученика,
+    один free → в зачёт идёт только платный: total=1/present=1 → 500 (не 2/2)."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO teachers (name) VALUES ('__test_sync_teacher_rpf__') RETURNING id")
+        teacher_id = cur.fetchone()[0]
+        cur.execute("SELECT id FROM directions LIMIT 1")
+        direction_row = cur.fetchone()
+        created_direction = False
+        if direction_row is None:
+            cur.execute("INSERT INTO directions (name) VALUES ('__test_sync_direction_rpf__') RETURNING id")
+            direction_row = cur.fetchone()
+            created_direction = True
+        direction_id = direction_row[0]
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, "
+            "lessons_per_week, lesson_number_offset) "
+            "VALUES ('__test_sync_group_rpf__', %s, %s, false, 90, 1, 0) RETURNING id",
+            [direction_id, teacher_id],
+        )
+        group_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO students (full_name) VALUES ('__test_sync_paid_rpf__') RETURNING id")
+        paid_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO students (full_name) VALUES ('__test_sync_free_rpf__') RETURNING id")
+        free_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO lessons (lesson_date, teacher_id, group_id, lesson_number, lesson_duration_minutes, "
+            "lesson_type, submitted_by_token, submitted_at) "
+            "VALUES ('2026-07-13', %s, %s, 1, 90, 'regular', 'TOKRPF', "
+            "'2026-07-13T12:00:00+03:00'::timestamptz) RETURNING id",
+            [teacher_id, group_id],
+        )
+        lesson_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO lesson_attendance (lesson_id, student_id, present, is_free) VALUES (%s, %s, true, false)",
+            [lesson_id, paid_id],
+        )
+        cur.execute(
+            "INSERT INTO lesson_attendance (lesson_id, student_id, present, is_free) VALUES (%s, %s, true, true)",
+            [lesson_id, free_id],
+        )
+
+    try:
+        rebuild_payroll.run(dry_run=False)
+        with connection.cursor() as cur:
+            cur.execute("SELECT total_students, present_count, payment FROM payroll WHERE lesson_id = %s",
+                        [lesson_id])
+            total, present, payment = cur.fetchone()
+            assert total == 1 and present == 1  # free выпал из headcount
+            assert payment == 500               # 1 платный present → smallGroup
+    finally:
+        with connection.cursor() as cur:
+            cur.execute("DELETE FROM payroll WHERE lesson_id = %s", [lesson_id])
+            cur.execute("DELETE FROM lesson_attendance WHERE lesson_id = %s", [lesson_id])
+            cur.execute("DELETE FROM lessons WHERE id = %s", [lesson_id])
+            cur.execute("DELETE FROM students WHERE id IN (%s, %s)", [paid_id, free_id])
+            cur.execute("DELETE FROM groups WHERE id = %s", [group_id])
+            cur.execute("DELETE FROM teachers WHERE id = %s", [teacher_id])
+            if created_direction:
+                cur.execute("DELETE FROM directions WHERE id = %s", [direction_id])
+
+
+@pytest.mark.django_db
 def test_run_dry_run_does_not_write():
     with connection.cursor() as cur:
         cur.execute("INSERT INTO teachers (name) VALUES ('__test_sync_teacher_rpd__') RETURNING id")
@@ -71,14 +136,15 @@ def test_run_dry_run_does_not_write():
         created_direction = False
         if direction_row is None:
             cur.execute(
-                "INSERT INTO directions (name, is_individual) VALUES ('__test_sync_direction_rpd__', false) RETURNING id"
+                "INSERT INTO directions (name) VALUES ('__test_sync_direction_rpd__') RETURNING id"
             )
             direction_row = cur.fetchone()
             created_direction = True
         direction_id = direction_row[0]
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, lessons_per_week) "
-            "VALUES ('__test_sync_group_rpd__', %s, %s, false, 90, 1) RETURNING id",
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, "
+            "lessons_per_week, lesson_number_offset) "
+            "VALUES ('__test_sync_group_rpd__', %s, %s, false, 90, 1, 0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]

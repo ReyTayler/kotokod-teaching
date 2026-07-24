@@ -96,7 +96,10 @@ def fifo_inputs() -> dict:
 
     cons_rows = (
         LessonAttendance.objects
-        .filter(present=True)
+        # is_free=False: «бесплатное занятие» (present=true) в FIFO-потребление НЕ
+        # идёт — деньги за него не берутся и партии оплат не гасятся. См.
+        # docs/superpowers/specs/2026-07-23-lesson-outcomes-spec.md.
+        .filter(present=True, is_free=False)
         # доп.урок (lesson_type='extra') ТЕПЕРЬ учитывается в потреблении: в новой
         # модели компенсации исходный пропуск остаётся present=false навсегда, а
         # потребление идёт от самого факта доп.урока (его вес = длительность
@@ -201,7 +204,10 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
         balances[r['student_id']] += r['s']
 
     attended = (
-        LessonAttendance.objects.filter(student_id__in=ids, present=True)
+        # is_free=False: «бесплатное занятие» не списывает баланс (present=true, но
+        # деньги не трогаются). В ОТЛИЧИЕ от продления (attended_units_total), которое
+        # free УЧИТЫВАЕТ — здесь метрики намеренно разведены. См. lesson-outcomes-spec.
+        LessonAttendance.objects.filter(student_id__in=ids, present=True, is_free=False)
         # доп.урок (lesson_type='extra') учитывается в потреблении: исходный
         # пропуск остаётся present=false, потребление идёт от факта доп.урока.
         # Один пропуск списывается ровно один раз (новая модель компенсации).
@@ -216,16 +222,18 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
 
 def attended_units_total(student_id: int) -> Decimal:
     """
-    Суммарно «отработано» уроков учеником за всю историю (present=true), в тех же
-    единицах (half-lesson 45мин=0.5), что и потребление баланса
-    (fifo_inputs/balances_for_students). Факт доп.урока (lesson_type='extra')
-    учитывается: исходный пропуск остаётся present=false, потребление идёт от
-    самого доп.урока (его вес = длительность исходного урока), поэтому один
+    «Отработано» для ПРОДЛЕНИЙ (present=true), в тех же единицах (half-lesson
+    45мин=0.5). Факт доп.урока (lesson_type='extra') учитывается: исходный пропуск
+    остаётся present=false, потребление идёт от самого доп.урока, поэтому один
     пропуск считается ровно один раз.
 
-    ЕДИНЫЙ источник правды «отработано» — вызывается и балансом finances, и движком
-    продлений (apps.renewals.engine._attended_total), чтобы «отработано» в отчёте и
-    прогресс сделки в «Продлениях» никогда не разошлись.
+    **Важно (2026-07-23):** эта метрика — источник правды ПРОГРЕССА СДЕЛКИ продления
+    (apps.renewals.engine._attended_total) и НАМЕРЕННО ШИРЕ балансового «отработано».
+    Она включает «бесплатное занятие» (present=true), которое из баланса/FIFO
+    исключено (`is_free=False` там). Правило: сделку продления двигает любой исход
+    `present=true ИЛИ списывает баланс`; free попадает под первую ветку. Для всех
+    НЕ-free исходов эта метрика совпадает с балансовым «отработано» (инвариант
+    «отчёт ↔ воронка» сохранён — есть тест). См. lesson-outcomes-spec, решение 5.
     """
     row = (
         LessonAttendance.objects

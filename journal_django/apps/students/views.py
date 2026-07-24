@@ -8,7 +8,6 @@ StudentsView — тонкие APIView для /api/admin/students.
   GET    /api/admin/students/:id/balance → баланс → 200
   POST   /api/admin/students           → создать → 201
   PATCH  /api/admin/students/:id       → обновить → 200 | 404
-  DELETE /api/admin/students/:id       → soft-delete → 204 | 404
 
 Права: только manager или admin (IsManagerOrAdmin).
 """
@@ -22,6 +21,7 @@ from rest_framework.views import APIView
 
 from apps.core.pagination import StandardPagination
 from apps.core.permissions import IsAdminOrSuperAdmin, IsManagerOrAdmin, ReadStaffWriteAdmin
+from apps.extra_lessons.exceptions import MembershipHasScheduledMakeups
 from apps.payments import services as payment_services
 from apps.students import services
 from apps.students.models import StudentComment
@@ -40,8 +40,8 @@ from apps.students.serializers import (
 
 # Допустимые значения sort_by (whitelist)
 ORDERING_FIELDS = [
-    'id', 'full_name', 'age',
-    'enrollment_status', 'first_purchase_date', 'created_at',
+    'id', 'full_name', 'birth_date',
+    'enrollment_status', 'created_at',
 ]
 
 
@@ -112,7 +112,10 @@ class StudentDetailView(APIView):
     """
     GET    /api/admin/students/:id  — получить ученика
     PATCH  /api/admin/students/:id  — обновить ученика
-    DELETE /api/admin/students/:id  — мягкое удаление
+
+    DELETE нет: ученика не удаляют и не «деактивируют». Уход оформляется сменой
+    статуса на 'declined' через POST /students/:id/status — она, в отличие от
+    прежнего soft-delete, снимает членства и закрывает сделку продления.
     """
 
     permission_classes = [IsManagerOrAdmin]
@@ -132,12 +135,6 @@ class StudentDetailView(APIView):
             raise NotFound({'error': 'Not found'})
 
         return Response(updated)
-
-    def delete(self, request: Request, pk: int) -> Response:
-        ok = services.soft_delete_student(pk)
-        if not ok:
-            raise NotFound({'error': 'Not found'})
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class StudentStatsView(APIView):
@@ -255,6 +252,13 @@ class StudentStatusView(APIView):
                 frozen_until=data.get('frozen_until'),
                 membership_ids=data.get('membership_ids'),
                 actor=request.user,
+            )
+        except MembershipHasScheduledMakeups as exc:
+            # Снятие членства (заморозка/уход) заблокировано назначенными доп.уроками
+            # — 409 + код для модалки на фронте. str(exc) — человеко-читаемый текст.
+            return Response(
+                {'error': str(exc), 'code': 'membership_has_scheduled_makeups'},
+                status=status.HTTP_409_CONFLICT,
             )
         except ValueError as exc:
             raise ValidationError({'error': str(exc)})

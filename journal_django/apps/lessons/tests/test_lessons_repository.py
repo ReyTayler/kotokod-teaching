@@ -27,7 +27,7 @@ import pytest
 from django.db import connection
 
 from apps.lessons import repository, services
-from apps.lessons.exceptions import UnpaidAttendanceBlocked
+from apps.lessons.exceptions import AttendanceLockedByTransfer, UnpaidAttendanceBlocked
 
 pytestmark = pytest.mark.django_db
 
@@ -458,6 +458,190 @@ def test_attendance_toggle_blocked_when_no_paid_balance(
             cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
 
 
+def test_attendance_cell_blocked_for_locked_transferred_student(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    """Ученик переведён с B=5 отработанными; урок с lesson_number=3 (<=5) блокирован."""
+    # Вторая группа того же направления — источник, откуда «переведён» ученик.
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active, lesson_number_offset) VALUES ('__les_locked_src__', %s, %s, false, 60, true, 0) "
+            "RETURNING id",
+            [direction_fixture, teacher_id_fixture],
+        )
+        src_group_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s, %s, 5, false) RETURNING id",
+            [src_group_id, student_fixture],
+        )
+        src_membership_id = cur.fetchone()[0]
+        cur.execute(
+            'UPDATE group_memberships SET transferred_from_id = %s '
+            'WHERE group_id = %s AND student_id = %s',
+            [src_membership_id, group_fixture, student_fixture],
+        )
+
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-08', 'group_id': group_fixture, 'teacher_id': teacher_id_fixture,
+        'lesson_number': 3, 'lesson_duration_minutes': 60,
+    })
+    lesson_id = result['lesson_id']
+    try:
+        with pytest.raises(AttendanceLockedByTransfer):
+            repository.update_attendance_cell(lesson_id, student_fixture, True)
+        with pytest.raises(AttendanceLockedByTransfer):
+            repository.update_attendance_cell(lesson_id, student_fixture, False)
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+            cur.execute('UPDATE group_memberships SET transferred_from_id = NULL '
+                        'WHERE group_id = %s AND student_id = %s', [group_fixture, student_fixture])
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [src_membership_id])
+            cur.execute('DELETE FROM groups WHERE id = %s', [src_group_id])
+
+
+def test_attendance_cell_allowed_once_group_catches_up(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    """B=5; урок с lesson_number=6 (>5) — разрешён."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active, lesson_number_offset) VALUES ('__les_locked_src2__', %s, %s, false, 60, true, 0) "
+            "RETURNING id",
+            [direction_fixture, teacher_id_fixture],
+        )
+        src_group_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s, %s, 5, false) RETURNING id",
+            [src_group_id, student_fixture],
+        )
+        src_membership_id = cur.fetchone()[0]
+        cur.execute(
+            'UPDATE group_memberships SET transferred_from_id = %s '
+            'WHERE group_id = %s AND student_id = %s',
+            [src_membership_id, group_fixture, student_fixture],
+        )
+
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-08', 'group_id': group_fixture, 'teacher_id': teacher_id_fixture,
+        'lesson_number': 6, 'lesson_duration_minutes': 60,
+    })
+    lesson_id = result['lesson_id']
+    try:
+        assert repository.update_attendance_cell(lesson_id, student_fixture, True) is True
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+            cur.execute('UPDATE group_memberships SET transferred_from_id = NULL '
+                        'WHERE group_id = %s AND student_id = %s', [group_fixture, student_fixture])
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [src_membership_id])
+            cur.execute('DELETE FROM groups WHERE id = %s', [src_group_id])
+
+
+def test_attendance_cell_set_free_postfactum_frees_student_not_payroll(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture,
+    membership_fixture, lessons_done,
+):
+    """Проставление «бесплатно» ПОСТФАКТУМ на проведённом уроке (типовой результат
+    разрешения спора): один из двух present-учеников → is_free. Баланс УЧЕНИКА
+    восстанавливается (списание снимается), free выпадает из headcount зарплаты
+    (за бесплатное занятие преподавателю не платят), прогресс не меняется (present остаётся)."""
+    from apps.finances.repository import balance_for_student
+
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_free_pf__', 'enrolled') RETURNING id")
+        s2 = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)", [group_fixture, s2])
+        cur.execute("INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')", [s2, direction_fixture])
+
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-20', 'group_id': group_fixture, 'teacher_id': teacher_id_fixture,
+        'lesson_number': 1, 'lesson_duration_minutes': 60,
+        'attendance': [
+            {'student_id': student_fixture, 'present': True},
+            {'student_id': s2, 'present': True},
+        ],
+    })
+    lesson_id = result['lesson_id']
+    try:
+        # До правки: оба платно present, баланс каждого 7 (списан 1).
+        assert float(balance_for_student(student_fixture)) == 7.0
+
+        assert repository.update_attendance_cell(
+            lesson_id, student_fixture, present=True, is_free=True) is True
+
+        full = services.get_lesson_full(lesson_id)
+        # free выпал из headcount зарплаты — остался 1 платный present (сосед s2):
+        # total=1/present=1 → 500 (малая группа, все пришли). За free не платят.
+        assert full['payroll']['total_students'] == 1
+        assert full['payroll']['present_count'] == 1
+        assert full['payroll']['payment'] == 500
+        # free-ученику баланс возвращается (не списывается по флагу is_free)
+        assert float(balance_for_student(student_fixture)) == 8.0
+        # платный сосед — по-прежнему списан
+        assert float(balance_for_student(s2)) == 7.0
+        # прогресс не изменился (present остаётся true)
+        assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
+        with connection.cursor() as cur:
+            cur.execute('SELECT present, is_free FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lesson_id, student_fixture])
+            present, is_free = cur.fetchone()
+        assert present is True and is_free is True
+    finally:
+        _delete_lesson(lesson_id)
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM payments WHERE student_id = %s', [s2])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [s2])
+            cur.execute('DELETE FROM students WHERE id = %s', [s2])
+
+
+def test_attendance_cell_free_needs_no_balance_but_unfree_does(
+    group_fixture, teacher_id_fixture, direction_fixture,
+):
+    """Ученик с НУЛЕВЫМ балансом: «бесплатно» ставится без ошибки (баланс не нужен),
+    а возврат в платный present (is_free=false) блокируется UnpaidAttendanceBlocked."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_free_zero__', 'enrolled') RETURNING id")
+        s = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)", [group_fixture, s])  # без payments → баланс 0
+
+    result = services.create_lesson_full({
+        'lesson_date': '2026-03-21', 'group_id': group_fixture, 'teacher_id': teacher_id_fixture,
+        'lesson_number': 1, 'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': s, 'present': False}],
+    })
+    lesson_id = result['lesson_id']
+    try:
+        # free — без баланса, ошибки нет
+        assert services.update_attendance_cell(lesson_id, s, present=True, is_free=True) is True
+        with connection.cursor() as cur:
+            cur.execute('SELECT present, is_free FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lesson_id, s])
+            assert cur.fetchone() == (True, True)
+        # снять free → платный present, но баланс 0 → блок
+        with pytest.raises(UnpaidAttendanceBlocked):
+            services.update_attendance_cell(lesson_id, s, present=True, is_free=False)
+    finally:
+        _delete_lesson(lesson_id)
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [s])
+            cur.execute('DELETE FROM students WHERE id = %s', [s])
+
+
 # ---------------------------------------------------------------------------
 # list_lessons
 # ---------------------------------------------------------------------------
@@ -500,3 +684,460 @@ def test_list_lessons_invalid_sort_by_falls_back(group_fixture, teacher_id_fixtu
         assert list_result['total'] == 1
     finally:
         _delete_lesson(lesson_id)
+
+
+def test_record_lesson_payroll_excludes_locked_student_across_rate_bracket(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    """Зарплата считается по составу БЕЗ переведённого ученика — проверка на границе тарифа.
+
+    В группе 3 ученика, один (student_fixture, B=5) заблокирован переводом на уроке №3.
+    Правильно: total=2, present=2 → малая группа, все пришли → 500₽.
+    Если бы заблокированный протёк в расчёт: total=3, present=3 → 200×3 = 600₽.
+    Двух учеников для этой проверки НЕ хватает (1 из 1 и 2 из 2 дают одинаковые 500₽) —
+    поэтому именно три.
+    """
+    extra_students: list[int] = []
+    with connection.cursor() as cur:
+        for name in ('__les_pay_s2__', '__les_pay_s3__'):
+            cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                        "VALUES (%s, 'enrolled') RETURNING id", [name])
+            sid = cur.fetchone()[0]
+            extra_students.append(sid)
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                "VALUES (%s, %s, 0, true)", [group_fixture, sid],
+            )
+            cur.execute(
+                "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+                "unit_price, total_amount, paid_at, created_by) "
+                "VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')",
+                [sid, direction_fixture],
+            )
+
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active, lesson_number_offset) "
+            "VALUES ('__les_pay_locked_src__', %s, %s, false, 60, true, 0) RETURNING id",
+            [direction_fixture, teacher_id_fixture],
+        )
+        src_group_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s, %s, 5, false) RETURNING id", [src_group_id, student_fixture],
+        )
+        src_membership_id = cur.fetchone()[0]
+        cur.execute(
+            'UPDATE group_memberships SET transferred_from_id = %s '
+            'WHERE group_id = %s AND student_id = %s',
+            [src_membership_id, group_fixture, student_fixture],
+        )
+
+    result = services.record_lesson(
+        lesson_date='2026-03-09', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=3, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test',
+        submit_date='2026-03-09',
+        attendance=[
+            {'student_id': student_fixture, 'present': True},
+            {'student_id': extra_students[0], 'present': True},
+            {'student_id': extra_students[1], 'present': True},
+        ],
+    )
+    lesson_id = result['lesson_id']
+    try:
+        full = services.get_lesson_full(lesson_id)
+        assert full['payroll']['total_students'] == 2
+        assert full['payroll']['present_count'] == 2
+        assert full['payroll']['payment'] == 500
+        assert result['payment'] == 500
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+            cur.execute('UPDATE group_memberships SET transferred_from_id = NULL '
+                        'WHERE group_id = %s AND student_id = %s', [group_fixture, student_fixture])
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [src_membership_id])
+            cur.execute('DELETE FROM groups WHERE id = %s', [src_group_id])
+            for sid in extra_students:
+                cur.execute('DELETE FROM payments WHERE student_id = %s', [sid])
+                cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [sid])
+                cur.execute('DELETE FROM students WHERE id = %s', [sid])
+
+
+def test_record_lesson_free_outcome_no_money_but_progress_and_renewal(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture, lessons_done,
+):
+    """Бесплатное занятие: у УЧЕНИКА с деньгами ничего (баланс/FIFO не трогаются),
+    но преподавателю зарплата за него начисляется как обычно, прогресс идёт (+1) и
+    продление двигается (present=true).
+
+    student_fixture (free, баланс 8) + student2 (платно, баланс 8), оба present, 60 мин.
+    Ожидаем: payroll total=1/present=1/payment=500 (free ВНЕ headcount — не оплачивается,
+    остаётся 1 платный present); баланс free = 8 (не списан), баланс student2 = 7;
+    lessons_done обоих = 1; attended_units_total free = 1 (для продления);
+    строка free present=true, is_free=true.
+    """
+    from apps.finances.repository import attended_units_total, balance_for_student
+
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_free_s2__', 'enrolled') RETURNING id")
+        student2_id = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)", [group_fixture, student2_id])
+        cur.execute("INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')",
+                    [student2_id, direction_fixture])
+
+    assert float(balance_for_student(student_fixture)) == 8.0
+    assert float(balance_for_student(student2_id)) == 8.0
+
+    result = services.record_lesson(
+        lesson_date='2026-03-10', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test',
+        submit_date='2026-03-10',
+        attendance=[
+            {'student_id': student_fixture, 'present': True, 'is_free': True},
+            {'student_id': student2_id, 'present': True},
+        ],
+    )
+    lesson_id = result['lesson_id']
+    try:
+        full = services.get_lesson_full(lesson_id)
+        # free ВНЕ headcount зарплаты — остался 1 платный present (student2):
+        # total=1/present=1 → 500 (малая группа). За free преподавателю не платят.
+        assert full['payroll']['total_students'] == 1
+        assert full['payroll']['present_count'] == 1
+        assert full['payroll']['payment'] == 500
+        assert result['payment'] == 500
+        # деньги УЧЕНИКА: free не списан, платный списан
+        assert float(balance_for_student(student_fixture)) == 8.0
+        assert float(balance_for_student(student2_id)) == 7.0
+        # прогресс: у обоих +1 (free идёт в прогресс курса)
+        assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
+        assert lessons_done(group_fixture, student2_id) == Decimal('1.0')
+        # продление: free (present=true) учитывается
+        assert attended_units_total(student_fixture) == Decimal('1')
+        assert attended_units_total(student2_id) == Decimal('1')
+        # строка free: present=true, is_free=true
+        with connection.cursor() as cur:
+            cur.execute('SELECT present, is_free FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lesson_id, student_fixture])
+            present, is_free = cur.fetchone()
+        assert present is True and is_free is True
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+            cur.execute('DELETE FROM payments WHERE student_id = %s', [student2_id])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [student2_id])
+            cur.execute('DELETE FROM students WHERE id = %s', [student2_id])
+
+
+def test_record_lesson_solo_free_student_teacher_not_paid_no_charge(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture, lessons_done,
+):
+    """Один ученик в группе, бесплатное занятие → free выпадает из headcount, других
+    платных present нет → payroll total=0/present=0/payment=0 (преподавателю за
+    бесплатное занятие не платят). Баланс УЧЕНИКА не списан, прогресс +1 (present=true)."""
+    from apps.finances.repository import balance_for_student
+
+    result = services.record_lesson(
+        lesson_date='2026-03-11', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test',
+        submit_date='2026-03-11',
+        attendance=[{'student_id': student_fixture, 'present': True, 'is_free': True}],
+    )
+    lesson_id = result['lesson_id']
+    try:
+        full = services.get_lesson_full(lesson_id)
+        assert full['payroll']['total_students'] == 0
+        assert full['payroll']['present_count'] == 0
+        assert full['payroll']['payment'] == 0
+        assert result['payment'] == 0
+        assert float(balance_for_student(student_fixture)) == 8.0
+        assert lessons_done(group_fixture, student_fixture) == Decimal('1.0')
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+
+
+def test_record_lesson_unpaid_skip_excluded_and_no_pending(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    """Неоплачиваемый пропуск при записи: из зарплаты исключён (present=false),
+    pending-резолюция НЕ создаётся (в отличие от обычного «не был»)."""
+    from apps.extra_lessons.models import AbsenceResolution
+
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_skip_s2__', 'enrolled') RETURNING id")
+        s2 = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)", [group_fixture, s2])
+        cur.execute("INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')", [s2, direction_fixture])
+
+    result = services.record_lesson(
+        lesson_date='2026-03-12', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test', submit_date='2026-03-12',
+        attendance=[
+            {'student_id': student_fixture, 'present': False, 'unpaid_skip': True},
+            {'student_id': s2, 'present': True},
+        ],
+    )
+    lid = result['lesson_id']
+    try:
+        full = services.get_lesson_full(lid)
+        assert full['payroll']['total_students'] == 1  # skip исключён из headcount
+        assert full['payroll']['present_count'] == 1
+        assert full['payroll']['payment'] == 500
+        # неоплачиваемый пропуск НЕ порождает pending
+        assert not AbsenceResolution.objects.filter(
+            missed_lesson_id=lid, student_id=student_fixture).exists()
+        with connection.cursor() as cur:
+            cur.execute('SELECT present, unpaid_skip FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lid, student_fixture])
+            assert cur.fetchone() == (False, True)
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
+            cur.execute('DELETE FROM payments WHERE student_id = %s', [s2])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [s2])
+            cur.execute('DELETE FROM students WHERE id = %s', [s2])
+
+
+def test_set_unpaid_skip_on_recorded_lesson_for_newly_added_student(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    """Ключевой сценарий: урок УЖЕ проведён (1 ученик, 500₽). Потом в группу добавлен
+    новый ученик (перевод/начал не с 1-го). Ему ставят «неоплачиваемый пропуск» на
+    этот прошлый урок — строка создаётся задним числом, из зарплаты он исключён
+    (payroll не меняется), pending нет. Снятие удаляет строку."""
+    result = services.record_lesson(
+        lesson_date='2026-03-13', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test', submit_date='2026-03-13',
+        attendance=[{'student_id': student_fixture, 'present': True}],
+    )
+    lid = result['lesson_id']
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_skip_new__', 'enrolled') RETURNING id")
+        s_new = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)", [group_fixture, s_new])
+    try:
+        assert services.set_unpaid_skip(lid, s_new, True) is True
+        full = services.get_lesson_full(lid)
+        assert full['payroll']['total_students'] == 1   # новый исключён
+        assert full['payroll']['present_count'] == 1
+        assert full['payroll']['payment'] == 500
+        with connection.cursor() as cur:
+            cur.execute('SELECT present, unpaid_skip FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lid, s_new])
+            assert cur.fetchone() == (False, True)
+
+        # снятие → строка удаляется
+        assert services.set_unpaid_skip(lid, s_new, False) is True
+        with connection.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lid, s_new])
+            assert cur.fetchone()[0] == 0
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [s_new])
+            cur.execute('DELETE FROM students WHERE id = %s', [s_new])
+
+
+def test_set_unpaid_skip_missing_lesson_returns_false():
+    assert services.set_unpaid_skip(999_999_999, 1, True) is False
+
+
+def test_lesson_skip_on_future_slot_then_recorded_excludes_student(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    """Вариант A: пометка «неопл. пропуск» на слот, которого ЕЩЁ НЕ БЫЛО (урока нет),
+    ставится без даты. Когда группа проводит этот урок — помеченный ученик исключён
+    из зарплаты (present=false, unpaid_skip=true), pending нет."""
+    from apps.extra_lessons.models import AbsenceResolution
+
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_lsk_s2__', 'enrolled') RETURNING id")
+        s2 = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)", [group_fixture, s2])
+        cur.execute("INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+                    "unit_price, total_amount, paid_at, created_by) "
+                    "VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')", [s2, direction_fixture])
+
+    services.set_lesson_skip(group_fixture, student_fixture, 1, True)
+    assert services.list_lesson_skips(group_fixture, 1) == [student_fixture]
+
+    # группа проводит урок №1: student_fixture приходит в payload как present, но
+    # слот-маркер форсит его в неопл. пропуск.
+    result = services.record_lesson(
+        lesson_date='2026-03-14', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test', submit_date='2026-03-14',
+        attendance=[
+            {'student_id': student_fixture, 'present': True},
+            {'student_id': s2, 'present': True},
+        ],
+    )
+    lid = result['lesson_id']
+    try:
+        full = services.get_lesson_full(lid)
+        assert full['payroll']['total_students'] == 1
+        assert full['payroll']['payment'] == 500
+        assert not AbsenceResolution.objects.filter(
+            missed_lesson_id=lid, student_id=student_fixture).exists()
+        with connection.cursor() as cur:
+            cur.execute('SELECT present, unpaid_skip FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lid, student_fixture])
+            assert cur.fetchone() == (False, True)
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
+            cur.execute('DELETE FROM payments WHERE student_id = %s', [s2])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [s2])
+            cur.execute('DELETE FROM students WHERE id = %s', [s2])
+
+
+def test_lesson_skip_on_recorded_slot_materializes_and_unset(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    """Урок №1 уже проведён (student_fixture present, 500₽). Ставим пометку на ЭТОТ
+    слот новому ученику → материализуется в lesson_attendance (payroll не меняется).
+    Снятие удаляет маркер и строку."""
+    result = services.record_lesson(
+        lesson_date='2026-03-15', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test', submit_date='2026-03-15',
+        attendance=[{'student_id': student_fixture, 'present': True}],
+    )
+    lid = result['lesson_id']
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_lsk_new__', 'enrolled') RETURNING id")
+        s_new = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s, %s, 0, true)", [group_fixture, s_new])
+    try:
+        services.set_lesson_skip(group_fixture, s_new, 1, True)
+        full = services.get_lesson_full(lid)
+        assert full['payroll']['total_students'] == 1  # не меняется, s_new исключён
+        assert full['payroll']['payment'] == 500
+        with connection.cursor() as cur:
+            cur.execute('SELECT present, unpaid_skip FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lid, s_new])
+            assert cur.fetchone() == (False, True)
+
+        services.set_lesson_skip(group_fixture, s_new, 1, False)
+        assert services.list_lesson_skips(group_fixture, 1) == []
+        with connection.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lid, s_new])
+            assert cur.fetchone()[0] == 0
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lid])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lid])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [s_new])
+            cur.execute('DELETE FROM students WHERE id = %s', [s_new])
+
+
+def test_record_lesson_silently_excludes_locked_students(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture, lessons_done,
+):
+    """B=5 для student_fixture; урок №3 (locked) исключает его из attendance/total_students,
+    но обычный ученик той же группы (student2) отмечается нормально."""
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                    "VALUES ('__les_locked_s2__', 'enrolled') RETURNING id")
+        student2_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s, %s, 0, true) RETURNING id",
+            [group_fixture, student2_id],
+        )
+        membership2_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
+            "unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test') RETURNING id",
+            [student2_id, direction_fixture],
+        )
+        payment2_id = cur.fetchone()[0]
+
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active, lesson_number_offset) VALUES ('__les_rl_locked_src__', %s, %s, false, 60, true, 0) "
+            "RETURNING id",
+            [direction_fixture, teacher_id_fixture],
+        )
+        src_group_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s, %s, 5, false) RETURNING id",
+            [src_group_id, student_fixture],
+        )
+        src_membership_id = cur.fetchone()[0]
+        cur.execute(
+            'UPDATE group_memberships SET transferred_from_id = %s '
+            'WHERE group_id = %s AND student_id = %s',
+            [src_membership_id, group_fixture, student_fixture],
+        )
+
+    result = services.record_lesson(
+        lesson_date='2026-03-08', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=3, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='test',
+        submit_date='2026-03-08',
+        attendance=[
+            {'student_id': student_fixture, 'present': True},
+            {'student_id': student2_id, 'present': True},
+        ],
+    )
+    lesson_id = result['lesson_id']
+    try:
+        full = services.get_lesson_full(lesson_id)
+        student_ids_in_attendance = {a['student_id'] for a in full['attendance']}
+        assert student_fixture not in student_ids_in_attendance
+        assert student2_id in student_ids_in_attendance
+        assert full['payroll']['total_students'] == 1
+        assert full['payroll']['present_count'] == 1
+        assert lessons_done(group_fixture, student_fixture) == Decimal('0.0')
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
+            cur.execute('UPDATE group_memberships SET transferred_from_id = NULL '
+                        'WHERE group_id = %s AND student_id = %s', [group_fixture, student_fixture])
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [src_membership_id])
+            cur.execute('DELETE FROM groups WHERE id = %s', [src_group_id])
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership2_id])
+            cur.execute('DELETE FROM payments WHERE id = %s', [payment2_id])
+            cur.execute('DELETE FROM students WHERE id = %s', [student2_id])

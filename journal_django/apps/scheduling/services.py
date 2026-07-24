@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import datetime
 
-from apps.audit.services import log_event
 from apps.core.utils.dates import MSK, msk_now
 from apps.extra_lessons import repository as extra_lessons_repository
 from apps.extra_lessons.models import MAKEUP_DONE as EXTRA_DONE
@@ -178,16 +177,8 @@ def build_calendar(
     ЭТОГО преподавателя (по group.teacher_id) без единой плановой строки, с причиной.
 
     Возвращает {occurrences, unscheduled, window} — контракт сохранён 1:1.
+    teacher_id=None → занятия ВСЕХ преподавателей (admin-календарь без фильтра).
     """
-    if teacher_id is None:
-        # Календарь всегда скоупится по преподавателю (view передаёт teacher_id).
-        # Без препода планового скоупа нет — возвращаем пустой конверт.
-        return {
-            'occurrences': [],
-            'unscheduled': [],
-            'window': {'from': window_from.isoformat(), 'to': window_to.isoformat()},
-        }
-
     rows = repository.planned_lessons_in_window(window_from, window_to, teacher_id)
     group_ids = sorted({r['group_pk'] for r in rows})
     students = repository.student_names_by_group(group_ids)
@@ -205,18 +196,24 @@ def build_calendar(
     occurrences.sort(key=lambda x: (x['date'], x['time'] or ''))
     return {
         'occurrences': occurrences,
-        'unscheduled': repository.groups_without_plan(teacher_id),
+        # unscheduled — пер-преподавательский data-quality сигнал (группы без плана).
+        # В режиме «все преподаватели» (teacher_id=None) панель была бы по всей школе
+        # и шумной — пропускаем, оставляя только реальные занятия.
+        'unscheduled': repository.groups_without_plan(teacher_id) if teacher_id is not None else [],
         'window': {'from': window_from.isoformat(), 'to': window_to.isoformat()},
     }
 
 
 # ---------------------------------------------------------------------------
-# Admin-план: оркестрация операций над planned_lessons + аудит (шаг 4).
+# Admin-план: оркестрация операций над planned_lessons.
 #
 # Тонкие функции: валидация — в сериализаторах (view), ORM/логика дат — в
-# repository/planner. Здесь — конвертация строк во date/time-объекты, вызов
-# repository и log_event на КАЖДУЮ мутацию. RBAC/CSRF — на уровне view.
-# meta не содержит PII/секретов (только id/seq/даты/время).
+# repository/planner. Здесь — конвертация строк во date/time-объекты и вызов
+# repository. RBAC/CSRF — на уровне view.
+#
+# В журнал ИБ (security_audit_log) эти мутации НЕ пишутся: он для событий
+# безопасности (вход/2FA/учётки). Изменения плана покрыты «Журналом изменений»
+# (pghistory, правила plan.* в apps/changelog/labels.py).
 # ---------------------------------------------------------------------------
 
 def _to_date(value) -> datetime.date | None:
@@ -238,18 +235,12 @@ def _to_time(value) -> datetime.time | None:
     return datetime.time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
 
 
-def _actor(request):
-    return getattr(getattr(request, 'user', None), 'email', None)
-
-
 def get_plan(group_id: int) -> list[dict] | None:
     """Плановые строки группы (или None, если группы нет)."""
     return repository.get_plan(group_id)
 
 
-def autogenerate_plan_on_setup(
-    group_id: int, *, source: str, actor_email: str | None = None,
-) -> None:
+def autogenerate_plan_on_setup(group_id: int) -> None:
     """Автогенерация плана при первичной настройке группы (Механизм 1).
 
     Срабатывает ТОЛЬКО первый раз: guard plan_exists(active_only=True) — непустой
@@ -258,51 +249,31 @@ def autogenerate_plan_on_setup(
     следующая правка попробует снова. Идемпотентно (generate_for_group create_only).
 
     Гонку двух почти одновременных триггеров (старт и слот) глушим на IntegrityError
-    (UniqueConstraint(group, seq)): план уже создан конкурентом → выходим. Аудит
-    plan_auto_generate пишем только при реальной записи (written>0); source — точка
-    вызова (group_create/group_update/schedule_change), actor_email опционален
-    (автоматическое действие). Вызывается синхронно из groups.services после того,
-    как repository закоммитил группу/слоты (ATOMIC_REQUESTS=False)."""
+    (UniqueConstraint(group, seq)): план уже создан конкурентом → выходим.
+    Вызывается синхронно из groups.services после того, как repository закоммитил
+    группу/слоты (ATOMIC_REQUESTS=False). Прежние параметры source/actor_email
+    убраны вместе с событием plan_auto_generate: генерация плана — доменное
+    действие, её место в «Журнале изменений», а не в журнале ИБ."""
     from django.db import IntegrityError
 
     if repository.plan_exists(group_id, active_only=True):
         return
     try:
-        result = repository.generate_for_group(group_id)
+        repository.generate_for_group(group_id)
     except IntegrityError:
         return
-    if result is None:
-        return
-    if result['written'] > 0:
-        log_event(
-            'plan_auto_generate',
-            actor_email=actor_email,
-            target_id=group_id,
-            meta={
-                'written': result['written'],
-                'reason': result['reason'],
-                'source': source,
-            },
-        )
 
 
 def generate_plan(group_id: int, request) -> list[dict] | None:
-    """Идемпотентная генерация плана + аудит. None → группы нет."""
+    """Идемпотентная генерация плана. None → группы нет."""
     result = repository.generate_for_group(group_id)
     if result is None:
         return None
-    log_event(
-        'plan_generate',
-        actor_email=_actor(request),
-        target_id=group_id,
-        meta={'written': result['written'], 'reason': result['reason']},
-        request=request,
-    )
     return result['plan']
 
 
 def reschedule(group_id: int, lesson_id: int, data: dict, request) -> dict | None:
-    """Разовый перенос + аудит. None → строки нет; ValueError → перенос 'done'."""
+    """Разовый перенос. None → строки нет; ValueError → перенос 'done'."""
     new_teacher_id = data.get('new_teacher_id')
     row = repository.reschedule_lesson(
         group_id,
@@ -313,40 +284,21 @@ def reschedule(group_id: int, lesson_id: int, data: dict, request) -> dict | Non
     )
     if row is None:
         return None
-    log_event(
-        'plan_reschedule',
-        actor_email=_actor(request),
-        target_id=group_id,
-        meta={
-            'lesson_id': lesson_id,
-            'new_date': data['new_date'],
-            'new_time': data.get('new_time'),
-            'new_teacher_id': new_teacher_id,
-        },
-        request=request,
-    )
     return row
 
 
 def change_teacher(group_id: int, lesson_id: int, data: dict, request) -> dict | None:
-    """Разовая смена преподавателя одной строки + аудит. None → строки нет (404);
+    """Разовая смена преподавателя одной строки. None → строки нет (404);
     ValueError → строка проведена (view → 409). Дату/время не трогает."""
     new_teacher_id = data['new_teacher_id']
     row = repository.change_teacher(group_id, lesson_id, new_teacher_id)
     if row is None:
         return None
-    log_event(
-        'plan_change_teacher',
-        actor_email=_actor(request),
-        target_id=group_id,
-        meta={'lesson_id': lesson_id, 'new_teacher_id': new_teacher_id},
-        request=request,
-    )
     return row
 
 
 def change_teacher_permanent(group_id: int, data: dict, request) -> list[dict] | None:
-    """Смена преподавателя навсегда (хвост seq>=from_seq) + аудит. None → группы нет
+    """Смена преподавателя навсегда (хвост seq>=from_seq). None → группы нет
     (404); ValueError → нет курсовых строк с позиции (view → 400)."""
     plan = repository.change_teacher_permanent(
         group_id,
@@ -355,18 +307,11 @@ def change_teacher_permanent(group_id: int, data: dict, request) -> list[dict] |
     )
     if plan is None:
         return None
-    log_event(
-        'plan_change_teacher_permanent',
-        actor_email=_actor(request),
-        target_id=group_id,
-        meta={'from_seq': data['from_seq'], 'new_teacher_id': data['new_teacher_id']},
-        request=request,
-    )
     return plan
 
 
 def permanent_change(group_id: int, data: dict, request) -> list[dict] | None:
-    """«Изменить расписание» (чистая regen хвоста от effective_from) + аудит.
+    """«Изменить расписание» (чистая regen хвоста от effective_from).
     None → группы нет; ValueError → нет курсовых строк с позиции (view → 400).
 
     effective_from и new_slots — оба обязательны и приходят от клиента (единый
@@ -381,23 +326,32 @@ def permanent_change(group_id: int, data: dict, request) -> list[dict] | None:
     )
     if plan is None:
         return None
-    log_event(
-        'plan_permanent_change',
-        actor_email=_actor(request),
-        target_id=group_id,
-        meta={
-            'from_seq': data['from_seq'],
-            'effective_from': data['effective_from'],
-            'new_slots': new_slots,
-            'new_teacher_id': data.get('new_teacher_id'),
-        },
-        request=request,
-    )
     return plan
 
 
+def preview_permanent_change(group_id: int, from_seq: int, effective_from) -> list[dict] | None:
+    """Read-only превью: какие разовые операции (переносы/замены/отмены) в хвосте
+    from_seq будут сброшены при «Изменить расписание» на effective_from. Ничего
+    не пишет — см. repository.preview_affected.
+
+    effective_from — строка 'YYYY-MM-DD' (как отдаёт DateStringField.validated_data)
+    или date; конвертируем сами через _to_date, тем же способом, что и permanent_change.
+
+    None → группы нет (view → 404), тем же контрактом, что и у реальной мутации
+    permanent_change: repository.preview_affected сам по себе не проверяет
+    существование группы (просто фильтрует по group_id, вернул бы [] на любой
+    несуществующий id) — проверяем явно здесь, чтобы превью несуществующей
+    группы не маскировалось под «нет разовых операций»."""
+    from apps.groups.models import Group
+
+    if not Group.objects.filter(id=group_id).exists():
+        return None
+    return repository.preview_affected(
+        group_id, date_from=_to_date(effective_from), from_seq=from_seq)
+
+
 def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
-    """Отмена (перенос отменённого урока в конец курса + перенумерация) + аудит.
+    """Отмена (перенос отменённого урока в конец курса + перенумерация).
     from_date выводится из даты занятия lid.
 
     None → строки нет (404). ValueError → якорь не курсовой/активный (view → 400):
@@ -423,12 +377,5 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
         marker_time=anchor['scheduled_time'],
         marker_teacher_id=marker_teacher_id,
         lesson_id=lesson_id,
-    )
-    log_event(
-        'plan_cancel',
-        actor_email=_actor(request),
-        target_id=group_id,
-        meta={'lesson_id': lesson_id, 'from_date': from_date.isoformat()},
-        request=request,
     )
     return plan

@@ -22,8 +22,9 @@ def test_payment_orm_create_syncs_stage_without_closing(
     sid, did, tid = make_student(), make_direction(), make_teacher()
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-            "VALUES ('__sig_group__', %s, %s, false, true, now()) RETURNING id", [did, tid])
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "
+            "lesson_number_offset) "
+            "VALUES ('__sig_group__', %s, %s, false, true, now(), 0) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
     engine.ensure_deal(sid, cycle_no=1)
     try:

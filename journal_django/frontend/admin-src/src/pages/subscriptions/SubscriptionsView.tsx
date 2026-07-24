@@ -50,7 +50,11 @@ export function SubscriptionsView() {
   };
 
   return (
-    <table className="data-table">
+    /* Панель + горизонтальная прокрутка — как у остальных таблиц системы.
+       Раньше здесь была голая <table> прямо на холсте. */
+    <div className="table-panel">
+      <div className="table-wrap">
+        <table className="data-table">
       <thead>
         <tr>
           <th>Направление</th>
@@ -117,7 +121,9 @@ export function SubscriptionsView() {
             </tr>
           );
         })}
-      </tbody>
-    </table>
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

@@ -124,9 +124,5 @@ export function useStudentMutations() {
         qc.invalidateQueries({ queryKey: ['renewals'] });
       },
     }),
-    remove: useMutation({
-      mutationFn: (id: number) => api<void>('DELETE', `/api/admin/students/${id}`),
-      onSuccess: invalidate,
-    }),
   };
 }

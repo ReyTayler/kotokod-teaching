@@ -14,6 +14,7 @@ import { fmtDate } from '../../lib/format';
 import { formatSlot } from '../../lib/slots';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function GroupsListPage() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -76,7 +77,7 @@ export default function GroupsListPage() {
       searchable: true,
       searchOptions: directionOptions,
       cell: (r) => r.direction_name
-        ? <DirTag direction={{ id: r.direction_id, name: r.direction_name, color: r.direction_color ?? null, is_individual: false, active: true, total_lessons: null, subscription_price: null }} />
+        ? <DirTag direction={{ id: r.direction_id, name: r.direction_name, color: r.direction_color ?? null, active: true, total_lessons: null, subscription_price: null }} />
         : <span className="id-cell">#{r.direction_id}</span>,
     },
     {
@@ -94,6 +95,15 @@ export default function GroupsListPage() {
           </div>
         );
       },
+    },
+    {
+      key: 'members_count',
+      label: 'Состав группы',
+      sortable: false,
+      searchable: false,
+      cell: (r) => (
+        <span className="id-cell" title="Учеников в группе">{r.members_count ?? 0}</span>
+      ),
     },
     {
       key: 'is_individual',
@@ -157,16 +167,26 @@ export default function GroupsListPage() {
   ];
   const visibleColumns = useTableColumns('groups', columns);
 
-  if (isLoading) return <TableSkeleton rows={6} cols={9} />;
+  // Шапка рисуется и во время загрузки: раньше страница возвращала
+  // скелетон ДО неё, и заголовок пропадал при каждом переходе.
+  const header = (
+    <PageHeader
+      title="Группы"
+      count={isLoading ? undefined : total}
+      actions={<button className="btn-add" onClick={() => setModalOpen(true)}>+ Новая</button>}
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={9} /></>;
 
   return (
     <>
+      {header}
       <DataTable<Group>
         data={rows}
         columns={visibleColumns}
         title="Группы"
         onRowClick={(row) => navigate(`/admin/groups/${row.id}`)}
-        headerActions={<button className="btn-add" onClick={() => setModalOpen(true)}>+ Новая</button>}
         isLoading={isFetching}
         serverPagination={{
           page,

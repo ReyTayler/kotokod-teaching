@@ -62,7 +62,7 @@ class TestReadAllStudents:
     def test_student_fields(
         self, teacher_fixture, group_fixture, student_fixture, membership_fixture
     ):
-        """Поля студента: name, lessonsDone, remaining, age, sheetName, sheetRow."""
+        """Поля студента: name, lessonsDone, remaining, birthDate, sheetName, sheetRow."""
         _, teacher_name = teacher_fixture
         result = repository.read_all_students()
         group_name = '__spa_test_group__ пн 10:00'
@@ -72,7 +72,7 @@ class TestReadAllStudents:
         assert 'name' in stu
         assert 'lessonsDone' in stu
         assert 'remaining' in stu
-        assert 'age' in stu
+        assert 'birthDate' in stu
         assert 'sheetName' in stu
         assert 'sheetRow' in stu
         # lessonsDone=0 в фикстуре → 0 (JS Number()||0)
@@ -80,8 +80,8 @@ class TestReadAllStudents:
         # remaining — вычисляемый общий баланс ученика; membership_fixture теперь
         # включает оплату на 8 уроков (см. conftest.py) → 8
         assert stu['remaining'] == 8
-        # age пустая строка (NULL в БД)
-        assert stu['age'] == ''
+        # birthDate пустая строка (NULL в БД)
+        assert stu['birthDate'] == ''
 
     def test_lessons_done_max(
         self, teacher_fixture, group_fixture, student_fixture
@@ -123,6 +123,70 @@ class TestReadAllStudents:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM group_memberships WHERE id IN (%s, %s)', [mem1_id, mem2_id])
                 cur.execute('DELETE FROM students WHERE id = %s', [stu2_id])
+
+
+def test_read_all_students_marks_locked_transferred_student(
+    teacher_fixture, direction_fixture, group_fixture, student_fixture, membership_fixture,
+):
+    """Ученик с B=5 (source membership lessons_done=5), а в group_fixture
+    max(lessonsDone)=2 (< 5) — locked=True, lockedThrough=5.0."""
+    teacher_id, teacher_name = teacher_fixture
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE group_memberships SET lessons_done = 2 WHERE id = %s", [membership_fixture],
+        )
+        cur.execute(
+            "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
+            "lesson_duration_minutes,active,lesson_number_offset) VALUES ('__spa_locked_src__',%s,%s,false,60,false,0) "
+            "RETURNING id",
+            [direction_fixture, teacher_id],
+        )
+        src_group_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s,%s,5,false) RETURNING id",
+            [src_group_id, student_fixture],
+        )
+        src_membership_id = cur.fetchone()[0]
+        cur.execute(
+            "UPDATE group_memberships SET transferred_from_id = %s WHERE id = %s",
+            [src_membership_id, membership_fixture],
+        )
+    try:
+        result = repository.read_all_students()
+        group_data = result['data'][teacher_name]['__spa_test_group__ пн 10:00']
+        student_row = next(s for s in group_data['students'] if s['name'] == '__spa_test_student__')
+        assert student_row['locked'] is True
+        assert student_row['lockedThrough'] == 5.0
+    finally:
+        with connection.cursor() as cur:
+            cur.execute("UPDATE group_memberships SET transferred_from_id = NULL WHERE id = %s",
+                        [membership_fixture])
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [src_membership_id])
+            cur.execute('DELETE FROM groups WHERE id = %s', [src_group_id])
+
+
+def test_read_all_students_marks_skip_student(
+    teacher_fixture, group_fixture, student_fixture, membership_fixture,
+):
+    """Ученик с маркером LessonSkip на СЛЕДУЮЩИЙ урок группы (lessonsDone=2 → урок 3)
+    получает skip=True, чтобы преподаватель не мог его отметить. Служебные поля
+    (_student_id/_group_id) в ответ не утекают."""
+    _, teacher_name = teacher_fixture
+    with connection.cursor() as cur:
+        cur.execute("UPDATE group_memberships SET lessons_done = 2 WHERE id = %s", [membership_fixture])
+        cur.execute("INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) "
+                    "VALUES (%s, %s, 3, now())", [group_fixture, student_fixture])
+    try:
+        result = repository.read_all_students()
+        grp = result['data'][teacher_name]['__spa_test_group__ пн 10:00']
+        assert '_group_id' not in grp
+        row = next(s for s in grp['students'] if s['name'] == '__spa_test_student__')
+        assert row['skip'] is True
+        assert '_student_id' not in row
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
 
 
 # ---------------------------------------------------------------------------

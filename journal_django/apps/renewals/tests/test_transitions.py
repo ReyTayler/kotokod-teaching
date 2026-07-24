@@ -63,3 +63,40 @@ def test_move_to_decision_or_lost_ignores_balance():
                       cycle_completed=True, balance=-5)
     assert is_allowed(from_kind='decision', to_kind='lost',
                       cycle_completed=True, balance=-5)
+
+
+def test_can_move_off_awaiting_renewal_to_won_when_cycle_completed():
+    # «Ждём продление» (авто, decision) — ЕДИНСТВЕННАЯ авто-стадия, с которой
+    # менеджер может уйти руками: подтвердить продление при отработанном цикле.
+    assert is_allowed(from_kind='decision', from_is_auto=True,
+                      from_key='awaiting_renewal', to_kind='won',
+                      cycle_completed=True)
+
+
+def test_can_move_off_awaiting_renewal_to_manual_decision_when_completed():
+    assert is_allowed(from_kind='decision', from_is_auto=True,
+                      from_key='awaiting_renewal', to_kind='decision',
+                      cycle_completed=True)
+
+
+def test_awaiting_renewal_to_lost_allowed_even_before_cycle_completed():
+    assert is_allowed(from_kind='decision', from_is_auto=True,
+                      from_key='awaiting_renewal', to_kind='lost',
+                      cycle_completed=False)
+
+
+def test_awaiting_renewal_to_won_still_gated_by_cycle():
+    # Даже с «Ждём продление» продлить нельзя, пока цикл не отработан.
+    assert not is_allowed(from_kind='decision', from_is_auto=True,
+                          from_key='awaiting_renewal', to_kind='won',
+                          cycle_completed=False)
+
+
+def test_other_auto_stages_still_locked_off():
+    # «Ждём оплату» (авто, decision, но НЕ awaiting_renewal) — уходить руками нельзя.
+    assert not is_allowed(from_kind='decision', from_is_auto=True,
+                          from_key='awaiting_payment', to_kind='won',
+                          cycle_completed=True)
+    # progress-авто — тоже нельзя.
+    assert not is_allowed(from_kind='progress', from_is_auto=True,
+                          from_key='lesson_1', to_kind='lost', cycle_completed=True)

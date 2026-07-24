@@ -129,14 +129,14 @@ def test_balance_pools_across_directions(
     try:
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO directions (name, is_individual, active) "
-                "VALUES ('__fin_dir_b__', false, true) RETURNING id"
+                "INSERT INTO directions (name, active) "
+                "VALUES ('__fin_dir_b__', true) RETURNING id"
             )
             direction_b = cur.fetchone()[0]
             cur.execute(
                 "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-                "lesson_duration_minutes, active) "
-                "VALUES ('__fin_group_b__', %s, %s, false, 60, true) RETURNING id",
+                "lesson_duration_minutes, active, lesson_number_offset) "
+                "VALUES ('__fin_group_b__', %s, %s, false, 60, true, 0) RETURNING id",
                 [direction_b, teacher_id_fixture],
             )
             group_b = cur.fetchone()[0]

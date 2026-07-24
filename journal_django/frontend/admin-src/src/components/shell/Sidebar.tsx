@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { ThemeToggle } from './ThemeToggle';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import { usePendingExtraLessonsCount } from '../../hooks/useExtraLessons';
-import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, type Role } from '../../lib/permissions';
+import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, canSeeArchive, type Role } from '../../lib/permissions';
 
 /** Красный бейдж с числом необработанных пропусков на кнопке «Доп.уроки». */
 export function ExtraLessonsBadge() {
@@ -148,23 +148,82 @@ export const NAV_ICONS: Record<string, ReactElement> = {
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
     </svg>
   ),
+  reports: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="8" y1="13" x2="12" y2="13"/>
+      <line x1="8" y1="17" x2="16" y2="17"/>
+      <path d="M15 11.5v-2M12 11.5v-4M9 11.5v-1"/>
+    </svg>
+  ),
 };
 
-export const SECTIONS = [
-  { key: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' },
-  { key: 'students', label: 'Ученики', path: '/admin/students' },
-  { key: 'groups', label: 'Группы', path: '/admin/groups' },
-  { key: 'teachers', label: 'Преподаватели', path: '/admin/teachers' },
-  { key: 'directions', label: 'Направления', path: '/admin/directions' },
-  { key: 'lessons', label: 'Уроки', path: '/admin/lessons' },
-  { key: 'extra-lessons', label: 'Доп.уроки', path: '/admin/extra-lessons' },
-  { key: 'calendar', label: 'Календарь', path: '/admin/calendar' },
-  { key: 'subscriptions', label: 'Абонементы', path: '/admin/subscriptions' },
-  { key: 'renewals', label: 'Продления', path: '/admin/renewals' },
-  { key: 'payroll', label: 'Зарплата', path: '/admin/payroll' },
-  { key: 'archive', label: 'Архив', path: '/admin/archive' },
-  { key: 'settings', label: 'Настройки', path: '/admin/settings' },
+export interface NavItem {
+  key: string;
+  label: string;
+  path: string;
+  /** Ролевой гейт: пункт виден, только если функция вернёт true. Без неё — всем staff. */
+  can?: (role: Role | undefined) => boolean;
+}
+
+export interface NavGroup {
+  /** Заголовок группы (null — группа без заголовка: «Дашборд» сверху). */
+  title: string | null;
+  items: NavItem[];
+}
+
+/**
+ * Единый источник навигации admin SPA — разделы сгруппированы по смыслу с
+ * заголовками (Sidebar рисует заголовки, MobileNav — плоским списком). Ролевые
+ * пункты несут `can`; группа без видимых пунктов не рисуется вовсе.
+ */
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    title: null,
+    items: [{ key: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' }],
+  },
+  {
+    title: 'Учебная часть',
+    items: [
+      { key: 'students', label: 'Ученики', path: '/admin/students' },
+      { key: 'groups', label: 'Группы', path: '/admin/groups' },
+      { key: 'teachers', label: 'Преподаватели', path: '/admin/teachers' },
+      { key: 'directions', label: 'Направления', path: '/admin/directions' },
+    ],
+  },
+  {
+    title: 'Занятия',
+    items: [
+      { key: 'lessons', label: 'Уроки', path: '/admin/lessons' },
+      { key: 'extra-lessons', label: 'Доп.уроки', path: '/admin/extra-lessons' },
+      { key: 'calendar', label: 'Календарь', path: '/admin/calendar' },
+    ],
+  },
+  {
+    title: 'Финансы',
+    items: [
+      { key: 'subscriptions', label: 'Абонементы', path: '/admin/subscriptions' },
+      { key: 'renewals', label: 'Продления', path: '/admin/renewals' },
+      { key: 'reports', label: 'Отчёты', path: '/admin/reports' },
+      { key: 'payroll', label: 'Зарплата', path: '/admin/payroll', can: canSeePayroll },
+    ],
+  },
+  {
+    title: 'Система',
+    items: [
+      { key: 'settings', label: 'Настройки', path: '/admin/settings' },
+      { key: 'archive', label: 'Архив', path: '/admin/archive', can: canSeeArchive },
+      { key: 'accounts', label: 'Учётки', path: '/admin/accounts', can: canSeeAccounts },
+      { key: 'audit', label: 'Журнал ИБ', path: '/admin/audit', can: canSeeAudit },
+      { key: 'changelog', label: 'Журнал изменений', path: '/admin/changelog', can: canSeeChangelog },
+      { key: 'sync', label: 'Синхро', path: '/admin/sync', can: canSeeSync },
+    ],
+  },
 ];
+
+/** Плоский список всех пунктов (для MobileNav). */
+export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 function Avatar({ name }: { name: string }) {
   const parts = name.trim().split(' ');
@@ -203,7 +262,6 @@ function PayButton() {
 export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
   const { me, logout } = useAuth();
   const role = me?.role as Role | undefined;
-  const visibleSections = SECTIONS.filter((s) => s.key !== 'payroll' || canSeePayroll(role));
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -237,55 +295,27 @@ export function Sidebar({ onClose }: { onClose?: () => void } = {}) {
         )}
       </div>
       <nav className="sidebar-nav">
-        {visibleSections.map((s) => (
-          <div key={s.key}>
-            {s.key === 'archive' && <div className="nav-sep" />}
-            <NavLink
-              to={s.path}
-              className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-            >
-              {NAV_ICONS[s.key]} {s.label}
-              {s.key === 'extra-lessons' && <ExtraLessonsBadge />}
-            </NavLink>
-          </div>
-        ))}
-        <div className="nav-sep" />
-        <PayButton />
-        {(canSeeAccounts(role) || canSeeAudit(role) || canSeeChangelog(role) || canSeeSync(role)) && (
-          <div className="nav-sep" />
-        )}
-        {canSeeAccounts(role) && (
-          <NavLink
-            to="/admin/accounts"
-            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-          >
-            {NAV_ICONS['accounts']} Учётки
-          </NavLink>
-        )}
-        {canSeeAudit(role) && (
-          <NavLink
-            to="/admin/audit"
-            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-          >
-            {NAV_ICONS['audit']} Журнал ИБ
-          </NavLink>
-        )}
-        {canSeeChangelog(role) && (
-          <NavLink
-            to="/admin/changelog"
-            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-          >
-            {NAV_ICONS['changelog']} Журнал изменений
-          </NavLink>
-        )}
-        {canSeeSync(role) && (
-          <NavLink
-            to="/admin/sync"
-            className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
-          >
-            {NAV_ICONS['sync']} Синхро
-          </NavLink>
-        )}
+        {NAV_GROUPS.map((group, gi) => {
+          const items = group.items.filter((it) => !it.can || it.can(role));
+          if (items.length === 0) return null;
+          return (
+            <div key={group.title ?? '__top'} className="nav-group">
+              {group.title && <div className="nav-group__title">{group.title}</div>}
+              {items.map((it) => (
+                <NavLink
+                  key={it.key}
+                  to={it.path}
+                  className={({ isActive }) => `nav-btn${isActive ? ' active' : ''}`}
+                >
+                  {NAV_ICONS[it.key]} {it.label}
+                  {it.key === 'extra-lessons' && <ExtraLessonsBadge />}
+                </NavLink>
+              ))}
+              {/* CTA «Внести оплату» — сразу под Дашбордом (первая группа). */}
+              {gi === 0 && <PayButton />}
+            </div>
+          );
+        })}
       </nav>
       <div className="sidebar-footer">
         <div className="user-row">

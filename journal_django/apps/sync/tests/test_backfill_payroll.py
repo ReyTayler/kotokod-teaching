@@ -51,14 +51,15 @@ def test_run_inserts_payroll_row(monkeypatch):
         created_direction = False
         if direction_row is None:
             cur.execute(
-                "INSERT INTO directions (name, is_individual) VALUES ('__test_sync_direction_p__', false) RETURNING id"
+                "INSERT INTO directions (name) VALUES ('__test_sync_direction_p__') RETURNING id"
             )
             direction_row = cur.fetchone()
             created_direction = True
         direction_id = direction_row[0]
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, lessons_per_week) "
-            "VALUES ('__test_sync_group_p__', %s, %s, false, 90, 1) RETURNING id",
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, "
+            "lessons_per_week, lesson_number_offset) "
+            "VALUES ('__test_sync_group_p__', %s, %s, false, 90, 1, 0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]

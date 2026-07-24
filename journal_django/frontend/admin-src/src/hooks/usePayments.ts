@@ -18,6 +18,8 @@ export interface PaymentCreateInput {
   total_amount: number;
   paid_at: string;
   note?: string | null;
+  // 'extra' — доплата за доп.урок сверх курса (мимо лимита). По умолчанию purchase.
+  kind?: 'purchase' | 'extra';
 }
 
 export interface PaymentDeleteResult {

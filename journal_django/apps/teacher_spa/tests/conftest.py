@@ -116,8 +116,8 @@ def direction_fixture():
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO directions (name, is_individual, total_lessons, active)
-            VALUES ('__spa_test_dir__', false, 8, true)
+            INSERT INTO directions (name, total_lessons, active)
+            VALUES ('__spa_test_dir__', 8, true)
             RETURNING id
             """,
         )
@@ -135,8 +135,8 @@ def group_fixture(teacher_fixture, direction_fixture):
         cur.execute(
             """
             INSERT INTO groups (name, direction_id, teacher_id, is_individual,
-                                lesson_duration_minutes, active)
-            VALUES ('__spa_test_group__ пн 10:00', %s, %s, false, 60, true)
+                                lesson_duration_minutes, active, lesson_number_offset)
+            VALUES ('__spa_test_group__ пн 10:00', %s, %s, false, 60, true, 0)
             RETURNING id
             """,
             [direction_fixture, teacher_id],
@@ -155,8 +155,8 @@ def half_group_fixture(teacher_fixture, direction_fixture):
         cur.execute(
             """
             INSERT INTO groups (name, direction_id, teacher_id, is_individual,
-                                lesson_duration_minutes, active)
-            VALUES ('__spa_half_group__ 45 минут вт 11:00', %s, %s, false, 45, true)
+                                lesson_duration_minutes, active, lesson_number_offset)
+            VALUES ('__spa_half_group__ 45 минут вт 11:00', %s, %s, false, 45, true, 0)
             RETURNING id
             """,
             [direction_fixture, teacher_id],

@@ -111,8 +111,9 @@ def test_board_card_has_ids_and_debt(manager_client, make_student, make_directio
     from django.db import connection
     sid, did, tid = make_student(), make_direction('__renew_card_dir__'), make_teacher()
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-                    "VALUES ('__bc_group__', %s, %s, false, true, now()) RETURNING id", [did, tid])
+        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "
+                    "lesson_number_offset) "
+                    "VALUES ('__bc_group__', %s, %s, false, true, now(), 0) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s,%s,0,true)", [gid, sid])
@@ -146,8 +147,9 @@ def test_board_card_cycle_completed_true_after_4_lessons(
     from django.db import connection
     sid, did, tid = make_student(), make_direction('__renew_card_dir2__'), make_teacher()
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-                    "VALUES ('__bc_group2__', %s, %s, false, true, now()) RETURNING id", [did, tid])
+        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "
+                    "lesson_number_offset) "
+                    "VALUES ('__bc_group2__', %s, %s, false, true, now(), 0) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s,%s,0,true)", [gid, sid])
@@ -181,8 +183,9 @@ def test_deal_computed_lesson_from_cycle(manager_client, make_student, make_dire
     sid, did, tid = make_student(), make_direction(), make_teacher()
     make_payment(sid, did, lessons=8)
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-                    "VALUES ('__ar_group__', %s, %s, false, true, now()) RETURNING id", [did, tid])
+        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "
+                    "lesson_number_offset) "
+                    "VALUES ('__ar_group__', %s, %s, false, true, now(), 0) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s,%s,0,true)", [gid, sid])

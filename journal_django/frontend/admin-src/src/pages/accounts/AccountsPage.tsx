@@ -10,8 +10,10 @@ import { TextInput } from '../../components/form/TextInput';
 import { SelectInput } from '../../components/form/SelectInput';
 import { Combobox } from '../../components/form/Combobox';
 import { DataTable, type Column } from '../../components/table/DataTable';
+import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { Account, AccountStatus, Role } from '../../lib/types';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 // ─── Подписи ролей ────────────────────────────────────────────────────────────
 
@@ -518,106 +520,44 @@ export default function AccountsPage() {
       sortable: false,
       cell: (r) => {
         const status: AccountStatus = r.status ?? (r.active ? 'active' : 'disabled');
-        const sep = <span style={{ color: 'var(--border)' }}>·</span>;
+
+        // Пять-шесть равновесных действий в ряд ломались по словам в узкой
+        // колонке; сворачиваем их в одно меню «…» — порядок от частого к
+        // опасному, «Удалить» помечено danger и стоит последним.
+        const items: ActionMenuItem[] = [];
+
+        if (status === 'invited' || status === 'expired') {
+          items.push({ label: 'Новая ссылка', onSelect: () => setPendingAction({ type: 'regenerate', accountId: r.id, email: r.email }) });
+        } else if (status === 'active') {
+          items.push({ label: 'Сброс пароля', onSelect: () => setPendingAction({ type: 'resetPassword', accountId: r.id, email: r.email }) });
+        }
+
+        if (r.has_active_invite) {
+          items.push({ label: 'Отозвать ссылку', onSelect: () => setPendingAction({ type: 'revokeInvite', accountId: r.id, email: r.email }) });
+        }
+
+        if (r.twofa_enabled) {
+          items.push({ label: 'Сброс 2FA', onSelect: () => setPendingAction({ type: 'reset2fa', accountId: r.id, email: r.email }) });
+        }
+
+        if (r.role !== 'teacher') {
+          items.push({ label: 'Изменить имя', onSelect: () => setEditingAccount(r) });
+        }
+
+        items.push(
+          r.active
+            ? { label: 'Отключить', onSelect: () => setPendingAction({ type: 'disable', accountId: r.id, email: r.email }) }
+            : { label: 'Включить', onSelect: () => setPendingAction({ type: 'enable', accountId: r.id, email: r.email }) },
+        );
+
+        items.push({ label: 'Удалить', danger: true, onSelect: () => setPendingAction({ type: 'delete', accountId: r.id, email: r.email }) });
+
         return (
           <div
-            style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end', flexWrap: 'nowrap' }}
+            style={{ display: 'flex', justifyContent: 'flex-end' }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Приглашён/истёк — операции с invite-ссылкой; активна — сброс пароля (тоже invite). */}
-            {status === 'invited' || status === 'expired' ? (
-              <button
-                type="button"
-                className="btn-link"
-                title="Перевыписать invite-ссылку"
-                onClick={() => setPendingAction({ type: 'regenerate', accountId: r.id, email: r.email })}
-              >
-                Новая ссылка
-              </button>
-            ) : status === 'active' ? (
-              <button
-                type="button"
-                className="btn-link"
-                title="Сбросить пароль (выписать invite-ссылку)"
-                onClick={() => setPendingAction({ type: 'resetPassword', accountId: r.id, email: r.email })}
-              >
-                Сброс пароля
-              </button>
-            ) : null}
-
-            {r.has_active_invite && (
-              <>
-                {sep}
-                <button
-                  type="button"
-                  className="btn-link"
-                  title="Отозвать активную invite-ссылку"
-                  onClick={() => setPendingAction({ type: 'revokeInvite', accountId: r.id, email: r.email })}
-                >
-                  Отозвать ссылку
-                </button>
-              </>
-            )}
-
-            {r.twofa_enabled && (
-              <>
-                {sep}
-                <button
-                  type="button"
-                  className="btn-link"
-                  title="Сбросить 2FA"
-                  onClick={() => setPendingAction({ type: 'reset2fa', accountId: r.id, email: r.email })}
-                >
-                  Сброс 2FA
-                </button>
-              </>
-            )}
-
-            {r.role !== 'teacher' && (
-              <>
-                {sep}
-                <button
-                  type="button"
-                  className="btn-link"
-                  title="Изменить имя"
-                  onClick={() => setEditingAccount(r)}
-                >
-                  Изменить имя
-                </button>
-              </>
-            )}
-
-            {sep}
-            {r.active ? (
-              <button
-                type="button"
-                className="btn-link"
-                title="Отключить учётку (обратимо)"
-                onClick={() => setPendingAction({ type: 'disable', accountId: r.id, email: r.email })}
-              >
-                Отключить
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn-link"
-                title="Включить учётку"
-                onClick={() => setPendingAction({ type: 'enable', accountId: r.id, email: r.email })}
-              >
-                Включить
-              </button>
-            )}
-
-            {sep}
-            <button
-              type="button"
-              className="btn-link"
-              style={{ color: 'var(--danger)' }}
-              title="Удалить учётку безвозвратно"
-              onClick={() => setPendingAction({ type: 'delete', accountId: r.id, email: r.email })}
-            >
-              Удалить
-            </button>
+            <ActionMenu items={items} label="Действия с учёткой" />
           </div>
         );
       },
@@ -629,20 +569,30 @@ export default function AccountsPage() {
   const rows     = data?.rows ?? [];
   const total    = data?.total ?? 0;
 
-  if (isLoading) return <TableSkeleton rows={8} cols={7} />;
+  // Шапка рисуется и во время загрузки — иначе заголовок пропадает при переходе.
+  const header = (
+    <PageHeader
+      title="Учётные записи"
+      count={isLoading ? undefined : total}
+      sub="Доступ в систему: роли, приглашения и отключение учёток."
+      actions={
+        <button type="button" className="btn-add" onClick={() => setCreateOpen(true)}>
+          + Новая учётка
+        </button>
+      }
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={8} cols={7} /></>;
 
   return (
     <>
+      {header}
       <DataTable<Account>
         data={rows}
         columns={columns}
         title="Учётные записи"
         isLoading={isFetching}
-        headerActions={
-          <button type="button" className="btn-add" onClick={() => setCreateOpen(true)}>
-            + Новая учётка
-          </button>
-        }
         serverPagination={{
           page,
           pageSize,

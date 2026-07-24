@@ -182,7 +182,7 @@ FIELD_RU = {
     'name': 'название', 'full_name': 'ФИО', 'email': 'email', 'phone': 'телефон',
     'username': 'логин', 'active': 'активность', 'color': 'цвет',
     'sheet_row': 'строка листа', 'is_individual': 'индивидуальное',
-    'birth_date': 'дата рождения', 'age': 'возраст',
+    'birth_date': 'дата рождения',
     'bitrix24_link': 'ссылка Bitrix24',
     'parent1_name': 'родитель 1', 'parent1_phone': 'телефон родителя 1',
     'parent1_email': 'email родителя 1',
@@ -199,7 +199,7 @@ FIELD_RU = {
     'price': 'цена', 'subscription_price': 'цена абонемента',
     'unit_price': 'цена за единицу', 'total_amount': 'сумма', 'amount': 'сумма',
     'subscriptions_count': 'кол-во абонементов', 'penalty': 'штраф',
-    'paid_at': 'дата оплаты', 'first_purchase_date': 'дата первой покупки',
+    'paid_at': 'дата оплаты',
     'duration': 'длительность', 'lesson_duration_minutes': 'длительность',
     'day_of_week': 'день недели', 'start_time': 'время начала',
     'effective_from': 'действует с', 'effective_to': 'действует по',
@@ -391,17 +391,27 @@ def build_summary(operation: str, events: list[dict], lk: Lookups) -> str:
             return f'Зачисление: {student} → {group}'
         if operation == 'membership.delete':
             return f'Отчисление: {student} из {group}'
-        if operation == 'membership.transfer' and len(memberships) == 2:
+        if operation in ('membership.transfer', 'membership.place') and len(memberships) >= 2:
+            # >= 2, не == 2: Фаза 1b (place_student_in_group._seed_transfer_continuation)
+            # может дописать ещё одну строку-событие (UPDATE lessons_done на ТОЙ ЖЕ новой
+            # membership сразу после её создания) — это тот же «новый» ряд, просто с ещё
+            # одним снимком; берём ПОСЛЕДНИЙ такой (актуальное состояние), не первый.
             old_ev = next(
                 (e for e in memberships if (e.get('pgh_diff') or {}).get('active') == [True, False]),
                 None,
             )
-            new_ev = next((e for e in memberships if e is not old_ev), None)
+            new_ev = next((e for e in reversed(memberships) if e is not old_ev), None)
             if old_ev is not None and new_ev is not None:
                 new_data = new_ev.get('pgh_data') or {}
                 to_group = lk.group(new_data.get('group_id'))
                 from_group = lk.group((old_ev.get('pgh_data') or {}).get('group_id'))
                 return f'Перевод: {student} из {from_group} в {to_group}'
+        if operation == 'membership.place':
+            # Одно событие: запись с нуля или повторная запись/перевод из
+            # неактивной группы (источник уже неактивен, потому события два не набралось).
+            if data.get('transferred_from_id'):
+                return f'Запись с историей: {student} → {group}'
+            return f'Запись в группу: {student} → {group}'
         return _generic_phrase(memberships[0], 'Членство')
 
     # --- Оплаты ---

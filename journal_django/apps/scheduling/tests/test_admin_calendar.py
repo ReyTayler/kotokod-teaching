@@ -37,9 +37,16 @@ class TestAuth:
 
 
 class TestValidation:
-    def test_missing_teacher_id_400(self, manager_client):
+    def test_missing_teacher_id_returns_all_teachers(self, manager_client, sched_setup):
+        """Без teacher_id — занятия ВСЕХ преподавателей (вся школа), 200."""
+        s = sched_setup
+        repository.generate_for_group(s['group_a'])
+        repository.generate_for_group(s['group_b'])
         resp = manager_client.get('/api/admin/calendar?from=2026-06-01&to=2026-06-30')
-        assert resp.status_code == 400
+        assert resp.status_code == 200
+        groups = {o['group'] for o in resp.json()['occurrences']}
+        assert '__sched_group_A__' in groups
+        assert '__sched_group_B__' in groups
 
     def test_non_numeric_teacher_id_400(self, manager_client):
         resp = manager_client.get(

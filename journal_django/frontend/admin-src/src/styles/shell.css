@@ -31,7 +31,7 @@
   color: var(--text);
 }
 .logo-sub {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--text4);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -42,6 +42,18 @@
 .sidebar-nav { flex: 1; padding: var(--space-2); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
 .sidebar-nav::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .nav-sep { height: 1px; background: var(--border2); margin: var(--space-2) var(--space-3); }
+/* Смысловые группы разделов: заголовок сверху + сами пункты. */
+.nav-group { display: flex; flex-direction: column; }
+.nav-group + .nav-group { margin-top: var(--space-3); }
+.nav-group__title {
+  padding: 0 var(--space-3);
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text4);
+}
 .nav-btn {
   width: 100%;
   display: flex; align-items: center;
@@ -108,41 +120,9 @@
 .theme-toggle-btn:hover { background: var(--bg4); color: var(--text2); border-color: var(--accent); }
 
 /* ── SECTIONS ── */
+#admin-main > * { animation: fadeIn .18s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-/* ── SECTION HEADER ── */
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: 0 0 var(--space-4);
-  flex-wrap: wrap;
-}
-.section-title {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--text);
-}
-.count-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  background: var(--bg3);
-  color: var(--text3);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.section-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-left: auto;
-  flex-wrap: wrap;
-}
 
 /* ── SCROLL-TOP BUTTON ── */
 #scroll-top-btn {
@@ -152,7 +132,7 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 1px solid var(--border-strong, var(--border));
+  border: 1px solid var(--border-strong);
   background: var(--accent);
   color: #fff;
   cursor: pointer;
@@ -160,7 +140,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1500;
+  /* Было 1500 — выше подложки модалки (1000), из-за чего акцентный круг
+     «наверх» всплывал поверх открытого диалога. Экранная кнопка живёт на
+     уровне навигации, то есть ПОД модалкой. */
+  z-index: var(--z-nav);
   opacity: 0;
   pointer-events: none;
   transform: translateY(12px);
@@ -191,7 +174,7 @@
 [data-theme="dark"] .sidebar-close-btn:hover { background: rgba(255,255,255,0.06); }
 
 .burger-btn {
-  position: fixed; left: 20px; bottom: 20px; z-index: 900;
+  position: fixed; left: 20px; bottom: 20px; z-index: var(--z-nav);
   width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
   background: color-mix(in oklab, var(--accent) 70%, transparent); color: #ffffff;
   display: flex; align-items: center; justify-content: center;
@@ -205,7 +188,7 @@
 [data-theme="dark"] .burger-btn:hover { background: color-mix(in oklab, var(--accent) 90%, transparent); }
 
 .mobile-nav-overlay {
-  position: fixed; inset: 0; z-index: 950;
+  position: fixed; inset: 0; z-index: calc(var(--z-nav) + 1);
   background: rgba(15,23,42,0.4);
   backdrop-filter: blur(2px);
   opacity: 0; pointer-events: none;
@@ -214,7 +197,7 @@
 .mobile-nav-overlay.open { opacity: 1; pointer-events: auto; }
 
 .mobile-nav {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 960;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: calc(var(--z-nav) + 2);
   background: #ffffff;
   border-top-left-radius: 24px; border-top-right-radius: 24px;
   padding: 10px 14px 20px;
@@ -248,3 +231,86 @@
 .mobile-nav-item svg { flex-shrink: 0; opacity: 0.85; }
 .mobile-nav-item.active svg { opacity: 1; }
 [data-theme="dark"] .mobile-nav-item:hover { background: rgba(255,255,255,0.05); }
+
+/* ============================================================
+ *  ШАПКА СТРАНИЦЫ (PageHeader)
+ *  Липкая: при прокрутке длинного списка видно, где находишься.
+ *  Тянется на всю ширину области контента, но внутренности
+ *  выровнены по той же колонке, что и .page — иначе заголовок
+ *  «уезжал» бы от таблицы на широком мониторе.
+ * ============================================================ */
+.page-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  /* Шапка живёт ВНУТРИ .app-page (у той — поля и потолок ширины), поэтому фон
+     растягивается на всю колонку отрицательным полем, а внутренний padding
+     возвращает содержимое на сетку контента. Иначе полоса блюра обрывалась бы
+     по краю текста. */
+  margin-inline: calc(-1 * var(--page-pad-x));
+  padding: var(--page-pad-y) var(--page-pad-x) var(--space-4);
+  background: color-mix(in oklab, var(--bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border2);
+}
+.page-header__inner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+.page-header__main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.page-header__title-row { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.page-header__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-5xl);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--text);
+}
+.page-header__count {
+  display: inline-flex; align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--bg3);
+  color: var(--text3);
+  font-size: var(--fs-xs); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.page-header__sub { font-size: var(--fs-sm); color: var(--text3); }
+.page-header__actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.page-header__actions .btn-save { margin-left: 0; }
+
+@media (max-width: 900px) {
+  .page-header { margin-inline: calc(-1 * var(--space-4)); padding: var(--space-4) var(--space-4) var(--space-3); }
+  .page-header__title { font-size: var(--fs-3xl); }
+}
+
+/* ── ХЛЕБНЫЕ КРОШКИ ── */
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: var(--fs-xs); color: var(--text3); }
+.crumbs__item { display: inline-flex; align-items: center; gap: 4px; }
+.crumbs__link { color: var(--text3); text-decoration: none; border-radius: 3px; transition: color var(--t-fast) var(--ease); }
+.crumbs__link:hover { color: var(--accent); }
+.crumbs__sep { color: var(--text4); }
+
+/* Крошки на карточке сущности: стрелка «назад» + путь. */
+.detail-crumbs { padding: var(--space-2) 0 var(--space-4); }
+.crumbs__back {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  margin-right: 2px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text3);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
+}
+.crumbs__back:hover { background: var(--bg3); color: var(--text); border-color: var(--border-strong); }
+
+/* Страница-карточка: тот же вертикальный ритм, что у остальных страниц. */
+.detail-page { display: flex; flex-direction: column; animation: fadeIn .18s ease; }

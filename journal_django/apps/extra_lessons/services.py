@@ -11,16 +11,20 @@ from typing import Optional
 
 from django.db import IntegrityError, transaction
 
-from apps.audit.services import log_event
 from apps.extra_lessons import repository
 from apps.extra_lessons.exceptions import (
-    DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
+    AbsentStudentNotRecordable, DuplicateAssignment, GroupNotFound,
+    MembershipHasScheduledMakeups, MissedLessonNotFound, NotTeachersAssignment,
+    StudentNotAbsent, StudentNotInGroup, StudentWasPresent,
 )
-from apps.extra_lessons.models import BURNED, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
+from apps.extra_lessons.models import BURNED, EXTRA, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
 from apps.groups.models import Group
 from apps.lessons import repository as lessons_repository
 from apps.lessons.models import Lesson
-from apps.payroll.calculator import calculate_extra_lesson_payment, calculate_penalty
+from apps.memberships.models import GroupMembership
+from apps.payroll.calculator import (
+    calculate_extra_lesson_payment, calculate_payment, calculate_penalty,
+)
 from apps.payroll.models import Payroll
 from apps.students.models import Student
 from apps.teachers.models import Teacher
@@ -30,8 +34,11 @@ from apps.teachers.models import Teacher
 # отличие доп.урока — ОТКУДА берутся payment/penalty, см. record() ниже).
 
 
-def _actor(request):
-    return getattr(getattr(request, 'user', None), 'email', None)
+# Доменные действия доп.уроков в журнал ИБ (security_audit_log) НЕ пишутся: он
+# для событий безопасности (вход/2FA/учётки), а изменения доп.уроков полностью
+# покрыты «Журналом изменений» (pghistory, apps/changelog — правила
+# extra_lesson.* в labels.py). Параметр `request` у функций ниже сохранён:
+# атрибуция автора идёт через контекст middleware в pghistory.
 
 
 def _to_date(value: str) -> datetime.date:
@@ -123,18 +130,123 @@ def create_assignment(data: dict, request) -> dict:
                     duration_minutes=duration_minutes)
                 rid = locked['id']
             resolution_ids.append(rid)
-    log_event(
-        'extra_lesson_assign',
-        actor_email=_actor(request),
-        target_id=resolution_ids[0],
-        meta={
-            'missed_lesson_id': missed_lesson_id,
-            'student_ids': student_ids,
-            'resolution_ids': resolution_ids,
-        },
-        request=request,
-    )
     return {'created': len(resolution_ids), 'resolution_ids': resolution_ids}
+
+
+def create_extra_assignment(data: dict, request) -> dict:
+    """Назначить ВРУЧНУЮ доп.урок ученику(ам) группы. Роутинг по «за какой урок» N
+    (идея движка авто-заявок: доп.урок привязан к конкретному уроку):
+
+      1. Если N задан И в группе есть РЕАЛЬНЫЙ проведённый урок №N →
+         **makeup, пришитый к этому уроку** (missed_lesson): при проведении факт
+         компенсирует именно урок N, сетка прогресса это отразит. Переиспользуем
+         уже созданную авто-заявку по пропуску (без дублей). Гард: если ученик
+         реально БЫЛ на уроке N (present=true) → StudentWasPresent (нельзя).
+      2. Если N не задан ИЛИ проведённого урока №N нет (будущий / за пределами
+         курса) → **extra сверх курса** (kind='extra', не привязан к уроку).
+
+    Общие валидации: группа существует (GroupNotFound), каждый ученик — активный
+    участник группы (StudentNotInGroup), баланс > 0 (UnpaidAttendanceBlocked).
+    Возвращает {'created': N, 'resolution_ids': [...], 'kind': 'makeup'|'extra'}.
+    """
+    group_id = data['group_id']
+    if not Group.objects.filter(id=group_id).exists():
+        raise GroupNotFound(f'Группа #{group_id} не найдена.')
+
+    student_ids = data['student_ids']
+    member_ids = set(
+        GroupMembership.objects
+        .filter(group_id=group_id, student_id__in=student_ids, active=True)
+        .values_list('student_id', flat=True)
+    )
+    not_members = [sid for sid in student_ids if sid not in member_ids]
+    if not_members:
+        names = list(
+            Student.objects.filter(id__in=not_members).values_list('full_name', flat=True)
+        )
+        raise StudentNotInGroup(names)
+
+    lessons_repository.assert_students_paid(student_ids)
+
+    scheduled_date = _to_date(data['scheduled_date'])
+    scheduled_time = _to_time(data['scheduled_time'])
+    duration_minutes = data['duration_minutes']
+    target_lesson_number = data.get('lesson_number')
+
+    # Роутинг: реальный проведённый урок №N в группе → makeup, привязанный к нему.
+    real_lesson_id = None
+    if target_lesson_number is not None:
+        real_lesson_id = repository.find_group_regular_lesson(group_id, target_lesson_number)
+
+    if real_lesson_id is not None:
+        return _assign_makeup_for_lesson(
+            real_lesson_id, student_ids, data['teacher_id'], scheduled_date,
+            scheduled_time, duration_minutes, group_id, target_lesson_number, request)
+
+    return _assign_extra_beyond_course(
+        group_id, student_ids, data['teacher_id'], scheduled_date, scheduled_time,
+        duration_minutes, target_lesson_number, request)
+
+
+def _assign_makeup_for_lesson(missed_lesson_id, student_ids, teacher_id, scheduled_date,
+                              scheduled_time, duration_minutes, group_id,
+                              target_lesson_number, request) -> dict:
+    """Ручное назначение как makeup, привязанный к реальному уроку missed_lesson_id.
+    Гард present=true (StudentWasPresent). Переиспользует авто-pending, иначе создаёт
+    напрямую (как create_assignment, но без StudentNotAbsent — назначить можно и по
+    ученику без строки-посещения, лишь бы он не был отмечен присутствовавшим)."""
+    present_ids = repository.students_present_on(missed_lesson_id, student_ids)
+    if present_ids:
+        names = list(Student.objects.filter(id__in=present_ids).values_list('full_name', flat=True))
+        raise StudentWasPresent(names)
+
+    duplicates = [sid for sid in student_ids
+                  if repository.has_active_resolution(missed_lesson_id, sid)]
+    if duplicates:
+        names = list(Student.objects.filter(id__in=duplicates).values_list('full_name', flat=True))
+        raise DuplicateAssignment(names)
+
+    resolution_ids = []
+    with transaction.atomic():
+        for sid in student_ids:
+            locked = repository.lock_for_assign(missed_lesson_id, sid)
+            if locked is None:
+                # Авто-pending нет (ученика не было в составе урока / до релиза) —
+                # создаём makeup_scheduled напрямую. IntegrityError (гонка по полному
+                # UNIQUE) → чистый DuplicateAssignment (409), не 500.
+                try:
+                    rid = repository.create_scheduled_direct(
+                        missed_lesson_id=missed_lesson_id, student_id=sid,
+                        assigned_teacher_id=teacher_id, scheduled_date=scheduled_date,
+                        scheduled_time=scheduled_time, duration_minutes=duration_minutes)
+                except IntegrityError:
+                    raise DuplicateAssignment([str(sid)])
+            elif locked['status'] != PENDING:
+                raise DuplicateAssignment([str(sid)])
+            else:
+                repository.assign_pending(
+                    locked['id'], assigned_teacher_id=teacher_id, scheduled_date=scheduled_date,
+                    scheduled_time=scheduled_time, duration_minutes=duration_minutes)
+                rid = locked['id']
+            resolution_ids.append(rid)
+    return {'created': len(resolution_ids), 'resolution_ids': resolution_ids, 'kind': 'makeup'}
+
+
+def _assign_extra_beyond_course(group_id, student_ids, teacher_id, scheduled_date,
+                                scheduled_time, duration_minutes, target_lesson_number,
+                                request) -> dict:
+    """Ручное назначение как extra СВЕРХ курса (kind='extra', не привязан к уроку):
+    будущий урок / за пределами курса. lesson_number — только подпись (record()
+    возьмёт следующую позицию, если не задан)."""
+    resolution_ids = []
+    with transaction.atomic():
+        for sid in student_ids:
+            rid = repository.create_extra_direct(
+                group_id=group_id, student_id=sid, assigned_teacher_id=teacher_id,
+                scheduled_date=scheduled_date, scheduled_time=scheduled_time,
+                duration_minutes=duration_minutes, target_lesson_number=target_lesson_number)
+            resolution_ids.append(rid)
+    return {'created': len(resolution_ids), 'resolution_ids': resolution_ids, 'kind': 'extra'}
 
 
 def cancel_assignment(resolution_id: int, request) -> Optional[dict]:
@@ -146,11 +258,11 @@ def cancel_assignment(resolution_id: int, request) -> Optional[dict]:
         return None
     if full['status'] != MAKEUP_SCHEDULED:
         raise ValueError('Отменить можно только назначенный (ещё не проведённый) доп.урок.')
+    if full['kind'] == EXTRA:
+        # Доп.урок сверх курса не имеет pending-пропуска — отмена = удаление назначения.
+        repository.delete_resolution(resolution_id)
+        return {'id': resolution_id, 'deleted': True}
     repository.back_to_pending(resolution_id)
-    log_event(
-        'extra_lesson_cancel', actor_email=_actor(request),
-        target_id=resolution_id, meta={}, request=request,
-    )
     return repository.get_resolution_full(resolution_id)
 
 
@@ -204,11 +316,18 @@ def record(
     if full['status'] != MAKEUP_SCHEDULED:
         raise ValueError('Доп.урок можно провести только из статуса «назначен».')
 
+    # Блокер «пустого» доп.урока: запись = «занятие проведено, ученик был».
+    # Неявку не фиксируем present=false (это закрыло бы резолюцию как проведённую
+    # без присутствия) — её оформляют «Отменой» назначения (см. cancel_assignment).
+    if not present:
+        raise AbsentStudentNotRecordable()
+
     if present:
         lessons_repository.assert_students_paid([full['student_id']])
 
     present_count = 1 if present else 0
-    payment = calculate_extra_lesson_payment(present_count)
+    # payment считается ниже, внутри atomic — зависит от kind/длительности/индива
+    # факта, которые известны только после блокировки резолюции.
     penalty = calculate_penalty(
         full['scheduled_date'].isoformat(), submit_date, present_count,
     )
@@ -225,23 +344,56 @@ def record(
         if locked['status'] != MAKEUP_SCHEDULED:
             raise ValueError('Доп.урок можно провести только из статуса «назначен».')
 
-        missed_lesson = Lesson.objects.get(id=locked['missed_lesson_id'])
+        # Параметры факта различаются по типу резолюции: makeup наследует
+        # позицию/длительность/группу от ПРОПУЩЕННОГО урока; extra (сверх курса,
+        # без пропуска) берёт группу/длительность из самой резолюции, а «за какой
+        # урок» — из target_lesson_number (или следующей позиции ученика в группе).
+        if locked['kind'] == EXTRA:
+            fact_group_id = locked['group_id']
+            fact_duration = locked['duration_minutes']
+            fact_number = locked['target_lesson_number']
+            if fact_number is None:
+                cur_done = (
+                    GroupMembership.objects
+                    .filter(group_id=fact_group_id, student_id=locked['student_id'])
+                    .values_list('lessons_done', flat=True).first()
+                ) or Decimal('0')
+                fact_number = cur_done + _step(fact_duration)
+            # Уникализирует lessons_natural_key (date,group,number,token): несколько
+            # extra на ученика в один день/номер иначе схлопнулись бы.
+            fact_token = f'extra:{resolution_id}'
+        else:
+            missed_lesson = Lesson.objects.get(id=locked['missed_lesson_id'])
+            fact_group_id = locked['missed_lesson_group_id']
+            # Длительность = длительность ИСХОДНОГО пропущенного урока: вес
+            # потребления факта обязан совпасть с весом компенсируемого занятия.
+            fact_duration = missed_lesson.lesson_duration_minutes
+            # lesson_number наследуется от пропущенного урока (компенсирует ЭТУ позицию).
+            fact_number = missed_lesson.lesson_number
+            fact_token = submitted_by_token
+
+        # Оплата: доп.урок СВЕРХ курса (kind='extra') для ИНДИВ-группы — это по сути
+        # обычное индивидуальное занятие, поэтому платится по стандартной ставке
+        # (45 мин → 250, полный → 500; calculate_payment с total=1). Отработка
+        # пропуска (makeup) и extra в обычной группе остаются плоскими 200
+        # (calculate_extra_lesson_payment). Решение пользователя 2026-07-24.
+        if locked['kind'] == EXTRA and Group.objects.filter(
+                id=fact_group_id, is_individual=True).exists():
+            payment = calculate_payment(
+                total=1, present=present_count, is_half=(fact_duration == 45))
+        else:
+            payment = calculate_extra_lesson_payment(present_count)
+
         lesson_id = lessons_repository.insert_lesson({
             'lesson_date': locked['scheduled_date'].isoformat(),
             'teacher_id': teacher_id,
-            'group_id': locked['missed_lesson_group_id'],
+            'group_id': fact_group_id,
             'original_teacher_id': None,
-            # lesson_number наследуется от пропущенного урока — доп.урок
-            # компенсирует именно ЭТУ позицию курса, показываем это в списке
-            # уроков (lesson_type='extra' отличает его от исходного).
-            'lesson_number': missed_lesson.lesson_number,
-            # Длительность = длительность ИСХОДНОГО пропущенного урока (не
-            # duration_minutes резолюции): вес потребления факта доп.урока обязан
-            # совпасть с весом компенсируемого занятия (half-lesson: 45→0.5).
-            'lesson_duration_minutes': missed_lesson.lesson_duration_minutes,
+            'lesson_number': fact_number,
+            'lesson_duration_minutes': fact_duration,
             'lesson_type': 'extra',
             'record_url': record_url,
-            'submitted_by_token': submitted_by_token,
+            'submitted_by_token': fact_token,
         })
         lessons_repository.insert_attendance(
             lesson_id, [{'student_id': locked['student_id'], 'present': present}],
@@ -255,29 +407,20 @@ def record(
             'penalty': penalty,
         })
         if present:
-            # Потребление идёт от самого факта доп.урока (present=true, длительность
-            # исходного урока). Исходный пропуск остаётся present=false навсегда —
-            # ретроактивная отметка исходного занятия больше не делается. Двигаем
-            # lessons_done группы пропуска на вес исходного урока (как record_lesson).
-            step = _step(missed_lesson.lesson_duration_minutes)
+            # Потребление идёт от самого факта доп.урока (present=true, вес =
+            # длительность факта). Двигаем lessons_done группы факта на этот вес
+            # (как record_lesson). Для makeup исходный пропуск остаётся present=false.
+            step = _step(fact_duration)
             lessons_repository.increment_lessons_done(
-                locked['missed_lesson_group_id'], [locked['student_id']], step,
+                fact_group_id, [locked['student_id']], step,
             )
-            # Доп.урок двигает авто-стадию «Продлений» (как обычный урок в
-            # record_lesson) — раньше это делал apply_makeup_attendance через
-            # on_commit; теперь делаем явно, т.к. потребление ушло на extra-факт.
+            # Доп.урок двигает авто-стадию «Продлений» (как обычный урок в record_lesson).
             direction_id = Group.objects.filter(
-                id=locked['missed_lesson_group_id']).values_list('direction_id', flat=True).first()
+                id=fact_group_id).values_list('direction_id', flat=True).first()
             transaction.on_commit(
                 lambda: lessons_repository.sync_renewal_stage(locked['student_id'], direction_id))
         repository.mark_makeup_done(resolution_id, fact_lesson_id=lesson_id)
 
-    log_event(
-        'extra_lesson_record', actor_email=_actor(request),
-        target_id=resolution_id,
-        meta={'lesson_id': lesson_id, 'payment': payment, 'penalty': penalty},
-        request=request,
-    )
     return {'lesson_id': lesson_id, 'payment': payment, 'penalty': penalty}
 
 
@@ -373,12 +516,6 @@ def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
             lambda: lessons_repository.sync_renewal_stage(locked['student_id'], direction_id))
         repository.mark_burned(resolution_id, fact_lesson_id=lesson_id)
 
-    log_event(
-        'extra_lesson_burn', actor_email=_actor(request),
-        target_id=resolution_id,
-        meta={'lesson_id': lesson_id, 'payment': payment},
-        request=request,
-    )
     return {'lesson_id': lesson_id, 'payment': payment}
 
 
@@ -428,12 +565,13 @@ def delete_fact(resolution_id: int, request) -> bool:
                     lambda sid=sid: lessons_repository.sync_renewal_stage(sid, direction_id))
         Payroll.objects.filter(lesson_id=fact_lesson_id).delete()
         Lesson.objects.filter(id=fact_lesson_id).delete()
-        repository.back_to_pending(resolution_id)
+        if full['kind'] == EXTRA:
+            # Доп.урок сверх курса не имеет pending-пропуска — откат факта = удаление
+            # всего назначения (в отличие от makeup/burned, где возвращаемся в pending).
+            repository.delete_resolution(resolution_id)
+        else:
+            repository.back_to_pending(resolution_id)
 
-    log_event(
-        'extra_lesson_delete', actor_email=_actor(request),
-        target_id=resolution_id, meta={'fact_lesson_id': fact_lesson_id}, request=request,
-    )
     return True
 
 
@@ -443,10 +581,24 @@ def autocreate_pending_for_lesson(missed_lesson_id, absent_student_ids) -> int:
     return repository.autocreate_pending(missed_lesson_id, absent_student_ids)
 
 
-def cleanup_on_student_leave(student_id) -> int:
-    """Уход/архивация ученика: удалить его pending + makeup_scheduled резолюции.
-    makeup_done не трогаем. Вызывается из apps.students.services.change_student_status."""
-    return repository.delete_open_for_student(student_id)
+def enforce_membership_cancellation(student_id, group_id) -> int:
+    """
+    Гейт при снятии членства ученика в группе (удаление/деактивация/перевод/
+    заморозка/уход). Главное правило: доп.уроки живут, пока ученик состоит в группе
+    пропуска. Поэтому при снятии членства:
+
+      - НАЗНАЧЕННЫЙ, но не проведённый доп.урок (makeup_scheduled) по пропуску в
+        этой группе → блок: MembershipHasScheduledMakeups (за назначением стоят
+        преподаватель+дата, молча удалять нельзя). Снятие членства не выполняется.
+      - pending («Ждёт решения») → удаляются автоматически (нет факта/денег).
+      - makeup_done/burned → не трогаем (есть факт-урок + payroll).
+
+    Вызывать ДО фактической деактивации членства (в той же транзакции), чтобы блок
+    откатил всю операцию. Возвращает число удалённых pending-резолюций.
+    """
+    if repository.has_scheduled_for_student_in_group(student_id, group_id):
+        raise MembershipHasScheduledMakeups()
+    return repository.delete_pending_for_student_in_group(student_id, group_id)
 
 
 def list_assignments(

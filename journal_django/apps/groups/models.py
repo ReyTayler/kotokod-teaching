@@ -12,6 +12,7 @@ date-поля хранятся как CharField(max_length=10) — защита 
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 
 import pghistory
 from django.db import models
@@ -53,6 +54,11 @@ class Group(models.Model):
     lessons_per_week = models.IntegerField(default=1)
     group_start_date = models.DateField(null=True, blank=True)
     vk_chat = models.TextField(null=True, blank=True)
+    # Фаза 1b transfer-progress-alignment: если группа была продолжена курсом
+    # переведённого ученика (см. apps.memberships.repository.place_student_in_group),
+    # здесь хранится B (сколько уроков ученик уже отработал в старой группе) —
+    # план группы (apps.scheduling) генерируется начиная с этого номера, не с 0.
+    lesson_number_offset = models.DecimalField(max_digits=6, decimal_places=1, default=Decimal('0'))
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField()
 

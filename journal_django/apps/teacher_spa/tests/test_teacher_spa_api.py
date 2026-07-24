@@ -298,13 +298,13 @@ class TestSubmitLesson:
         lid = None
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO directions (name,is_individual,total_lessons,active) "
-                "VALUES ('__f4_dir__',false,8,true) RETURNING id"
+                "INSERT INTO directions (name,total_lessons,active) "
+                "VALUES ('__f4_dir__',8,true) RETURNING id"
             )
             did = cur.fetchone()[0]
             cur.execute(
                 "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                "lesson_duration_minutes,active) VALUES (%s,%s,%s,false,45,true) RETURNING id",
+                "lesson_duration_minutes,active,lesson_number_offset) VALUES (%s,%s,%s,false,45,true,0) RETURNING id",
                 [group_name, did, teacher_id],
             )
             gid = cur.fetchone()[0]
@@ -341,13 +341,13 @@ class TestSubmitLesson:
                 cur.execute('DELETE FROM groups WHERE id = %s', [gid])
                 cur.execute('DELETE FROM directions WHERE id = %s', [did])
 
-    def test_absent_student_not_incremented(
+    def test_all_absent_blocked(
         self,
         teacher_fixture, account_fixture,
         group_fixture, student_fixture, membership_fixture,
-        lessons_done,
     ):
-        """Ученик absent → lessons_done НЕ инкрементируется."""
+        """Урок без единого присутствующего (все «Не пришёл») → success:false,
+        ничего не пишется. Блокер «пустого» урока (нет посещаемости — нет урока)."""
         group_name = '__spa_test_group__ пн 10:00'
         student_name = '__spa_test_student__'
         token = f'acct:{account_fixture}'
@@ -358,15 +358,11 @@ class TestSubmitLesson:
             'students': [{'name': student_name, 'present': False}],
         })
         assert resp.status_code == 200
-        assert resp.json()['success'] is True
+        body = resp.json()
+        assert body['success'] is False
+        assert 'присутств' in body['error']
 
-        lesson_id = _get_lesson_id(group_fixture, token)
-        assert lesson_id is not None
-        try:
-            done = lessons_done(group_fixture, student_fixture)
-            assert done == 0.0
-        finally:
-            _cleanup_lesson(lesson_id)
+        assert _get_lesson_id(group_fixture, token) is None
 
     def test_present_blocked_when_no_paid_balance(
         self,
@@ -402,36 +398,24 @@ class TestSubmitLesson:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
 
-    def test_absent_allowed_without_paid_balance(
+    def test_empty_students_list_blocked(
         self,
         teacher_fixture, account_fixture,
-        group_fixture, student_fixture,
+        group_fixture, student_fixture, membership_fixture,
     ):
-        """Тот же неоплаченный ученик, но present:false — урок создаётся нормально."""
-        with connection.cursor() as cur:
-            cur.execute(
-                'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
-                'VALUES (%s, %s, 0, true) RETURNING id',
-                [group_fixture, student_fixture],
-            )
-            membership_id = cur.fetchone()[0]
-
-        try:
-            resp = self._submit(account_fixture, {
-                'group': '__spa_test_group__ пн 10:00',
-                'date': '2026-06-10',
-                'students': [{'name': '__spa_test_student__', 'present': False}],
-            })
-            assert resp.status_code == 200
-            assert resp.json()['success'] is True
-
-            token = f'acct:{account_fixture}'
-            lesson_id = _get_lesson_id(group_fixture, token)
-            assert lesson_id is not None
-            _cleanup_lesson(lesson_id)
-        finally:
-            with connection.cursor() as cur:
-                cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
+        """Пустой список students (нет ни одного присутствующего) → success:false,
+        ничего не пишется — тот же блокер «пустого» урока, что и all-absent."""
+        token = f'acct:{account_fixture}'
+        resp = self._submit(account_fixture, {
+            'group': '__spa_test_group__ пн 10:00',
+            'date': '2026-06-10',
+            'students': [],
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body['success'] is False
+        assert 'присутств' in body['error']
+        assert _get_lesson_id(group_fixture, token) is None
 
     def test_payment_calculation_small_group(
         self,
@@ -655,6 +639,192 @@ class TestSubmitLesson:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
 
+    def test_blocked_when_earlier_lesson_unfilled(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Незакрытое занятие прошлой недели → отказ, урок не создаётся."""
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-03', '10:00', %s, 'pending', NOW(), NOW()), "
+                "       (%s, 2, 2, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW())",
+                [group_fixture, teacher_id, group_fixture, teacher_id],
+            )
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body['success'] is False
+            assert body['error'] == (
+                'Есть не отмеченные занятия. Обратитесь к менеджеру или '
+                'администратору за правкой расписания.'
+            )
+            assert _get_lesson_id(group_fixture, token) is None
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])
+
+    def test_not_blocked_when_earlier_lesson_cancelled(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Отменённое занятие долгом не считается — урок записывается."""
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-03', '10:00', %s, 'cancelled', NOW(), NOW()), "
+                "       (%s, 2, 2, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW())",
+                [group_fixture, teacher_id, group_fixture, teacher_id],
+            )
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.json()['success'] is True
+            lesson_id = _get_lesson_id(group_fixture, token)
+            try:
+                assert lesson_id is not None
+            finally:
+                if lesson_id is not None:
+                    _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture],
+                    )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])
+
+    def test_not_blocked_when_earlier_lesson_done(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Проведённое занятие долгом не считается — урок записывается."""
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-03', '10:00', %s, 'done', NOW(), NOW()), "
+                "       (%s, 2, 2, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW())",
+                [group_fixture, teacher_id, group_fixture, teacher_id],
+            )
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.json()['success'] is True
+            lesson_id = _get_lesson_id(group_fixture, token)
+            try:
+                assert lesson_id is not None
+            finally:
+                if lesson_id is not None:
+                    _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture],
+                    )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])
+
+    def test_not_blocked_by_non_course_row(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Строка без seq (маркер/разовое занятие) блокером не является."""
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, NULL, NULL, '2026-06-03', '10:00', %s, 'pending', NOW(), NOW()), "
+                "       (%s, 1, 1, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW())",
+                [group_fixture, teacher_id, group_fixture, teacher_id],
+            )
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.json()['success'] is True
+            lesson_id = _get_lesson_id(group_fixture, token)
+            try:
+                assert lesson_id is not None
+            finally:
+                if lesson_id is not None:
+                    _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture],
+                    )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])
+
+    def test_not_blocked_by_later_unfilled_lesson(
+        self,
+        teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Незакрытое занятие ПОЗЖЕ отмечаемой даты не мешает ретро-отметке."""
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW()), "
+                "       (%s, 2, 2, '2026-06-17', '10:00', %s, 'pending', NOW(), NOW())",
+                [group_fixture, teacher_id, group_fixture, teacher_id],
+            )
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.json()['success'] is True
+            lesson_id = _get_lesson_id(group_fixture, token)
+            try:
+                assert lesson_id is not None
+            finally:
+                if lesson_id is not None:
+                    _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture],
+                    )
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])
+
     def test_transaction_rollback_on_payroll_failure(
         self, monkeypatch,
         teacher_fixture, account_fixture,
@@ -694,6 +864,52 @@ class TestSubmitLesson:
         """Тело без обязательных полей → 400."""
         resp = self._submit(account_fixture, {'group': 'test'})
         assert resp.status_code == 400
+
+    def test_substitute_teacher_is_blocked_too(
+        self,
+        teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Подменяющий преподаватель блокируется так же: долг группы важнее того,
+        кто именно отмечает. Закрыть чужой долг он не вправе — текст отправляет
+        его к менеджеру.
+
+        Схема — как в test_substitution_derived_from_assigned_planned_lesson:
+        group_fixture принадлежит teacher_fixture (владелец), sub_account_fixture —
+        заменщик с плановым занятием, назначенным на дату отметки (иначе 403
+        «занятие не назначено» вместо блокера). Плюс незакрытое занятие ГРУППЫ на
+        более раннюю дату (назначено владельцу) — has_unfilled_before считает по
+        group_id, не по teacher_id, поэтому чужой долг блокирует и заменщика.
+        """
+        teacher_id, _ = teacher_fixture
+        sub_id, _ = sub_teacher_fixture
+        token = f'acct:{sub_account_fixture}'
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-03', '10:00', %s, 'pending', NOW(), NOW()), "
+                "       (%s, 2, 2, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW())",
+                [group_fixture, teacher_id, group_fixture, sub_id],
+            )
+        try:
+            resp = self._submit(sub_account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body['success'] is False
+            assert body['error'] == (
+                'Есть не отмеченные занятия. Обратитесь к менеджеру или '
+                'администратору за правкой расписания.'
+            )
+            assert _get_lesson_id(group_fixture, token) is None
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])
 
 
 # ---------------------------------------------------------------------------
@@ -788,7 +1004,7 @@ class TestSchedule:
     def test_schedule_students_have_full_info(
         self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
     ):
-        """В schedule students содержат {name, lessonsDone, remaining, age}."""
+        """В schedule students содержат {name, lessonsDone, remaining, birthDate}."""
         resp = _client('teacher', account_fixture).get('/api/schedule')
         body = resp.json()
         group_lessons = [
@@ -802,7 +1018,7 @@ class TestSchedule:
         assert 'name' in stu
         assert 'lessonsDone' in stu
         assert 'remaining' in stu
-        assert 'age' in stu
+        assert 'birthDate' in stu
 
     def test_schedule_no_time_sort_key(self, teacher_fixture, account_fixture):
         """noTime items имеют sortKey=99999."""

@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
-import { SECTIONS, NAV_ICONS, ExtraLessonsBadge } from './Sidebar';
+import { NAV_ITEMS, NAV_ICONS, ExtraLessonsBadge } from './Sidebar';
 import { useAuth } from '../../hooks/useAuth';
-import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, type Role } from '../../lib/permissions';
+import type { Role } from '../../lib/permissions';
 
 interface Props {
   open: boolean;
@@ -11,7 +11,9 @@ interface Props {
 export function MobileNav({ open, onClose }: Props) {
   const { me } = useAuth();
   const role = me?.role as Role | undefined;
-  const visibleSections = SECTIONS.filter((s) => s.key !== 'payroll' || canSeePayroll(role));
+  // Плоский список всех разделов (группы — только в десктоп-сайдбаре), ролевые
+  // пункты фильтруются своим `can`.
+  const visibleSections = NAV_ITEMS.filter((it) => !it.can || it.can(role));
   return (
     <>
       <div
@@ -40,50 +42,6 @@ export function MobileNav({ open, onClose }: Props) {
               {s.key === 'extra-lessons' && <ExtraLessonsBadge />}
             </NavLink>
           ))}
-          {canSeeAccounts(role) && (
-            <NavLink
-              to="/admin/accounts"
-              className={({ isActive }) => `mobile-nav-item${isActive ? ' active' : ''}`}
-              onClick={onClose}
-              tabIndex={open ? 0 : -1}
-            >
-              {NAV_ICONS['accounts']}
-              <span>Учётки</span>
-            </NavLink>
-          )}
-          {canSeeAudit(role) && (
-            <NavLink
-              to="/admin/audit"
-              className={({ isActive }) => `mobile-nav-item${isActive ? ' active' : ''}`}
-              onClick={onClose}
-              tabIndex={open ? 0 : -1}
-            >
-              {NAV_ICONS['audit']}
-              <span>Журнал ИБ</span>
-            </NavLink>
-          )}
-          {canSeeChangelog(role) && (
-            <NavLink
-              to="/admin/changelog"
-              className={({ isActive }) => `mobile-nav-item${isActive ? ' active' : ''}`}
-              onClick={onClose}
-              tabIndex={open ? 0 : -1}
-            >
-              {NAV_ICONS['changelog']}
-              <span>Журнал изменений</span>
-            </NavLink>
-          )}
-          {canSeeSync(role) && (
-            <NavLink
-              to="/admin/sync"
-              className={({ isActive }) => `mobile-nav-item${isActive ? ' active' : ''}`}
-              onClick={onClose}
-              tabIndex={open ? 0 : -1}
-            >
-              {NAV_ICONS['sync']}
-              <span>Синхро</span>
-            </NavLink>
-          )}
         </div>
       </div>
     </>

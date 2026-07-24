@@ -36,6 +36,33 @@ export function todayMsk(): Date {
   return new Date(Date.UTC(msk.getUTCFullYear(), msk.getUTCMonth(), msk.getUTCDate()));
 }
 
+/**
+ * Возраст в полных годах по дате рождения 'YYYY-MM-DD' (по МСК), или null.
+ * Поле age удалено из модели ученика — считаем из даты рождения на клиенте.
+ */
+export function ageFromBirthDate(birthDate: string | null | undefined): number | null {
+  if (!birthDate) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(birthDate).trim());
+  if (!m) return null;
+  const by = +m[1], bm = +m[2], bd = +m[3];
+  const t = todayMsk();
+  let age = t.getUTCFullYear() - by;
+  const tm = t.getUTCMonth() + 1, td = t.getUTCDate();
+  if (tm < bm || (tm === bm && td < bd)) age -= 1;
+  return age >= 0 && age < 150 ? age : null;
+}
+
+/** «14 лет» / «21 год» / «2 года» по дате рождения, или '' если даты нет. */
+export function ageLabel(birthDate: string | null | undefined): string {
+  const a = ageFromBirthDate(birthDate);
+  if (a == null) return '';
+  const mod10 = a % 10, mod100 = a % 100;
+  const word = (mod10 === 1 && mod100 !== 11) ? 'год'
+    : ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) ? 'года'
+    : 'лет';
+  return `${a} ${word}`;
+}
+
 /** Прибавить n недель (n может быть отрицательным). */
 export function addWeeks(monday: Date, n: number): Date {
   return new Date(monday.getTime() + n * 7 * DAY_MS);

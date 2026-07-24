@@ -19,7 +19,6 @@ export interface Teacher {
 export interface Direction {
   id: ID;
   name: string;
-  is_individual: boolean;
   active: boolean;
   total_lessons: number | null;
   color: string | null; // #RRGGBB
@@ -48,6 +47,10 @@ export interface Group {
   vk_chat: string | null;
   created_at: string;
   active: boolean;
+  // Сдвиг нумерации курса: группа-продолжение (перевод в пустую персональную
+  // группу) начинает курс с lesson_number_offset+step, а не с 1. 0/undefined —
+  // обычная группа. См. LessonGrid (не рисует ячейки 1..offset).
+  lesson_number_offset?: number;
   // joined-only:
   direction_name?: string;
   direction_color?: string | null;
@@ -75,7 +78,7 @@ export interface GroupScheduleData {
 }
 
 // ===== Students =====
-export type EnrollmentStatus = 'enrolled' | 'not_enrolled' | 'frozen' | 'declined';
+export type EnrollmentStatus = 'enrolled' | 'frozen' | 'declined';
 
 export interface Student {
   id: ID;
@@ -89,8 +92,6 @@ export interface Student {
   parent2_name: string | null;
   parent2_phone: string | null;
   parent2_email: string | null;
-  first_purchase_date: string | null;
-  age: number | null;
   manager_id: ID | null;
   manager_name: string | null;
   enrollment_status: EnrollmentStatus;
@@ -118,7 +119,7 @@ export interface GroupMembership {
 }
 
 // ===== Lessons =====
-export type LessonType = 'regular' | 'substitution' | 'reschedule';
+export type LessonType = 'regular' | 'substitution' | 'reschedule' | 'extra';
 
 export interface Lesson {
   id: ID;
@@ -142,6 +143,10 @@ export interface LessonAttendance {
   lesson_id: ID;
   student_id: ID;
   present: boolean;
+  // Исход «бесплатное занятие» (present=true, денег ноль).
+  is_free?: boolean;
+  // Исход «неоплачиваемый пропуск» (present=false, ученик этот урок не посещает).
+  unpaid_skip?: boolean;
   student_name?: string;
   // true — пропуск компенсирован доп.уроком/сожжён: ячейку нельзя флипать в
   // present (двойной учёт), фронт делает её серой/неактивной.
@@ -163,16 +168,22 @@ export interface AbsenceResolution {
   student_name: string;
   assigned_teacher_id: ID | null;
   teacher_name: string | null;
-  missed_lesson_id: ID;
-  missed_lesson_group_id: ID;
-  missed_lesson_group_name: string;
-  missed_lesson_date: string;
-  missed_lesson_number: string | number;  // numeric(5,1) — рендерится строкой
+  missed_lesson_id: ID | null;            // null для kind='extra' (доп.урок сверх курса)
+  missed_lesson_group_id: ID | null;
+  missed_lesson_group_name: string | null;
+  missed_lesson_date: string | null;
+  missed_lesson_number: string | number | null;  // numeric(5,1) — рендерится строкой
   scheduled_date: string;
   scheduled_time: string;
   duration_minutes: number;
-  status: 'pending' | 'makeup_scheduled' | 'makeup_done' | 'burned';
+  status: 'pending' | 'makeup_scheduled' | 'makeup_done' | 'burned' | 'waived';
   fact_lesson_id: ID | null;
+  // kind='makeup' — отработка/сгорание по реальному пропуску; 'extra' — доп.урок
+  // СВЕРХ курса, назначенный вручную (missed_lesson нет, группа в group_id).
+  kind: 'makeup' | 'extra';
+  group_id: ID | null;                    // группа extra-резолюции (для makeup null)
+  target_lesson_number: string | number | null;  // «за какой урок» для extra
+  resolution_group_name: string | null;   // унифицированное имя группы (makeup|extra)
 }
 
 // Ответ POST /api/admin/extra-lessons — multi-select создаёт N резолюций.
@@ -281,6 +292,19 @@ export interface Paginated<T> {
   page_size: number;
 }
 
+export interface UnfilledLesson {
+  kind: 'planned' | 'extra';
+  id: number;
+  group_id: number;
+  group_name: string;
+  teacher_name: string | null;
+  direction_name: string | null;
+  direction_color: string | null;
+  lesson_number: number | null;
+  date: string;        // 'YYYY-MM-DD'
+  time: string | null; // 'HH:MM'
+}
+
 // ===== Реестр куратора (вкладка дашборда) =====
 
 export type RegistryStatus = 'closed' | 'ending' | 'idle' | 'no_plan' | 'ok';
@@ -297,6 +321,7 @@ export interface RegistryKpis {
 
 export interface TodayStreamItem {
   time: string | null;
+  group_id: number;
   group_code: string;
   teacher_name: string | null;
   student_names: string[];

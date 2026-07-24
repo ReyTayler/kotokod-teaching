@@ -34,13 +34,13 @@ def progress_group():
         cur.execute("INSERT INTO teachers (name, active) VALUES ('__pg_t__', true) RETURNING id")
         teacher_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name,is_individual,total_lessons,active) "
-            "VALUES ('__pg_d__',false,8,true) RETURNING id"
+            "INSERT INTO directions (name,total_lessons,active) "
+            "VALUES ('__pg_d__',8,true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,active) "
-            "VALUES ('__pg_g__',%s,%s,false,60,true) RETURNING id",
+            "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,active,lesson_number_offset) "
+            "VALUES ('__pg_g__',%s,%s,false,60,true,0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]
@@ -162,11 +162,70 @@ class TestContract:
             assert borya['cells'][0] is False        # исходный пропуск остаётся present=false
             assert borya['compensated'][0] is True   # жёлтая ячейка
             assert borya['compensated'][1] is False  # был вживую — не компенсация
+            # Компенсированный пропуск засчитывается как посещение → Боря 2/2 = 100%.
+            assert borya['present'] == 2 and borya['held'] == 2 and borya['pct'] == 100
             anya = next(r for r in body['students'] if r['student_id'] == progress_group['anya'])
             assert all(c is False for c in anya['compensated'])
         finally:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM absence_resolutions WHERE missed_lesson_id=%s', [missed])
+
+    def test_compensated_without_attendance_row_shows_yellow(self, manager_client, progress_group):
+        """Ученик добавлен в группу ПОСЛЕ проведения урока (строки-посещения нет),
+        но его пропуск закрыт доп.уроком (makeup_done) → ячейка жёлтая (compensated),
+        а НЕ «Не проведён» (None). Регресс: раньше нет строки → сразу None."""
+        gid = progress_group['group_id']
+        l1 = progress_group['lesson_ids'][0]
+        with connection.cursor() as cur:
+            cur.execute("INSERT INTO students (full_name, enrollment_status) "
+                        "VALUES ('__pg Гена__','enrolled') RETURNING id")
+            gena = cur.fetchone()[0]
+            cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                        "VALUES (%s,%s,0,true)", [gid, gena])
+            # Строки lesson_attendance на l1 для Гены НЕТ, но есть закрытая резолюция.
+            cur.execute("INSERT INTO absence_resolutions (missed_lesson_id, student_id, status, created_at) "
+                        "VALUES (%s,%s,'makeup_done',now())", [l1, gena])
+        try:
+            body = manager_client.get(_url(gid)).json()
+            row = next(r for r in body['students'] if r['student_id'] == gena)
+            assert row['cells'][0] is False        # не None — ячейка есть
+            assert row['compensated'][0] is True    # жёлтая (отработан доп.уроком)
+            # Отработанный доп.урок засчитывается как посещение (present, не только held).
+            assert row['present'] >= 1 and row['held'] >= 1
+        finally:
+            with connection.cursor() as cur:
+                cur.execute("DELETE FROM absence_resolutions WHERE student_id=%s", [gena])
+                cur.execute("DELETE FROM group_memberships WHERE student_id=%s", [gena])
+                cur.execute("DELETE FROM students WHERE id=%s", [gena])
+
+    def test_free_and_unpaid_skip_cells(self, manager_client, progress_group):
+        """Бесплатное занятие → free[i]=true (серый), засчитано как присутствие;
+        неоплачиваемый пропуск → unpaid_skip[i]=true (синий), в held НЕ входит."""
+        gid = progress_group['group_id']
+        l1 = progress_group['lesson_ids'][0]
+        with connection.cursor() as cur:
+            # Аня на уроке 1 — бесплатное занятие (present=true)
+            cur.execute("UPDATE lesson_attendance SET is_free=true WHERE lesson_id=%s AND student_id=%s",
+                        [l1, progress_group['anya']])
+            # Боря на уроке 1 — неоплачиваемый пропуск (present уже false)
+            cur.execute("UPDATE lesson_attendance SET unpaid_skip=true WHERE lesson_id=%s AND student_id=%s",
+                        [l1, progress_group['borya']])
+        body = manager_client.get(_url(gid)).json()
+
+        anya = next(r for r in body['students'] if r['student_id'] == progress_group['anya'])
+        assert anya['cells'][0] is True
+        assert anya['free'][0] is True
+        assert anya['unpaid_skip'][0] is False
+        # free засчитан как присутствие — Аня по-прежнему 2/2
+        assert anya['present'] == 2 and anya['held'] == 2
+
+        borya = next(r for r in body['students'] if r['student_id'] == progress_group['borya'])
+        assert borya['cells'][0] is False
+        assert borya['unpaid_skip'][0] is True
+        assert borya['free'][0] is False
+        assert borya['compensated'][0] is False
+        # неопл.пропуск исключён из held: Боря теперь 1/1 (урок 2 был), а не 1/2
+        assert borya['present'] == 1 and borya['held'] == 1
 
     def test_inactive_members_excluded(self, manager_client, progress_group):
         # Выбывший ученик (membership active=false) не должен быть строкой матрицы.
@@ -223,7 +282,7 @@ class TestTransferredLessons:
             direction_id, teacher_id = cur.fetchone()
             cur.execute(
                 "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                "lesson_duration_minutes,active) VALUES ('__pg_old_g__',%s,%s,false,60,false) "
+                "lesson_duration_minutes,active,lesson_number_offset) VALUES ('__pg_old_g__',%s,%s,false,60,false,0) "
                 "RETURNING id",
                 [direction_id, teacher_id],
             )
@@ -272,7 +331,7 @@ class TestTransferredLessons:
             direction_id, teacher_id = cur.fetchone()
             cur.execute(
                 "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                "lesson_duration_minutes,active) VALUES ('__pg_old_g2__',%s,%s,false,60,false) "
+                "lesson_duration_minutes,active,lesson_number_offset) VALUES ('__pg_old_g2__',%s,%s,false,60,false,0) "
                 "RETURNING id",
                 [direction_id, teacher_id],
             )
@@ -312,7 +371,7 @@ class TestTransferredLessons:
             direction_id, teacher_id = cur.fetchone()
             cur.execute(
                 "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                "lesson_duration_minutes,active) VALUES ('__pg_old_g3__',%s,%s,false,45,false) "
+                "lesson_duration_minutes,active,lesson_number_offset) VALUES ('__pg_old_g3__',%s,%s,false,45,false,0) "
                 "RETURNING id",
                 [direction_id, teacher_id],
             )
@@ -354,14 +413,14 @@ class TestTransferredLessons:
             direction_id, teacher_id = cur.fetchone()
             cur.execute(
                 "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                "lesson_duration_minutes,active) VALUES ('__pg_chain_a__',%s,%s,false,60,false) "
+                "lesson_duration_minutes,active,lesson_number_offset) VALUES ('__pg_chain_a__',%s,%s,false,60,false,0) "
                 "RETURNING id",
                 [direction_id, teacher_id],
             )
             group_a = cur.fetchone()[0]
             cur.execute(
                 "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
-                "lesson_duration_minutes,active) VALUES ('__pg_chain_b__',%s,%s,false,60,false) "
+                "lesson_duration_minutes,active,lesson_number_offset) VALUES ('__pg_chain_b__',%s,%s,false,60,false,0) "
                 "RETURNING id",
                 [direction_id, teacher_id],
             )
@@ -398,6 +457,47 @@ class TestTransferredLessons:
                 cur.execute('DELETE FROM group_memberships WHERE group_id IN (%s, %s)', [group_a, group_b])
                 cur.execute('DELETE FROM groups WHERE id IN (%s, %s)', [group_a, group_b])
 
+    def test_locked_through_exposes_raw_uncapped_value(self, manager_client, progress_group):
+        """locked_through — сырое B (cumulative_transferred_lessons), НЕ капается
+        total_slots=8 (в отличие от transferred_lessons, который капается для покраски)."""
+        gid = progress_group['group_id']
+        with connection.cursor() as cur:
+            cur.execute("SELECT direction_id, teacher_id FROM groups WHERE id = %s", [gid])
+            direction_id, teacher_id = cur.fetchone()
+            cur.execute(
+                "INSERT INTO groups (name,direction_id,teacher_id,is_individual,"
+                "lesson_duration_minutes,active,lesson_number_offset) VALUES ('__pg_old_g2__',%s,%s,false,60,false,0) "
+                "RETURNING id",
+                [direction_id, teacher_id],
+            )
+            old_group_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                "VALUES (%s,%s,20,false) RETURNING id",
+                [old_group_id, progress_group['borya']],
+            )
+            old_membership_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE group_memberships SET transferred_from_id = %s "
+                "WHERE group_id = %s AND student_id = %s",
+                [old_membership_id, gid, progress_group['borya']],
+            )
+        try:
+            body = manager_client.get(_url(gid)).json()
+            rows = {r['student_id']: r for r in body['students']}
+            borya = rows[progress_group['borya']]
+            assert borya['transferred_lessons'] == 8       # капается total_slots=8
+            assert float(borya['locked_through']) == 20.0  # сырое B — НЕ капается
+        finally:
+            with connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE group_memberships SET transferred_from_id = NULL "
+                    "WHERE group_id = %s AND student_id = %s",
+                    [gid, progress_group['borya']],
+                )
+                cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [old_group_id])
+                cur.execute('DELETE FROM groups WHERE id = %s', [old_group_id])
+
 
 @pytest.fixture
 def progress_group_45():
@@ -410,13 +510,13 @@ def progress_group_45():
         cur.execute("INSERT INTO teachers (name, active) VALUES ('__pg45_t__', true) RETURNING id")
         teacher_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name,is_individual,total_lessons,active) "
-            "VALUES ('__pg45_d__',false,8,true) RETURNING id"
+            "INSERT INTO directions (name,total_lessons,active) "
+            "VALUES ('__pg45_d__',8,true) RETURNING id"
         )
         direction_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,active) "
-            "VALUES ('__pg45_g__',%s,%s,false,45,true) RETURNING id",
+            "INSERT INTO groups (name,direction_id,teacher_id,is_individual,lesson_duration_minutes,active,lesson_number_offset) "
+            "VALUES ('__pg45_g__',%s,%s,false,45,true,0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]

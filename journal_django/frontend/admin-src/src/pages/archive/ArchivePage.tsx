@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../../components/ui/Toast';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { Teacher, Group, Direction } from '../../lib/types';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function ArchivePage() {
   const { data, isLoading } = useArchive();
@@ -11,23 +12,31 @@ export default function ArchivePage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  if (isLoading) return <TableSkeleton rows={3} cols={4} />;
+  // Шапка рисуется и во время загрузки — иначе заголовок пропадает
+  // при каждом переходе в раздел.
+  const header = (
+    <PageHeader
+      title="Архив"
+      sub="Архивные сущности сохраняют историю и не участвуют в подборах."
+      actions={
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => {
+            qc.invalidateQueries({ queryKey: ['archive'] });
+            toast('Архив обновлён', 'ok');
+          }}
+        >↻ Обновить</button>
+      }
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={3} cols={4} /></>;
   if (!data) return null;
 
   return (
     <>
-      <div className="section-header">
-        <span className="section-title">Архив</span>
-        <div className="section-actions">
-          <button
-            className="btn-secondary"
-            onClick={() => {
-              qc.invalidateQueries({ queryKey: ['archive'] });
-              toast('Архив обновлён', 'ok');
-            }}
-          >↻ Обновить</button>
-        </div>
-      </div>
+      {header}
 
       <ArchiveSection
         label="Преподаватели"

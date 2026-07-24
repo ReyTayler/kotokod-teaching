@@ -71,6 +71,26 @@ def admin_account():
 
 
 @pytest.fixture
+def superadmin_account():
+    """Создаёт superadmin-аккаунт для API-тестов. Возвращает id."""
+    pw = make_password('testpass123')
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO accounts (email, password, role, is_active, is_staff, is_superuser, first_name, last_name, token_version, date_joined) "
+            "VALUES ('__grp_super__@test.local', %s, 'superadmin', true, true, true, '', '', 0, NOW()) RETURNING id",
+            [pw],
+        )
+        acc_id = cur.fetchone()[0]
+    yield acc_id
+    with connection.cursor() as cur:
+        cur.execute(
+            'DELETE FROM security_audit_log WHERE account_id = %s OR target_id = %s',
+            [acc_id, acc_id],
+        )
+        cur.execute('DELETE FROM accounts WHERE id = %s', [acc_id])
+
+
+@pytest.fixture
 def manager_account():
     """Создаёт manager-аккаунт для API-тестов. Возвращает id."""
     pw = make_password('testpass123')
@@ -124,6 +144,12 @@ def anon_client():
 def admin_client(admin_account):
     """APIClient с JWT для admin."""
     return _jwt_client(admin_account)
+
+
+@pytest.fixture
+def superadmin_client(superadmin_account):
+    """APIClient с JWT для superadmin."""
+    return _jwt_client(superadmin_account)
 
 
 @pytest.fixture

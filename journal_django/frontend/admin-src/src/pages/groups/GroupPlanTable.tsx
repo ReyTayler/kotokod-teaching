@@ -3,6 +3,7 @@ import { DataTable, type Column } from '../../components/table/DataTable';
 import { StatusPill } from '../../shared/calendar/StatusPill';
 import { useGroupPlan, type PlanRow } from '../../hooks/useGroupPlanCalendar';
 import type { OccStatus } from '../../shared/calendar/types';
+import { BlockLoading } from '../../components/ui/Skeleton';
 
 const WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
@@ -50,6 +51,12 @@ export default function GroupPlanTable({ groupId }: { groupId: number }) {
       cell: (r) => r.scheduled_time ?? '—',
     },
     {
+      // teacher_name — ЭФФЕКТИВНЫЙ преподаватель строки: замена на дату, если она
+      // была, иначе преподаватель контента (apps/scheduling/repository._plan_row_dict).
+      key: 'teacher_name', label: 'Преподаватель', sortable: false,
+      cell: (r) => r.teacher_name ?? '—',
+    },
+    {
       key: 'status', label: 'Статус', width: 160, sortable: false,
       cell: (r) => <StatusPill status={r.status} label={STATUS_LABEL[r.status]} />,
     },
@@ -62,7 +69,7 @@ export default function GroupPlanTable({ groupId }: { groupId: number }) {
   ], []);
 
   if (isLoading && rows.length === 0) {
-    return <div className="memberships__empty">Загружаем уроки…</div>;
+    return <BlockLoading rows={5} label="Загружаем уроки…" />;
   }
 
   return <DataTable<PlanRow> data={rows} columns={columns} title="Уроки плана" />;

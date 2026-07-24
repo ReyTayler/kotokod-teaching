@@ -84,16 +84,17 @@ def read_all_students() -> dict:
         .filter(active=True, group__active=True, group__teacher__active=True)
         .order_by('group__teacher__name', 'group__name', 'student__full_name')
         .values(
-            'group_id', 'student_id', 'lessons_done', 'sheet_row',
+            'group_id', 'student_id', 'lessons_done', 'sheet_row', 'transferred_from_id',
             group_name=F('group__name'),
             is_individual=F('group__is_individual'),
             vk_chat=F('group__vk_chat'),
             group_start_date=F('group__group_start_date'),
             teacher_name=F('group__teacher__name'),
             student_name=F('student__full_name'),
-            age=F('student__age'),
+            birth_date=F('student__birth_date'),
             pm=F('student__manager__full_name'),
             membership_id=F('id'),
+            duration_minutes=F('group__lesson_duration_minutes'),
         )
     )
 
@@ -120,6 +121,8 @@ def read_all_students() -> dict:
                 'vkChat': r['vk_chat'] or '',
                 'startDate': fmt_date_ru(r['group_start_date']),
                 'isGroup': not r['is_individual'],
+                'durationMinutes': r['duration_minutes'],
+                '_group_id': r['group_id'],
             }
 
         grp = data[teacher][group]
@@ -137,13 +140,21 @@ def read_all_students() -> dict:
         if done > grp['lessonsDone']:
             grp['lessonsDone'] = done
 
+        locked_through = None
+        if r['transferred_from_id']:
+            from apps.memberships.repository import cumulative_transferred_lessons
+            locked_through = cumulative_transferred_lessons(r['transferred_from_id'])
+
         grp['students'].append({
             'name': r['student_name'],
             'lessonsDone': done,
             'remaining': remaining,
-            'age': str(r['age']) if r['age'] is not None else '',
+            # Возраст считает teacher-фронт из birth_date (поле age удалено).
+            'birthDate': r['birth_date'].isoformat() if r['birth_date'] else '',
             'sheetName': sheet_name,
             'sheetRow': r['sheet_row'] or 0,
+            'lockedThrough': float(locked_through) if locked_through is not None else None,
+            '_student_id': r['student_id'],
         })
 
         if r['sheet_row']:
@@ -151,6 +162,28 @@ def read_all_students() -> dict:
                 'sheetName': sheet_name,
                 'sheetRow': r['sheet_row'],
             }
+
+    # Маркеры «неоплачиваемый пропуск» (LessonSkip) по всем группам выборки — один
+    # батч-запрос. skips[(group_id, lesson_number)] = {student_id}. Нужно, чтобы
+    # преподаватель НЕ мог отметить помеченного ученика и превью зарплаты его не
+    # считало (record_lesson всё равно исключит на бэке, но форма должна совпадать).
+    from apps.lessons.models import LessonSkip
+    skips: dict = {}
+    for sr in LessonSkip.objects.filter(
+        group_id__in={r['group_id'] for r in rows},
+    ).values('group_id', 'student_id', 'lesson_number'):
+        skips.setdefault((sr['group_id'], float(sr['lesson_number'])), set()).add(sr['student_id'])
+
+    for teacher_groups in data.values():
+        for grp in teacher_groups.values():
+            step = 0.5 if grp['durationMinutes'] == 45 else 1
+            next_number = float(grp['lessonsDone'] + step)
+            gid = grp.pop('_group_id')
+            skip_ids = skips.get((gid, next_number), set())
+            for s in grp['students']:
+                s['locked'] = s['lockedThrough'] is not None and next_number <= s['lockedThrough']
+                # skip — «неоплачиваемый пропуск» на СЛЕДУЮЩИЙ урок группы.
+                s['skip'] = s.pop('_student_id') in skip_ids
 
     return {'data': data, 'index': index}
 

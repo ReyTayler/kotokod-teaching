@@ -14,6 +14,7 @@
 @import './pages/renewals.css';
 @import './pages/admin-calendar.css';
 @import './pages/sync.css';
+@import './pages/reports.css';
 /* Shared презентационный календарь (GroupDetailPage вкладка «Расписание»,
    см. shared/calendar/CalendarView.tsx) — те же классы, что и teacher-src,
    которая импортирует этот же файл через alias '@shared/shared/calendar/*'. */
@@ -21,4 +22,3 @@
 @import '../shared/calendar/modal.css';
 /* Матрица посещаемости «Прогресс» (GroupProgressView) — общая с teacher SPA. */
 @import '../shared/progress/progress.css';
-@import './overrides.css';

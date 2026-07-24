@@ -24,7 +24,7 @@ def test_extract_students_basic():
     result = students.extract_students_and_memberships(rows)
     assert len(result['students']) == 1
     assert result['students'][0]['full_name'] == 'Иванов Иван'
-    assert result['students'][0]['age'] == 10
+    assert 'age' not in result['students'][0]
     assert len(result['memberships']) == 1
     assert result['memberships'][0]['lessons_done'] == 3.5
 
@@ -36,22 +36,30 @@ def test_extract_students_skips_uchenika_net_name():
 
 
 def test_extract_students_no_membership_without_teacher():
+    """Ученик без преподавателя/группы импортируется без членства. Статуса
+    'not_enrolled' больше нет (миграция 0015) — фоллбэк теперь 'enrolled'."""
     rows = [_row('Одиночка', teacher='', group='')]
     result = students.extract_students_and_memberships(rows)
     assert len(result['students']) == 1
     assert result['memberships'] == []
-    assert result['students'][0]['enrollment_status'] == 'not_enrolled'
+    assert result['students'][0]['enrollment_status'] == 'enrolled'
 
 
 def test_map_enrollment_yes():
-    assert students.map_enrollment_from_sheets('Да', True) == {
+    assert students.map_enrollment_from_sheets('Да') == {
         'enrollment_status': 'enrolled', 'frozen_from': None, 'frozen_until': None,
     }
 
 
+def test_map_enrollment_no_maps_to_enrolled():
+    """«Нет» раньше давало not_enrolled; статуса нет — падаем в 'enrolled'.
+    Явный отказ по-прежнему отличим (см. test_map_enrollment_declined)."""
+    assert students.map_enrollment_from_sheets('нет')['enrollment_status'] == 'enrolled'
+
+
 def test_map_enrollment_frozen_with_month():
     # Лист держит только месяц окончания заморозки → инференс дат (месяц=январь).
-    result = students.map_enrollment_from_sheets('нет январь', True)
+    result = students.map_enrollment_from_sheets('нет январь')
     assert result['enrollment_status'] == 'frozen'
     assert result['frozen_until'] is not None
     assert result['frozen_until'].month == 1
@@ -61,7 +69,7 @@ def test_map_enrollment_frozen_with_month():
 
 
 def test_map_enrollment_declined():
-    result = students.map_enrollment_from_sheets('отказ от занятий', True)
+    result = students.map_enrollment_from_sheets('отказ от занятий')
     assert result['enrollment_status'] == 'declined'
 
 
@@ -76,13 +84,14 @@ def test_run_inserts_student_and_membership(monkeypatch):
         created_direction = False
         if direction_id is None:
             cur.execute(
-                "INSERT INTO directions (name, is_individual) VALUES ('__test_sync_direction_s__', false) RETURNING id"
+                "INSERT INTO directions (name) VALUES ('__test_sync_direction_s__') RETURNING id"
             )
             direction_id = cur.fetchone()[0]
             created_direction = True
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, lessons_per_week) "
-            "VALUES ('__test_sync_group_s__', %s, %s, false, 90, 1) RETURNING id",
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, "
+            "lessons_per_week, lesson_number_offset) "
+            "VALUES ('__test_sync_group_s__', %s, %s, false, 90, 1, 0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]

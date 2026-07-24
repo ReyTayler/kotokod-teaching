@@ -66,9 +66,10 @@ def run(dry_run: bool = False) -> dict:
                 WITH d AS (SELECT id FROM directions WHERE name = %(direction_name)s),
                      te AS (SELECT id FROM teachers WHERE name = %(teacher_name)s)
                 INSERT INTO groups (name, direction_id, teacher_id, is_individual,
-                                    lesson_duration_minutes, lessons_per_week, vk_chat, group_start_date)
+                                    lesson_duration_minutes, lessons_per_week, vk_chat, group_start_date,
+                                    lesson_number_offset)
                 SELECT %(name)s, d.id, te.id, %(is_individual)s, %(duration)s, %(per_week)s,
-                       NULLIF(%(vk_chat)s, ''), %(start_date)s
+                       NULLIF(%(vk_chat)s, ''), %(start_date)s, 0
                 FROM d, te
                 ON CONFLICT (name) DO UPDATE SET
                    direction_id            = EXCLUDED.direction_id,

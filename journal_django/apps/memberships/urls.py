@@ -8,7 +8,11 @@ APPEND_SLASH=False — пути без trailing slash (зеркало Express/Ne
 """
 from django.urls import path
 
-from apps.memberships.views import MembershipDetailView, MembershipListCreateView, MembershipTransferView
+from apps.memberships.views import (
+    MembershipDetailView,
+    MembershipListCreateView,
+    MembershipTransferView,
+)
 
 urlpatterns = [
     path('', MembershipListCreateView.as_view(), name='memberships-list-create'),

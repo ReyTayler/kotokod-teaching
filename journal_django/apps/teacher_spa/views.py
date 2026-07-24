@@ -361,7 +361,7 @@ class ScheduleView(APIView):
 
     Порт routes/teacher.js lines 300-398.
     Отличие от report: нет статусов/status/label/weekStart; students включают
-    {name,lessonsDone,remaining,age}; каждый слот имеет allTimes[]; noTime items
+    {name,lessonsDone,remaining,birthDate}; каждый слот имеет allTimes[]; noTime items
     имеют sortKey=99999 (нет dayShort).
     """
 
@@ -378,7 +378,7 @@ class ScheduleView(APIView):
 
                 matches = _parse_group_times(group_name)
 
-                # Базовая информация (students полные — с lessonsDone/remaining/age)
+                # Базовая информация (students полные — с lessonsDone/remaining/birthDate)
                 base_info = {
                     'teacher': teacher,
                     'group': group_name,
@@ -391,7 +391,7 @@ class ScheduleView(APIView):
                             'name': s['name'],
                             'lessonsDone': s['lessonsDone'],
                             'remaining': s['remaining'],
-                            'age': s['age'],
+                            'birthDate': s['birthDate'],
                         }
                         for s in group_data.get('students', [])
                     ],

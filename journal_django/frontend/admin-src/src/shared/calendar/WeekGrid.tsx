@@ -9,11 +9,24 @@ const N_ROWS = HOUR_END - HOUR_START + 1;
 const DAY_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 /** Минимальная высота блока — 45-минутный урок остаётся читаемым (время+название). */
 const MIN_BLOCK_H = 26;
+/** Минимальная ширина одной дорожки: день с N пересечениями получает ширину
+ *  N×LANE_W (день без плотности растягивается по свободному месту через 1fr),
+ *  сетка при переполнении листается по горизонтали — блоки остаются читаемыми. */
+const LANE_W = 96;
 
 function topPx(time: string): number {
   const [h, m] = time.split(':').map(Number);
   const hh = Math.min(Math.max(h, HOUR_START), HOUR_END);
   return (hh - HOUR_START) * ROW_H + (m / 60) * ROW_H;
+}
+
+/** 'HH:MM' + длительность (мин) → время окончания 'HH:MM' (диапазон в блоке). */
+function endTime(time: string, minutes: number): string {
+  const [h, m] = time.split(':').map(Number);
+  const total = h * 60 + m + minutes;
+  const hh = Math.floor(total / 60) % 24;
+  const mm = total % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 interface Laid {
@@ -107,6 +120,12 @@ export function WeekGrid({
 
   const bodyHeight = N_ROWS * ROW_H;
 
+  // Раскладку считаем ОДИН раз на день (нужно число дорожек для ширины колонки).
+  const laidByCol = byCol.map((occs) => layoutColumn(occs, bodyHeight));
+  // Ширина дня = max(дорожек) × LANE_W (мин. 1), но не уже свободного места (1fr).
+  const maxLanes = laidByCol.map((laid) => Math.max(1, ...laid.map((l) => l.lanes), 1));
+  const gridTemplate = `56px ${maxLanes.map((n) => `minmax(${n * LANE_W}px, 1fr)`).join(' ')}`;
+
   // Линия «сейчас»: тик раз в минуту; рисуется только в колонке сегодняшнего
   // дня видимой недели и только внутри диапазона сетки 8–21.
   const [nowMin, setNowMin] = useState(() => mskNowMinutes());
@@ -125,8 +144,8 @@ export function WeekGrid({
 
   return (
     <div className="cal-grid-wrap">
-      <div className="cal-grid-head">
-        <div className="cal-col-head" />
+      <div className="cal-grid-head" style={{ gridTemplateColumns: gridTemplate }}>
+        <div className="cal-col-head cal-corner" />
         {cols.map(({ c, date, isToday }) => (
           <div key={c} className={`cal-col-head${isToday ? ' today' : ''}`}>
             <div className="cal-col-day">{DAY_SHORT[c]}</div>
@@ -135,7 +154,7 @@ export function WeekGrid({
         ))}
       </div>
 
-      <div className="cal-grid-body" style={{ ['--row-h' as any]: `${ROW_H}px` }}>
+      <div className="cal-grid-body" style={{ ['--row-h' as any]: `${ROW_H}px`, gridTemplateColumns: gridTemplate }}>
         <div className="cal-gutter" style={{ height: bodyHeight }}>
           {Array.from({ length: N_ROWS }, (_, i) => (
             <div key={i} className="cal-hour-label" style={{ top: i * ROW_H }}>
@@ -150,7 +169,7 @@ export function WeekGrid({
             className={`cal-col${isToday ? ' today' : ''}`}
             style={{ height: bodyHeight }}
           >
-            {layoutColumn(byCol[c], bodyHeight).map(({ occ, key, top, height, lane, lanes }) => (
+            {laidByCol[c].map(({ occ, key, top, height, lane, lanes }) => (
               <div
                 key={key}
                 className={`lb${occ.status === 'overdue' ? ' overdue' : ''}${occ.status === 'done' ? ' done' : ''}${occ.status === 'cancelled' ? ' cancelled' : ''}`}
@@ -169,7 +188,11 @@ export function WeekGrid({
                 title={occ.status === 'moved' || occ.status === 'cancelled' ? occ.label : undefined}
               >
                 {occ.movedFrom && <span className="cal-moved" title={`Перенесён с ${occ.movedFrom}`} aria-label="перенесён">↪</span>}
-                <div className="lb-time">{occ.time}</div>
+                {/* Диапазон времени показываем, когда блок достаточно широкий
+                    (≤2 дорожек); в плотных кластерах — только начало, иначе не влезет. */}
+                <div className="lb-time">
+                  {lanes <= 2 ? `${occ.time}–${endTime(occ.time!, occ.durationMinutes ?? 60)}` : occ.time}
+                </div>
                 <div className="lb-title">{occ.groupDisplay}</div>
                 <div className="lb-meta">
                   {occ.status === 'moved' || occ.status === 'cancelled'

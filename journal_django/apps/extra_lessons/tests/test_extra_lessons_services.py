@@ -10,9 +10,12 @@ from django.db import connection
 
 from apps.extra_lessons import repository, services
 from apps.extra_lessons.exceptions import (
-    DuplicateAssignment, MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
+    AbsentStudentNotRecordable, DuplicateAssignment, MembershipHasScheduledMakeups,
+    MissedLessonNotFound, NotTeachersAssignment, StudentNotAbsent,
 )
-from apps.extra_lessons.models import MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution
+from apps.extra_lessons.models import (
+    MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution,
+)
 from apps.lessons.exceptions import UnpaidAttendanceBlocked
 from apps.lessons.models import Lesson, LessonAttendance
 from apps.payroll.models import Payroll
@@ -388,6 +391,31 @@ def test_record_rejects_wrong_teacher(
         )
 
 
+def test_record_rejects_absent_student(
+    teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
+):
+    """record(present=False) → AbsentStudentNotRecordable, ничего не пишется:
+    неявку оформляют «Отменой», резолюция остаётся makeup_scheduled."""
+    created = services.create_assignment(
+        {
+            'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-05',
+            'scheduled_time': '15:00', 'duration_minutes': 45,
+        },
+        _FakeRequest(),
+    )
+    rid = created['resolution_ids'][0]
+    with pytest.raises(AbsentStudentNotRecordable):
+        services.record(
+            rid, teacher_id=teacher_fixture, present=False,
+            record_url=None, submitted_by_token='acct:1', submit_date='2026-04-05',
+            request=_FakeRequest(),
+        )
+    full = repository.get_resolution_full(rid)
+    assert full['status'] == MAKEUP_SCHEDULED
+    assert full['fact_lesson_id'] is None
+
+
 def test_record_second_call_on_same_assignment_raises_value_error(
     teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
 ):
@@ -514,29 +542,335 @@ def test_autocreate_pending_for_lesson_idempotent(
     assert rows[0].status == PENDING
 
 
-def test_cleanup_on_student_leave_deletes_open_keeps_done(
-    teacher_fixture, missed_lesson_fixture, student_fixture,
+def test_enforce_membership_cancellation_deletes_pending_keeps_done(
+    group_fixture, teacher_fixture, missed_lesson_fixture, student_fixture,
     extra_missed_lessons, resolution_cleanup,
 ):
-    """Уход/архивация ученика: pending + makeup_scheduled удаляются, makeup_done
+    """Снятие членства без назначенных доп.уроков: pending удаляется, makeup_done
     сохраняется (там уже проведён факт-урок и деньги)."""
-    # pending на основном пропуске.
+    # pending на основном пропуске (в group_fixture).
     repository.autocreate_pending(missed_lesson_fixture, [student_fixture])
-    # makeup_scheduled на первом доп.пропуске.
+    # makeup_done на первом доп.пропуске (в том же group_fixture).
+    done_id = repository.create_scheduled_direct(
+        missed_lesson_id=extra_missed_lessons[0], student_id=student_fixture,
+        assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 13),
+        scheduled_time=datetime.time(15, 0), duration_minutes=45)
+    repository.mark_makeup_done(done_id, fact_lesson_id=extra_missed_lessons[0])
+
+    deleted = services.enforce_membership_cancellation(student_fixture, group_fixture)
+    assert deleted == 1
+
+    assert repository.get_resolution_full(done_id)['status'] == MAKEUP_DONE
+    assert repository.lock_for_assign(missed_lesson_fixture, student_fixture) is None
+
+
+def test_enforce_membership_cancellation_blocks_on_scheduled(
+    group_fixture, teacher_fixture, missed_lesson_fixture, student_fixture,
+    extra_missed_lessons, resolution_cleanup,
+):
+    """Назначенный (не проведённый) доп.урок в группе блокирует снятие членства:
+    MembershipHasScheduledMakeups, pending при этом НЕ удаляется (весь гейт — до
+    любых изменений)."""
+    repository.autocreate_pending(missed_lesson_fixture, [student_fixture])
     sched_id = repository.create_scheduled_direct(
         missed_lesson_id=extra_missed_lessons[0], student_id=student_fixture,
         assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 12),
         scheduled_time=datetime.time(15, 0), duration_minutes=45)
-    # makeup_done на втором доп.пропуске.
-    done_id = repository.create_scheduled_direct(
-        missed_lesson_id=extra_missed_lessons[1], student_id=student_fixture,
-        assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 13),
-        scheduled_time=datetime.time(15, 0), duration_minutes=45)
-    repository.mark_makeup_done(done_id, fact_lesson_id=extra_missed_lessons[1])
 
-    deleted = services.cleanup_on_student_leave(student_fixture)
-    assert deleted == 2
+    with pytest.raises(MembershipHasScheduledMakeups):
+        services.enforce_membership_cancellation(student_fixture, group_fixture)
 
-    assert repository.get_resolution_full(done_id)['status'] == MAKEUP_DONE
-    assert repository.get_resolution_full(sched_id) is None
-    assert repository.lock_for_assign(missed_lesson_fixture, student_fixture) is None
+    # Ничего не удалено: и pending, и makeup_scheduled на месте.
+    assert repository.lock_for_assign(missed_lesson_fixture, student_fixture)['status'] == PENDING
+    assert repository.get_resolution_full(sched_id)['status'] == MAKEUP_SCHEDULED
+
+
+# ---------------------------------------------------------------------------
+# Ручной доп.урок СВЕРХ курса (kind='extra') — назначить/провести/отменить/откат
+# ---------------------------------------------------------------------------
+
+def _delete_extra_resolutions(group_id):
+    """Сносит extra-резолюции группы (group FK = PROTECT) + их факт-уроки ДО
+    teardown group_fixture."""
+    with connection.cursor() as cur:
+        cur.execute('SELECT id, fact_lesson_id FROM absence_resolutions WHERE group_id = %s', [group_id])
+        rows = cur.fetchall()
+        fact_ids = [r[1] for r in rows if r[1] is not None]
+        cur.execute('DELETE FROM absence_resolutions WHERE group_id = %s', [group_id])
+        for fid in fact_ids:
+            cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [fid])
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [fid])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [fid])
+
+
+def test_create_extra_assignment_happy_path(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+):
+    """Ручной доп.урок сверх курса: kind='extra', сразу makeup_scheduled, группа и
+    «за какой урок» сохранены, пропуск (missed_lesson) не привязан."""
+    try:
+        result = services.create_extra_assignment({
+            'group_id': group_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-25',
+            'scheduled_time': '16:00', 'duration_minutes': 60,
+            'lesson_number': Decimal('17'),
+        }, _FakeRequest())
+        assert result['created'] == 1
+        res = AbsenceResolution.objects.get(id=result['resolution_ids'][0])
+        assert res.kind == 'extra'
+        assert res.status == MAKEUP_SCHEDULED
+        assert res.missed_lesson_id is None
+        assert res.group_id == group_fixture
+        assert res.target_lesson_number == Decimal('17.0')
+    finally:
+        _delete_extra_resolutions(group_fixture)
+
+
+def test_create_extra_assignment_rejects_non_member(
+    group_fixture, teacher_fixture, student_fixture,
+):
+    """Ученик НЕ состоит в группе → StudentNotInGroup (нет membership_fixture)."""
+    from apps.extra_lessons.exceptions import StudentNotInGroup
+    with pytest.raises(StudentNotInGroup):
+        services.create_extra_assignment({
+            'group_id': group_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-25',
+            'scheduled_time': '16:00', 'duration_minutes': 60,
+        }, _FakeRequest())
+
+
+def test_record_extra_creates_fact_and_consumes_balance(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+):
+    """Проведение ручного доп.урока: extra-Lesson с выбранным номером, +1 к
+    lessons_done, списание с баланса (8→7), флет-выплата 200₽, статус makeup_done."""
+    from apps.finances.repository import balance_for_student
+    from apps.memberships.models import GroupMembership
+
+    result = services.create_extra_assignment({
+        'group_id': group_fixture, 'teacher_id': teacher_fixture,
+        'student_ids': [student_fixture], 'scheduled_date': '2026-04-25',
+        'scheduled_time': '16:00', 'duration_minutes': 60, 'lesson_number': Decimal('17'),
+    }, _FakeRequest())
+    rid = result['resolution_ids'][0]
+    try:
+        assert float(balance_for_student(student_fixture)) == 8.0
+        rec = services.record(
+            rid, teacher_id=teacher_fixture, present=True, record_url=None,
+            submitted_by_token='acct:1', submit_date='2026-04-25', request=_FakeRequest())
+        assert rec['payment'] == 200
+        res = AbsenceResolution.objects.get(id=rid)
+        assert res.status == MAKEUP_DONE
+        fact = Lesson.objects.get(id=res.fact_lesson_id)
+        assert fact.lesson_type == 'extra'
+        assert fact.group_id == group_fixture
+        assert Decimal(str(fact.lesson_number)) == Decimal('17.0')
+        # прогресс +1, баланс списан
+        md = GroupMembership.objects.get(group_id=group_fixture, student_id=student_fixture)
+        assert md.lessons_done == Decimal('1.0')
+        assert float(balance_for_student(student_fixture)) == 7.0
+    finally:
+        _delete_extra_resolutions(group_fixture)
+
+
+def test_cancel_scheduled_extra_deletes_resolution(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+):
+    """Отмена назначенного extra (нет pending-пропуска) → удаление резолюции."""
+    try:
+        result = services.create_extra_assignment({
+            'group_id': group_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-25',
+            'scheduled_time': '16:00', 'duration_minutes': 60,
+        }, _FakeRequest())
+        rid = result['resolution_ids'][0]
+        out = services.cancel_assignment(rid, _FakeRequest())
+        assert out == {'id': rid, 'deleted': True}
+        assert not AbsenceResolution.objects.filter(id=rid).exists()
+    finally:
+        _delete_extra_resolutions(group_fixture)
+
+
+def test_delete_fact_of_extra_rolls_back_and_removes_resolution(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+):
+    """Откат проведённого extra: удаляет факт+payroll, откатывает lessons_done (1→0)
+    и удаляет саму резолюцию (у extra нет pending для возврата)."""
+    from apps.memberships.models import GroupMembership
+
+    result = services.create_extra_assignment({
+        'group_id': group_fixture, 'teacher_id': teacher_fixture,
+        'student_ids': [student_fixture], 'scheduled_date': '2026-04-25',
+        'scheduled_time': '16:00', 'duration_minutes': 60, 'lesson_number': Decimal('17'),
+    }, _FakeRequest())
+    rid = result['resolution_ids'][0]
+    try:
+        services.record(rid, teacher_id=teacher_fixture, present=True, record_url=None,
+                        submitted_by_token='acct:1', submit_date='2026-04-25', request=_FakeRequest())
+        assert services.delete_fact(rid, _FakeRequest()) is True
+        assert not AbsenceResolution.objects.filter(id=rid).exists()
+        md = GroupMembership.objects.get(group_id=group_fixture, student_id=student_fixture)
+        assert md.lessons_done == Decimal('0.0')
+    finally:
+        _delete_extra_resolutions(group_fixture)
+
+
+def test_scheduled_extra_blocks_membership_cancellation(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+):
+    """Назначенный (не проведённый) extra блокирует снятие членства ученика в группе."""
+    try:
+        services.create_extra_assignment({
+            'group_id': group_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-25',
+            'scheduled_time': '16:00', 'duration_minutes': 60,
+        }, _FakeRequest())
+        with pytest.raises(MembershipHasScheduledMakeups):
+            services.enforce_membership_cancellation(student_fixture, group_fixture)
+    finally:
+        _delete_extra_resolutions(group_fixture)
+
+
+# ---------------------------------------------------------------------------
+# Ручной доп.урок с привязкой к РЕАЛЬНОМУ уроку (роутинг → makeup) + гард present
+# ---------------------------------------------------------------------------
+
+def test_manual_assign_by_real_lesson_routes_to_makeup_and_reuses_pending(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+    missed_lesson_fixture, resolution_cleanup,
+):
+    """Ручное назначение с номером уже проведённого урока (missed_lesson_fixture —
+    урок №1, ученик отсутствовал → авто-заявка pending уже создана) → идёт как
+    MAKEUP, привязанный к этому уроку, и ПЕРЕИСПОЛЬЗУЕТ авто-заявку (без дубля)."""
+    result = services.create_extra_assignment({
+        'group_id': group_fixture, 'teacher_id': teacher_fixture,
+        'student_ids': [student_fixture], 'scheduled_date': '2026-05-01',
+        'scheduled_time': '16:00', 'duration_minutes': 60, 'lesson_number': Decimal('1'),
+    }, _FakeRequest())
+    assert result['kind'] == 'makeup'
+    assert result['created'] == 1
+    # ровно одна резолюция на (пропуск × ученик) — авто-pending переиспользован
+    qs = AbsenceResolution.objects.filter(
+        missed_lesson_id=missed_lesson_fixture, student_id=student_fixture)
+    assert qs.count() == 1
+    res = qs.get()
+    assert res.kind == 'makeup'
+    assert res.status == MAKEUP_SCHEDULED
+    assert res.missed_lesson_id == missed_lesson_fixture
+    assert res.assigned_teacher_id == teacher_fixture
+
+
+def test_manual_assign_by_real_lesson_blocks_if_student_was_present(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+):
+    """Ручное назначение «за урок №N», где ученик реально ПРИСУТСТВОВАЛ (present=true)
+    → StudentWasPresent (доп.урок за посещённый урок нельзя)."""
+    from apps.extra_lessons.exceptions import StudentWasPresent
+    from apps.lessons import services as lessons_services
+
+    res = lessons_services.create_lesson_full({
+        'lesson_date': '2026-05-02', 'group_id': group_fixture, 'teacher_id': teacher_fixture,
+        'lesson_number': 2, 'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+    })
+    lesson_id = res['lesson_id']
+    try:
+        with pytest.raises(StudentWasPresent):
+            services.create_extra_assignment({
+                'group_id': group_fixture, 'teacher_id': teacher_fixture,
+                'student_ids': [student_fixture], 'scheduled_date': '2026-05-03',
+                'scheduled_time': '16:00', 'duration_minutes': 60, 'lesson_number': Decimal('2'),
+            }, _FakeRequest())
+    finally:
+        _cleanup_fact(lesson_id)
+
+
+def test_manual_assign_unknown_number_routes_to_extra(
+    group_fixture, teacher_fixture, student_fixture, membership_fixture,
+):
+    """Номер урока, которого в группе ещё не было (проведённого урока №99 нет) →
+    extra сверх курса (не привязан к уроку)."""
+    try:
+        result = services.create_extra_assignment({
+            'group_id': group_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-05-04',
+            'scheduled_time': '16:00', 'duration_minutes': 60, 'lesson_number': Decimal('99'),
+        }, _FakeRequest())
+        assert result['kind'] == 'extra'
+        res = AbsenceResolution.objects.get(id=result['resolution_ids'][0])
+        assert res.kind == 'extra'
+        assert res.missed_lesson_id is None
+        assert res.target_lesson_number == Decimal('99.0')
+    finally:
+        _delete_extra_resolutions(group_fixture)
+
+
+# ---------------------------------------------------------------------------
+# Оплата доп.урока СВЕРХ курса для ИНДИВ-группы: как обычный индив-урок
+# (45 мин → 250, полный → 500). Групповой extra и makeup остаются флет-200.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def individual_group_fixture(direction_fixture, teacher_fixture):
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO groups (name, direction_id, teacher_id, is_individual,
+                                lesson_duration_minutes, active, lesson_number_offset)
+            VALUES ('__el_test_indiv_group__', %s, %s, true, 45, true, 0) RETURNING id
+            """,
+            [direction_fixture, teacher_fixture],
+        )
+        gid = cur.fetchone()[0]
+    yield gid
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM groups WHERE id = %s', [gid])
+
+
+@pytest.fixture
+def individual_membership_fixture(individual_group_fixture, student_fixture, direction_fixture):
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO group_memberships (group_id, student_id, lessons_done, active)
+            VALUES (%s, %s, 0, true) RETURNING id
+            """,
+            [individual_group_fixture, student_fixture],
+        )
+        mid = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count,
+                                   unit_price, total_amount, paid_at, created_by)
+            VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test') RETURNING id
+            """,
+            [student_fixture, direction_fixture],
+        )
+        pid = cur.fetchone()[0]
+    yield mid
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM group_memberships WHERE id = %s', [mid])
+        cur.execute('DELETE FROM payments WHERE id = %s', [pid])
+
+
+@pytest.mark.parametrize('duration, expected', [(45, 250), (90, 500), (60, 500)])
+def test_record_extra_individual_pays_by_duration(
+    individual_group_fixture, teacher_fixture, student_fixture,
+    individual_membership_fixture, duration, expected,
+):
+    """Доп.урок СВЕРХ курса для ИНДИВ-группы оплачивается как обычный индив-урок:
+    45 мин → 250, полный (60/90) → 500. Групповой extra и makeup — флет-200."""
+    result = services.create_extra_assignment({
+        'group_id': individual_group_fixture, 'teacher_id': teacher_fixture,
+        'student_ids': [student_fixture], 'scheduled_date': '2026-04-25',
+        'scheduled_time': '16:00', 'duration_minutes': duration, 'lesson_number': Decimal('17'),
+    }, _FakeRequest())
+    rid = result['resolution_ids'][0]
+    try:
+        rec = services.record(
+            rid, teacher_id=teacher_fixture, present=True, record_url=None,
+            submitted_by_token='acct:1', submit_date='2026-04-25', request=_FakeRequest())
+        assert rec['payment'] == expected
+        assert Payroll.objects.get(lesson_id=rec['lesson_id']).payment == expected
+    finally:
+        _delete_extra_resolutions(individual_group_fixture)

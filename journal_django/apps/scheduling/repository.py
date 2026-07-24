@@ -91,14 +91,15 @@ def teacher_names() -> dict[int, str]:
 def planned_lessons_in_window(
     window_from: datetime.date,
     window_to: datetime.date,
-    teacher_id: int,
+    teacher_id: int | None = None,
 ) -> list[dict]:
     """
-    Плановые занятия ОДНОГО преподавателя за окно — источник GET /api/calendar.
+    Плановые занятия за окно — источник GET /api/calendar. teacher_id=None →
+    ВСЕ преподаватели (admin-календарь без фильтра, вся школа); иначе — один.
 
-    Скоуп — по `planned_lesson.teacher_id` (не по учителю группы): группа занятия
-    может принадлежать другому учителю (после смены препода занятия). Только
-    активные группы (паритет с прежним compute-путём `active_groups`).
+    Скоуп (при заданном teacher_id) — по `planned_lesson.teacher_id` (не по учителю
+    группы): группа занятия может принадлежать другому учителю (после смены препода
+    занятия). Только активные группы (паритет с прежним compute-путём `active_groups`).
 
     Батч-джойны, без N+1: один запрос строк с join группы/направления. Имена
     преподавателей и учеников по группам подтягивает вызывающий (services) через
@@ -106,15 +107,18 @@ def planned_lessons_in_window(
 
     Возвращает «сырые» словари (date/time — объекты) для services._planned_occurrence_dict.
     """
-    return list(
-        PlannedLesson.objects
-        .filter(
+    qs = PlannedLesson.objects.filter(
+        group__active=True,
+        scheduled_date__gte=window_from,
+        scheduled_date__lte=window_to,
+    )
+    if teacher_id is not None:
+        qs = qs.filter(
             Q(substitute_teacher_id=teacher_id)
-            | Q(substitute_teacher_id__isnull=True, teacher_id=teacher_id),
-            group__active=True,
-            scheduled_date__gte=window_from,
-            scheduled_date__lte=window_to,
+            | Q(substitute_teacher_id__isnull=True, teacher_id=teacher_id)
         )
+    return list(
+        qs
         .values(
             'id', 'seq', 'lesson_number', 'scheduled_date', 'scheduled_time',
             'teacher_id', 'substitute_teacher_id', 'status', 'fact_lesson_id',
@@ -128,6 +132,79 @@ def planned_lessons_in_window(
             direction_name=F('group__direction__name'),
             direction_color=F('group__direction__color'),
         )
+    )
+
+
+def unfilled_planned_lessons(
+    today: datetime.date, teacher_id: int | None = None,
+) -> list[dict]:
+    """
+    Незаполненные плановые занятия ВСЕХ активных групп по школе (или одного
+    преподавателя) с датой <= today — источник вкладки «Заполнить».
+
+    Overdue-порог по времени (момент урока в МСК уже прошёл) досчитывает вызывающий
+    (fill_service), как и `_planned_status`/`build_calendar` — здесь только грубый
+    DB-срез по дате. `status=PENDING` + `fact_lesson__isnull` исключают done/
+    cancelled/уже-связанные с фактом строки. Скоуп преподавателя — по эффективному
+    исполнителю (замена ИЛИ штатный препод занятия), как в `planned_lessons_in_window`.
+
+    Возвращает «сырые» словари (date/time — объекты) для fill_service.
+    """
+    qs = PlannedLesson.objects.filter(
+        group__active=True,
+        status=PENDING,
+        fact_lesson__isnull=True,
+        scheduled_date__lte=today,
+    )
+    if teacher_id is not None:
+        qs = qs.filter(
+            Q(substitute_teacher_id=teacher_id)
+            | Q(substitute_teacher_id__isnull=True, teacher_id=teacher_id)
+        )
+    return list(
+        qs.order_by('scheduled_date', 'scheduled_time').values(
+            'id', 'scheduled_date', 'scheduled_time', 'lesson_number',
+            'teacher_id', 'substitute_teacher_id',
+            group_pk=F('group_id'),
+            group_name=F('group__name'),
+            direction_name=F('group__direction__name'),
+            direction_color=F('group__direction__color'),
+        )
+    )
+
+
+def has_unfilled_before(group_id: int, lesson_date) -> bool:
+    """
+    Есть ли у группы незакрытое курсовое занятие, чья ПЛАНОВАЯ дата строго раньше
+    отмечаемой (lesson_date). True → отметку урока за lesson_date писать нельзя.
+
+    Отметка за дату D закрывает следующий по порядку незакрытый номер урока
+    (lesson_number = прогресс + шаг), а link_facts привязывает факт к плановой
+    строке по этому номеру. Если самое раннее незакрытое занятие по расписанию
+    приходится на день РАНЬШЕ D, факт с датой D сядет на плановую строку того
+    раннего дня — план и факт разъедутся между разными днями. Это и блокируем.
+
+    Занятия того же дня (scheduled_date == D) долгом НЕ считаются: у мультислотовых
+    групп оба занятия дня стоят в плане на D, их факты тоже получают дату D, и
+    расхождения план/факт не возникает при любом порядке отметки. Часы здесь не
+    важны — важно только соотношение ДАТ (см. design doc, раздел «мультислот»):
+    внутри одного дня блокировка ничего не защищала бы, а два незакрытых занятия
+    дня заперли бы друг друга в тупик.
+
+    Учитываются только курсовые строки (seq не NULL): маркеры отмены и разовые
+    занятия к последовательности курса не относятся. Один запрос EXISTS, попадает
+    в индекс (group_id, scheduled_date).
+    """
+    return (
+        PlannedLesson.objects
+        .filter(
+            group_id=group_id,
+            seq__isnull=False,
+            status=PENDING,
+            fact_lesson__isnull=True,
+            scheduled_date__lt=lesson_date,
+        )
+        .exists()
     )
 
 
@@ -1081,6 +1158,7 @@ def generate_for_group(group_id: int) -> dict | None:
         .filter(id=group_id)
         .values(
             'id', 'lesson_duration_minutes', 'group_start_date', 'teacher_id',
+            'lesson_number_offset',
             total_lessons=F('direction__total_lessons'),
         )
         .first()
@@ -1101,12 +1179,20 @@ def generate_for_group(group_id: int) -> dict | None:
 
     written = 0
     if reason is None:
+        offset = g['lesson_number_offset'] or Decimal('0')
+        # start_seq остаётся 1: у generate_for_group план строится с нуля (это
+        # НЕ продолжение хвоста существующего плана, как в apply_schedule_change
+        # выше, где start_seq выравнивает новые строки с уже лежащими в БД seq) —
+        # seq всегда 1-based позиция в ЭТОМ плане. Офсет сдвигает только
+        # lesson_number (через start_number), т.е. с какого урока курса реально
+        # начинается план (перевод ученика с накопленным прогрессом).
         rows = planner.generate(
             start_date=g['group_start_date'],
             slots=g_slots,
             total_lessons=g['total_lessons'],
             duration_minutes=g['lesson_duration_minutes'],
             default_teacher_id=g['teacher_id'],
+            start_number=offset,
         )
         # create_only: повторный generate не затирает ручные операции над планом —
         # только досоздаёт недостающие seq (напр. при увеличении длины курса).

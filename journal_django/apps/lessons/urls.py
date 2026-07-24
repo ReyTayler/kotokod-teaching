@@ -8,7 +8,9 @@ APPEND_SLASH=False — пути без trailing slash (зеркало Express).
 """
 from django.urls import path
 
-from apps.lessons.views import AttendanceCellView, LessonDetailView, LessonListCreateView
+from apps.lessons.views import (
+    AttendanceCellView, AttendanceUnpaidSkipView, LessonDetailView, LessonListCreateView,
+)
 
 urlpatterns = [
     path('', LessonListCreateView.as_view(), name='lessons-list-create'),
@@ -17,5 +19,10 @@ urlpatterns = [
         '/<int:lesson_id>/attendance/<int:student_id>',
         AttendanceCellView.as_view(),
         name='lessons-attendance-cell',
+    ),
+    path(
+        '/<int:lesson_id>/unpaid-skip/<int:student_id>',
+        AttendanceUnpaidSkipView.as_view(),
+        name='lessons-unpaid-skip',
     ),
 ]

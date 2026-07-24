@@ -205,15 +205,16 @@ def test_has_active_resolution(
     assert repository.has_active_resolution(missed_lesson_fixture, student_fixture) is False
 
 
-def test_delete_open_for_student_keeps_done(
-    teacher_fixture, missed_lesson_fixture, student_fixture,
+def test_delete_pending_for_student_in_group_keeps_scheduled_and_done(
+    group_fixture, teacher_fixture, missed_lesson_fixture, student_fixture,
     extra_missed_lessons, resolution_cleanup,
 ):
-    """Уход ученика: pending + makeup_scheduled удаляются, makeup_done сохраняется.
-    Строки на РАЗНЫХ пропущенных уроках (UNIQUE per пропуск×ученик)."""
-    # pending на основном пропуске.
+    """Снятие членства в группе: delete_pending_for_student_in_group удаляет только
+    pending этой группы; makeup_scheduled и makeup_done остаются (первый блокирует
+    снятие раньше, у второго — факт+деньги). Строки на РАЗНЫХ пропусках."""
+    # pending на основном пропуске (group_fixture).
     repository.autocreate_pending(missed_lesson_fixture, [student_fixture])
-    # makeup_scheduled на первом доп.пропуске.
+    # makeup_scheduled на первом доп.пропуске (тот же group_fixture).
     sched_id = repository.create_scheduled_direct(
         missed_lesson_id=extra_missed_lessons[0], student_id=student_fixture,
         assigned_teacher_id=teacher_fixture, scheduled_date=datetime.date(2026, 4, 12),
@@ -225,14 +226,16 @@ def test_delete_open_for_student_keeps_done(
         scheduled_time=datetime.time(15, 0), duration_minutes=45)
     repository.mark_makeup_done(done_id, fact_lesson_id=extra_missed_lessons[1])
 
-    deleted = repository.delete_open_for_student(student_fixture)
-    assert deleted == 2
+    # Гейт видит назначенный доп.урок в этой группе.
+    assert repository.has_scheduled_for_student_in_group(student_fixture, group_fixture) is True
 
-    # makeup_done остаётся.
-    assert repository.get_resolution_full(done_id)['status'] == MAKEUP_DONE
-    # pending и makeup_scheduled удалены.
-    assert repository.get_resolution_full(sched_id) is None
+    deleted = repository.delete_pending_for_student_in_group(student_fixture, group_fixture)
+    assert deleted == 1
+
+    # Удалён только pending; makeup_scheduled и makeup_done на месте.
     assert repository.lock_for_assign(missed_lesson_fixture, student_fixture) is None
+    assert repository.get_resolution_full(sched_id)['status'] == MAKEUP_SCHEDULED
+    assert repository.get_resolution_full(done_id)['status'] == MAKEUP_DONE
 
 
 def test_students_not_absent_excludes_present_and_non_participants(
@@ -244,6 +247,91 @@ def test_students_not_absent_excludes_present_and_non_participants(
     assert repository.students_not_absent(
         missed_lesson_fixture, [student_fixture, 999_999_999],
     ) == [999_999_999]
+
+
+def _schedule_fixture_overdue(missed_lesson_id, student_id, teacher_id, *,
+                              date, time):
+    """Авто-созданный фикстурой pending → makeup_scheduled с прошлой датой.
+    record_lesson авто-создаёт pending на (пропуск × ученик), а UNIQUE-констрейнт
+    запрещает вставку второй строки на ту же пару — поэтому берём существующий
+    pending и назначаем его (UPDATE), а не INSERT."""
+    rid = repository.lock_for_assign(missed_lesson_id, student_id)['id']
+    repository.assign_pending(
+        rid, assigned_teacher_id=teacher_id,
+        scheduled_date=date, scheduled_time=time, duration_minutes=60)
+    return rid
+
+
+def test_unfilled_extra_lessons_returns_overdue_makeup_scheduled(
+    teacher_fixture, group_fixture, missed_lesson_fixture, student_fixture,
+    resolution_cleanup,
+):
+    """makeup_scheduled с прошлой датой → в выдаче «Заполнить», с группой пропуска."""
+    today = datetime.date(2026, 7, 1)
+    rid = _schedule_fixture_overdue(
+        missed_lesson_fixture, student_fixture, teacher_fixture,
+        date=datetime.date(2026, 6, 10), time=datetime.time(15, 0))
+
+    rows = repository.unfilled_extra_lessons(today)
+    mine = [r for r in rows if r['id'] == rid]
+    assert len(mine) == 1
+    row = mine[0]
+    assert row['scheduled_date'] == datetime.date(2026, 6, 10)
+    assert row['scheduled_time'] == datetime.time(15, 0)
+    assert row['assigned_teacher_id'] == teacher_fixture
+    assert row['group_id'] == group_fixture
+    assert row['group_name'] == '__el_test_group__'
+
+
+def test_unfilled_extra_lessons_scoped_by_teacher_excludes_others(
+    teacher_fixture, other_teacher_fixture, missed_lesson_fixture, student_fixture,
+    resolution_cleanup,
+):
+    """Скоуп по other_teacher — резолюция teacher_fixture НЕ попадает."""
+    today = datetime.date(2026, 7, 1)
+    rid = _schedule_fixture_overdue(
+        missed_lesson_fixture, student_fixture, teacher_fixture,
+        date=datetime.date(2026, 6, 10), time=datetime.time(15, 0))
+
+    # По назначенному преподавателю — попадает.
+    assert any(r['id'] == rid for r in repository.unfilled_extra_lessons(
+        today, teacher_id=teacher_fixture))
+    # По чужому преподавателю — нет.
+    assert not any(r['id'] == rid for r in repository.unfilled_extra_lessons(
+        today, teacher_id=other_teacher_fixture))
+
+
+def test_unfilled_extra_lessons_excludes_makeup_done(
+    teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
+):
+    """makeup_done (факт привязан) → НЕ в выдаче «Заполнить»."""
+    today = datetime.date(2026, 7, 1)
+    rid = _schedule_fixture_overdue(
+        missed_lesson_fixture, student_fixture, teacher_fixture,
+        date=datetime.date(2026, 6, 10), time=datetime.time(15, 0))
+    # Пока makeup_scheduled — в выдаче.
+    assert any(r['id'] == rid for r in repository.unfilled_extra_lessons(today))
+
+    repository.mark_makeup_done(rid, fact_lesson_id=missed_lesson_fixture)
+    # После проведения (fact_lesson проставлен) — уходит из выдачи.
+    assert not any(r['id'] == rid for r in repository.unfilled_extra_lessons(today))
+
+
+def test_unfilled_extra_lessons_excludes_future_and_pending(
+    teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
+):
+    """pending (scheduled_date NULL) и будущая дата (> today) → не в выдаче."""
+    today = datetime.date(2026, 7, 1)
+    # pending: авто-создан фикстурой, scheduled_date NULL.
+    pending_rid = repository.lock_for_assign(missed_lesson_fixture, student_fixture)['id']
+    assert not any(r['id'] == pending_rid for r in repository.unfilled_extra_lessons(today))
+
+    # Назначаем в будущее — тоже не попадает.
+    repository.assign_pending(
+        pending_rid, assigned_teacher_id=teacher_fixture,
+        scheduled_date=datetime.date(2026, 8, 1), scheduled_time=datetime.time(15, 0),
+        duration_minutes=60)
+    assert not any(r['id'] == pending_rid for r in repository.unfilled_extra_lessons(today))
 
 
 def test_lock_for_delete_returns_locked_fields(

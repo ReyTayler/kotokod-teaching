@@ -20,9 +20,21 @@ function looksLikeUrl(value: string): boolean {
   }
 }
 
-/** Ученик исчерпал оплаченные уроки (remaining<=0) — отмечать присутствие нельзя (см. submit_lesson на бэке). */
-function isBlocked(s: { remaining: number }): boolean {
-  return s.remaining <= 0;
+/** Причина, по которой ученика нельзя отметить: неоплачиваемый пропуск (менеджер
+ *  пометил, ученик этот урок не посещает), нет оплаты, либо перевод-в-ожидании. */
+function blockedReason(
+  s: { remaining: number; locked: boolean; lockedThrough: number | null; skip?: boolean },
+): 'skip' | 'unpaid' | 'locked' | null {
+  if (s.skip) return 'skip';
+  if (s.locked) return 'locked';
+  if (s.remaining <= 0) return 'unpaid';
+  return null;
+}
+
+function isBlocked(
+  s: { remaining: number; locked: boolean; lockedThrough: number | null; skip?: boolean },
+): boolean {
+  return blockedReason(s) !== null;
 }
 
 /**
@@ -69,7 +81,24 @@ export function LessonForm({
   const isHalf = dir ? dir.lessonDurationMinutes === 45 : isHalfLesson(group);
   const { done, step, next } = lessonNumber(groupData.students, isHalf);
   const limit = dir ? dir.totalLessons : getCourseLimit(group);
-  const total = groupData.students.length;
+
+  const blockedStudents = groupData.students.filter((s) => isBlocked(s));
+  // Разделяем по причине: неоплата (→ к менеджеру) vs перевод-в-ожидании vs
+  // неоплачиваемый пропуск (менеджер пометил — ученик этот урок не посещает).
+  const unpaidStudents = blockedStudents.filter((s) => blockedReason(s) === 'unpaid');
+  const lockedStudents = blockedStudents.filter((s) => blockedReason(s) === 'locked');
+  const skipStudents = blockedStudents.filter((s) => blockedReason(s) === 'skip');
+
+  // Переведённого ученика, ждущего, пока группа догонит его прогресс, на этом уроке
+  // как будто нет: record_lesson выкидывает его из attendance ДО подсчёта
+  // total_students/present_count/payroll. Значит и превью выплаты обязано считать по
+  // ТОМУ ЖЕ составу, иначе преподаватель видит не ту сумму, что реально получит:
+  // ростер 3 чел., один переведён → сервер платит как за малую группу (2 из 2 = 500₽),
+  // а превью по ростеру из 3 показывало бы 200×2 = 400₽.
+  // Неоплаченные (reason 'unpaid') из total НЕ вычитаются: сервер оставляет их в
+  // total_students (фильтруется только перевод), они лишь не могут быть «пришёл».
+  // Неоплачиваемый пропуск (skip) сервер исключает из зарплаты — вычитаем из total.
+  const total = groupData.students.length - lockedStudents.length - skipStudents.length;
   const presentCount = groupData.students.reduce((n, s) => n + (present[s.name] ? 1 : 0), 0);
   const absentCount = total - presentCount;
   const payment = calcPayment(total, presentCount, isHalf);
@@ -87,7 +116,6 @@ export function LessonForm({
     return `${prefix} Заполнение заблокировано.`;
   }, [limit, done, step, isHalf]);
 
-  const blockedStudents = groupData.students.filter((s) => isBlocked(s));
   const penaltyWarning = date !== todayIso;
 
   const toggleAll = () => {
@@ -97,8 +125,12 @@ export function LessonForm({
     ));
   };
 
+  // Нельзя записать урок без единого присутствующего ученика (все «Не пришёл»):
+  // нет посещаемости — нет урока. Бэк тоже гейтит (submit_lesson), это UX-слой.
+  const noOnePresent = presentCount === 0;
+
   const handleSubmit = () => {
-    if (limitExceeded || submitLesson.isPending) return;
+    if (limitExceeded || noOnePresent || submitLesson.isPending) return;
     setSubmitError(null);
 
     const payload: SubmitPayload = {
@@ -163,7 +195,8 @@ export function LessonForm({
         </div>
         <div className="lf-students">
           {groupData.students.map((s) => {
-            const blocked = isBlocked(s);
+            const reason = blockedReason(s);
+            const blocked = reason !== null;
             return (
               <button
                 type="button"
@@ -175,11 +208,19 @@ export function LessonForm({
                 }}
                 aria-pressed={!!present[s.name]}
                 disabled={blocked}
-                title={blocked ? 'Нет оплаченных уроков — отметить нельзя' : undefined}
+                title={
+                  reason === 'skip'
+                    ? 'Неоплачиваемый пропуск — ученик этот урок не посещает (отметил менеджер)'
+                    : reason === 'locked'
+                      ? `Переведён — включится с урока №${(s.lockedThrough ?? 0) + 1}`
+                      : reason === 'unpaid'
+                        ? 'Нет оплаченных уроков — отметить нельзя'
+                        : undefined
+                }
               >
                 <span className="lf-student-name">{s.name}</span>
                 <span className="lf-student-state">
-                  {blocked ? 'Нет оплаты' : present[s.name] ? 'Пришёл' : 'Не пришёл'}
+                  {reason === 'skip' ? 'Не участвует' : reason === 'locked' ? 'Ожидает перевода' : reason === 'unpaid' ? 'Нет оплаты' : present[s.name] ? 'Пришёл' : 'Не пришёл'}
                 </span>
               </button>
             );
@@ -187,16 +228,32 @@ export function LessonForm({
         </div>
       </div>
 
-      {blockedStudents.length > 0 && (
+      {/* Баннеры причин блокировки разделены: у переведённого ученика оплата ЕСТЬ
+          (он просто ждёт, пока группа догонит его прогресс) — «сообщите менеджеру»
+          для него неверно и гоняло бы преподавателя к менеджеру без повода. */}
+      {unpaidStudents.length > 0 && (
         <div className="lf-warn">
-          Нет оплаченных уроков: {blockedStudents.map((s) => s.name).join(', ')}. Отметить их нельзя
+          Нет оплаченных уроков: {unpaidStudents.map((s) => s.name).join(', ')}. Отметить их нельзя
           {groupData.pm ? ` — сообщите менеджеру ${groupData.pm}.` : ' — сообщите менеджеру.'}
+        </div>
+      )}
+
+      {lockedStudents.length > 0 && (
+        <div className="lf-warn">
+          Переведены из другой группы и пока ждут, когда группа догонит их прогресс:{' '}
+          {lockedStudents.map((s) => s.name).join(', ')}. Отмечать их не нужно — включатся автоматически.
         </div>
       )}
 
       {limitExceeded && limitMessage && (
         <div className="lf-error">
           <strong>Лимит курса исчерпан.</strong> {limitMessage}
+        </div>
+      )}
+
+      {!limitExceeded && noOnePresent && (
+        <div className="lf-warn">
+          Отметьте хотя бы одного пришедшего ученика — урок без присутствующих сохранить нельзя.
         </div>
       )}
 
@@ -253,7 +310,7 @@ export function LessonForm({
         <button
           type="button"
           className="btn-save"
-          disabled={limitExceeded || submitLesson.isPending}
+          disabled={limitExceeded || noOnePresent || submitLesson.isPending}
           onClick={handleSubmit}
         >
           {submitLesson.isPending ? 'Сохранение…' : 'Сохранить урок'}

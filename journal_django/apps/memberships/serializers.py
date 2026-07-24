@@ -67,3 +67,5 @@ class MembershipTransferSerializer(serializers.Serializer):
     """Вход для POST /api/admin/memberships/:id/transfer."""
 
     to_group_id = serializers.IntegerField(min_value=1)
+
+

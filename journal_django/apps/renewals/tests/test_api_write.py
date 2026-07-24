@@ -153,6 +153,26 @@ def test_move_to_won_respawns_next_cycle(admin_client, make_student, make_direct
 
 
 @pytest.mark.django_db
+def test_move_to_won_syncs_spawned_cycle_stage(admin_client, make_student, make_direction):
+    """F2: при «Продлён» спавненная сделка следующего цикла сразу встаёт на верную
+    авто-стадию по фактической посещаемости, а не остаётся на «Не было урока».
+    attended=5: цикл 1 отработан (move→won разрешён), в цикл 2 отработан 1 урок."""
+    from unittest.mock import patch
+    from apps.renewals.models import RenewalDeal
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    deal.stage = RenewalStage.objects.get(key='thinking', pipeline=deal.pipeline)
+    deal.save(update_fields=['stage'])
+    with patch('apps.renewals.engine._attended_total', return_value=5.0), \
+         patch('apps.finances.repository.balance_for_student', return_value=10):
+        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                                 {'to_stage_id': _stage_id('renewed')}, format='json')
+    assert resp.status_code == 200
+    nxt = RenewalDeal.objects.get(student_id=sid, cycle_no=2, outcome_at__isnull=True)
+    assert nxt.stage.key == 'lesson_1'
+
+
+@pytest.mark.django_db
 def test_move_to_won_skips_taken_closed_cycle(admin_client, make_student, make_direction):
     """Если цикл N+1 уже занят закрытой сделкой (после reopen/возврата),
     респавн перешагивает его — открытая сделка не теряется."""
@@ -179,13 +199,33 @@ def test_move_to_won_skips_taken_closed_cycle(admin_client, make_student, make_d
 
 
 @pytest.mark.django_db
-def test_patch_next_touch(admin_client, make_student, make_direction):
+def test_move_from_awaiting_renewal_to_won(admin_client, make_student, make_direction):
+    """Со стадии «Ждём продление» продление подтверждается вручную (drag→won) —
+    ключевой сценарий, ранее заблокированный тотальным from_is_auto (fix 2026-07-19).
+    Ставим сделку на awaiting_renewal напрямую (движок ставит её сам по факту
+    отработки цикла), cycle_completed мокаем — реальную посещаемость тут не строим."""
+    from unittest.mock import patch
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    deal.stage = RenewalStage.objects.get(key='awaiting_renewal', pipeline=deal.pipeline)
+    deal.save(update_fields=['stage'])
+    with patch('apps.renewals.engine.cycle_completed', return_value=True), \
+         patch('apps.finances.repository.balance_for_student', return_value=4):
+        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+                                 {'to_stage_id': _stage_id('renewed')}, format='json')
+    assert resp.status_code == 200
+    assert resp.json()['stage_key'] == 'renewed'
+    assert resp.json()['outcome_at'] is not None
+
+
+@pytest.mark.django_db
+def test_patch_reason_code(admin_client, make_student, make_direction):
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, cycle_no=1)
     resp = admin_client.patch(f'{BASE}/{deal.id}',
-                              {'next_touch_at': '2026-07-15'}, format='json')
+                              {'reason_code': 'звонил, думает'}, format='json')
     assert resp.status_code == 200
-    assert resp.json()['next_touch_at'] == '2026-07-15'
+    assert resp.json()['reason_code'] == 'звонил, думает'
 
 
 @pytest.mark.django_db

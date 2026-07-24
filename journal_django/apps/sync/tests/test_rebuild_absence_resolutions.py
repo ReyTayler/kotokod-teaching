@@ -15,13 +15,13 @@ def _setup():
         row = cur.fetchone()
         created_dir = False
         if row is None:
-            cur.execute("INSERT INTO directions (name, is_individual) VALUES ('__ar_d__', false) RETURNING id")
+            cur.execute("INSERT INTO directions (name) VALUES ('__ar_d__') RETURNING id")
             row = cur.fetchone(); created_dir = True
         direction_id = row[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, active) "
-            "VALUES ('__ar_g__', %s, %s, false, 60, 1, true) RETURNING id",
+            "lesson_duration_minutes, lessons_per_week, active, lesson_number_offset) "
+            "VALUES ('__ar_g__', %s, %s, false, 60, 1, true, 0) RETURNING id",
             [direction_id, teacher_id])
         group_id = cur.fetchone()[0]
         cur.execute(
@@ -105,7 +105,7 @@ def test_skips_left_student_and_inactive_membership():
     try:
         # Ученик ушёл → в кандидаты не попадает (очередь ушедших не поднимаем).
         with connection.cursor() as cur:
-            cur.execute("UPDATE students SET enrollment_status='not_enrolled' WHERE id=%s", [ctx['student_id']])
+            cur.execute("UPDATE students SET enrollment_status='declined' WHERE id=%s", [ctx['student_id']])
         res = rebuild_absence_resolutions.run(dry_run=False)
         assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
         # Вернём enrolled, но членство неактивно → тоже пропуск.
@@ -115,6 +115,23 @@ def test_skips_left_student_and_inactive_membership():
         rebuild_absence_resolutions.run(dry_run=False)
         assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
         assert res['created'] == 0
+    finally:
+        _teardown(ctx)
+
+
+@pytest.mark.django_db
+def test_skips_unpaid_skip_miss():
+    """Неоплачиваемый пропуск (present=false + unpaid_skip=true) — прощённый исход,
+    доп.урока НЕ требует: бэкфилл его не берёт (как и record_lesson)."""
+    ctx = _setup()
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE lesson_attendance SET unpaid_skip=true "
+                "WHERE lesson_id=%s AND student_id=%s", [ctx['lesson_id'], ctx['student_id']])
+        res = rebuild_absence_resolutions.run(dry_run=False)
+        assert res['created'] == 0
+        assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
     finally:
         _teardown(ctx)
 

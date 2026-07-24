@@ -1,6 +1,7 @@
 import { useGroupSchedule } from '../../hooks/useGroupSchedule';
 import { formatSlot } from '../../lib/slots';
 import { fmtDate } from '../../lib/format';
+import { BlockLoading } from '../../components/ui/Skeleton';
 
 interface Props {
   groupId: number;
@@ -17,7 +18,7 @@ export default function GroupScheduleBlock({ groupId }: Props) {
   const { data, isLoading } = useGroupSchedule(groupId);
 
   if (isLoading) {
-    return <div className="memberships__empty">Загружаем расписание…</div>;
+    return <BlockLoading rows={3} label="Загружаем расписание…" />;
   }
 
   const slots = data?.slots || [];

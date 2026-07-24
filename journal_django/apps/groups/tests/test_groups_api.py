@@ -357,8 +357,9 @@ def test_patch_nonexistent_returns_404(admin_client):
 
 
 @pytest.mark.django_db
-def test_patch_active_false(admin_client, existing_group):
-    resp = admin_client.patch(
+def test_patch_active_false(superadmin_client, existing_group):
+    """Архивация через PATCH active=false — доступна суперадмину."""
+    resp = superadmin_client.patch(
         f"{BASE_URL}/{existing_group['id']}",
         {'active': False},
         format='json',
@@ -368,7 +369,25 @@ def test_patch_active_false(admin_client, existing_group):
 
 
 @pytest.mark.django_db
-def test_patch_replaces_slots(admin_client):
+def test_patch_active_ignored_for_admin(admin_client, existing_group):
+    """Смена active НЕ-суперадмином игнорируется (архивировать/разархивировать
+    группу через PATCH может только суперадмин): 200, но active не меняется."""
+    resp = admin_client.patch(
+        f"{BASE_URL}/{existing_group['id']}",
+        {'active': False, 'name': '__test_patch_admin_noactive__'},
+        format='json',
+    )
+    assert resp.status_code == 200
+    assert resp.json()['active'] is True                       # active не тронут
+    assert resp.json()['name'] == '__test_patch_admin_noactive__'  # прочая правка прошла
+
+
+@pytest.mark.django_db
+def test_patch_ignores_slots(admin_client):
+    """PATCH группы НЕ трогает расписание: слоты меняются только через
+    schedule-change (версионный путь). Форма группы может прислать slots —
+    сервер их игнорирует, чтобы не стирать версионную историю (см. Blocker-фикс
+    мультислотового аудита)."""
     from apps.groups import repository
     data = {
         'name': '__test_patch_slots__',
@@ -391,8 +410,57 @@ def test_patch_replaces_slots(admin_client):
         )
         assert resp.status_code == 200
         fetched = repository.get_group(group['id'])
+        # Слоты не заменены присланными — остался исходный.
         days = sorted(s['day_of_week'] for s in fetched['slots'])
-        assert days == [5, 6]
+        assert days == [0]
+    finally:
+        _cleanup_group(group['id'])
+
+
+@pytest.mark.django_db
+def test_patch_preserves_versioned_slot_history(admin_client):
+    """Blocker-регрессия: правка обычного поля (имя) через форму НЕ уничтожает
+    версионную историю слотов. Раньше форма присылала активные слоты в PATCH,
+    update_group делал delete+recreate без effective_from → вся история и
+    будущие/закрытые слоты стирались. Теперь slots на PATCH игнорируются."""
+    from apps.groups import repository
+    data = {
+        'name': '__test_patch_versioned__',
+        'direction_id': _get_valid_direction_id(),
+        'teacher_id': _get_valid_teacher_id(),
+        'is_individual': False,
+        'lesson_duration_minutes': 90,
+        'lessons_per_week': 1,
+        'slots': [{'day_of_week': 1, 'start_time': '10:00'}],
+    }
+    group = repository.create_group(data)
+    try:
+        # Версионная смена расписания: старый слот закрывается, новый открывается.
+        repository.apply_schedule_change(
+            group['id'], '2026-03-01',
+            [{'day_of_week': 3, 'start_time': '19:00'}],
+        )
+        before = repository.get_schedule(group['id'])['slots']
+        assert len(before) == 2  # закрытый исторический + новый активный
+
+        # Правка имени через форму — фронт эхо-передаёт активные слоты.
+        resp = admin_client.patch(
+            f"{BASE_URL}/{group['id']}",
+            {
+                'name': '__test_patch_versioned_renamed__',
+                'slots': [{'day_of_week': 3, 'start_time': '19:00'}],
+            },
+            format='json',
+        )
+        assert resp.status_code == 200
+        assert resp.json()['name'] == '__test_patch_versioned_renamed__'
+
+        # История версий не тронута: обе строки на месте с прежними датами.
+        after = repository.get_schedule(group['id'])['slots']
+        assert len(after) == 2
+        closed = [s for s in after if s['effective_to'] is not None]
+        assert len(closed) == 1
+        assert closed[0]['effective_to'] == '2026-02-28'
     finally:
         _cleanup_group(group['id'])
 
@@ -402,7 +470,8 @@ def test_patch_replaces_slots(admin_client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_delete_returns_204(admin_client):
+def test_delete_returns_204(superadmin_client):
+    """Архивация группы (soft-delete) — доступна суперадмину."""
     from apps.groups import repository
     data = {
         'name': '__test_del_204__',
@@ -414,14 +483,14 @@ def test_delete_returns_204(admin_client):
     }
     group = repository.create_group(data)
     try:
-        resp = admin_client.delete(f"{BASE_URL}/{group['id']}")
+        resp = superadmin_client.delete(f"{BASE_URL}/{group['id']}")
         assert resp.status_code == 204
     finally:
         _cleanup_group(group['id'])
 
 
 @pytest.mark.django_db
-def test_delete_sets_active_false(admin_client):
+def test_delete_sets_active_false(superadmin_client):
     from apps.groups import repository
     data = {
         'name': '__test_del_active__',
@@ -433,7 +502,7 @@ def test_delete_sets_active_false(admin_client):
     }
     group = repository.create_group(data)
     try:
-        resp = admin_client.delete(f"{BASE_URL}/{group['id']}")
+        resp = superadmin_client.delete(f"{BASE_URL}/{group['id']}")
         assert resp.status_code == 204
         fetched = repository.get_group(group['id'])
         assert fetched['active'] is False
@@ -442,7 +511,29 @@ def test_delete_sets_active_false(admin_client):
 
 
 @pytest.mark.django_db
-def test_delete_nonexistent_returns_404(admin_client):
-    resp = admin_client.delete(f'{BASE_URL}/999999999')
+def test_delete_nonexistent_returns_404(superadmin_client):
+    resp = superadmin_client.delete(f'{BASE_URL}/999999999')
     assert resp.status_code == 404
     assert resp.json() == {'error': 'Not found'}
+
+
+@pytest.mark.django_db
+def test_delete_forbidden_for_admin_and_manager(admin_client, manager_client):
+    """Архивировать группу может только суперадмин: admin/manager → 403, группа цела."""
+    from apps.groups import repository
+    data = {
+        'name': '__test_del_forbidden__',
+        'direction_id': _get_valid_direction_id(),
+        'teacher_id': _get_valid_teacher_id(),
+        'is_individual': False,
+        'lesson_duration_minutes': 90,
+        'lessons_per_week': 1,
+    }
+    group = repository.create_group(data)
+    try:
+        for client in (admin_client, manager_client):
+            resp = client.delete(f"{BASE_URL}/{group['id']}")
+            assert resp.status_code == 403
+        assert repository.get_group(group['id'])['active'] is True  # не тронута
+    finally:
+        _cleanup_group(group['id'])

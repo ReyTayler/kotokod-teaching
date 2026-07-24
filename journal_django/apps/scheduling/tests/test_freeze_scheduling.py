@@ -16,16 +16,17 @@ def indiv_group():
     """Индивид-группа со слотом среда 10:00 и 4 плановыми строками (ср., еженедельно)."""
     ids = {}
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO directions (name, is_individual, active, total_lessons) "
-                    "VALUES ('__frz_dir__', true, true, 8) RETURNING id")
+        cur.execute("INSERT INTO directions (name, active, total_lessons) "
+                    "VALUES ('__frz_dir__', true, 8) RETURNING id")
         ids['dir'] = cur.fetchone()[0]
         cur.execute("INSERT INTO teachers (name, active, created_at) "
                     "VALUES ('__frz_t__', true, NOW()) RETURNING id")
         ids['teacher'] = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at) "
-            "VALUES ('__frz_g__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW()) RETURNING id",
+            "lesson_duration_minutes, lessons_per_week, group_start_date, active, created_at, "
+            "lesson_number_offset) "
+            "VALUES ('__frz_g__', %s, %s, true, 90, 1, DATE '2026-07-01', true, NOW(), 0) RETURNING id",
             [ids['dir'], ids['teacher']])
         ids['group'] = cur.fetchone()[0]
         cur.execute(

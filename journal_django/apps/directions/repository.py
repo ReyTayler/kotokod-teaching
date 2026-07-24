@@ -49,7 +49,6 @@ def create_direction(data: dict) -> dict:
     """
     obj = Direction.objects.create(
         name=data['name'],
-        is_individual=bool(data.get('is_individual', False)),
         total_lessons=data.get('total_lessons'),
         color=data.get('color') or None,           # NULLIF($5,'')
         subscription_price=data.get('subscription_price'),
@@ -63,7 +62,7 @@ def update_direction(direction_id: int, data: dict) -> Optional[dict]:
 
     Семантика по полям (повторяет COALESCE/NULLIF/CASE исходника):
     - name: COALESCE(%s, col), %s = value or None → set только если непусто.
-    - is_individual, active: COALESCE(%s, col) с sentinel "ключ присутствует" →
+    - active: COALESCE(%s, col) с sentinel "ключ присутствует" →
       set если ключ есть и значение не None (включая False).
     - total_lessons: COALESCE(%s, col) → set если ключ есть и значение не None.
     - color: COALESCE(NULLIF(%s,''), col) → set если ключ есть и значение непусто.
@@ -76,8 +75,6 @@ def update_direction(direction_id: int, data: dict) -> Optional[dict]:
 
     if data.get('name'):
         obj.name = data['name']
-    if data.get('is_individual') is not None and 'is_individual' in data:
-        obj.is_individual = data['is_individual']
     if data.get('active') is not None and 'active' in data:
         obj.active = data['active']
     if data.get('total_lessons') is not None and 'total_lessons' in data:

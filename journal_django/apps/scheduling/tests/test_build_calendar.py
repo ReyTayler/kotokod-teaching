@@ -6,6 +6,7 @@ docs/superpowers/specs/2026-07-13-admin-calendar-design.md).
 from __future__ import annotations
 
 import datetime
+import itertools
 
 import pytest
 from django.db import connection
@@ -73,3 +74,54 @@ def test_substitute_equal_group_teacher_no_override_badge(sched_setup):
     assert len(rows) == 1
     assert rows[0]['teacher'] == '__sched_A__'
     assert rows[0]['teacherOverride'] is None   # тот же препод — бейджа нет
+
+
+_seq_counter = itertools.count(1)
+
+
+def _insert_planned(group_id, teacher_id, date_str, time_str, status='pending', fact_lesson_id=None):
+    # Уникальный seq на вставку: partial-unique (group, seq) WHERE seq IS NOT NULL
+    # (planned_lessons_group_seq_key) запрещает две курсовые строки на одну позицию.
+    seq = next(_seq_counter)
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO planned_lessons "
+            "(group_id, seq, lesson_number, scheduled_date, scheduled_time, teacher_id, "
+            " status, fact_lesson_id, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()) RETURNING id",
+            [group_id, seq, seq, date_str, time_str, teacher_id, status, fact_lesson_id],
+        )
+        return cur.fetchone()[0]
+
+
+def test_unfilled_planned_lessons_filters_and_scope(sched_setup):
+    s = sched_setup
+    # overdue-кандидат (прошлое, pending, без факта) у преподавателя A
+    _insert_planned(s['group_a'], s['teacher_a'], '2026-06-02', '10:00')
+    # done — исключается хранимым статусом
+    _insert_planned(s['group_a'], s['teacher_a'], '2026-06-03', '10:00', status='done')
+    # cancelled — исключается
+    _insert_planned(s['group_a'], s['teacher_a'], '2026-06-04', '10:00', status='cancelled')
+    # у преподавателя B (своя группа) — не попадёт при фильтре по A
+    _insert_planned(s['group_b'], s['teacher_b'], '2026-06-05', '12:00')
+
+    today = datetime.date(2026, 7, 1)
+
+    all_rows = repository.unfilled_planned_lessons(today)
+    dates = {(r['group_pk'], r['scheduled_date'].isoformat()) for r in all_rows}
+    assert (s['group_a'], '2026-06-02') in dates       # pending попал
+    assert (s['group_b'], '2026-06-05') in dates       # оба преподавателя (school-wide)
+    assert all(r['scheduled_date'].isoformat() not in ('2026-06-03', '2026-06-04')
+               for r in all_rows if r['group_pk'] == s['group_a'])  # done/cancelled нет
+
+    a_rows = repository.unfilled_planned_lessons(today, teacher_id=s['teacher_a'])
+    a_groups = {r['group_pk'] for r in a_rows}
+    assert s['group_a'] in a_groups and s['group_b'] not in a_groups  # фильтр по преподавателю
+
+
+def test_unfilled_planned_lessons_excludes_future_and_filled(sched_setup):
+    s = sched_setup
+    _insert_planned(s['group_a'], s['teacher_a'], '2026-08-01', '10:00')
+    today = datetime.date(2026, 7, 1)
+    rows = repository.unfilled_planned_lessons(today)
+    assert all(r['scheduled_date'] <= today for r in rows)

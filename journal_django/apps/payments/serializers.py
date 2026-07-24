@@ -24,6 +24,8 @@ class PaymentCreateSerializer(serializers.Serializer):
     total_amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal('0'))
     paid_at = DateStringField()
     note = serializers.CharField(max_length=500, allow_null=True, required=False, default=None)
+    # kind='extra' — доплата сверх курса (мимо лимита). По умолчанию 'purchase'.
+    kind = serializers.ChoiceField(choices=['purchase', 'extra'], required=False, default='purchase')
 
     def validate_lessons_count(self, value):
         # Одна оплата: либо целые блоки (кратно 4), либо предоплата 1|2|3.

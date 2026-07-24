@@ -41,6 +41,9 @@ TRACKED: dict[str, TrackedModel] = {
     'lessons.Lesson':                 TrackedModel('lesson', True, 40),
     'lessons.LessonAttendance':       TrackedModel('attendance', True, 50,
                                                    identity=('lesson_id', 'student_id')),
+    # Пометка «неоплачиваемый пропуск» на слот. Трекинг добавлен, когда действие
+    # перестали писать в журнал ИБ (log_event) — иначе следа не осталось бы вовсе.
+    'lessons.LessonSkip':             TrackedModel('lesson_skip', True, 50),
     # Пер-ученик модель раздела доп.уроков (заменила групповые
     # ExtraLessonAssignment+ExtraLessonParticipant, удалённые на cutover Фазы 1a).
     # @pghistory.track на модели требует записи в реестре — иначе

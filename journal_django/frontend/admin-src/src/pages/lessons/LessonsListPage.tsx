@@ -14,6 +14,7 @@ import { fmtDate } from '../../lib/format';
 import { LESSON_TYPE_LABELS, LESSON_TYPE_OPTIONS } from '../../lib/labels';
 import type { Lesson } from '../../lib/types';
 import LessonFormModal from './LessonFormModal';
+import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function LessonsListPage() {
   const navigate = useNavigate();
@@ -90,16 +91,26 @@ export default function LessonsListPage() {
 
   const visibleColumns = useTableColumns('lessons', columns);
 
-  if (isLoading) return <TableSkeleton rows={8} cols={visibleColumns.length} />;
+  // Шапка рисуется и во время загрузки: раньше страница возвращала
+  // скелетон ДО неё, и заголовок пропадал при каждом переходе.
+  const header = (
+    <PageHeader
+      title="Уроки"
+      count={isLoading ? undefined : total}
+      actions={canWrite && <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
+    />
+  );
+
+  if (isLoading) return <>{header}<TableSkeleton rows={8} cols={visibleColumns.length} /></>;
 
   return (
     <>
+      {header}
       <DataTable<Lesson>
         data={rows}
         columns={visibleColumns}
         title="Уроки"
         onRowClick={(row) => navigate(`/admin/lessons/${row.id}`)}
-        headerActions={canWrite && <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
         isLoading={isFetching}
         serverPagination={{
           page,

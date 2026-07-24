@@ -79,6 +79,7 @@ export default function LessonDetailPage() {
       onDelete={canWrite ? handleDelete : undefined}
       deleteLabel="Удалить урок"
       backTo="/admin/lessons"
+        parentLabel="Уроки"
     >
       <div className="detail__section">
         <h3 className="detail__section-title">Посещаемость</h3>

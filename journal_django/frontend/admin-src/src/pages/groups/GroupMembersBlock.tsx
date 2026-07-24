@@ -2,12 +2,13 @@ import { useStudentsAll } from '../../hooks/useStudents';
 import { MembershipsBlock } from '../../components/memberships/MembershipsBlock';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { Group } from '../../lib/types';
+import { ageFromBirthDate, fmtAge } from '../../lib/format';
 
 export default function GroupMembersBlock({ group }: { group: Group }) {
   const { data: students = [] } = useStudentsAll();
-  const studentOptions = students
-    .filter((s) => s.enrollment_status !== 'not_enrolled')
-    .map((s) => ({ value: s.id, label: s.full_name }));
+  // Прежний фильтр прятал soft-deleted (not_enrolled) учеников; и статус, и сам
+  // soft-delete удалены, а те записи переведены в enrolled — фильтровать нечего.
+  const studentOptions = students.map((s) => ({ value: s.id, label: s.full_name }));
 
   return (
     <MembershipsBlock
@@ -27,7 +28,7 @@ export default function GroupMembersBlock({ group }: { group: Group }) {
           title: m.student_name || (s ? s.full_name : `#${m.student_id}`),
           meta: s ? (
             <>
-              {s.age && <span className="link-card-meta-pill">{s.age} лет</span>}
+              {ageFromBirthDate(s.birth_date) != null && <span className="link-card-meta-pill">{fmtAge(s.birth_date)}</span>}
               <StatusBadge row={s} />
             </>
           ) : null,

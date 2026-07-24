@@ -20,7 +20,9 @@ from apps.lessons import repository
 from apps.lessons.exceptions import (
     AttendanceCompensatedElsewhere, LessonHasMakeupResolutions, SystemLessonProtected,
 )
+from apps.core.utils.decimal import to_decimal
 from apps.lessons.models import Lesson
+from apps.memberships.repository import locked_through_map
 from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.scheduling.repository import link_facts
 
@@ -77,15 +79,65 @@ def record_lesson(*,
     из present-учеников остаток оплаченных уроков <= 0 — ДО открытия транзакции,
     ничего не пишется.
 
+    Переведённые ученики, у которых lesson_number <= B (locked_through_map,
+    накопленные уроки в исходной группе), молча исключаются из attendance ДО
+    любых расчётов — как будто их не было в группе на этом уроке: ни
+    LessonAttendance-строки, ни вклада в total_students/present_count/payroll,
+    ни инкремента lessons_done. В отличие от update_attendance_cell (точечная
+    правка одной клетки — там та же блокировка бросает AttendanceLockedByTransfer),
+    здесь это массовая запись урока, поэтому — тихое исключение, а не ошибка.
+
     Возвращает {'lesson_id': int, 'payment': int, 'penalty': int}.
     """
+    all_student_ids = [a['student_id'] for a in attendance]
+    locked_map = locked_through_map(group_id, all_student_ids)
+    if locked_map:
+        lesson_num_dec = to_decimal(lesson_number)
+        attendance = [
+            a for a in attendance
+            if lesson_num_dec > locked_map.get(a['student_id'], Decimal('0'))
+        ]
+
+    # Слот-маркеры «неоплачиваемый пропуск» (LessonSkip): пропуски, поставленные
+    # ЗАРАНЕЕ — в т.ч. когда урока этого слота ещё не было (Вариант A). При записи
+    # урока форсим помеченных учеников в present=false/unpaid_skip, что бы ни пришло
+    # с фронта. Так «начал не с 1-го / переведён» отрабатывает автоматически, когда
+    # группа доходит до этих уроков.
+    marked_skip = set(repository.list_lesson_skips(group_id, lesson_number))
+    if marked_skip:
+        for a in attendance:
+            if a['student_id'] in marked_skip:
+                a['present'] = False
+                a['unpaid_skip'] = True
+                a['is_free'] = False
+
+    # Исход «бесплатное занятие»: ученик присутствовал (present=true), прогресс и
+    # сделка продления идут (present=true), НО занятие бесплатно И для ученика
+    # (баланс/FIFO не списывают по флагу is_free, это делает finances), И для школы
+    # (преподавателю за него зарплата НЕ начисляется — из headcount исключён, см.
+    # ниже; решение 2026-07-24). Баланса для free не требуется. См. lesson-outcomes-spec.
+    free_ids = {a['student_id'] for a in attendance if a.get('is_free')}
+    # Исход «неоплачиваемый пропуск»: ученика на этом уроке как будто нет — из
+    # зарплаты исключён, pending-резолюцию НЕ порождает (в отличие от обычного
+    # «не был»). present=false, денег ноль. См. lesson-outcomes-spec.
+    skip_ids = {a['student_id'] for a in attendance if a.get('unpaid_skip')}
+
     present_student_ids = [a['student_id'] for a in attendance if a['present']]
-    repository.assert_students_paid(present_student_ids)
+    # Оплату проверяем только у ПЛАТНЫХ present-учеников (free не обязан иметь баланс).
+    repository.assert_students_paid([s for s in present_student_ids if s not in free_ids])
 
     is_half = lesson_duration_minutes == 45
     step = _step(lesson_duration_minutes)
-    total_students = len(attendance)
-    present_count = len(present_student_ids)
+    # Зарплата: из headcount исключаются неоплачиваемые пропуски (unpaid_skip) И
+    # бесплатные занятия (is_free). За бесплатное занятие преподаватель выплаты не
+    # получает — оно бесплатно и для ученика (баланс), и для школы (зарплата).
+    # Если free — единственный присутствующий, headcount = 0 → payment=0.
+    payroll_attendance = [
+        a for a in attendance
+        if a['student_id'] not in skip_ids and a['student_id'] not in free_ids
+    ]
+    total_students = len(payroll_attendance)
+    present_count = len([a for a in payroll_attendance if a['present']])
 
     payment = calculate_payment(total_students, present_count, is_half)
     penalty = calculate_penalty(lesson_date, submit_date, present_count)
@@ -126,7 +178,12 @@ def record_lesson(*,
         # Ленивый импорт: apps.extra_lessons.repository импортит apps.lessons.models,
         # прямой top-level импорт здесь завёл бы цикл.
         if lesson_type == 'regular':
-            absent_student_ids = [a['student_id'] for a in attendance if not a['present']]
+            # Неоплачиваемый пропуск — терминальный исход, pending НЕ порождает
+            # (в отличие от обычного «не был»).
+            absent_student_ids = [
+                a['student_id'] for a in attendance
+                if not a['present'] and a['student_id'] not in skip_ids
+            ]
             if absent_student_ids:
                 from apps.extra_lessons import services as extra_lessons_services
                 extra_lessons_services.autocreate_pending_for_lesson(lesson_id, absent_student_ids)
@@ -215,10 +272,34 @@ def _assert_not_compensated(lesson_id: int, student_id: int) -> None:
         raise AttendanceCompensatedElsewhere()
 
 
-def update_attendance_cell(lesson_id: int, student_id: int, present: bool) -> bool:
+def update_attendance_cell(
+    lesson_id: int, student_id: int, present: bool, is_free: bool = False,
+) -> bool:
+    """Точечная правка исхода ученика на проведённом уроке. present — был/не был;
+    is_free — «бесплатное занятие» (present=true, денег ноль). is_free при
+    present=false игнорируется. Пересчитывает Payroll (см. repository)."""
     _assert_not_system_lesson(lesson_id)
     # Флип В present компенсированного пропуска = двойной учёт (см. гард).
-    # Снятие present (absent) — безопасно, не гейтим.
+    # Снятие present (absent) — безопасно, не гейтим. free — тоже present=true,
+    # поэтому под тем же запретом.
     if present:
         _assert_not_compensated(lesson_id, student_id)
-    return repository.update_attendance_cell(lesson_id, student_id, present)
+    return repository.update_attendance_cell(lesson_id, student_id, present, is_free)
+
+
+def set_unpaid_skip(lesson_id: int, student_id: int, value: bool) -> bool:
+    """Ставит/снимает исход «неоплачиваемый пропуск» на уроке (в т.ч. проведённом,
+    в т.ч. вновь добавленному ученику). См. repository.set_unpaid_skip."""
+    _assert_not_system_lesson(lesson_id)
+    return repository.set_unpaid_skip(lesson_id, student_id, value)
+
+
+def set_lesson_skip(group_id: int, student_id: int, lesson_number, value: bool) -> None:
+    """Ставит/снимает пометку «неоплачиваемый пропуск» на СЛОТ группы (работает и на
+    ещё не проведённом уроке). См. repository.set_lesson_skip (Вариант A)."""
+    repository.set_lesson_skip(group_id, student_id, lesson_number, value)
+
+
+def list_lesson_skips(group_id: int, lesson_number) -> list[int]:
+    """student_id, помеченных «неоплачиваемый пропуск» на слот. См. repository."""
+    return repository.list_lesson_skips(group_id, lesson_number)

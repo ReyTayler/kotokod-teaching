@@ -29,9 +29,14 @@ class Payment(models.Model):
     Источник правды о количестве — lessons_count; subscriptions_count —
     презентационный; total_amount авторитетен, unit_price информационный.
 
-    Инварианты БД (CHECK): kind ∈ {purchase, refund}; unit_price ≥ 0;
-    purchase → lessons_count > 0 и total_amount ≥ 0; refund → lessons_count < 0
+    Инварианты БД (CHECK): kind ∈ {purchase, refund, extra}; unit_price ≥ 0;
+    purchase/extra → lessons_count > 0 и total_amount ≥ 0; refund → lessons_count < 0
     и total_amount ≤ 0.
+
+    kind='extra' — доплата за доп.урок СВЕРХ курса (2026-07-23): деньги в реальном
+    направлении, но МИМО лимита курса (`already + lessons_count > total_lessons` в
+    create_payment этот вид не проверяет и в cap не считает — cap суммирует только
+    kind='purchase'). Знаки — как у purchase (положительные). См. lesson-outcomes-spec.
     """
 
     id = models.AutoField(primary_key=True)
@@ -73,13 +78,15 @@ class Payment(models.Model):
         constraints = [
             models.CheckConstraint(
                 name='payments_kind_check',
-                condition=models.Q(kind__in=['purchase', 'refund']),
+                condition=models.Q(kind__in=['purchase', 'refund', 'extra']),
             ),
             models.CheckConstraint(
                 name='payments_unit_price_check',
                 condition=models.Q(unit_price__gte=0),
             ),
-            # purchase: положительные количества и сумма; refund: отрицательные.
+            # purchase/extra: положительные количества и сумма; refund: отрицательные.
+            # extra (доплата сверх курса) списывается/учитывается как обычная покупка,
+            # только мимо лимита — поэтому те же знаковые правила, что у purchase.
             # lessons_count__isnull=False обязателен ЯВНО: `lessons_count > 0` на
             # NULL даёт NULL, а CHECK пропускает всё, кроме FALSE → без isnull-ветки
             # purchase с lessons_count=NULL молча прошёл бы и выпал из purchased
@@ -87,7 +94,7 @@ class Payment(models.Model):
             models.CheckConstraint(
                 name='payments_purchase_signs',
                 condition=(
-                    ~models.Q(kind='purchase')
+                    ~models.Q(kind__in=['purchase', 'extra'])
                     | (models.Q(lessons_count__isnull=False)
                        & models.Q(lessons_count__gt=0) & models.Q(total_amount__gte=0))
                 ),

@@ -4,7 +4,7 @@
   inset: 0;
   background: rgba(15, 23, 42, 0.4);
   display: flex; align-items: center; justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   padding: var(--space-4);
   backdrop-filter: blur(4px);
   animation: overlayIn .15s ease;
@@ -14,8 +14,8 @@
   width: 100%;
   max-width: 560px;
   background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-xl);
   box-shadow: var(--shadow-modal);
   display: flex;
   flex-direction: column;
@@ -92,7 +92,7 @@
 .modal-section-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text4); padding: 4px 0 2px; margin-top: 4px; border-top: 1px solid var(--border2); }
 .modal-section-label:first-child { border-top: none; margin-top: 0; }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .field label { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text3); }
 .field input, .field select, .field textarea { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 13px; font-size: 15px; color: var(--text); outline: none; transition: border-color .15s, box-shadow .15s; font-family: inherit; width: 100%; }
 .field input::placeholder, .field textarea::placeholder { color: var(--text4); }
@@ -106,12 +106,14 @@
 .field-req { color: var(--red); }
 
 /* checkbox toggle */
-.toggle-row { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 13px; }
+/* Тумблер на токенах. Раньше цвета были зашиты светлыми (#f8fafc/#e2e8f0/#cbd5e1),
+   из-за чего тёмную тему приходилось дожимать двумя !important в tokens.css. */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 13px; }
 .toggle-label { font-size: 15px; color: var(--text2); }
 .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-slider { position: absolute; inset: 0; border-radius: 20px; background: #cbd5e1; cursor: pointer; transition: background .2s; }
-.toggle-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: #ffffff; transition: transform .2s, background .2s; }
+.toggle-slider { position: absolute; inset: 0; border-radius: 20px; background: var(--bg4); border: 1px solid var(--border); cursor: pointer; transition: background .2s; }
+.toggle-slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: var(--bg2); box-shadow: var(--shadow-xs); transition: transform .2s, background .2s; }
 .toggle-switch input:checked+.toggle-slider { background: color-mix(in oklab, var(--accent) 25%, transparent); }
 .toggle-switch input:checked+.toggle-slider::before { transform: translateX(16px); background: var(--accent); }
 /* modal-footer defined in ── MODAL ── block above */
@@ -203,7 +205,7 @@
   flex-shrink: 0;
 }
 .block-cell__icons {
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   letter-spacing: 2px;
   color: var(--text3);
   user-select: none;
@@ -232,18 +234,22 @@
 /* ── PAYMENT FORM ── */
 .payment-form { display: flex; flex-direction: column; gap: 16px; }
 .payment-form__hint { font-size: 13px; color: var(--text3); }
+/* Предупреждение в форме оплаты. Раньше здесь стоял var(--yellow, …) — токена
+   --yellow в системе нет, поэтому всегда применялся фолбэк, то есть в тёмной
+   теме цвет не переключался и тёмно-янтарный текст оставался на тёмном фоне.
+   Берём существующий --warning: он темой управляется. */
 .payment-form__warn {
   font-size: 13px;
-  color: var(--yellow, #b45309);
-  background: color-mix(in srgb, var(--yellow, #b45309) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--yellow, #b45309) 25%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
   border-radius: 8px;
   padding: 10px 14px;
 }
 .payment-form__price-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .payment-form__price { font-size: 15px; font-weight: 700; color: var(--text); }
 .payment-form__total { font-size: 15px; color: var(--text2); padding: 4px 0; }
-.payment-form__total strong { font-size: 17px; font-weight: 700; color: var(--text); }
+.payment-form__total strong { font-size: var(--fs-2xl); font-weight: 700; color: var(--text); }
 .payment-form__footer {
   display: flex;
   justify-content: flex-end;

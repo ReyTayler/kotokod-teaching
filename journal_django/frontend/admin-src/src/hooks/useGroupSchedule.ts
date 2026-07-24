@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { groupPlanKey } from './useGroupPlanCalendar';
 import type { GroupScheduleData } from '../lib/types';
 
 const KEY = (groupId: number) => ['group-schedule', groupId] as const;
@@ -26,6 +27,9 @@ export function useScheduleChange(groupId: number) {
       qc.invalidateQueries({ queryKey: KEY(groupId) });
       // Слоты группы видны и в списке групп (GroupsListPage/GroupFormModal) — сбрасываем тоже.
       qc.invalidateQueries({ queryKey: ['groups'] });
+      // apply_schedule_change автогенерирует план (planned_lessons) — обновляем
+      // план и календарь группы (тот же ключ).
+      qc.invalidateQueries({ queryKey: groupPlanKey(groupId) });
     },
   });
 }

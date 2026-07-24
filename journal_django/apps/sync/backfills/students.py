@@ -17,24 +17,27 @@ MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май'
           'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь']
 
 
-def map_enrollment_from_sheets(raw, has_membership: bool) -> dict:
+def map_enrollment_from_sheets(raw) -> dict:
     """Статус зачисления из ячейки листа → {enrollment_status, frozen_from, frozen_until}.
 
     В листе хранится только месяц окончания заморозки (год/дату начала лист не
     держит). Конвертируем тем же инференсом, что и миграция 0010: frozen_until —
     1-е число ближайшего наступления месяца, frozen_from — best-effort = сегодня
     по МСК, склампленный до frozen_until (инвариант frozen_from <= frozen_until).
+
+    Статус `not_enrolled` удалён из домена (миграция 0015), поэтому и «нет», и
+    отсутствие членства теперь дают `enrolled` — тем же решением, что перевело
+    существующие not_enrolled в enrolled. Явный отказ («отказ») по-прежнему
+    отличим и идёт в `declined`. Прежний параметр has_membership отсюда убран:
+    он влиял только на выбор not_enrolled-фоллбэка, которого больше нет.
     """
     s = str(raw or '').strip().lower()
-    fallback_status = 'enrolled' if has_membership else 'not_enrolled'
-    fallback = {'enrollment_status': fallback_status, 'frozen_from': None, 'frozen_until': None}
+    fallback = {'enrollment_status': 'enrolled', 'frozen_from': None, 'frozen_until': None}
 
     if not s:
         return fallback
-    if s == 'да':
+    if s in ('да', 'нет'):
         return {'enrollment_status': 'enrolled', 'frozen_from': None, 'frozen_until': None}
-    if s == 'нет':
-        return {'enrollment_status': 'not_enrolled', 'frozen_from': None, 'frozen_until': None}
     if 'отказ' in s:
         return {'enrollment_status': 'declined', 'frozen_from': None, 'frozen_until': None}
 
@@ -67,15 +70,13 @@ def extract_students_and_memberships(rows: list[list]) -> dict:
         has_membership = teacher_ok and group_ok
 
         if name not in students_map:
-            enroll = map_enrollment_from_sheets(cell(row, 19) or None, has_membership)
+            enroll = map_enrollment_from_sheets(cell(row, 19) or None)
             students_map[name] = {
                 'full_name': name,
-                'age': parse_int(cell(row, 2)),
                 'birth_date': parse_start_date(cell(row, 7)),
                 'parent1_phone': cell(row, 6) or None,
                 'platform_id': cell(row, 4) or None,
                 'parent1_name': cell(row, 5) or None,
-                'first_purchase_date': parse_start_date(cell(row, 8)),
                 'enrollment_status': enroll['enrollment_status'],
                 'frozen_from': enroll['frozen_from'],
                 'frozen_until': enroll['frozen_until'],
@@ -117,38 +118,34 @@ def run(dry_run: bool = False) -> dict:
             cur.execute(
                 """
                 INSERT INTO students
-                    (full_name, age, birth_date, parent1_phone, platform_id,
-                     parent1_name, first_purchase_date, enrollment_status,
+                    (full_name, birth_date, parent1_phone, platform_id,
+                     parent1_name, enrollment_status,
                      frozen_from, frozen_until)
-                VALUES (%(full_name)s, %(age)s, %(birth_date)s, %(phone)s,
-                        %(platform)s, %(parent)s, %(first_purchase)s, %(status)s,
+                VALUES (%(full_name)s, %(birth_date)s, %(phone)s,
+                        %(platform)s, %(parent)s, %(status)s,
                         %(frozen_from)s, %(frozen_until)s)
                 ON CONFLICT (full_name) DO UPDATE SET
-                    age                 = EXCLUDED.age,
                     birth_date          = EXCLUDED.birth_date,
                     parent1_phone       = EXCLUDED.parent1_phone,
                     platform_id         = EXCLUDED.platform_id,
                     parent1_name        = EXCLUDED.parent1_name,
-                    first_purchase_date = EXCLUDED.first_purchase_date,
                     enrollment_status   = EXCLUDED.enrollment_status,
                     frozen_from         = EXCLUDED.frozen_from,
                     frozen_until        = EXCLUDED.frozen_until
-                WHERE students.age IS DISTINCT FROM EXCLUDED.age
-                   OR students.birth_date          IS DISTINCT FROM EXCLUDED.birth_date
+                WHERE students.birth_date          IS DISTINCT FROM EXCLUDED.birth_date
                    OR students.parent1_phone       IS DISTINCT FROM EXCLUDED.parent1_phone
                    OR students.platform_id         IS DISTINCT FROM EXCLUDED.platform_id
                    OR students.parent1_name        IS DISTINCT FROM EXCLUDED.parent1_name
-                   OR students.first_purchase_date IS DISTINCT FROM EXCLUDED.first_purchase_date
                    OR students.enrollment_status   IS DISTINCT FROM EXCLUDED.enrollment_status
                    OR students.frozen_from         IS DISTINCT FROM EXCLUDED.frozen_from
                    OR students.frozen_until        IS DISTINCT FROM EXCLUDED.frozen_until
                 RETURNING (xmax = 0) AS inserted
                 """,
                 {
-                    'full_name': s['full_name'], 'age': s['age'],
+                    'full_name': s['full_name'],
                     'birth_date': s['birth_date'], 'phone': s['parent1_phone'],
                     'platform': s['platform_id'], 'parent': s['parent1_name'],
-                    'first_purchase': s['first_purchase_date'], 'status': s['enrollment_status'],
+                    'status': s['enrollment_status'],
                     'frozen_from': s['frozen_from'], 'frozen_until': s['frozen_until'],
                 },
             )

@@ -6,6 +6,7 @@ import { useGroupProgress } from '../../hooks/useGroupProgress';
 import { GroupProgressView } from '@shared/shared/progress/GroupProgressView';
 import { subjectColor, resolveDirectionColor } from '../../lib/subjects';
 import type { TStudent } from '../../lib/types';
+import { ageLabel } from '../../lib/dates';
 
 /** Остаток оплаченных уроков: ≤0 — долг (красный), 1–2 — скоро закончатся (жёлтый). */
 function remainingTone(remaining: number): 'danger' | 'warn' | 'ok' {
@@ -21,7 +22,7 @@ function StudentRow({ student }: { student: TStudent }) {
     <div className="grp-student">
       <div className="grp-student-main">
         <span className="grp-student-name">{student.name}</span>
-        <span className="grp-student-age">{student.age ? `${student.age}` : 'возраст не указан'}</span>
+<span className="grp-student-age">{ageLabel(student.birthDate) || 'возраст не указан'}</span>
       </div>
       <span className={`grp-student-balance is-${tone}`}>
         {remaining <= 0

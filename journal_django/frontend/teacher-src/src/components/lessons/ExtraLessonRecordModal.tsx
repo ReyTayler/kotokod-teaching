@@ -41,7 +41,7 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
   }
 
   const handleSubmit = () => {
-    if (record.isPending) return;
+    if (record.isPending || !present) return;
     setSubmitError(null);
     record.mutate(
       { id: assignmentId, body: { record_url: recordUrl.trim() || undefined, present } },
@@ -125,6 +125,14 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
         </div>
       </div>
 
+      {/* Неявку на доп.урок фиксируют «Отменой» назначения, не записью (бэк — 400). */}
+      {!present && (
+        <div className="lf-warn">
+          Записать доп.урок можно только с присутствием ученика. Если ученик не пришёл —
+          отмените назначенный доп.урок.
+        </div>
+      )}
+
       {submitError && <div className="lf-error">{submitError}</div>}
 
       <div className="lf-actions">
@@ -132,7 +140,7 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
         <button
           type="button"
           className="btn-save"
-          disabled={record.isPending}
+          disabled={record.isPending || !present}
           onClick={handleSubmit}
         >
           {record.isPending ? 'Сохранение…' : 'Сохранить доп.урок'}

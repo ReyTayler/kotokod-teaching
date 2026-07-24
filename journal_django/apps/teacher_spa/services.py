@@ -15,8 +15,16 @@ from typing import Optional
 from apps.accounts.repository import get_by_id_with_teacher
 from apps.lessons.exceptions import UnpaidAttendanceBlocked
 from apps.lessons.services import record_lesson
+from apps.scheduling import repository as scheduling_repository
 from apps.teacher_spa import repository
 from apps.teacher_spa.calculator import format_msk_date
+
+# Отказ при незакрытых предыдущих занятиях группы. Закрыть дыру задним числом
+# может админ/менеджер через admin SPA — там гарда нет намеренно (escape hatch).
+UNFILLED_LESSONS_BLOCKED = (
+    'Есть не отмеченные занятия. Обратитесь к менеджеру или '
+    'администратору за правкой расписания.'
+)
 
 
 def get_current_teacher(account_id: int) -> Optional[str]:
@@ -158,6 +166,14 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
         return {'_error': 'Занятие этой группы вам не назначено', '_status': 403}
     original_teacher_id = ids['group_owner_id'] if is_substitution else None
 
+    # Блокер порядка заполнения: пока у группы есть незакрытое занятие с плановой
+    # датой РАНЬШЕ отмечаемой, писать урок нельзя. Иначе факт (дата = сегодня)
+    # съедает плановую строку того раннего дня — link_facts матчит по номеру, а
+    # номер берётся из прогресса учеников — план и факт разъезжаются МЕЖДУ ДНЯМИ.
+    # По датам, не по часам: два занятия одного дня друг друга не блокируют.
+    if scheduling_repository.has_unfilled_before(ids['group_id'], date):
+        return {'success': False, 'error': UNFILLED_LESSONS_BLOCKED}
+
     # 4. lesson_number — done = max(lessonsDone) по студентам группы, или 0 если пусто.
     is_half = ids['lesson_duration_minutes'] == 45
     step = 0.5 if is_half else 1
@@ -183,7 +199,23 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
                 stacklevel=2,
             )
             continue
-        attendance.append({'student_id': meta['student_id'], 'present': bool(s['present'])})
+        attendance.append({
+            'student_id': meta['student_id'],
+            'present': bool(s['present']),
+            'is_free': bool(s.get('is_free', False)),
+        })
+
+    # 5b. Блокер «пустого» урока: нельзя записать урок, на котором не отмечен ни
+    #     один присутствующий ученик (все «Не пришёл» / пустой список). Урок без
+    #     присутствия смысла не несёт (0 посещаемости, 0 потребления, 0 выплаты)
+    #     и чаще всего означает ошибочное сохранение. Фронт тоже гейтит кнопку
+    #     (LessonForm), это — авторитетная проверка на бэке.
+    if not any(a['present'] for a in attendance):
+        return {
+            'success': False,
+            'error': 'Нельзя сохранить урок без присутствующих учеников — '
+                     'отметьте хотя бы одного пришедшего.',
+        }
 
     # 6. subLabel — тип урока. Выводится СЕРВЕРОМ из плана (клиентский lessonType
     #    не принимается): замена — чужая группа (шаг 3); перенос — плановая строка

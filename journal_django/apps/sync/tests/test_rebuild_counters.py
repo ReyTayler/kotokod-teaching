@@ -16,14 +16,15 @@ def test_run_fixes_drifted_counter():
         created_direction = False
         if direction_row is None:
             cur.execute(
-                "INSERT INTO directions (name, is_individual) VALUES ('__test_sync_direction_rc__', false) RETURNING id"
+                "INSERT INTO directions (name) VALUES ('__test_sync_direction_rc__') RETURNING id"
             )
             direction_row = cur.fetchone()
             created_direction = True
         direction_id = direction_row[0]
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, lessons_per_week) "
-            "VALUES ('__test_sync_group_rc__', %s, %s, false, 90, 1) RETURNING id",
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, "
+            "lessons_per_week, lesson_number_offset) "
+            "VALUES ('__test_sync_group_rc__', %s, %s, false, 90, 1, 0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]
@@ -75,14 +76,15 @@ def test_run_dry_run_reports_drift_without_writing():
         created_direction = False
         if direction_row is None:
             cur.execute(
-                "INSERT INTO directions (name, is_individual) VALUES ('__test_sync_direction_rcd__', false) RETURNING id"
+                "INSERT INTO directions (name) VALUES ('__test_sync_direction_rcd__') RETURNING id"
             )
             direction_row = cur.fetchone()
             created_direction = True
         direction_id = direction_row[0]
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, lessons_per_week) "
-            "VALUES ('__test_sync_group_rcd__', %s, %s, false, 45, 1) RETURNING id",
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, lesson_duration_minutes, "
+            "lessons_per_week, lesson_number_offset) "
+            "VALUES ('__test_sync_group_rcd__', %s, %s, false, 45, 1, 0) RETURNING id",
             [direction_id, teacher_id],
         )
         group_id = cur.fetchone()[0]

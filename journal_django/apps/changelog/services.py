@@ -5,7 +5,6 @@ from typing import Optional
 
 from rest_framework.request import Request
 
-from apps.audit.services import log_event
 from apps.changelog import repository
 from apps.changelog import revert as revert_module
 
@@ -21,14 +20,9 @@ def get_operation(context_id) -> dict | None:
 
 
 def revert_operation(context_id, request: Optional[Request] = None) -> dict:
-    """Откатить операцию + записать событие безопасности changelog_revert."""
-    summary = revert_module.revert_context(context_id)
-    user = getattr(request, 'user', None) if request is not None else None
-    log_event(
-        'changelog_revert',
-        account_id=getattr(user, 'id', None),
-        actor_email=getattr(user, 'email', None),
-        meta={'context_id': str(context_id), **summary},
-        request=request,
-    )
-    return summary
+    """Откатить операцию.
+
+    В журнал ИБ не пишем: сам откат — доменное действие и он фиксируется в
+    «Журнале изменений» собственной операцией 'changelog.revert'
+    (metadata.operation, см. repository._operation_of)."""
+    return revert_module.revert_context(context_id)

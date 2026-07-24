@@ -19,8 +19,9 @@ def _make_group_with_membership(direction_id: int, teacher_id: int, student_id: 
                                 name: str = '__lp_test_group__') -> int:
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at) "
-            "VALUES (%s, %s, %s, false, true, now()) RETURNING id",
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "
+            "lesson_number_offset) "
+            "VALUES (%s, %s, %s, false, true, now(), 0) RETURNING id",
             [name, direction_id, teacher_id])
         group_id = cur.fetchone()[0]
         cur.execute(

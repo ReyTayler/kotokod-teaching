@@ -177,6 +177,38 @@ def test_post_creates_lesson(group_fixture, teacher_id_fixture, student_fixture,
         _delete_lesson(lesson_id)
 
 
+def test_post_free_outcome_pays_neither_teacher_nor_student(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """POST с is_free=true (бесплатное занятие, один ученик) → урок создаётся, но
+    занятие бесплатно и для школы: free выпадает из headcount, других платных present
+    нет → payroll total=0/present=0/payment=0 (преподавателю не платят). Строка
+    lesson_attendance.is_free=true (баланс УЧЕНИКА не спишется — это проверяет
+    finances). Сквозная проверка сериализатор→сервис→БД."""
+    payload = {
+        'lesson_date': '2026-03-22',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True, 'is_free': True}],
+    }
+    resp = _client('admin').post(BASE_URL, payload, format='json')
+    assert resp.status_code == 201
+    lesson_id = resp.json()['id']
+    try:
+        with connection.cursor() as cur:
+            cur.execute('SELECT total_students, present_count, payment FROM payroll '
+                        'WHERE lesson_id = %s', [lesson_id])
+            total, present, payment = cur.fetchone()
+            assert total == 0 and present == 0 and float(payment) == 0.0
+            cur.execute('SELECT present, is_free FROM lesson_attendance '
+                        'WHERE lesson_id = %s AND student_id = %s', [lesson_id, student_fixture])
+            assert cur.fetchone() == (True, True)
+    finally:
+        _delete_lesson(lesson_id)
+
+
 def test_post_invalid_body_400(group_fixture, teacher_id_fixture):
     payload = {
         'lesson_date': 'not-a-date',
@@ -316,6 +348,43 @@ def test_attendance_toggle_blocked_when_no_paid_balance(
             cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
 
 
+def test_attendance_cell_locked_by_transfer_409(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture,
+):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+            "lesson_duration_minutes, active, lesson_number_offset) VALUES ('__les_api_locked_src__', %s, %s, false, 60, true, 0) "
+            "RETURNING id",
+            [direction_fixture, teacher_id_fixture],
+        )
+        src_group_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+            "VALUES (%s, %s, 5, false) RETURNING id",
+            [src_group_id, student_fixture],
+        )
+        src_membership_id = cur.fetchone()[0]
+        cur.execute(
+            'UPDATE group_memberships SET transferred_from_id = %s '
+            'WHERE group_id = %s AND student_id = %s',
+            [src_membership_id, group_fixture, student_fixture],
+        )
+    lesson_id = _create_lesson(group_fixture, teacher_id_fixture)
+    try:
+        resp = _client('admin').patch(
+            f'{BASE_URL}/{lesson_id}/attendance/{student_fixture}', {'present': True}, format='json',
+        )
+        assert resp.status_code == 409
+    finally:
+        _delete_lesson(lesson_id)
+        with connection.cursor() as cur:
+            cur.execute('UPDATE group_memberships SET transferred_from_id = NULL '
+                        'WHERE group_id = %s AND student_id = %s', [group_fixture, student_fixture])
+            cur.execute('DELETE FROM group_memberships WHERE id = %s', [src_membership_id])
+            cur.execute('DELETE FROM groups WHERE id = %s', [src_group_id])
+
+
 # ---------------------------------------------------------------------------
 # N+1
 # ---------------------------------------------------------------------------
@@ -423,13 +492,13 @@ def _make_extra_lesson() -> tuple[int, int, int, int]:
         cur.execute("INSERT INTO teachers (name) VALUES ('__les_extra_t__') RETURNING id")
         tid = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO directions (name, is_individual, active) "
-            "VALUES ('__les_extra_d__', false, true) RETURNING id")
+            "INSERT INTO directions (name, active) "
+            "VALUES ('__les_extra_d__', true) RETURNING id")
         did = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, active) "
-            "VALUES ('__les_extra_g__', %s, %s, false, 60, true) RETURNING id", [did, tid])
+            "lesson_duration_minutes, active, lesson_number_offset) "
+            "VALUES ('__les_extra_g__', %s, %s, false, 60, true, 0) RETURNING id", [did, tid])
         gid = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
@@ -504,3 +573,38 @@ def test_attendance_toggle_on_extra_lesson_blocked_409():
             cur.execute('DELETE FROM lesson_attendance WHERE student_id = %s', [sid])
             cur.execute('DELETE FROM students WHERE id = %s', [sid])
         _cleanup_extra(lid, gid, tid, did)
+
+
+# ---------------------------------------------------------------------------
+# escape hatch: admin-путь НЕ блокируется незакрытыми занятиями группы
+# ---------------------------------------------------------------------------
+
+def test_post_not_blocked_by_unfilled_plan(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """Admin SPA — escape hatch: ручное создание урока НЕ блокируется незакрытыми
+    занятиями группы, иначе разблокировать группу будет некому. Гард живёт в
+    teacher_spa.submit_lesson, а не в ядре record_lesson — этот тест страхует от
+    переноса гарда в ядро."""
+    with connection.cursor() as cur:
+        cur.execute(
+            'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+            'scheduled_time, teacher_id, status, created_at, updated_at) '
+            "VALUES (%s, 1, 1, '2026-03-14', '10:00', %s, 'pending', NOW(), NOW())",
+            [group_fixture, teacher_id_fixture],
+        )
+    payload = {
+        'lesson_date': '2026-03-21',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id_fixture,
+        'lesson_number': 1,
+        'lesson_duration_minutes': 60,
+        'attendance': [{'student_id': student_fixture, 'present': True}],
+    }
+    try:
+        resp = _client('admin').post(BASE_URL, payload, format='json')
+        assert resp.status_code == 201
+        _delete_lesson(resp.json()['id'])
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])

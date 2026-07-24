@@ -69,6 +69,9 @@ def create_payment(data: dict) -> dict:
     paid_at = data['paid_at']
     note = data.get('note')
     created_by = data.get('created_by')
+    # kind='extra' — доплата за доп.урок СВЕРХ курса: деньги в реальном направлении,
+    # но МИМО лимита (cap не проверяем и в него не входим). Остальное — как purchase.
+    kind = data.get('kind') or 'purchase'
 
     with transaction.atomic():
         dir_row = (
@@ -82,18 +85,20 @@ def create_payment(data: dict) -> dict:
         if not dir_row['total_lessons'] or dir_row['total_lessons'] <= 0:
             return {'error': 'no_capacity'}
 
-        # cap в уроках: считаем только покупки этого направления
-        already = (
-            Payment.objects
-            .filter(student_id=student_id, direction_id=direction_id, kind='purchase')
-            .aggregate(s=Coalesce(Sum('lessons_count'), Value(Decimal('0'))))['s']
-        )
-        if already + lessons_count > dir_row['total_lessons']:
-            return {
-                'error': 'cap_exceeded',
-                'already': _js_number(already),
-                'cap_subscriptions': int(dir_row['total_lessons'] // 4),
-            }
+        # cap в уроках: считаем только покупки (kind='purchase') этого направления.
+        # Доплата сверх курса (kind='extra') лимитом не ограничена и в него не входит.
+        if kind != 'extra':
+            already = (
+                Payment.objects
+                .filter(student_id=student_id, direction_id=direction_id, kind='purchase')
+                .aggregate(s=Coalesce(Sum('lessons_count'), Value(Decimal('0'))))['s']
+            )
+            if already + lessons_count > dir_row['total_lessons']:
+                return {
+                    'error': 'cap_exceeded',
+                    'already': _js_number(already),
+                    'cap_subscriptions': int(dir_row['total_lessons'] // 4),
+                }
 
         total = round_kopecks(total_amount)
         unit_price = round_kopecks(total / Decimal(lessons_count))
@@ -104,7 +109,7 @@ def create_payment(data: dict) -> dict:
             direction_id=direction_id,
             subscriptions_count=subs,
             lessons_count=lessons_count,
-            kind='purchase',
+            kind=kind,
             unit_price=unit_price,
             total_amount=total,
             paid_at=paid_at,

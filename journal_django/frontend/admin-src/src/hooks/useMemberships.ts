@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { GroupMembership } from '../lib/types';
 
-interface Filter { group_id?: number; student_id?: number; }
+interface Filter { group_id?: number; student_id?: number; include_inactive?: boolean; }
 
 function qs(f: Filter): string {
   const p: string[] = [];
   if (f.group_id) p.push(`group_id=${f.group_id}`);
   if (f.student_id) p.push(`student_id=${f.student_id}`);
+  if (f.include_inactive) p.push('include_inactive=1');
   return p.length ? '?' + p.join('&') : '';
 }
 
@@ -37,11 +38,6 @@ export function useMembershipMutations() {
     remove: useMutation({
       mutationFn: (id: number) =>
         api<void>('DELETE', `/api/admin/memberships/${id}`),
-      onSuccess: invalidate,
-    }),
-    transfer: useMutation({
-      mutationFn: ({ id, to_group_id }: { id: number; to_group_id: number }) =>
-        api<GroupMembership>('POST', `/api/admin/memberships/${id}/transfer`, { to_group_id }),
       onSuccess: invalidate,
     }),
   };

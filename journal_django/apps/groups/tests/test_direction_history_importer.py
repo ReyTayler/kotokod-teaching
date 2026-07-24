@@ -216,8 +216,8 @@ def _make_student(full_name):
 def _make_direction(name):
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO directions (name, is_individual, active) "
-            "VALUES (%s, false, true) RETURNING id",
+            "INSERT INTO directions (name, active) "
+            "VALUES (%s, true) RETURNING id",
             [name],
         )
         return cur.fetchone()[0]
@@ -483,7 +483,7 @@ def _make_group(direction_id, teacher_id, name):
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
-            "lesson_duration_minutes, active) VALUES (%s, %s, %s, false, 60, true) RETURNING id",
+            "lesson_duration_minutes, active, lesson_number_offset) VALUES (%s, %s, %s, false, 60, true, 0) RETURNING id",
             [name, direction_id, teacher_id],
         )
         return cur.fetchone()[0]

@@ -3,13 +3,12 @@ import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useRenewalList } from '../../hooks/useRenewals';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { fmtDate } from '../../lib/format';
 import { StageBadge } from './StageBadge';
-import type { RenewalFilters, RenewalListRow } from '../../lib/renewals';
+import { SLA_OVERDUE_DAYS, type RenewalFilters, type RenewalListRow } from '../../lib/renewals';
 
 // Бэкенд принимает sort_by только из этого набора (см. план 5.4/задание) —
 // остальные колонки рендерятся, но без сортировки.
-const SORTABLE_KEYS = new Set(['next_touch_at', 'stage_entered_at', 'cycle_no', 'student_name']);
+const SORTABLE_KEYS = new Set(['stage_entered_at', 'cycle_no', 'student_name']);
 
 interface Props {
   filters: RenewalFilters;
@@ -48,15 +47,25 @@ export function RenewalList({ filters, onOpen }: Props) {
       label: 'Направления',
       sortable: false,
       searchable: false,
+      // Чипы вместо строки через запятую: цвет направления читается как метка,
+      // а не как крашеный текст в общем потоке.
       cell: (r) => (
         (r.directions || []).length === 0 ? '—' : (
-          <>
-            {(r.directions || []).map((d, i) => (
-              <span key={d.name} style={d.color ? { color: d.color } : undefined}>
-                {i > 0 && ', '}{d.name}
+          <span className="rnl-dirs">
+            {(r.directions || []).map((d) => (
+              <span
+                key={d.name}
+                className="rnl-dir-chip"
+                style={d.color ? {
+                  color: d.color,
+                  borderColor: `${d.color}55`,
+                  background: `${d.color}14`,
+                } : undefined}
+              >
+                {d.name}
               </span>
             ))}
-          </>
+          </span>
         )
       ),
     },
@@ -79,14 +88,12 @@ export function RenewalList({ filters, onOpen }: Props) {
       label: 'Дней в стадии',
       sortable: false,
       searchable: false,
-      cell: (r) => `${r.days_in_stage} дн.`,
-    },
-    {
-      key: 'next_touch_at',
-      label: 'След. касание',
-      sortable: SORTABLE_KEYS.has('next_touch_at'),
-      searchable: false,
-      cell: (r) => (r.next_touch_at ? fmtDate(r.next_touch_at) : '—'),
+      // «Застрявшие» сделки (дольше SLA) — красным бейджем, как в канбане.
+      cell: (r) => (
+        <span className={`rnl-days${r.days_in_stage > SLA_OVERDUE_DAYS ? ' is-overdue' : ''}`}>
+          {r.days_in_stage} дн.
+        </span>
+      ),
     },
     {
       key: 'assignee_name',

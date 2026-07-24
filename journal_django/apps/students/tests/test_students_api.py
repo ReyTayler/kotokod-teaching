@@ -27,8 +27,8 @@ Cookie:
   - POST с frozen без frozen_from/frozen_until → 400
   - PATCH → 200
   - PATCH /999999999 → 404
-  - DELETE → 204, enrollment_status='not_enrolled'
-  - DELETE /999999999 → 404
+  - DELETE → 405 (soft-delete удалён вместе со статусом 'not_enrolled')
+  - POST /:id/status со статусом 'not_enrolled' → 400
 """
 from __future__ import annotations
 
@@ -347,16 +347,18 @@ def test_create_frozen_with_dates_returns_201(admin_client):
 
 
 @pytest.mark.django_db
-def test_create_with_age(admin_client):
+def test_create_with_birth_date(admin_client):
+    # Поле age удалено — возраст считается на фронте из birth_date; сохраняем дату.
     payload = _student_payload(
-        full_name='__test_post_age__',
-        age=14,
+        full_name='__test_post_birth__',
+        birth_date='2011-08-31',
     )
     resp = admin_client.post(BASE_URL, payload, format='json')
     assert resp.status_code == 201
     body = resp.json()
     try:
-        assert body['age'] == 14
+        assert body['birth_date'] == '2011-08-31'
+        assert 'age' not in body
     finally:
         _cleanup_student(body['id'])
 
@@ -407,46 +409,47 @@ def test_patch_nonexistent_returns_404(admin_client):
 
 
 @pytest.mark.django_db
-def test_patch_age(admin_client, existing_student):
+def test_patch_birth_date(admin_client, existing_student):
     resp = admin_client.patch(
         f"{BASE_URL}/{existing_student['id']}",
-        {'age': 9},
+        {'birth_date': '2016-02-01'},
         format='json',
     )
     assert resp.status_code == 200
-    assert resp.json()['age'] == 9
+    assert resp.json()['birth_date'] == '2016-02-01'
+    assert 'age' not in resp.json()
 
 
 # ---------------------------------------------------------------------------
-# DELETE /api/admin/students/:id — soft delete
+# DELETE /api/admin/students/:id — удалён вместе со статусом not_enrolled
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_delete_returns_204(admin_client):
+def test_delete_method_not_allowed(admin_client):
+    """Soft-delete ученика убран: единственный способ оформить уход — смена
+    статуса на 'declined' (она снимает членства и закрывает сделку). Если DELETE
+    вернут обратно, этот тест упадёт и заставит осознанно пересмотреть решение."""
     from apps.students import repository
-    student = repository.create_student({'full_name': '__test_del_204__'})
+    student = repository.create_student({'full_name': '__test_del_405__'})
     try:
         resp = admin_client.delete(f"{BASE_URL}/{student['id']}")
-        assert resp.status_code == 204
+        assert resp.status_code == 405
+        # Ученик на месте и по-прежнему учится — молчаливой архивации не случилось.
+        assert repository.get_student(student['id'])['enrollment_status'] == 'enrolled'
     finally:
         _cleanup_student(student['id'])
 
 
 @pytest.mark.django_db
-def test_delete_sets_not_enrolled(admin_client):
+def test_status_rejects_removed_not_enrolled(admin_client):
+    """'not_enrolled' больше не входит в ENROLLMENT_STATUS_CHOICES → 400 на API."""
     from apps.students import repository
-    student = repository.create_student({'full_name': '__test_del_status__'})
+    student = repository.create_student({'full_name': '__test_status_gone__'})
     try:
-        resp = admin_client.delete(f"{BASE_URL}/{student['id']}")
-        assert resp.status_code == 204
-        fetched = repository.get_student(student['id'])
-        assert fetched['enrollment_status'] == 'not_enrolled'
+        resp = admin_client.post(
+            f"{BASE_URL}/{student['id']}/status",
+            {'status': 'not_enrolled'}, format='json',
+        )
+        assert resp.status_code == 400
     finally:
         _cleanup_student(student['id'])
-
-
-@pytest.mark.django_db
-def test_delete_nonexistent_returns_404(admin_client):
-    resp = admin_client.delete(f'{BASE_URL}/999999999')
-    assert resp.status_code == 404
-    assert resp.json() == {'error': 'Not found'}

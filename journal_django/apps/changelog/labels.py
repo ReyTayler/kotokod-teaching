@@ -21,6 +21,7 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/groups/\d+/plan/\d+/cancel$'), 'plan.cancel'),
     # groups
     ('POST', re.compile(r'^/api/admin/groups/\d+/schedule-change$'), 'group.schedule_change'),
+    ('PATCH', re.compile(r'^/api/admin/groups/\d+/lesson-skips$'), 'group.lesson_skip'),
     ('POST', re.compile(r'^/api/admin/groups$'), 'group.create'),
     ('PATCH', re.compile(r'^/api/admin/groups/\d+$'), 'group.update'),
     ('DELETE', re.compile(r'^/api/admin/groups/\d+$'), 'group.delete'),
@@ -36,11 +37,19 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/students$'), 'student.create'),
     ('PATCH', re.compile(r'^/api/admin/students/\d+/manager$'), 'student.manager_update'),
     ('PATCH', re.compile(r'^/api/admin/students/\d+$'), 'student.update'),
+    # LEGACY: эндпоинт удалён вместе со статусом not_enrolled (soft-delete ученика).
+    # Правило оставлено намеренно: операция резолвится при ЧТЕНИИ журнала из
+    # сохранённых method+url (repository._operation_of), поэтому без него прошлые
+    # записи «Ученик в архив» схлопнулись бы в 'other' и потерялись бы в фильтре.
     ('DELETE', re.compile(r'^/api/admin/students/\d+$'), 'student.delete'),
     ('POST', re.compile(r'^/api/admin/discounts$'), 'discount.create'),
     ('PATCH', re.compile(r'^/api/admin/discounts/\d+$'), 'discount.update'),
     ('DELETE', re.compile(r'^/api/admin/discounts/\d+$'), 'discount.delete'),
     # memberships
+    # Эндпоинт /memberships/place снят, но правило остаётся: операция резолвится
+    # ИЗ СОХРАНЁННОГО url при чтении ленты — без него уже записанные события
+    # потеряли бы описание и откат (см. summary.py, ветка 'membership.place').
+    ('POST', re.compile(r'^/api/admin/memberships/place$'), 'membership.place'),
     ('POST', re.compile(r'^/api/admin/memberships/\d+/transfer$'), 'membership.transfer'),
     ('POST', re.compile(r'^/api/admin/memberships$'), 'membership.create'),
     ('PATCH', re.compile(r'^/api/admin/memberships/\d+$'), 'membership.update'),
@@ -51,13 +60,20 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/students/\d+/refund$'), 'payment.refund'),
     # lessons
     ('PATCH', re.compile(r'^/api/admin/lessons/\d+/attendance/\d+$'), 'lesson.attendance_update'),
+    ('PATCH', re.compile(r'^/api/admin/lessons/\d+/unpaid-skip/\d+$'), 'lesson.unpaid_skip'),
     ('POST', re.compile(r'^/api/admin/lessons$'), 'lesson.create'),
     ('PATCH', re.compile(r'^/api/admin/lessons/\d+$'), 'lesson.update'),
     ('DELETE', re.compile(r'^/api/admin/lessons/\d+$'), 'lesson.delete'),
     # extra_lessons (доп.уроки)
     ('POST', re.compile(r'^/api/admin/extra-lessons$'), 'extra_lesson.create'),
+    ('POST', re.compile(r'^/api/admin/extra-lessons/manual$'), 'extra_lesson.manual_create'),
     ('POST', re.compile(r'^/api/admin/extra-lessons/\d+/cancel$'), 'extra_lesson.cancel'),
     ('POST', re.compile(r'^/api/admin/extra-lessons/\d+/burn$'), 'extra_lesson.burn'),
+    # Действие «закрыть без денег» снято (эндпоинт /waive удалён), но правило
+    # остаётся: resolve_operation резолвит операцию из СОХРАНЁННОГО url при чтении
+    # ленты, а в БД есть исторические waive-события — без правила они потеряли бы
+    # описание. См. тот же приём для membership.place.
+    ('POST', re.compile(r'^/api/admin/extra-lessons/\d+/waive$'), 'extra_lesson.waive'),
     ('DELETE', re.compile(r'^/api/admin/extra-lessons/\d+$'), 'extra_lesson.delete'),
     ('POST', re.compile(r'^/api/extra-lessons/\d+/record$'), 'extra_lesson.record'),
     # payroll / settings

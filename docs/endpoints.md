@@ -56,7 +56,7 @@
 | GET | `/api/admin/students/:id/balance` | Баланс (payments - attended) |
 | POST | `/api/admin/students` | Создать |
 | PATCH | `/api/admin/students/:id` | Обновить |
-| DELETE | `/api/admin/students/:id` | Soft (enrollment_status='not_enrolled') |
+| POST | `/api/admin/students/:id/status` | Смена статуса с каскадом (`enrolled`/`frozen`/`declined`). DELETE ученика удалён — уход оформляется здесь статусом `declined` |
 
 ### Groups (paginated, join direction/teacher/slots)
 

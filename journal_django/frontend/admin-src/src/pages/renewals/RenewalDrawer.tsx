@@ -4,7 +4,6 @@ import { EntityLink } from '../../components/EntityLink';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
 import { SelectInput } from '../../components/form/SelectInput';
-import { DateInput } from '../../components/form/DateInput';
 import { Textarea } from '../../components/form/Textarea';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import {
@@ -129,21 +128,20 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
   const stageLabel = deal?.stage_label || (deal ? RENEWAL_STAGE_LABELS[deal.stage_key] : undefined);
   const isClosed = deal?.outcome_at != null;
-  // Правила ручных переходов (решение пользователя 2026-07-17), бэк проверяет
-  // то же самое (move → 409), но фронт не должен предлагать заведомо
-  // запрещённый выбор:
-  //  - на progress-стадию («Не было урока»/«Урок 1–3») вручную нельзя никогда
-  //    — двигает только движок. Исключение — текущая стадия сделки: если она
-  //    прогрессная, показываем её как есть (иначе SelectInput не найдёт
-  //    выбранное значение среди опций), других progress-стадий в списке нет;
-  //  - пока цикл (4 урока) не завершён — вручную можно только «Ушёл» и
-  //    авто-decision-стадии («Ждём оплату»/«Ждём продление», не «ручные»);
-  //    ручные decision-стадии («Думает» и т.п.) и «Продлён» — только после
-  //    завершения цикла.
+  // Ручной перевод стадии возможен ТОЛЬКО с ручной decision-стадии или со стадии
+  // «Ждём продление» — с прочих авто-стадий (прогресс, «Ждём оплату», «Заморожен»)
+  // бэк блокирует любой move (transitions.py: from_is_auto). На них дропдаун стадии
+  // не показываем вовсе — стадия видна бейджем в шапке, а не предлагаем выбор,
+  // который гарантированно вернёт 409.
   const cycleDone = !!deal?.cycle_completed;
-  const openStages = (stages || []).filter(
-    (s) => (s.kind === 'decision' && (s.is_auto || cycleDone))
-      || (s.kind === 'progress' && s.id === deal?.stage_id));
+  const currentStage = (stages || []).find((s) => s.id === deal?.stage_id);
+  const stageMovable = !!currentStage
+    && ((currentStage.kind === 'decision' && !currentStage.is_auto)
+      || currentStage.key === 'awaiting_renewal');
+  // Достижимые вручную цели: ручные decision-стадии (при завершённом цикле).
+  const manualTargets = (stages || []).filter(
+    (s) => s.kind === 'decision' && !s.is_auto && cycleDone && s.id !== deal?.stage_id);
+  // «Ушёл» — всегда; «Продлён» — только при завершённом цикле (через диалог).
   const closeStages = (stages || []).filter(
     (s) => s.kind === 'lost' || (s.kind === 'won' && cycleDone));
 
@@ -229,29 +227,26 @@ export function RenewalDrawer({ id, onClose }: Props) {
             ) : (
               <>
                 <div className="renewal-drawer__section renewal-drawer__fields">
-                  <Field label="Стадия">
-                    <SelectInput
-                      value={String(deal.stage_id)}
-                      onChange={(e) => handleStageChange(e.target.value)}
-                      options={[
-                        ...openStages.map((s) => ({ value: String(s.id), label: s.label })),
-                        ...closeStages.map((s) => ({
-                          value: String(s.id),
-                          label: s.kind === 'won' ? `✓ ${s.label}…` : `✕ ${s.label}…`,
-                        })),
-                      ]}
-                    />
-                  </Field>
+                  {stageMovable && currentStage && (
+                    <Field label="Стадия">
+                      <SelectInput
+                        value={String(deal.stage_id)}
+                        onChange={(e) => handleStageChange(e.target.value)}
+                        options={[
+                          { value: String(currentStage.id), label: currentStage.label },
+                          ...manualTargets.map((s) => ({ value: String(s.id), label: s.label })),
+                          ...closeStages.map((s) => ({
+                            value: String(s.id),
+                            label: s.kind === 'won' ? `✓ ${s.label}…` : `✕ ${s.label}…`,
+                          })),
+                        ]}
+                      />
+                    </Field>
+                  )}
                   <Field label="Ответственный">
                     <div className="renewal-drawer__readonly-value" title="Меняется на странице ученика">
                       {deal.assignee_name || '— не назначен —'}
                     </div>
-                  </Field>
-                  <Field label="Следующее касание">
-                    <DateInput
-                      value={deal.next_touch_at ?? ''}
-                      onChange={(e) => save({ next_touch_at: e.target.value || null })}
-                    />
                   </Field>
                 </div>
 

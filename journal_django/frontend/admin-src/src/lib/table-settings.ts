@@ -36,8 +36,10 @@ export const ENTITY_COLUMN_CATALOG: Record<EntityKey, ColumnMeta[]> = {
     { key: 'parent1_phone',       label: 'Телефон родителя 1' },
     { key: 'parent1_name',        label: 'Родитель 1' },
     { key: 'platform_id',         label: 'Platform ID' },
-    { key: 'manager_name',        label: 'Менеджер' },
-    { key: 'first_purchase_date', label: 'Первая оплата' },
+    // Ключ строго 'manager_id' — как Column.key на StudentsListPage (колонка
+    // фильтруется по manager_id). С прежним 'manager_name' настройка не работала:
+    // applyColumnPrefs матчит по ключу, а он не совпадал с ключом колонки.
+    { key: 'manager_id',          label: 'Менеджер' },
     { key: 'enrollment_status',   label: 'Статус' },
   ],
   groups: [
@@ -45,6 +47,7 @@ export const ENTITY_COLUMN_CATALOG: Record<EntityKey, ColumnMeta[]> = {
     { key: 'name',                     label: 'Группа', alwaysVisible: true },
     { key: 'direction_id',             label: 'Направление' },
     { key: 'teacher_id',               label: 'Преподаватель' },
+    { key: 'members_count',            label: 'Состав группы' },
     { key: 'is_individual',            label: 'Индив.' },
     { key: 'lesson_duration_minutes',  label: 'Минут' },
     { key: 'lessons_per_week',         label: 'В неделю' },

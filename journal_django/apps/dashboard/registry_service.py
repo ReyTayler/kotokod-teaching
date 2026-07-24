@@ -386,6 +386,7 @@ def _build_today_stream(today: datetime.date) -> list[dict]:
         t = o['scheduled_time']
         stream.append({
             'time': t.strftime('%H:%M') if t else None,
+            'group_id': o['group_pk'],
             'group_code': o['group_name'],
             'teacher_name': tnames.get(o['teacher_id']),
             'student_names': students_by_group.get(o['group_pk'], []),

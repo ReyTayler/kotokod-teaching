@@ -30,13 +30,14 @@ from rest_framework.views import APIView
 from apps.core.permissions import ReadStaffWriteAdmin
 from apps.lessons import services
 from apps.lessons.exceptions import (
-    AttendanceCompensatedElsewhere, LessonHasMakeupResolutions, SystemLessonProtected,
-    UnpaidAttendanceBlocked,
+    AttendanceCompensatedElsewhere, AttendanceLockedByTransfer, LessonHasMakeupResolutions,
+    SystemLessonProtected, UnpaidAttendanceBlocked,
 )
 from apps.lessons.serializers import (
     AttendanceUpdateSerializer,
     LessonCreateSerializer,
     LessonUpdateSerializer,
+    UnpaidSkipUpdateSerializer,
 )
 
 _DEFAULT_SORT_BY = 'lesson_date'
@@ -194,11 +195,34 @@ class AttendanceCellView(APIView):
 
         try:
             ok = services.update_attendance_cell(
-                lesson_id, student_id, serializer.validated_data['present']
+                lesson_id, student_id, serializer.validated_data['present'],
+                is_free=serializer.validated_data['is_free'],
             )
         except UnpaidAttendanceBlocked as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except (SystemLessonProtected, AttendanceCompensatedElsewhere) as e:
+        except (SystemLessonProtected, AttendanceCompensatedElsewhere, AttendanceLockedByTransfer) as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        if not ok:
+            raise NotFound({'error': 'Not found'})
+        return Response({'ok': True})
+
+
+class AttendanceUnpaidSkipView(APIView):
+    """
+    PATCH /api/admin/lessons/:lessonId/unpaid-skip/:studentId — ставит/снимает
+    исход «неоплачиваемый пропуск» для ученика (в т.ч. на проведённом уроке и
+    вновь добавленному ученику). Body: {value: bool}. 200 {ok:true} | 404 | 409.
+    """
+
+    permission_classes = [ReadStaffWriteAdmin]
+
+    def patch(self, request: Request, lesson_id: int, student_id: int) -> Response:
+        serializer = UnpaidSkipUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ok = services.set_unpaid_skip(
+                lesson_id, student_id, serializer.validated_data['value'])
+        except SystemLessonProtected as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if not ok:
             raise NotFound({'error': 'Not found'})

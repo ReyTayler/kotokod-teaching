@@ -138,10 +138,11 @@ def test_manager_field_not_writable_via_general_patch(admin_client):
     sid = _create_student()
     acc_id = _create_account('manager')
     try:
-        resp = admin_client.patch(f'{BASE_URL}/{sid}', {'manager_id': acc_id, 'age': 10}, format='json')
+        resp = admin_client.patch(f'{BASE_URL}/{sid}', {'manager_id': acc_id, 'birth_date': '2015-03-10'}, format='json')
         assert resp.status_code == 200
         assert resp.json()['manager_id'] is None
-        assert resp.json()['age'] == 10
+        # birth_date — обычное записываемое поле, применилось; manager_id — нет.
+        assert resp.json()['birth_date'] == '2015-03-10'
     finally:
         _cleanup_student(sid)
         _cleanup_account(acc_id)

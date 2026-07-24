@@ -2,6 +2,10 @@
 // Бэкенд: /api/admin/renewals* (Django+DRF, см. журнал изменений плана
 // docs/superpowers/plans/2026-07-08-renewals-crm-pipeline.md).
 
+/** Порог SLA: дольше этого числа дней в стадии → сделка «застряла» (красный
+ *  бейдж). Единый источник для канбана (RenewalCardView) и списка (RenewalList). */
+export const SLA_OVERDUE_DAYS = 5;
+
 export type StageKind = 'progress' | 'decision' | 'won' | 'lost';
 
 export interface RenewalStage {
@@ -27,7 +31,6 @@ export interface RenewalCard {
   /** Активные направления ученика (сделка — per ученик, подписочная модель). */
   directions: RenewalDirection[];
   cycle_no: number;
-  next_touch_at: string | null;
   /** Дата отработки 4-го урока цикла (созревание продления). */
   due_at: string | null;
   assignee_name: string | null;
@@ -60,7 +63,6 @@ export interface RenewalListRow {
   stage_label: string;
   stage_kind: StageKind;
   stage_color: string | null;
-  next_touch_at: string | null;
   due_at: string | null;
   assignee_name: string | null;
   days_in_stage: number;
@@ -77,7 +79,6 @@ export interface RenewalDealDetail {
   stage_color: string | null;
   assignee_id: number | null;
   assignee_name: string | null;
-  next_touch_at: string | null;
   reason_code: string | null;
   /** Дата отработки 4-го урока цикла (созревание продления). */
   due_at: string | null;
@@ -110,9 +111,10 @@ export interface RenewalFilters {
   assignee_id?: string;
   direction_id?: string;
   stage_id?: string;
-  overdue?: string;
-  /** Поиск по имени ученика внутри колонки канбана (per-column, server-side ILIKE). */
+  /** Поиск по имени ученика: в канбане — per-column, в списке — общий фильтр. ILIKE. */
   student?: string;
+  /** Номер цикла (точное совпадение) — только списочный вид. */
+  cycle_no?: string;
   /** 'true' — списочный вид включает закрытые (won/lost) сделки. */
   include_closed?: string;
 }
