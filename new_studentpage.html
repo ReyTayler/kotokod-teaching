@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Ученик — Котокод CRM</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+
+            font-family: Inter, sans-serif;
+            background: #F5F7FB;
+            color: #1F2937;
+
+        }
+
+        :root {
+
+            --primary: #5B5CEB;
+            --primary-light: #EEF0FF;
+
+            --green: #16A34A;
+            --red: #EF4444;
+            --orange: #F59E0B;
+
+            --border: #E5E7EB;
+
+            --text: #111827;
+            --text2: #6B7280;
+
+            --card: #ffffff;
+
+        }
+
+        .wrapper {
+
+            display: flex;
+            min-height: 100vh;
+
+        }
+
+
+
+
+
+
+
+        /* ===========================
+SIDEBAR
+=========================== */
+
+        .sidebar {
+
+            width: 250px;
+            background: white;
+            border-right: 1px solid var(--border);
+
+            display: flex;
+            flex-direction: column;
+
+        }
+
+        .logo {
+
+            height: 74px;
+
+            display: flex;
+            align-items: center;
+
+            padding: 0 26px;
+
+            font-size: 22px;
+            font-weight: 800;
+
+            color: var(--primary);
+
+            border-bottom: 1px solid var(--border);
+
+        }
+
+        .menu {
+
+            padding: 18px;
+
+        }
+
+        .menu-title {
+
+            font-size: 11px;
+            letter-spacing: .12em;
+
+            color: #A0A7B8;
+
+            margin-top: 24px;
+            margin-bottom: 10px;
+
+            font-weight: 700;
+
+            text-transform: uppercase;
+
+        }
+
+        .menu-item {
+
+            height: 44px;
+
+            display: flex;
+            align-items: center;
+
+            padding: 0 16px;
+
+            border-radius: 12px;
+
+            cursor: pointer;
+
+            font-weight: 600;
+
+            font-size: 14px;
+
+            transition: .18s;
+
+            color: #4B5563;
+
+            margin-bottom: 6px;
+
+        }
+
+        .menu-item:hover {
+
+            background: #F3F4F6;
+
+        }
+
+        .menu-item.active {
+
+            background: var(--primary-light);
+
+            color: var(--primary);
+
+        }
+
+        .profile {
+
+            margin-top: auto;
+
+            padding: 20px;
+
+            border-top: 1px solid var(--border);
+
+        }
+
+        .profile-name {
+
+            font-weight: 700;
+
+        }
+
+        .profile-role {
+
+            font-size: 13px;
+
+            color: gray;
+
+            margin-top: 4px;
+
+        }
+
+
+
+
+
+
+
+        /* ======================
+CONTENT
+====================== */
+
+        .content {
+
+            flex: 1;
+
+            padding: 34px 40px;
+
+        }
+
+        .topbar {
+
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+
+            margin-bottom: 26px;
+
+        }
+
+        .back {
+
+            font-size: 14px;
+            color: gray;
+
+            cursor: pointer;
+
+        }
+
+
+
+
+
+
+        /* =====================
+PROFILE
+===================== */
+
+        .profile-card {
+
+            background: white;
+
+            border: 1px solid var(--border);
+
+            border-radius: 20px;
+
+            padding: 28px;
+
+            display: flex;
+
+            justify-content: space-between;
+
+            gap: 50px;
+
+            margin-bottom: 28px;
+
+        }
+
+        .left-profile {
+
+            display: flex;
+
+            gap: 22px;
+
+        }
+
+        .avatar {
+
+            width: 78px;
+            height: 78px;
+
+            border-radius: 20px;
+
+            background: linear-gradient(135deg, #5B5CEB, #7B7CFF);
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            font-size: 30px;
+            font-weight: 700;
+
+            color: white;
+
+            flex-shrink: 0;
+
+        }
+
+        .student-info h1 {
+
+            font-size: 34px;
+
+            font-weight: 800;
+
+            margin-bottom: 8px;
+
+        }
+
+        .status {
+
+            display: inline-flex;
+
+            align-items: center;
+
+            padding: 5px 12px;
+
+            border-radius: 999px;
+
+            font-size: 13px;
+
+            background: #DCFCE7;
+
+            color: #15803D;
+
+            font-weight: 700;
+
+            margin-left: 10px;
+
+        }
+
+        .meta {
+
+            color: #6B7280;
+
+            font-size: 15px;
+
+            margin-top: 4px;
+
+        }
+
+        .actions {
+
+            display: flex;
+
+            gap: 12px;
+
+            margin-top: 24px;
+
+        }
+
+        .btn {
+
+            height: 42px;
+
+            padding: 0 20px;
+
+            border-radius: 12px;
+
+            border: none;
+
+            cursor: pointer;
+
+            font-weight: 600;
+
+            font-size: 14px;
+
+            transition: .18s;
+
+        }
+
+        .btn.primary {
+
+            background: var(--primary);
+
+            color: white;
+
+        }
+
+        .btn.primary:hover {
+
+            background: #4748d5;
+
+        }
+
+        .btn.secondary {
+
+            background: white;
+
+            border: 1px solid var(--border);
+
+        }
+
+        .btn.secondary:hover {
+
+            background: #F9FAFB;
+
+        }
+
+        .right-profile {
+
+            display: grid;
+
+            grid-template-columns: 220px;
+
+            gap: 12px;
+
+        }
+
+        .info-box {
+
+            padding: 14px 16px;
+
+            border-radius: 14px;
+
+            background: #F9FAFB;
+
+            border: 1px solid var(--border);
+
+        }
+
+        .info-label {
+
+            font-size: 12px;
+
+            color: #9CA3AF;
+
+            margin-bottom: 6px;
+
+            text-transform: uppercase;
+
+            font-weight: 700;
+
+        }
+
+        .info-value {
+
+            font-weight: 700;
+
+            font-size: 15px;
+
+        }
+
+
+
+
+
+
+
+        /* ==========================
+STATS
+========================== */
+
+        .stats {
+
+            display: grid;
+
+            grid-template-columns: repeat(4, 1fr);
+
+            gap: 18px;
+
+            margin-bottom: 34px;
+
+        }
+
+        .stat {
+
+            background: white;
+
+            border: 1px solid var(--border);
+
+            border-radius: 18px;
+
+            padding: 22px;
+
+            transition: .18s;
+
+        }
+
+        .stat:hover {
+
+            transform: translateY(-2px);
+
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .04);
+
+        }
+
+        .stat-title {
+
+            font-size: 13px;
+
+            text-transform: uppercase;
+
+            color: #9CA3AF;
+
+            font-weight: 700;
+
+            letter-spacing: .05em;
+
+            margin-bottom: 16px;
+
+        }
+
+        .stat-value {
+
+            font-size: 34px;
+
+            font-weight: 800;
+
+        }
+
+        .red {
+
+            color: #EF4444;
+
+        }
+
+        .green {
+
+            color: #16A34A;
+
+        }
+
+        .blue {
+
+            color: var(--primary);
+
+        }
+
+
+
+
+
+
+
+        /* =========================
+TABS
+========================= */
+
+        .tabs {
+
+            display: flex;
+
+            gap: 30px;
+
+            border-bottom: 1px solid var(--border);
+
+            margin-bottom: 30px;
+
+        }
+
+        .tab {
+
+            padding-bottom: 18px;
+
+            font-weight: 600;
+
+            color: #6B7280;
+
+            cursor: pointer;
+
+            position: relative;
+
+        }
+
+        .tab.active {
+
+            color: var(--primary);
+
+        }
+
+        .tab.active:after {
+
+            content: "";
+
+            position: absolute;
+
+            left: 0;
+            right: 0;
+            bottom: -1px;
+
+            height: 3px;
+
+            background: var(--primary);
+
+            border-radius: 5px;
+
+        }
+
+        .layout {
+
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 24px;
+
+        }
+
+        .main-column {
+
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+
+        }
+
+        .side-column {
+
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+
+            position: sticky;
+            top: 24px;
+            height: fit-content;
+
+        }
+
+        .card {
+
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 24px;
+
+        }
+
+        .card-header {
+
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+
+            margin-bottom: 22px;
+
+        }
+
+        .eyebrow {
+
+            font-size: 12px;
+            letter-spacing: .08em;
+            font-weight: 700;
+            color: #9CA3AF;
+            margin-bottom: 8px;
+
+        }
+
+        .card h2 {
+
+            font-size: 26px;
+            margin-bottom: 4px;
+
+        }
+
+        .card p {
+
+            color: #6B7280;
+
+        }
+
+        .progress-percent {
+
+            font-size: 44px;
+            font-weight: 800;
+
+        }
+
+        .progress-line {
+
+            height: 10px;
+            background: #EEF1F5;
+            border-radius: 999px;
+            overflow: hidden;
+            margin: 24px 0;
+
+        }
+
+        .progress-fill {
+
+            height: 100%;
+            background: #5B5CEB;
+            border-radius: 999px;
+
+        }
+
+        .progress-footer {
+
+            display: flex;
+            justify-content: space-between;
+            font-size: 15px;
+
+        }
+
+        .section-title {
+
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 18px;
+
+        }
+
+        .group-card {
+
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+
+        }
+
+        .group-name {
+
+            font-size: 20px;
+            font-weight: 700;
+
+        }
+
+        .group-desc {
+
+            margin-top: 8px;
+            color: #6B7280;
+
+        }
+
+        .badge {
+
+            display: inline-block;
+
+            margin-top: 14px;
+
+            padding: 6px 12px;
+
+            background: #EEF0FF;
+            color: #5B5CEB;
+
+            border-radius: 999px;
+
+            font-size: 13px;
+            font-weight: 700;
+
+        }
+
+        .group-number {
+
+            font-size: 42px;
+            font-weight: 800;
+
+        }
+
+        .small-title {
+
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #9CA3AF;
+
+            margin-bottom: 6px;
+
+        }
+
+        .lesson {
+
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+
+            padding: 18px 0;
+
+            border-top: 1px solid #F1F3F5;
+
+        }
+
+        .lesson:first-of-type {
+
+            border-top: none;
+
+        }
+
+        .lesson p {
+
+            margin-top: 4px;
+            font-size: 14px;
+
+        }
+
+        .lesson-status {
+
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: #F3F4F6;
+            font-size: 13px;
+            font-weight: 600;
+
+        }
+
+        .lesson-status.success {
+
+            background: #DCFCE7;
+            color: #15803D;
+
+        }
+
+        .info-row {
+
+            display: flex;
+            justify-content: space-between;
+
+            padding: 14px 0;
+
+            border-bottom: 1px solid #F1F3F5;
+
+        }
+
+        .info-row:last-child {
+
+            border: none;
+
+        }
+
+        .info-row span {
+
+            color: #6B7280;
+
+        }
+
+        .next-date {
+
+            font-size: 26px;
+            font-weight: 700;
+
+        }
+
+        .next-time {
+
+            font-size: 46px;
+            font-weight: 800;
+
+            margin: 10px 0 26px;
+
+        }
+
+        .full {
+
+            width: 100%;
+
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <div class="wrapper">
+
+        <div class="sidebar">
+
+            <div class="logo">
+
+                КОТОКОД
+
+            </div>
+
+            <div class="menu">
+
+                <div class="menu-title">
+                    Главное
+                </div>
+
+                <div class="menu-item">
+                    Дашборд
+                </div>
+
+                <div class="menu-item active">
+                    Ученики
+                </div>
+
+                <div class="menu-item">
+                    Группы
+                </div>
+
+                <div class="menu-item">
+                    Преподаватели
+                </div>
+
+                <div class="menu-item">
+                    Расписание
+                </div>
+
+                <div class="menu-title">
+                    Финансы
+                </div>
+
+                <div class="menu-item">
+                    Абонементы
+                </div>
+
+                <div class="menu-item">
+                    Продления
+                </div>
+
+                <div class="menu-item">
+                    Отчёты
+                </div>
+
+            </div>
+
+            <div class="profile">
+
+                <div class="profile-name">
+                    Павлов Илья
+                </div>
+
+                <div class="profile-role">
+                    Superadmin
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="content">
+
+            <div class="topbar">
+
+                <div class="back">
+                    ← Назад к ученикам
+                </div>
+
+            </div>
+
+            <div class="profile-card">
+
+                <div class="left-profile">
+
+                    <div class="avatar">
+
+                        АК
+
+                    </div>
+
+                    <div class="student-info">
+
+                        <h1>
+
+                            Александр Кузнецов
+
+                            <span class="status">
+
+                                Учится
+
+                            </span>
+
+                        </h1>
+
+                        <div class="meta">
+
+                            ID 89 · Python Индивидуально
+
+                        </div>
+
+                        <div class="meta">
+
+                            Родитель: Марина Кузнецова
+
+                        </div>
+
+                        <div class="meta">
+
+                            +7 (959) 213-51-76
+
+                        </div>
+
+                        <div class="actions">
+
+                            <button class="btn primary">
+
+                                + Внести оплату
+
+                            </button>
+
+                            <button class="btn secondary">
+
+                                Редактировать
+
+                            </button>
+
+                            <button class="btn secondary">
+
+                                •••
+
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="right-profile">
+
+                    <div class="info-box">
+
+                        <div class="info-label">
+
+                            Возраст
+
+                        </div>
+
+                        <div class="info-value">
+
+                            14 лет
+
+                        </div>
+
+                    </div>
+
+                    <div class="info-box">
+
+                        <div class="info-label">
+
+                            Менеджер
+
+                        </div>
+
+                        <div class="info-value">
+
+                            Илья Павлов
+
+                        </div>
+
+                    </div>
+
+                    <div class="info-box">
+
+                        <div class="info-label">
+
+                            Следующее занятие
+
+                        </div>
+
+                        <div class="info-value">
+
+                            Пятница · 15:00
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="stats">
+
+                <div class="stat">
+
+                    <div class="stat-title">
+
+                        Посещаемость
+
+                    </div>
+
+                    <div class="stat-value red">
+
+                        37%
+
+                    </div>
+
+                </div>
+
+                <div class="stat">
+
+                    <div class="stat-title">
+
+                        Баланс уроков
+
+                    </div>
+
+                    <div class="stat-value">
+
+                        3
+
+                    </div>
+
+                </div>
+
+                <div class="stat">
+
+                    <div class="stat-title">
+
+                        Оплачено
+
+                    </div>
+
+                    <div class="stat-value">
+
+                        58 656 ₽
+
+                    </div>
+
+                </div>
+
+                <div class="stat">
+
+                    <div class="stat-title">
+
+                        Направления
+
+                    </div>
+
+                    <div class="stat-value blue">
+
+                        1
+
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="tabs">
+
+                <div class="tab active">
+                    Обучение
+                </div>
+
+                <div class="tab">
+                    Финансы
+                </div>
+
+                <div class="tab">
+                    Комментарии
+                </div>
+
+                <div class="tab">
+                    История
+                </div>
+
+            </div>
+
+            <div class="layout">
+
+                <div class="main-column">
+
+                    <section class="card progress-card">
+
+                        <div class="card-header">
+
+                            <div>
+
+                                <div class="eyebrow">
+                                    ОБУЧЕНИЕ
+                                </div>
+
+                                <h2>
+                                    Python Индивидуально
+                                </h2>
+
+                                <p>
+                                    План курса • 56 уроков
+                                </p>
+
+                            </div>
+
+                            <div class="progress-percent red">
+                                37%
+                            </div>
+
+                        </div>
+
+                        <div class="progress-line">
+
+                            <div class="progress-fill" style="width:37%;"></div>
+
+                        </div>
+
+                        <div class="progress-footer">
+
+                            <div>
+
+                                <strong>21</strong>
+
+                                из 56 уроков
+
+                            </div>
+
+                            <div class="green">
+
+                                Этот месяц
+
+                                <strong>1 / 1</strong>
+
+                            </div>
+
+                        </div>
+
+                    </section>
+
+
+
+                    <section class="card">
+
+                        <div class="section-title">
+
+                            Группы ученика
+
+                        </div>
+
+                        <div class="group-card">
+
+                            <div class="group-left">
+
+                                <div class="group-name">
+
+                                    Python И338
+
+                                </div>
+
+                                <div class="group-desc">
+
+                                    Пятница • 15:00
+
+                                </div>
+
+                                <div class="badge">
+
+                                    Индивидуально
+
+                                </div>
+
+                            </div>
+
+                            <div class="group-right">
+
+                                <div class="small-title">
+
+                                    Посещено
+
+                                </div>
+
+                                <div class="group-number">
+
+                                    21
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </section>
+
+
+
+                    <section class="card">
+
+                        <div class="section-title">
+
+                            Последние занятия
+
+                        </div>
+
+                        <div class="lesson">
+
+                            <div>
+
+                                <strong>
+
+                                    Урок №21
+
+                                </strong>
+
+                                <p>
+
+                                    Функции Python
+
+                                </p>
+
+                            </div>
+
+                            <span class="lesson-status success">
+
+                                Посещён
+
+                            </span>
+
+                        </div>
+
+                        <div class="lesson">
+
+                            <div>
+
+                                <strong>
+
+                                    Урок №20
+
+                                </strong>
+
+                                <p>
+
+                                    Циклы while
+
+                                </p>
+
+                            </div>
+
+                            <span class="lesson-status success">
+
+                                Посещён
+
+                            </span>
+
+                        </div>
+
+                        <div class="lesson">
+
+                            <div>
+
+                                <strong>
+
+                                    Урок №19
+
+                                </strong>
+
+                                <p>
+
+                                    Списки
+
+                                </p>
+
+                            </div>
+
+                            <span class="lesson-status">
+
+                                Перенесён
+
+                            </span>
+
+                        </div>
+
+                    </section>
+
+                </div>
+
+
+
+
+
+                <aside class="side-column">
+
+                    <section class="card">
+
+                        <div class="section-title">
+
+                            Контакты
+
+                        </div>
+
+                        <div class="info-row">
+
+                            <span>
+
+                                Родитель
+
+                            </span>
+
+                            <strong>
+
+                                Марина Кузнецова
+
+                            </strong>
+
+                        </div>
+
+                        <div class="info-row">
+
+                            <span>
+
+                                Телефон
+
+                            </span>
+
+                            <strong>
+
+                                +7 959 213-51-76
+
+                            </strong>
+
+                        </div>
+
+                        <div class="info-row">
+
+                            <span>
+
+                                Менеджер
+
+                            </span>
+
+                            <strong>
+
+                                Илья Павлов
+
+                            </strong>
+
+                        </div>
+
+                    </section>
+
+
+
+                    <section class="card">
+
+                        <div class="section-title">
+
+                            Следующее занятие
+
+                        </div>
+
+                        <div class="next-date">
+
+                            Пятница
+
+                        </div>
+
+                        <div class="next-time">
+
+                            15:00
+
+                        </div>
+
+                        <button class="btn primary full">
+
+                            Открыть урок
+
+                        </button>
+
+                    </section>
+
+                </aside>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</body>
+
+</html>
