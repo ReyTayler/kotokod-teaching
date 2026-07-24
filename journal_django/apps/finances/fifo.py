@@ -28,6 +28,9 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
   затронутых списаниями внутри [month_start, month_end); порядок = порядок FIFO
   (партии гасятся монотонно, поэтому цена не повторяется дважды не подряд);
   возвраты и списания сверх остатка (over_consumed) цену не добавляют.
+  worked_off_units_month: [Decimal, ...] — сколько уроков (units, half-lesson=0.5)
+  отработано по каждой цене выше; выровнен по индексу с worked_off_unit_prices_month
+  (sum(units[i] × prices[i]) == worked_off_month до округления).
 """
 from __future__ import annotations
 
@@ -60,6 +63,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     by_month: dict[str, Decimal] = {}
     by_direction: dict = {}
     unit_prices_month: list[Decimal] = []
+    unit_qtys_month: list[Decimal] = []  # уроков (units, half-lesson=0.5) на каждую цену
 
     for c in consumptions:
         need = to_decimal(c['units'])
@@ -87,6 +91,9 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                     price = to_decimal(lots[lot_idx]['price_per_lesson'])
                     if not unit_prices_month or unit_prices_month[-1] != price:
                         unit_prices_month.append(price)
+                        unit_qtys_month.append(take)
+                    else:
+                        unit_qtys_month[-1] += take
             lot_remaining -= take
             need -= take
         if need > 0 and not is_refund:
@@ -106,4 +113,8 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         'worked_off_by_month': {k: round_kopecks(v) for k, v in by_month.items()},
         'worked_off_by_direction': {k: round_kopecks(v) for k, v in by_direction.items()},
         'worked_off_unit_prices_month': [round_kopecks(p) for p in unit_prices_month],
+        # Кол-во уроков (units, half-lesson=0.5), отработанных по каждой цене выше —
+        # выровнено по индексу с worked_off_unit_prices_month. Возвраты и перерасход
+        # (over_consumed) сюда не идут, как и в цены. Не деньги → без округления до копеек.
+        'worked_off_units_month': list(unit_qtys_month),
     }

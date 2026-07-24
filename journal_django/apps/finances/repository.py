@@ -220,6 +220,30 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
     return {sid: _js_number(v) for sid, v in balances.items()}
 
 
+def free_attended_units_by_month(month_start: str, month_end: str) -> dict[int, Decimal]:
+    """
+    «Бесплатные посещённые» (present=True, is_free=True) за месяц [month_start,
+    month_end] ВКЛЮЧИТЕЛЬНО, в единицах half-lesson (45мин=0.5), батчем на всех
+    учеников (без N+1). Ключ — student_id; ученики без бесплатных в результат не
+    попадают (вызывающий берёт .get(sid, 0)).
+
+    Отдельно от FIFO-потребления (fifo_inputs берёт is_free=False): бесплатное
+    занятие ПОСЕЩЕНО, но денег не берёт и партии оплат не гасит — в отчёте оно идёт
+    в «Посещено уроков за месяц» (и в отдельную колонку «в т.ч. бесплатных»), но не
+    в «Отработано ₽» и не в детализацию по ценам. См. lesson-outcomes-spec.
+    """
+    rows = (
+        LessonAttendance.objects
+        .filter(
+            present=True, is_free=True,
+            lesson__lesson_date__gte=month_start, lesson__lesson_date__lte=month_end,
+        )
+        .values('student_id')
+        .annotate(s=Coalesce(Sum(_attended_units_case()), _ZERO))
+    )
+    return {r['student_id']: r['s'] for r in rows}
+
+
 def attended_units_total(student_id: int) -> Decimal:
     """
     «Отработано» для ПРОДЛЕНИЙ (present=true), в тех же единицах (half-lesson

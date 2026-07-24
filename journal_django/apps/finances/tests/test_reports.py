@@ -15,8 +15,11 @@ pytestmark = pytest.mark.django_db
 
 
 def _add_payment(created, student_id, direction_id, subs, total, paid_at, kind='purchase'):
-    lessons = subs * 4 if kind == 'purchase' else -(subs * 4)
-    amount = total if kind == 'purchase' else -total
+    # purchase/extra — положительные (extra = доплата за доп.урок сверх курса,
+    # те же знаковые правила, что и purchase); refund — отрицательные.
+    positive = kind in ('purchase', 'extra')
+    lessons = subs * 4 if positive else -(subs * 4)
+    amount = total if positive else -total
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO payments (student_id, direction_id, subscriptions_count, lessons_count, "
@@ -44,7 +47,7 @@ def _add_payment_exact(created, student_id, direction_id, lessons_count, unit_pr
     return pid
 
 
-def _add_lesson_attendance(created, group_id, teacher_id, student_id, date, duration=60):
+def _add_lesson_attendance(created, group_id, teacher_id, student_id, date, duration=60, is_free=False):
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
@@ -54,8 +57,9 @@ def _add_lesson_attendance(created, group_id, teacher_id, student_id, date, dura
         )
         lid = cur.fetchone()[0]
         cur.execute(
-            'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s,%s,true)',
-            [lid, student_id],
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present, is_free) '
+            'VALUES (%s,%s,true,%s)',
+            [lid, student_id, is_free],
         )
     created['lessons'].append(lid)
     return lid
@@ -146,7 +150,60 @@ def test_collect_monthly_report_multiple_price_tiers_within_month(
     row = next(r for r in rows if r.student_id == student_fixture)
 
     assert row.unit_prices_month == [Decimal('500.00'), Decimal('450.00')]
+    assert row.unit_qtys_month == [Decimal('2'), Decimal('1')]  # 2 урока по 500, 1 по 450
     assert row.worked_off_month == Decimal('1450.00')  # 2*500 + 1*450
+
+
+def test_collect_monthly_report_extra_payment_counted_as_payment(
+    student_fixture, direction_fixture, graph_cleanup,
+):
+    """
+    Регрессия (Соловьёв Иван 2, оплата 2026-07-23): доплата за доп.урок сверх
+    курса (kind='extra') — реальные деньги клиента и полноценная FIFO-партия.
+    Она ОБЯЗАНА попадать в колонки «Дата/Платёж» и «Итого оплачено», иначе
+    отчёт теряет выручку и рассинхронен с остатком аванса (FIFO extra учитывает).
+    """
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, '2026-07-05')
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 1872, '2026-07-23', kind='extra')
+
+    rows = collect_monthly_report('2026-07')
+    row = next(r for r in rows if r.student_id == student_fixture)
+
+    assert row.payments == [
+        ('2026-07-05', Decimal('2000.00')),
+        ('2026-07-23', Decimal('1872.00')),
+    ]
+    assert row.paid_month_total == Decimal('3872.00')
+
+
+def test_collect_monthly_report_free_lesson_counted_in_attended_not_worked_off(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """
+    Бесплатное занятие (present=true, is_free=true) ПОСЕЩЕНО, но денег не берёт:
+    входит в «Посещено» и в отдельную «в т.ч. бесплатных», но НЕ в «Отработано ₽»
+    и НЕ в детализацию по ценам. «Посещено» = оплаченные + бесплатные сходится.
+    """
+    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
+    # 1 обычный (оплачиваемый) урок + 1 бесплатный — оба внутри месяца.
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10', duration=60,
+    )
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-12',
+        duration=60, is_free=True,
+    )
+
+    rows = collect_monthly_report('2026-07')
+    row = next(r for r in rows if r.student_id == student_fixture)
+
+    assert row.attended_lessons == 2            # 1 оплаченный + 1 бесплатный
+    assert row.free_attended_lessons == 1       # из них бесплатный
+    assert row.worked_off_month == Decimal('500.00')  # только оплаченный
+    assert row.unit_prices_month == [Decimal('500.00')]
+    assert row.unit_qtys_month == [Decimal('1')]  # детализация по ценам — только оплаченный
+    # Сходимость: посещено − бесплатных == сумма кол-в по ценам.
+    assert row.attended_lessons - row.free_attended_lessons == sum(row.unit_qtys_month)
 
 
 def test_collect_monthly_report_extra_lesson_counted_in_makeup_month(
