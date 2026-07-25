@@ -70,10 +70,10 @@ def _annotate_stage(qs):
     удаления enrollment_status (спека 2026-07-25).
 
     Четыре коррелированных подзапроса вместо джойна: одна сделка на строку —
-    Index Scan по renewal_deal_student_cycle_idx (student_id, cycle_no DESC),
-    проверено EXPLAIN ANALYZE на dev-БД. Тот же план даёт и UNIQUE
-    renewal_deal_student_cycle_uq (backward scan по тому же префиксу), так что
-    выделенный индекс страхует, а не является обязательным условием.
+    Index Scan Backward по UNIQUE renewal_deal_student_cycle_uq
+    (student_id, cycle_no), проверено EXPLAIN ANALYZE на dev-БД. Отдельный
+    индекс под это не нужен: UNIQUE-констрейнт — тот же btree (см. миграцию
+    renewals/0015, которая убрала дубль).
     Подписи стадий подзапросом НЕ тянем — воронка это 11 строк, их отдаёт
     _stage_index() одним запросом (см. _attach_stage).
     """

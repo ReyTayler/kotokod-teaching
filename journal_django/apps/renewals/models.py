@@ -128,10 +128,9 @@ class RenewalDeal(models.Model):
             models.Index(fields=['assignee'], name='renewal_deal_assignee_idx'),
             models.Index(fields=['student'], name='renewal_deal_student_idx'),
             # Подзапрос «последняя сделка ученика» (аннотация стадии в
-            # apps/students/repository.py): без -cycle_no это сортировка на
-            # каждую строку списка учеников.
-            models.Index(fields=['student', '-cycle_no'],
-                         name='renewal_deal_student_cycle_idx'),
+            # apps/students/repository.py) отдельного индекса НЕ требует:
+            # UniqueConstraint(student, cycle_no) выше — тот же btree, и
+            # ORDER BY cycle_no DESC LIMIT 1 идёт по нему обратным сканом.
         ]
 
 
