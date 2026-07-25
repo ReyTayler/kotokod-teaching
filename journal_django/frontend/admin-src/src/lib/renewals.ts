@@ -8,6 +8,13 @@ export const SLA_OVERDUE_DAYS = 5;
 
 export type StageKind = 'progress' | 'decision' | 'won' | 'lost';
 
+/**
+ * Ключ стадии «Заморожен» — зеркалит `apps/renewals/transitions.py::FROZEN_KEY`.
+ * У неё особые правила перехода (вход разрешён с любой стадии и посреди цикла,
+ * выход — только действием «Вернуть в работу»), поэтому UI обязан её опознавать.
+ */
+export const FROZEN_STAGE_KEY = 'frozen';
+
 export type StageTone = 'info' | 'muted' | 'positive' | 'negative';
 
 /**

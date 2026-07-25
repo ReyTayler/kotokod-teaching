@@ -12,7 +12,7 @@ import { RenewalColumn } from './RenewalColumn';
 import { RenewalCardContent } from './RenewalCardView';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
 import { FreezeDealDialog } from './FreezeDealDialog';
-import type { RenewalBoard as RenewalBoardData, RenewalCard, RenewalFilters } from '../../lib/renewals';
+import { FROZEN_STAGE_KEY, type RenewalBoard as RenewalBoardData, type RenewalCard, type RenewalFilters } from '../../lib/renewals';
 
 interface Props {
   filters: RenewalFilters;
@@ -131,7 +131,7 @@ export function RenewalBoard({ filters, onOpen }: Props) {
 
     // «Заморожен» — обычная ручная стадия, но move требует месяц окончания,
     // поэтому вместо тихого переноса спрашиваем его диалогом.
-    if (targetStage?.key === 'frozen') {
+    if (targetStage?.key === FROZEN_STAGE_KEY) {
       const card = dragCard(event);
       if (card) {
         setFreezeTarget({ dealId, studentName: card.student_name, stageId: toStageId });

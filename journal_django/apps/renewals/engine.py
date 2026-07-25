@@ -18,7 +18,7 @@ from django.utils import timezone
 from apps.core.utils.dates import msk_now
 from apps.renewals import cycle
 from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalPipeline, RenewalStage
-from apps.renewals.transitions import FROZEN_KEY  # noqa: F401  (реэкспорт для вызывающих)
+from apps.renewals.transitions import FROZEN_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +279,10 @@ def return_from_freeze(deal_id: int, author_id: Optional[int] = None) -> Optiona
 
     Адресуется по deal_id: так её вызывает UI карточки сделки.
 
-    None, если сделки нет, она закрыта или стоит не на 'frozen'.
+    None, если сделки нет, она закрыта, стоит не на 'frozen' или расчётной
+    авто-стадии не нашлось (воронка без прогресс-авто-стадий — практически
+    недостижимо, но молча отвечать «успех», оставив сделку в заморозке, нельзя:
+    вьюха обязана отдать 409, а не 200).
     """
     from apps.finances.repository import balance_for_student
 
@@ -294,7 +297,9 @@ def return_from_freeze(deal_id: int, author_id: Optional[int] = None) -> Optiona
     balance = float(balance_for_student(deal.student_id))
     target, _matured = _target_auto_stage(deal, attended, balance, auto, progress_stages)
     if target is None:
-        return deal
+        # Возвращать `deal` здесь значило бы соврать вызывающему: стадия и месяц
+        # НЕ сброшены, а services.unfreeze_deal отдал бы 200 и UI показал успех.
+        return None
 
     from_stage = deal.stage
     deal.stage = target

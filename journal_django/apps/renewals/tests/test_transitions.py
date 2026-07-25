@@ -124,3 +124,21 @@ def test_frozen_to_lost_allowed():
                       from_is_auto=False, to_is_auto=False,
                       from_key='frozen', to_key='churned',
                       cycle_completed=False) is True
+
+
+def test_freeze_pass_requires_decision_kind():
+    """Поблажки заморозке даны ей как ПРОМЕЖУТОЧНОЙ стадии, не по одному ключу.
+
+    superadmin может сменить kind стадии key='frozen' на 'won' через настройку
+    стадий. Если бы проверка шла по одному ключу, это открыло бы путь закрыть
+    сделку как «Продлён» посреди цикла и с нулевым балансом, минуя оба гейта.
+    """
+    assert is_allowed(from_kind='progress', to_kind='won',
+                      from_is_auto=True, to_is_auto=False,
+                      from_key='lesson_2', to_key='frozen',
+                      cycle_completed=False, balance=0) is False
+    # И при завершённом цикле «Продлён» с нулевым балансом тоже не проходит.
+    assert is_allowed(from_kind='decision', to_kind='won',
+                      from_is_auto=False, to_is_auto=False,
+                      from_key='thinking', to_key='frozen',
+                      cycle_completed=True, balance=0) is False

@@ -14,8 +14,20 @@ AWAITING_RENEWAL_KEY = 'awaiting_renewal'
 
 # Ключ стадии «Заморожен». Единственная decision-стадия, в которую можно уйти
 # посреди цикла: заморозка не связана с созреванием продления. Определена здесь
-# (а не в engine), потому что это правило переходов; engine её реэкспортирует.
+# (а не в engine), потому что это правило переходов.
 FROZEN_KEY = 'frozen'
+
+
+def _is_freeze_target(to_key: str | None, to_kind: str) -> bool:
+    """«Заморожен» как цель перехода — и только пока она ПРОМЕЖУТОЧНАЯ стадия.
+
+    Обе поблажки для заморозки (уход с авто-стадии и вход посреди цикла) даны
+    ей как «пауза, а не решение». Требование kind='decision' закрывает лазейку:
+    superadmin может через настройку стадий сменить kind стадии key='frozen'
+    на 'won'/'lost', и тогда проверка по одному ключу открыла бы путь ЗАКРЫТЬ
+    сделку (в том числе как «Продлён» при нулевом балансе), минуя ворота ниже.
+    """
+    return to_key == FROZEN_KEY and to_kind == 'decision'
 
 
 def is_allowed(*, from_kind: str, to_kind: str,
@@ -29,7 +41,7 @@ def is_allowed(*, from_kind: str, to_kind: str,
       is_auto=False — обычная ручная decision-стадия, этот запрет её не касается;
     - с авто-стадии уйти нельзя (from_is_auto) — КРОМЕ «Ждём продление»
       (from_key == AWAITING_RENEWAL_KEY) и КРОМЕ ухода в «Заморожен»
-      (to_key == FROZEN_KEY): заморозка — реакция менеджера на обстоятельства
+      (_is_freeze_target): заморозка — реакция менеджера на обстоятельства
       ученика (болезнь, отпуск), она не привязана к точке принятия решения о
       продлении и может понадобиться с любой прогресс-стадии («Урок N»).
     С «Ждём продление» (kind='decision') работают обычные ворота decision-стадий:
@@ -48,14 +60,15 @@ def is_allowed(*, from_kind: str, to_kind: str,
     """
     if from_kind in _TERMINAL:
         return False
-    if from_is_auto and from_key != AWAITING_RENEWAL_KEY and to_key != FROZEN_KEY:
+    if (from_is_auto and from_key != AWAITING_RENEWAL_KEY
+            and not _is_freeze_target(to_key, to_kind)):
         return False
     if to_is_auto:
         return False
     if to_kind == 'progress':
         return False
     if not cycle_completed:
-        return to_kind == 'lost' or to_key == FROZEN_KEY
+        return to_kind == 'lost' or _is_freeze_target(to_key, to_kind)
     if to_kind == 'won' and balance <= 0:
         return False
     return to_kind in {'decision', 'won', 'lost'}

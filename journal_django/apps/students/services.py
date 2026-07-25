@@ -35,6 +35,11 @@ def get_student(student_id: int) -> Optional[dict]:
     return repository.get_student(student_id)
 
 
+def student_exists(student_id: int) -> bool:
+    """Факт существования ученика — для 404-гейтов, без выборки полей и стадии."""
+    return repository.student_exists(student_id)
+
+
 def create_student(data: dict) -> dict:
     """Создаёт ученика."""
     return repository.create_student(data)

@@ -93,6 +93,27 @@ def test_filter_by_stage_id(stages):
 
 
 @pytest.mark.django_db
+def test_sort_by_stage_desc_keeps_students_without_deals_last(stages):
+    """Ученик без сделок — всегда в конце, при любом направлении сортировки.
+
+    Postgres по умолчанию даёт NULLS LAST только для ASC; без явного nulls_last
+    сортировка «по стадии по убыванию» начиналась бы с пачки прочерков.
+    """
+    with_deal = _student('__stage_nulls_with__')
+    RenewalDeal.objects.create(student=with_deal, cycle_no=1,
+                               pipeline=stages['frozen'].pipeline,
+                               stage=stages['frozen'])
+    _student('__stage_nulls_without__')
+
+    for direction in ('asc', 'desc'):
+        rows = repository.list_students(
+            page_size=500, sort_by='stage', sort_dir=direction)['rows']
+        names = [r['full_name'] for r in rows]
+        assert names.index('__stage_nulls_with__') < names.index('__stage_nulls_without__'), (
+            f'ученик без сделок должен идти позже при sort_dir={direction}')
+
+
+@pytest.mark.django_db
 def test_sort_by_stage(stages):
     """sort_by='stage' сортирует по sort_order стадии, не по её id/подписи.
 

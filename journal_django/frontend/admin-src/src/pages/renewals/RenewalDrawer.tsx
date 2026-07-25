@@ -16,7 +16,7 @@ import { RENEWAL_STAGE_LABELS } from '../../lib/labels';
 import { StageBadge } from './StageBadge';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
 import { FreezeDealDialog } from './FreezeDealDialog';
-import type { RenewalActivityItem } from '../../lib/renewals';
+import { FROZEN_STAGE_KEY, type RenewalActivityItem } from '../../lib/renewals';
 
 interface Props {
   id: number;
@@ -102,7 +102,7 @@ export function RenewalDrawer({ id, onClose }: Props) {
       });
       return;
     }
-    if (target.key === 'frozen') {
+    if (target.key === FROZEN_STAGE_KEY) {
       setFreezeStageId(stageId);
       return;
     }
@@ -136,22 +136,35 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
   const stageLabel = deal?.stage_label || (deal ? RENEWAL_STAGE_LABELS[deal.stage_key] : undefined);
   const isClosed = deal?.outcome_at != null;
-  // Ручной перевод стадии возможен ТОЛЬКО с ручной decision-стадии (в том числе
-  // «Заморожен» — она снова ручная, спека 2026-07-25) или со стадии «Ждём
-  // продление» — с авто-стадий (прогресс, «Ждём оплату») бэк блокирует любой move
-  // (transitions.py: from_is_auto). На них дропдаун стадии не показываем вовсе —
-  // стадия видна бейджем в шапке, а не предлагаем выбор, гарантированно дающий 409.
   const cycleDone = !!deal?.cycle_completed;
   const currentStage = (stages || []).find((s) => s.id === deal?.stage_id);
-  const stageMovable = !!currentStage
+  const isFrozen = deal?.stage_key === FROZEN_STAGE_KEY;
+  // Обычные ручные переходы (в другую decision-стадию, закрытие) бэк разрешает
+  // только С ручной decision-стадии или со «Ждём продление»: с авто-стадий
+  // (прогресс, «Ждём оплату») любой move даёт 409 (transitions.py: from_is_auto).
+  const fromAllowsManualMoves = !!currentStage
     && ((currentStage.kind === 'decision' && !currentStage.is_auto)
       || currentStage.key === 'awaiting_renewal');
-  // Достижимые вручную цели: ручные decision-стадии (при завершённом цикле).
-  const manualTargets = (stages || []).filter(
-    (s) => s.kind === 'decision' && !s.is_auto && cycleDone && s.id !== deal?.stage_id);
+  // Заморозка — исключение: бэк пускает в неё с ЛЮБОЙ стадии и при незавершённом
+  // цикле (transitions.py: _is_freeze_target), потому что это пауза, а не решение.
+  // Поэтому «Урок 2» → «Заморожен» должно быть доступно и из панели, не только драгом.
+  const freezeTarget = !isFrozen
+    ? (stages || []).find((s) => s.key === FROZEN_STAGE_KEY && s.id !== deal?.stage_id)
+    : undefined;
+  const stageMovable = !!currentStage && (fromAllowsManualMoves || !!freezeTarget);
+  // Прочие ручные цели — только при завершённом цикле и только если уйти с текущей
+  // стадии вообще можно. Заморозка идёт отдельным пунктом (freezeTarget) и не
+  // дублируется здесь.
+  const manualTargets = fromAllowsManualMoves
+    ? (stages || []).filter(
+      (s) => s.kind === 'decision' && !s.is_auto && cycleDone
+        && s.id !== deal?.stage_id && s.key !== FROZEN_STAGE_KEY)
+    : [];
   // «Ушёл» — всегда; «Продлён» — только при завершённом цикле (через диалог).
-  const closeStages = (stages || []).filter(
-    (s) => s.kind === 'lost' || (s.kind === 'won' && cycleDone));
+  // С авто-стадии закрыть сделку руками нельзя, поэтому и не предлагаем.
+  const closeStages = fromAllowsManualMoves
+    ? (stages || []).filter((s) => s.kind === 'lost' || (s.kind === 'won' && cycleDone))
+    : [];
 
   return (
     <div className="renewal-drawer-overlay" onClick={onClose}>
@@ -242,6 +255,9 @@ export function RenewalDrawer({ id, onClose }: Props) {
                         onChange={(e) => handleStageChange(e.target.value)}
                         options={[
                           { value: String(currentStage.id), label: currentStage.label },
+                          ...(freezeTarget
+                            ? [{ value: String(freezeTarget.id), label: `${freezeTarget.label}…` }]
+                            : []),
                           ...manualTargets.map((s) => ({ value: String(s.id), label: s.label })),
                           ...closeStages.map((s) => ({
                             value: String(s.id),
@@ -266,10 +282,23 @@ export function RenewalDrawer({ id, onClose }: Props) {
                   >
                     Внести оплату
                   </button>
+                  {/* Продление заморозки: переход «Заморожен → Заморожен» бэк
+                      разрешает и перезаписывает месяц. Без этой кнопки менеджеру
+                      пришлось бы разморозить и заморозить заново, оставив в
+                      таймлайне «возврат в работу», которого не было. */}
+                  {isFrozen && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setFreezeStageId(deal.stage_id)}
+                    >
+                      Изменить месяц
+                    </button>
+                  )}
                   {/* Единственный выход из заморозки: ставит расчётную авто-стадию
                       по посещаемости и балансу и гасит месяц. Автовыхода по факту
                       записанного урока нет (решение пользователя 2026-07-25). */}
-                  {deal.stage_key === 'frozen' && (
+                  {isFrozen && (
                     <button
                       type="button"
                       className="btn-secondary"
@@ -333,6 +362,11 @@ export function RenewalDrawer({ id, onClose }: Props) {
               <FreezeDealDialog
                 studentName={deal.student_name}
                 pending={move.isPending}
+                // Цель = текущая стадия ⇒ это правка месяца у уже замороженной
+                // сделки: подставляем сохранённый месяц вместо ближайшего.
+                initialMonth={
+                  freezeStageId === deal.stage_id ? deal.frozen_until_month : undefined
+                }
                 onClose={() => setFreezeStageId(null)}
                 onConfirm={(frozen_until_month) => {
                   move.mutate(
@@ -341,7 +375,7 @@ export function RenewalDrawer({ id, onClose }: Props) {
                       onSuccess: () => setFreezeStageId(null),
                       onError: (err) => {
                         setFreezeStageId(null);
-                        showError(err, 'Не удалось заморозить сделку');
+                        showError(err, 'Не удалось изменить заморозку');
                       },
                     },
                   );

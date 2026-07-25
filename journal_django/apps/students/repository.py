@@ -49,6 +49,24 @@ _SORTABLE: dict[str, str] = {
 _DEFAULT_SORT_BY = 'full_name'
 _DEFAULT_SORT_DIR = 'asc'
 
+# Поля-аннотации, у которых NULL — «нет значения», а не «пустое значение»:
+# ученики без сделок должны быть в КОНЦЕ при обеих направлениях сортировки.
+# Postgres по умолчанию даёт NULLS LAST только при ASC, при DESC — NULLS FIRST,
+# и сортировка «по стадии по убыванию» начиналась бы с прочерков.
+# Тот же приём, что в apps/renewals/repository.py (там NULLS LAST в сыром SQL).
+_NULLS_LAST_FIELDS = frozenset({'stage_sort_order'})
+
+
+def _order_expr(sort_field: str, sort_dir: str):
+    """ORDER BY-выражение: строка для обычных полей, F(...) с nulls_last для
+    аннотаций из _NULLS_LAST_FIELDS. Остальные поля не трогаем — для них
+    дефолтное поведение Postgres уже правильное (и совпадает с прежним)."""
+    descending = sort_dir != 'asc'
+    if sort_field in _NULLS_LAST_FIELDS:
+        expr = F(sort_field)
+        return expr.desc(nulls_last=True) if descending else expr.asc(nulls_last=True)
+    return f'{"-" if descending else ""}{sort_field}'
+
 # Явный список колонок students для .values() — общий для list/get/create/update,
 # чтобы новое поле модели требовалось добавить только в одном месте. manager_name
 # везде добавляется отдельным kwarg-алиасом (F() несовместим с .values() без аргументов).
@@ -177,7 +195,6 @@ def list_students(
         filters = {}
 
     sort_field = _SORTABLE.get(sort_by) or _SORTABLE[_DEFAULT_SORT_BY]
-    order_prefix = '' if sort_dir == 'asc' else '-'
 
     # Аннотация стадии нужна для COUNT только если по ней фильтруют или сортируют:
     # иначе считаем по «чистому» queryset, не платя за 4 подзапроса на строку.
@@ -192,7 +209,7 @@ def list_students(
 
     page_qs = base if needs_stage_in_count else _annotate_stage(base)
     offset = max(0, (page - 1) * page_size)
-    ordered = page_qs.order_by(f'{order_prefix}{sort_field}', '-id')
+    ordered = page_qs.order_by(_order_expr(sort_field, sort_dir), '-id')
     rows = dictrows(ordered[offset:offset + page_size].values(
         *_STUDENT_VALUES_FIELDS, *_STAGE_VALUES_FIELDS,
         manager_name=F('manager__full_name'),
@@ -214,6 +231,17 @@ def get_student(student_id: int) -> Optional[dict]:
             manager_name=F('manager__full_name'),
         )))
     return rows[0] if rows else None
+
+
+def student_exists(student_id: int) -> bool:
+    """Есть ли такой ученик — SELECT 1 ... LIMIT 1.
+
+    Отдельно от get_student: там, где нужен только 404-гейт (stats, комментарии),
+    полная выборка обходится в 4 коррелированных подзапроса стадии + запрос
+    справочника стадий (_annotate_stage / _stage_index) — за факт существования
+    столько платить незачем.
+    """
+    return Student.objects.filter(id=student_id).exists()
 
 
 def create_student(data: dict) -> dict:

@@ -140,9 +140,9 @@ class StudentStatsView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
-        # Проверяем существование ученика
-        student = services.get_student(pk)
-        if student is None:
+        # Только 404-гейт: сами поля ученика здесь не нужны, поэтому exists(),
+        # а не get_student (тот тянет ещё и стадию — 4 подзапроса + справочник).
+        if not services.student_exists(pk):
             raise NotFound({'error': 'Not found'})
 
         stats = services.student_stats(pk)
@@ -184,12 +184,12 @@ class StudentCommentListView(generics.ListAPIView):
         )
 
     def get(self, request: Request, pk: int) -> Response:
-        if services.get_student(pk) is None:
+        if not services.student_exists(pk):
             raise NotFound({'error': 'Not found'})
         return super().get(request, pk)
 
     def post(self, request: Request, pk: int) -> Response:
-        if services.get_student(pk) is None:
+        if not services.student_exists(pk):
             raise NotFound({'error': 'Not found'})
         ser = StudentCommentWriteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
