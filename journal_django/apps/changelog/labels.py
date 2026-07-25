@@ -40,6 +40,12 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     # сохранённых method+url (repository._operation_of), поэтому без него прошлые
     # записи «Ученик в архив» схлопнулись бы в 'other' и потерялись бы в фильтре.
     ('DELETE', re.compile(r'^/api/admin/students/\d+$'), 'student.delete'),
+    # LEGACY: статусы ученика удалены вместе с эндпоинтами смены статуса и
+    # разморозки (спека 2026-07-25). Правила оставлены по той же причине, что
+    # student.delete выше: в БД есть исторические события заморозки/отказа, и без
+    # правил они схлопнулись бы в 'other'.
+    ('POST', re.compile(r'^/api/admin/students/\d+/status$'), 'student.status'),
+    ('POST', re.compile(r'^/api/admin/students/\d+/resume$'), 'student.resume'),
     ('POST', re.compile(r'^/api/admin/discounts$'), 'discount.create'),
     ('PATCH', re.compile(r'^/api/admin/discounts/\d+$'), 'discount.update'),
     ('DELETE', re.compile(r'^/api/admin/discounts/\d+$'), 'discount.delete'),

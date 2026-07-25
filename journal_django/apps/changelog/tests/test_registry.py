@@ -45,6 +45,16 @@ def test_operation_from_url():
     assert labels.resolve_operation('GET', '/api/admin/groups') == 'other'
 
 
+def test_operation_from_url_keeps_removed_endpoints():
+    """Правила снятых эндпоинтов остаются: операция резолвится при ЧТЕНИИ ленты из
+    сохранённых method+url, поэтому исторические события обязаны узнаваться и после
+    удаления самого эндпоинта. Без этого они схлопываются в 'other' и выпадают из
+    фильтра — тот же приём, что для membership.place и extra_lesson.waive."""
+    assert labels.resolve_operation('POST', '/api/admin/students/7/status') == 'student.status'
+    assert labels.resolve_operation('POST', '/api/admin/students/7/resume') == 'student.resume'
+    assert labels.resolve_operation('DELETE', '/api/admin/students/7') == 'student.delete'
+
+
 def test_rule_for_operation_roundtrip():
     method, pattern = labels.rule_for_operation('lesson.submit')
     assert method == 'POST'
