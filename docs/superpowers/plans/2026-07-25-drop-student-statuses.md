@@ -1612,7 +1612,11 @@ def base_students_qs(today: datetime.date) -> QuerySet:
 
 - [ ] **Step 3: Журнал изменений — правила и подписи полей**
 
-В `journal_django/apps/changelog/labels.py` удалить два правила (строки 35-36) и добавить рядом с прочими renewals-правилами:
+⚠️ **Исправление плана (найдено при исполнении).** Правила `student.status` / `student.resume` **удалять НЕЛЬЗЯ**. Операция резолвится при ЧТЕНИИ ленты из сохранённых в БД `method+url`, поэтому для снятых эндпоинтов правила оставляют намеренно — в самом файле так уже сделано для `student.delete`, `membership.place` и `extra_lesson.waive`, с комментариями. В БД есть исторические события `/status` и `/resume` (проверено запросом к `pghistory_context`); без правил они схлопнутся в `other` и выпадут из фильтра. Оставить оба правила с LEGACY-комментарием и закрепить тестом.
+
+Подписи полей `enrollment_status` / `frozen_from` / `frozen_until` в `summary.py`, наоборот, удаляются: миграция `students/0016` снимает эти колонки и с теневой таблицы `students_studentevent`, так что построчных диффов по ним больше не бывает.
+
+В `journal_django/apps/changelog/labels.py` добавить рядом с прочими renewals-правилами:
 
 ```python
     ('POST', re.compile(r'^/api/admin/renewals/\d+/unfreeze$'), 'renewal.unfreeze'),
@@ -1734,7 +1738,15 @@ Expected: без ошибок.
 - [ ] **Step 3: Убедиться, что от статусов не осталось следов**
 
 Run: `grep -rn "enrollment_status\|EnrollmentStatus\|frozen_from\|StatusBadge\|StudentStatusModal\|freeze_individual_group\|resume_individual_group\|decline_deal\|freeze_deal" journal_django --include=*.py --include=*.ts --include=*.tsx | grep -v "/migrations/" | grep -v "-dist/"`
-Expected: пусто. Совпадения в `apps/*/migrations/` и в собранных бандлах `*-dist/` — норма (история миграций не переписывается, бандлы пересоберутся при следующей сборке).
+
+Ожидается, что останутся только законные совпадения; всё остальное — недоделка:
+
+- поясняющие комментарии («стадия заменила `enrollment_status`») в `students/serializers.py`, `students/repository.py`, `lib/shared-types.ts`, `changelog/summary.py`;
+- `RegistryStatusBadge` — другой компонент (статус реестра куратора), к статусу ученика не относится;
+- `unfreeze_deal` в `renewals/{views,services}.py` — попадает под подстроку `freeze_deal`, это живая функция;
+- LEGACY-правила `student.status` / `student.resume` в `changelog/labels.py` (см. исправление в задаче 11).
+
+Совпадения в `apps/*/migrations/` и в собранных бандлах `*-dist/` — норма: история миграций не переписывается, бандлы пересоберутся при следующей сборке.
 
 - [ ] **Step 4: Проверка миграций**
 
