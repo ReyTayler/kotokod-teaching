@@ -130,7 +130,7 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         from_stage = deal.stage
         assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind,
                        from_is_auto=from_stage.is_auto, to_is_auto=to_stage.is_auto,
-                       from_key=from_stage.key,
+                       from_key=from_stage.key, to_key=to_stage.key,
                        cycle_completed=engine.cycle_completed(deal),
                        balance=float(balance_for_student(deal.student_id)))
 

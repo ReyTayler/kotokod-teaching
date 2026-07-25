@@ -12,17 +12,26 @@ _TERMINAL = {'won', 'lost'}
 # (подтверждение/отклонение продления). Прочие авто-стадии двигает только движок.
 AWAITING_RENEWAL_KEY = 'awaiting_renewal'
 
+# Ключ стадии «Заморожен». Единственная decision-стадия, в которую можно уйти
+# посреди цикла: заморозка не связана с созреванием продления. Определена здесь
+# (а не в engine), потому что это правило переходов; engine её реэкспортирует.
+FROZEN_KEY = 'frozen'
+
 
 def is_allowed(*, from_kind: str, to_kind: str,
                from_is_auto: bool = False, to_is_auto: bool = False,
-               from_key: str | None = None,
+               from_key: str | None = None, to_key: str | None = None,
                cycle_completed: bool = True, balance: float = 1) -> bool:
     """
     Авто-стадии (is_auto) двигает движок по событиям. Руками:
     - на авто-стадию встать нельзя (to_is_auto) — прогресс, «Ждём оплату»,
-      «Ждём продление», «Заморожен»;
+      «Ждём продление». «Заморожен» с Task 1 (коммит ee1ba9d) is_auto=False —
+      обычная ручная decision-стадия, этот запрет её больше не касается;
     - с авто-стадии уйти нельзя (from_is_auto) — КРОМЕ «Ждём продление»
-      (from_key == AWAITING_RENEWAL_KEY): это точка ручного решения о продлении.
+      (from_key == AWAITING_RENEWAL_KEY) и КРОМЕ ухода в «Заморожен»
+      (to_key == FROZEN_KEY): заморозка — реакция менеджера на обстоятельства
+      ученика (болезнь, отпуск), она не привязана к точке принятия решения о
+      продлении и может понадобиться с любой прогресс-стадии («Урок N»).
     С «Ждём продление» (kind='decision') работают обычные ворота decision-стадий:
     в другую ручную decision / «Продлён» — при завершённом цикле; «Ушёл» — всегда.
     В «Продлён» — дополнительно только при положительном балансе (> 0 уроков):
@@ -31,17 +40,22 @@ def is_allowed(*, from_kind: str, to_kind: str,
     Решение пользователя 2026-07-19 (послабляет прежний тотальный from_is_auto→False
     от 2026-07-17: без выхода со стадии «Ждём продление» сделку нельзя было закрыть
     как «Продлён»).
+
+    Заморозка посреди незавершённого цикла разрешена решением пользователя
+    2026-07-25 — приравнена к «Ушёл»: обе случаются в любой момент, а не только
+    после отработанного абонемента. Прочие ручные decision-стадии («Думает»,
+    «Игнорит») по-прежнему требуют завершённого цикла.
     """
     if from_kind in _TERMINAL:
         return False
-    if from_is_auto and from_key != AWAITING_RENEWAL_KEY:
+    if from_is_auto and from_key != AWAITING_RENEWAL_KEY and to_key != FROZEN_KEY:
         return False
     if to_is_auto:
         return False
     if to_kind == 'progress':
         return False
     if not cycle_completed:
-        return to_kind == 'lost'
+        return to_kind == 'lost' or to_key == FROZEN_KEY
     if to_kind == 'won' and balance <= 0:
         return False
     return to_kind in {'decision', 'won', 'lost'}
@@ -49,11 +63,11 @@ def is_allowed(*, from_kind: str, to_kind: str,
 
 def assert_allowed(*, from_kind: str, to_kind: str,
                    from_is_auto: bool = False, to_is_auto: bool = False,
-                   from_key: str | None = None,
+                   from_key: str | None = None, to_key: str | None = None,
                    cycle_completed: bool = True, balance: float = 1) -> None:
     if not is_allowed(from_kind=from_kind, to_kind=to_kind,
                       from_is_auto=from_is_auto, to_is_auto=to_is_auto,
-                      from_key=from_key, cycle_completed=cycle_completed,
+                      from_key=from_key, to_key=to_key, cycle_completed=cycle_completed,
                       balance=balance):
         if to_kind == 'won' and balance <= 0:
             raise InvalidTransition(

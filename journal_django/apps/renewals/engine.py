@@ -18,13 +18,9 @@ from django.utils import timezone
 from apps.core.utils.dates import msk_now
 from apps.renewals import cycle
 from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalPipeline, RenewalStage
+from apps.renewals.transitions import FROZEN_KEY  # noqa: F401  (реэкспорт для вызывающих)
 
 logger = logging.getLogger(__name__)
-
-# Ключ стадии «Заморожен» — is_auto=True только чтобы блокировать РУЧНОЙ вход/выход
-# (Task 5), не чтобы sync_lesson_stage сам её пересчитывал. Единая точка правды
-# для всех мест, где движок должен опознать именно эту стадию.
-FROZEN_KEY = 'frozen'
 
 
 def _default_pipeline() -> RenewalPipeline:

@@ -100,3 +100,27 @@ def test_other_auto_stages_still_locked_off():
     # progress-авто — тоже нельзя.
     assert not is_allowed(from_kind='progress', from_is_auto=True,
                           from_key='lesson_1', to_kind='lost', cycle_completed=True)
+
+
+def test_frozen_allowed_mid_cycle():
+    """В «Заморожен» можно уйти, не докрутив цикл — как и в «Ушёл»."""
+    assert is_allowed(from_kind='progress', to_kind='decision',
+                      from_is_auto=True, to_is_auto=False,
+                      from_key='lesson_2', to_key='frozen',
+                      cycle_completed=False) is True
+
+
+def test_other_decision_still_blocked_mid_cycle():
+    """Послабление касается ТОЛЬКО заморозки: «Думает» посреди цикла по-прежнему нет."""
+    assert is_allowed(from_kind='progress', to_kind='decision',
+                      from_is_auto=True, to_is_auto=False,
+                      from_key='lesson_2', to_key='thinking',
+                      cycle_completed=False) is False
+
+
+def test_frozen_to_lost_allowed():
+    """Со «Заморожен» всегда можно закрыть сделку как «Ушёл»."""
+    assert is_allowed(from_kind='decision', to_kind='lost',
+                      from_is_auto=False, to_is_auto=False,
+                      from_key='frozen', to_key='churned',
+                      cycle_completed=False) is True
