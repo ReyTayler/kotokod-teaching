@@ -13,7 +13,11 @@
 .table-wrap {
   overflow: auto;
   max-height: calc(100vh - 280px);
-  overscroll-behavior: contain;
+  /* overscroll-behavior НЕ 'contain': при 'contain' скролл не передаётся
+     странице на краю таблицы — дойдя до конца, приходилось уводить курсор из
+     таблицы, чтобы прокрутить страницу. Дефолт 'auto' даёт нормальную сцепку:
+     таблица докручивается до края, дальше колесо прокручивает страницу. */
+  overscroll-behavior: auto;
 }
 table { width: 100%; min-width: max-content; border-collapse: collapse; }
 thead th {
@@ -246,7 +250,14 @@ thead th {
    при рефетче на каждый введённый символ. */
 .data-table--loading tbody { pointer-events: none; }
 .data-table th.sortable { cursor: pointer; user-select: none; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
-.data-table th.sortable:hover { background: var(--accent-soft); color: var(--accent); }
+/* accent-soft полупрозрачный (rgba .10) — на sticky-заголовке сквозь него
+   просвечивала бы строка, ушедшая под шапку при скролле (видно только в
+   наведённой сортируемой колонке). Кладём его СЛОЕМ поверх непрозрачного bg3,
+   чтобы фон ячейки оставался непрозрачным. */
+.data-table th.sortable:hover {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg3);
+  color: var(--accent);
+}
 
 /* ── DATA TABLE EMPTY STATE ── */
 .data-table__empty {
