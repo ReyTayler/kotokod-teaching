@@ -455,16 +455,20 @@ def test_move_to_frozen_normalizes_month(admin_client, open_deal, frozen_stage):
 
 
 @pytest.mark.django_db
-def test_leaving_frozen_clears_month(admin_client, open_deal, frozen_stage,
-                                     thinking_stage):
-    """Уход со стадии «Заморожен» обнуляет месяц — иначе он «прилипает» мёртвым."""
+def test_leaving_frozen_clears_month(open_deal, frozen_stage, churned_stage):
+    """Уход со стадии «Заморожен» обнуляет месяц — иначе он «прилипает» мёртвым.
+
+    Уходим в «Ушёл»: у сделки из фикстуры нет посещаемости, то есть цикл не
+    отработан, и валидатор пускает только в lost (в «Думает» он бы отказал —
+    это его штатное поведение, а не помеха тесту).
+    """
     from apps.renewals import repository as repo
     repo.move_deal(open_deal.id, frozen_stage.id, None, None,
                    frozen_until_month=date(2026, 9, 1))
-    repo.move_deal(open_deal.id, thinking_stage.id, None, None)
+    repo.move_deal(open_deal.id, churned_stage.id, None, None)
     open_deal.refresh_from_db()
     assert open_deal.frozen_until_month is None
-    assert open_deal.stage_id == thinking_stage.id
+    assert open_deal.stage_id == churned_stage.id
 
 
 @pytest.mark.django_db
@@ -487,14 +491,17 @@ def frozen_stage():
 
 
 @pytest.fixture
-def thinking_stage():
-    return RenewalStage.objects.get(pipeline__is_default=True, key='thinking')
+def churned_stage():
+    return RenewalStage.objects.get(pipeline__is_default=True, key='churned')
 
 
 @pytest.fixture
 def open_deal(frozen_stage):
-    """Открытая сделка на «Ждём продление» с отработанным циклом: ручные
-    переходы в decision-стадии разрешены, ворота cycle_completed не мешают."""
+    """Открытая сделка на «Ждём продление», посещаемости нет (цикл не отработан).
+
+    Этого достаточно: в «Заморожен» валидатор пускает и посреди цикла (задача 2),
+    а в «Ушёл» — всегда. Тесты намеренно не подкручивают посещаемость, чтобы не
+    зависеть от механики начисления уроков."""
     student = Student.objects.create(
         full_name='__frozen_stage_stud__', created_at='2026-07-01T00:00:00Z')
     awaiting = RenewalStage.objects.get(
