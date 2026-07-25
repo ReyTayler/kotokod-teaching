@@ -49,30 +49,29 @@
 
 **Files:**
 - Create: `journal_django/apps/renewals/migrations/0012_frozen_manual_stage.py`
-- Create: `journal_django/apps/renewals/tests/test_frozen_stage.py`
+- Modify: `journal_django/apps/renewals/tests/test_seed.py:31-36`
 
-- [ ] **Step 1: Написать падающий тест**
+- [ ] **Step 1: Развернуть существующий тест**
 
-Создать `journal_django/apps/renewals/tests/test_frozen_stage.py`:
+`test_seed.py` уже фиксирует старое поведение — `test_frozen_stage_is_auto` утверждает `frozen.is_auto is True`. Это и есть падающий тест задачи: переименовать в `test_frozen_stage_is_manual`, развернуть ассерт и объяснить причину в докстринге:
 
 ```python
-"""Заморозка как обычная ручная стадия воронки (спека 2026-07-25)."""
-import pytest
-
-from apps.renewals.models import RenewalStage
-
-
 @pytest.mark.django_db
 def test_frozen_stage_is_manual():
-    """Стадия 'frozen' больше не is_auto: менеджер ставит её руками (миграция 0012).
+    """Миграция 0012 отменила 0010: «Заморожен» снова обычная ручная стадия.
 
-    До 0012 она была помечена is_auto=True искусственно — только чтобы
-    заблокировать ручной вход, а двигал её каскад смены статуса ученика.
+    0010 пометила её is_auto=True искусственно — только чтобы
+    transitions.is_allowed запретил ручной вход, а двигал стадию каскад смены
+    статуса ученика. Статусы удалены (спека 2026-07-25), заморозка — обычная
+    decision-стадия, которую ставит менеджер.
     """
-    stage = RenewalStage.objects.get(pipeline__is_default=True, key='frozen')
-    assert stage.is_auto is False
-    assert stage.kind == 'decision'
+    pipe = RenewalPipeline.objects.get(is_default=True)
+    frozen = RenewalStage.objects.get(pipeline=pipe, key='frozen')
+    assert frozen.is_auto is False
+    assert frozen.kind == 'decision'
 ```
+
+Отдельный файл под это не создаём: состояние засидированной воронки — предмет `test_seed.py`, а `test_frozen_stage.py` (поведение заморозки) появится в задаче 4.
 
 - [ ] **Step 2: Убедиться, что тест падает**
 
@@ -422,11 +421,11 @@ git commit -m "feat(renewals): frozen_until_month на сделке + индек
 - Modify: `journal_django/apps/renewals/repository.py:113-158` (`move_deal`)
 - Modify: `journal_django/apps/renewals/serializers.py:12-14` (`MoveSerializer`)
 - Modify: `journal_django/apps/renewals/views.py:108-124` (`RenewalMoveView`)
-- Test: `journal_django/apps/renewals/tests/test_frozen_stage.py`
+- Create: `journal_django/apps/renewals/tests/test_frozen_stage.py`
 
 - [ ] **Step 1: Написать падающие тесты**
 
-Добавить в `journal_django/apps/renewals/tests/test_frozen_stage.py`:
+Создать `journal_django/apps/renewals/tests/test_frozen_stage.py` (поведение заморозки; состояние засидированной стадии живёт в `test_seed.py`) с шапкой `"""Заморозка как обычная стадия воронки (спека 2026-07-25)."""` и тестами:
 
 ```python
 MOVE_URL = '/api/admin/renewals/{}/move'
