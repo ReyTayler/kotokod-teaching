@@ -8,7 +8,7 @@ import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { Avatar } from '../../components/Avatar';
-import { StageBadge } from '../../components/StageBadge';
+import { StudentStageBadge } from '../../components/StudentStageBadge';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { fmtDate, fmtAge } from '../../lib/format';
 import type { Student } from '../../lib/types';
@@ -119,7 +119,7 @@ export default function StudentsListPage() {
       sortable: true,
       searchable: true,
       searchOptions: (stages || []).map((s) => ({ value: String(s.id), label: s.label })),
-      cell: (r) => <StageBadge row={r} />,
+      cell: (r) => <StudentStageBadge row={r} />,
     },
   ];
   const visibleColumns = useTableColumns('students', columns);

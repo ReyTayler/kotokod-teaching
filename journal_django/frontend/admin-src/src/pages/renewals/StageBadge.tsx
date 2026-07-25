@@ -1,14 +1,7 @@
-import type { StageKind } from '../../lib/renewals';
+import { stageTone, type StageKind } from '../../lib/renewals';
 
-// Единый маппинг тона бейджа по kind стадии — используется в списке, канбане и drawer'е.
-const STAGE_TONE: Record<StageKind, 'info' | 'muted' | 'positive' | 'negative'> = {
-  progress: 'info',
-  decision: 'muted',
-  won: 'positive',
-  lost: 'negative',
-};
-
+// Бейдж стадии СДЕЛКИ — список сделок, канбан, панель сделки. Стадия ученика
+// (последняя сделка) рисуется StudentStageBadge, тон у обоих общий: stageTone().
 export function StageBadge({ label, kind }: { label: string; kind: StageKind }) {
-  const tone = STAGE_TONE[kind] ?? 'muted';
-  return <span className={`status-badge status-badge--${tone}`}>{label}</span>;
+  return <span className={`status-badge status-badge--${stageTone(kind)}`}>{label}</span>;
 }

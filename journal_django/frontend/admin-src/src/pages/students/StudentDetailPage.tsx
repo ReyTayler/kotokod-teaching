@@ -8,7 +8,7 @@ import { useApiError } from '../../hooks/useApiError';
 import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
 import { EntityHero, HeroChip, monogramOf, type HeroFact } from '../../components/detail/EntityHero';
 import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
-import { StageBadge } from '../../components/StageBadge';
+import { StudentStageBadge } from '../../components/StudentStageBadge';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { Dialog } from '../../components/ui/Dialog';
@@ -152,7 +152,7 @@ export default function StudentDetailPage() {
       monogram={monogramOf(student.full_name)}
       color={identityColor}
       title={student.full_name}
-      badge={<StageBadge row={student} />}
+      badge={<StudentStageBadge row={student} />}
       meta={
         <>
           <HeroChip mono>id {student.id}</HeroChip>

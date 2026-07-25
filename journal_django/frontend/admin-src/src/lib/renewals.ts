@@ -8,6 +8,29 @@ export const SLA_OVERDUE_DAYS = 5;
 
 export type StageKind = 'progress' | 'decision' | 'won' | 'lost';
 
+export type StageTone = 'info' | 'muted' | 'positive' | 'negative';
+
+/**
+ * Тон бейджа стадии — ЕДИНЫЙ для всех мест, где стадия показывается: список
+ * сделок, канбан, панель сделки и бейдж ученика (стадия последней сделки =
+ * «статус» ученика, спека 2026-07-25). Иначе одна и та же «Думает» оказывалась
+ * серой в одном экране и синей в другом.
+ *
+ * Цвет стадии из БД (stage.color) здесь не участвует: он принадлежит колонкам
+ * доски, а в таблицах и героях цвет несёт семантику из токенов. Промежуточные
+ * решения (в том числе «Заморожен») намеренно нейтральны — это не оценка.
+ */
+const STAGE_TONE: Record<StageKind, StageTone> = {
+  progress: 'info',
+  decision: 'muted',
+  won: 'positive',
+  lost: 'negative',
+};
+
+export function stageTone(kind: StageKind): StageTone {
+  return STAGE_TONE[kind] ?? 'muted';
+}
+
 export interface RenewalStage {
   id: number;
   key: string;

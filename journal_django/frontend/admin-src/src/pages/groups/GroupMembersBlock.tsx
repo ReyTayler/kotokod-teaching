@@ -1,6 +1,6 @@
 import { useStudentsAll } from '../../hooks/useStudents';
 import { MembershipsBlock } from '../../components/memberships/MembershipsBlock';
-import { StageBadge } from '../../components/StageBadge';
+import { StudentStageBadge } from '../../components/StudentStageBadge';
 import type { Group } from '../../lib/types';
 import { ageFromBirthDate, fmtAge } from '../../lib/format';
 
@@ -29,7 +29,7 @@ export default function GroupMembersBlock({ group }: { group: Group }) {
           meta: s ? (
             <>
               {ageFromBirthDate(s.birth_date) != null && <span className="link-card-meta-pill">{fmtAge(s.birth_date)}</span>}
-              <StageBadge row={s} />
+              <StudentStageBadge row={s} />
             </>
           ) : null,
           navigateTo: `/admin/students/${m.student_id}`,
