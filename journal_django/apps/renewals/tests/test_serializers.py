@@ -5,7 +5,10 @@ from apps.renewals import engine, repository
 from apps.renewals.serializers import DealPatchSerializer, MoveSerializer
 
 
+@pytest.mark.django_db
 def test_move_requires_stage():
+    # MoveSerializer.validate теперь ходит в БД за key стадии (frozen-гейт) —
+    # тесту нужен доступ к БД, даже если сама стадия 5 не существует.
     assert MoveSerializer(data={}).is_valid() is False
     assert MoveSerializer(data={'to_stage_id': 5}).is_valid() is True
 

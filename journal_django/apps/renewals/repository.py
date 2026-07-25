@@ -110,15 +110,32 @@ def deal_computed(deal_id: int) -> dict | None:
     return data
 
 
+_MONTHS_GENITIVE = (
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+)
+
+
+def month_label(value) -> str:
+    """date(2026, 9, 1) → «сентября 2026» — для текста активности таймлайна."""
+    return f'{_MONTHS_GENITIVE[value.month - 1]} {value.year}'
+
+
 def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
-              author_id: int | None) -> dict | None:
-    """Переместить сделку в стадию, записать активность, синхронизировать outcome/enrollment."""
+              author_id: int | None, frozen_until_month=None) -> dict | None:
+    """Переместить сделку в стадию, записать активность, синхронизировать outcome.
+
+    frozen_until_month («до какого месяца заморозка») пишется только при
+    переходе НА стадию key='frozen'; при переходе с неё — обнуляется, чтобы
+    мёртвый месяц не «прилипал» к сделке. Обязательность поля проверяет
+    MoveSerializer (у него есть to_stage_id, значит и ключ стадии).
+    """
     from django.db import transaction
     from django.utils import timezone
     from apps.finances.repository import balance_for_student
     from apps.renewals import engine
     from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalStage
-    from apps.renewals.transitions import assert_allowed, InvalidTransition
+    from apps.renewals.transitions import assert_allowed, InvalidTransition, FROZEN_KEY
 
     with transaction.atomic():
         deal = RenewalDeal.objects.select_for_update().filter(id=deal_id).first()
@@ -134,16 +151,21 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
                        cycle_completed=engine.cycle_completed(deal),
                        balance=float(balance_for_student(deal.student_id)))
 
+        to_frozen = to_stage.key == FROZEN_KEY
+        deal.frozen_until_month = frozen_until_month if to_frozen else None
         deal.stage = to_stage
         deal.stage_entered_at = timezone.now()
         if reason_code is not None:
             deal.reason_code = reason_code
         deal.outcome_at = timezone.now() if to_stage.kind in ('won', 'lost') else None
         deal.save(update_fields=['stage', 'stage_entered_at', 'reason_code',
-                                 'outcome_at', 'updated_at'])
+                                 'outcome_at', 'frozen_until_month', 'updated_at'])
+        body = reason_code or ''
+        if to_frozen and frozen_until_month is not None:
+            body = f'Заморозка до {month_label(frozen_until_month)}'
         RenewalActivity.objects.create(
             deal=deal, kind='stage_change', from_stage=from_stage, to_stage=to_stage,
-            author_id=author_id, body=reason_code or '')
+            author_id=author_id, body=body)
         # Менеджер вручную подтвердил продление — единственный путь закрытия
         # сделки как «Продлён» (оплата больше не закрывает сделку сама, см.
         # signals.py). Спавним следующий цикл, перешагивая занятые закрытые

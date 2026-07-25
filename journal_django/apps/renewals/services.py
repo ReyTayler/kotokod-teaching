@@ -20,8 +20,9 @@ def get_deal(deal_id: int) -> dict | None:
     return repository.deal_computed(deal_id)
 
 
-def move_deal(deal_id, to_stage_id, reason_code, author_id):
-    return repository.move_deal(deal_id, to_stage_id, reason_code, author_id)
+def move_deal(deal_id, to_stage_id, reason_code, author_id, frozen_until_month=None):
+    return repository.move_deal(deal_id, to_stage_id, reason_code, author_id,
+                                frozen_until_month=frozen_until_month)
 
 
 def list_unassigned() -> list[dict]:

@@ -115,7 +115,8 @@ class RenewalMoveView(APIView):
             result = services.move_deal(
                 pk, ser.validated_data['to_stage_id'],
                 ser.validated_data.get('reason_code'),
-                author_id=getattr(request.user, 'id', None))
+                author_id=getattr(request.user, 'id', None),
+                frozen_until_month=ser.validated_data.get('frozen_until_month'))
         except InvalidTransition as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if result is None:
