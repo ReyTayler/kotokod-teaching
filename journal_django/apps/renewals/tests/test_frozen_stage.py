@@ -119,3 +119,47 @@ def test_freeze_activity_mentions_month(open_deal, frozen_stage):
     body = (open_deal.activities.filter(kind='stage_change')
             .order_by('-created_at').first().body)
     assert 'сентября 2026' in body
+
+
+UNFREEZE_URL = '/api/admin/renewals/{}/unfreeze'
+
+
+@pytest.mark.django_db
+def test_unfreeze_returns_to_computed_auto_stage(admin_client, open_deal, frozen_stage):
+    """«Вернуть в работу» ставит расчётную авто-стадию и гасит месяц."""
+    from apps.renewals import repository as repo
+    repo.move_deal(open_deal.id, frozen_stage.id, None, None,
+                   frozen_until_month=date(2026, 9, 1))
+
+    resp = admin_client.post(UNFREEZE_URL.format(open_deal.id))
+    assert resp.status_code == 200
+
+    open_deal.refresh_from_db()
+    assert open_deal.stage.is_auto is True
+    assert open_deal.stage_id != frozen_stage.id
+    assert open_deal.frozen_until_month is None
+    assert open_deal.activities.filter(kind='system').exists()
+
+
+@pytest.mark.django_db
+def test_unfreeze_is_noop_when_not_frozen(admin_client, open_deal):
+    """Сделка не на «Заморожен» — 409, стадия не меняется."""
+    before = open_deal.stage_id
+    resp = admin_client.post(UNFREEZE_URL.format(open_deal.id))
+    assert resp.status_code == 409
+    open_deal.refresh_from_db()
+    assert open_deal.stage_id == before
+
+
+@pytest.mark.django_db
+def test_unfreeze_forbidden_for_teacher(teacher_client, open_deal):
+    """RBAC: учителю раздел продлений недоступен."""
+    resp = teacher_client.post(UNFREEZE_URL.format(open_deal.id))
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_unfreeze_not_found_for_missing_deal(admin_client):
+    """Несуществующая сделка — 404, а не 409 (отличаем «нет сделки» от «не заморожена»)."""
+    resp = admin_client.post(UNFREEZE_URL.format(0))
+    assert resp.status_code == 404

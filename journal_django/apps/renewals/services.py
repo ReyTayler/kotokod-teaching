@@ -67,6 +67,18 @@ def reopen_deal(deal_id: int, author_id: int | None) -> dict | str | None:
     return repository.deal_computed(deal_id)
 
 
+def unfreeze_deal(deal_id: int, author_id: int | None) -> dict | str | None:
+    """None — сделки нет; 'not_frozen' — она не на стадии «Заморожен»; dict — вернули в работу."""
+    from apps.renewals import engine
+    from apps.renewals.models import RenewalDeal
+    if not RenewalDeal.objects.filter(id=deal_id).exists():
+        return None
+    deal = engine.return_from_freeze(deal_id, author_id=author_id)
+    if deal is None:
+        return 'not_frozen'
+    return repository.deal_computed(deal_id)
+
+
 def list_assignees() -> list[dict]:
     """Кандидаты в ответственные по сделкам: активные manager/admin/superadmin."""
     from apps.accounts.models import Account

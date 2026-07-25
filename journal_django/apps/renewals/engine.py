@@ -337,3 +337,45 @@ def resume_from_freeze(student_id: int, author_id: Optional[int] = None) -> Opti
         deal=deal, kind='system', from_stage=from_stage, to_stage=target,
         author_id=author_id, body='Автопереход после выхода из заморозки')
     return deal
+
+
+@transaction.atomic
+def return_from_freeze(deal_id: int, author_id: Optional[int] = None) -> Optional[RenewalDeal]:
+    """«Вернуть в работу»: сделка со стадии 'frozen' → расчётная авто-стадия.
+
+    Единственный выход из заморозки (решение пользователя 2026-07-25: автовыхода
+    по факту записанного урока нет — sync_lesson_stage не трогает ручные стадии,
+    см. её докстринг). Валидатор переходов обходим осознанно, как reopen_deal:
+    встать на авто-стадию руками правила воронки не дают (is_allowed запрещает
+    ручной вход на is_auto=True стадию), а это не ручной переход, а пересчёт.
+
+    В отличие от resume_from_freeze (работает по student_id, зовётся из
+    students.services.resume_student — удаляется задачей 10), эта функция
+    адресуется по deal_id: так её вызывает UI карточки сделки.
+
+    None, если сделки нет, она закрыта или стоит не на 'frozen'.
+    """
+    from apps.finances.repository import balance_for_student
+
+    deal = (RenewalDeal.objects.select_for_update().select_related('stage', 'pipeline')
+            .filter(id=deal_id, outcome_at__isnull=True).first())
+    if deal is None or deal.stage.key != FROZEN_KEY:
+        return None
+
+    auto = _auto_stages(deal.pipeline)
+    progress_stages = _progress_stages(deal.pipeline)
+    attended = _attended_total(deal.student_id)
+    balance = float(balance_for_student(deal.student_id))
+    target, _matured = _target_auto_stage(deal, attended, balance, auto, progress_stages)
+    if target is None:
+        return deal
+
+    from_stage = deal.stage
+    deal.stage = target
+    deal.stage_entered_at = timezone.now()
+    deal.frozen_until_month = None
+    deal.save(update_fields=['stage', 'stage_entered_at', 'frozen_until_month', 'updated_at'])
+    RenewalActivity.objects.create(
+        deal=deal, kind='system', from_stage=from_stage, to_stage=target,
+        author_id=author_id, body='Возврат в работу из заморозки')
+    return deal
