@@ -69,10 +69,11 @@ def _annotate_stage(qs):
     """Стадия ПОСЛЕДНЕЙ сделки ученика (max cycle_no) — «статус» ученика после
     удаления enrollment_status (спека 2026-07-25).
 
-    Четыре коррелированных подзапроса вместо джойна: одна сделка на строку.
-    Каждый — Index Scan Backward по (student_id, cycle_no): подходит и явный
-    renewal_deal_student_cycle_idx, и UNIQUE renewal_deal_student_cycle_uq
-    (планировщик на dev-БД выбирает второй — префикс тот же).
+    Четыре коррелированных подзапроса вместо джойна: одна сделка на строку —
+    Index Scan по renewal_deal_student_cycle_idx (student_id, cycle_no DESC),
+    проверено EXPLAIN ANALYZE на dev-БД. Тот же план даёт и UNIQUE
+    renewal_deal_student_cycle_uq (backward scan по тому же префиксу), так что
+    выделенный индекс страхует, а не является обязательным условием.
     Подписи стадий подзапросом НЕ тянем — воронка это 11 строк, их отдаёт
     _stage_index() одним запросом (см. _attach_stage).
     """
