@@ -14,7 +14,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import F, Min, Q
 
-from apps.core.utils.dates import msk_now, msk_today
+from apps.core.utils.dates import msk_now
 from apps.groups.models import GroupScheduleSlot
 from apps.groups.models import Group
 from apps.lessons.models import Lesson
@@ -1125,25 +1125,6 @@ def cancel_lesson(
     return get_plan(group_id)
 
 
-def cancel_future_planned(group_id: int) -> int:
-    """Отменить будущие непроведённые плановые строки группы (без перегенерации):
-    pending/overdue с scheduled_date >= сегодня (MSK) → status=cancelled.
-
-    Используется при отказе/отчислении ученика индив-группы: персональный план
-    больше не нужен, но прошлое (done/просроченные до сегодня) не трогаем.
-    Возвращает число отменённых строк."""
-    now = msk_now()
-    return (
-        PlannedLesson.objects
-        .filter(
-            group_id=group_id,
-            status__in=_MUTABLE_STATUSES,
-            scheduled_date__gte=msk_today(),
-        )
-        .update(status=CANCELLED, updated_at=now)
-    )
-
-
 def generate_for_group(group_id: int) -> dict | None:
     """
     Идемпотентная генерация плана группы (обёртка над planner.generate +
@@ -1290,184 +1271,6 @@ def rebuild_group_plan(
             for r in rows
         ])
     return {'written': len(rows), 'reason': reason}
-
-
-def preview_freeze(
-    group_id: int,
-    *,
-    frozen_from: datetime.date,
-    frozen_until: datetime.date,
-) -> dict:
-    """Дран-предпросмотр заморозки индивид-группы — НЕ пишет в БД, только читает.
-    Возвращает {'lesson_on_frozen_from': bool, 'first_lesson_after_resume': date|None}.
-
-    lesson_on_frozen_from — есть ли курсовой pending/overdue урок ровно на дату
-    frozen_from (для предупреждения «на эту дату стоит урок»).
-    first_lesson_after_resume — какой будет первая дата хвоста после перекладки
-    от frozen_until (тот же planner.relay_from_date, что использует
-    freeze_individual_group, только результат не сохраняется).
-
-    Зеркалит выборку хвоста и перекладку freeze_individual_group ровно, но
-    read-only: без select_for_update / bulk_update / транзакции (ничего не пишем).
-    Нет открытого слота или пустой хвост → first_lesson_after_resume=None (как и в
-    freeze_individual_group хвост в этих случаях не двигается)."""
-    lesson_on_frozen_from = PlannedLesson.objects.filter(
-        group_id=group_id, seq__isnull=False, status__in=_MUTABLE_STATUSES,
-        scheduled_date=frozen_from,
-    ).exists()
-
-    tail = list(
-        PlannedLesson.objects
-        .filter(group_id=group_id, seq__isnull=False,
-                status__in=_MUTABLE_STATUSES, scheduled_date__gte=frozen_from)
-        .order_by('seq')
-    )
-    first_lesson_after_resume = None
-    if tail:
-        g = (Group.objects.filter(id=group_id)
-             .values('lesson_duration_minutes').first())
-        slots = slots_by_group([group_id]).get(group_id, [])
-        open_slots = [s for s in slots if s.effective_to is None]
-        if g is not None and open_slots:
-            tail_ids = {p.id for p in tail}
-            skip_dates = frozenset(
-                PlannedLesson.objects
-                .filter(group_id=group_id, scheduled_date__gte=frozen_until)
-                .exclude(id__in=tail_ids)
-                .values_list('scheduled_date', flat=True)
-            )
-            relaid = planner.relay_from_date(
-                [_row_from_model(p) for p in tail],
-                resume_date=frozen_until,
-                slots=open_slots,
-                duration_minutes=g['lesson_duration_minutes'],
-                skip_dates=skip_dates,
-            )
-            if relaid:
-                first_lesson_after_resume = relaid[0].scheduled_date
-
-    return {
-        'lesson_on_frozen_from': lesson_on_frozen_from,
-        'first_lesson_after_resume': first_lesson_after_resume,
-    }
-
-
-def freeze_individual_group(
-    group_id: int,
-    *,
-    frozen_from: datetime.date,
-    resume_date: datetime.date,
-) -> int:
-    """Заморозка индивид-группы (одна транзакция):
-
-    (а) extra/маркеры (seq IS NULL) в статусе pending/overdue с scheduled_date >=
-        frozen_from → status=CANCELLED (доп.занятия/переносы в окне отменяются);
-    (б) курсовые pending/overdue строки (seq задан) с scheduled_date >= frozen_from —
-        «хвост» — перекладываются от resume_date по текущему открытому слоту
-        (planner.relay_from_date), moved_from_date схлопывается.
-
-    Проведённые (done) и всё до frozen_from — неподвижны. Слот берётся тот же, что
-    у группы (slots_by_group); нет ОТКРЫТОГО слота (effective_to закрыт у всех) →
-    хвост не двигаем (нельзя развернуть — неизвестен день недели/время). Тогда шаг
-    (а) уже закоммичен, а (б) пропущен: намеренный частичный коммит в одной
-    транзакции, не оплошность — extra в окне отменены, курсовые остаются на месте.
-
-    Возвращает число ПЕРЕЛОЖЕННЫХ курсовых строк (>=1 → у группы реально был
-    хвост в окне и он переехал; 0 → перекладывать было нечего: нет хвоста / нет
-    группы / нет открытого слота). Отмена extra (шаг «а») в счётчик НЕ входит.
-    Этот счётчик — сигнал «группа действительно участвовала в этой заморозке»,
-    по которому resume_student решает, реактивировать ли членство (см.
-    apps/students/services.resume_student): давно-завершённый курс хвоста в окне
-    не имеет → 0 → его членство не воскрешаем.
-
-    Перед (а)/(б) окно [frozen_from, resume_date] чистится wipe_one_offs —
-    удаляет УЖЕ отменённые ранее маркеры (status=CANCELLED из прошлых
-    заморозок/отмен) и снимает разовые переносы/замены с курсовых строк, которые
-    почему-то не попадут в перекладку хвоста ниже. Вызов ДО шага (а): маркеры,
-    которые (а) только что перевёл в CANCELLED, трогать нельзя — иначе они тут
-    же удалятся и календарь перестанет показывать «отменено» (это ломает
-    test_freeze_relays_tail_and_cancels_extra и аналогичные)."""
-    now = msk_now()
-    with transaction.atomic():
-        # Чистим окно от мусора ПРОШЛЫХ разовых операций (до шага (а) — см.
-        # docstring выше; иначе удалит маркеры, которые (а) только что отменил).
-        wipe_one_offs(group_id, date_from=frozen_from, date_to=resume_date)
-
-        # (а) отменяем extra/маркеры в окне
-        PlannedLesson.objects.filter(
-            group_id=group_id, seq__isnull=True,
-            status__in=_MUTABLE_STATUSES, scheduled_date__gte=frozen_from,
-        ).update(status=CANCELLED, updated_at=now)
-
-        # (б) перекладываем курсовой хвост
-        tail = list(
-            PlannedLesson.objects
-            .select_for_update()
-            .filter(group_id=group_id, seq__isnull=False,
-                    status__in=_MUTABLE_STATUSES, scheduled_date__gte=frozen_from)
-            .order_by('seq')
-        )
-        if not tail:
-            return 0
-        g = (Group.objects.filter(id=group_id)
-             .values('lesson_duration_minutes').first())
-        if g is None:
-            return 0
-        slots = slots_by_group([group_id]).get(group_id, [])
-        open_slots = [s for s in slots if s.effective_to is None]
-        if not open_slots:
-            return 0
-        by_seq = {p.seq: p for p in tail}
-        tail_ids = {p.id for p in tail}
-        skip_dates = frozenset(
-            PlannedLesson.objects
-            .filter(group_id=group_id, scheduled_date__gte=resume_date)
-            .exclude(id__in=tail_ids)
-            .values_list('scheduled_date', flat=True)
-        )
-        relaid = planner.relay_from_date(
-            [_row_from_model(p) for p in tail],
-            resume_date=resume_date,
-            slots=open_slots,
-            duration_minutes=g['lesson_duration_minutes'],
-            skip_dates=skip_dates,
-        )
-        to_update = []
-        for cr in relaid:
-            p = by_seq[cr.seq]
-            date_changed = p.scheduled_date != cr.scheduled_date
-            p.scheduled_date = cr.scheduled_date
-            p.scheduled_time = cr.scheduled_time
-            p.moved_from_date = None
-            if date_changed:
-                p.substitute_teacher_id = None
-            p.updated_at = now
-            to_update.append(p)
-        PlannedLesson.objects.bulk_update(
-            to_update,
-            ['scheduled_date', 'scheduled_time', 'moved_from_date',
-             'substitute_teacher', 'updated_at'])
-        return len(to_update)
-
-
-def resume_individual_group(
-    group_id: int,
-    *,
-    actual_resume_date: datetime.date,
-    frozen_from: datetime.date,
-) -> int:
-    """Досрочный/плановый выход: заново переложить курсовой хвост (pending/overdue,
-    scheduled_date >= frozen_from) от actual_resume_date. Идемпотентно с
-    freeze_individual_group — та же перекладка хвоста, только другая стартовая дата.
-    frozen_from здесь — НЕ новая заморозка, а лишь нижняя граница окна перекладки:
-    ею отбираются строки «в окне» (двигаем) против нетронутого прошлого до неё.
-    Отменённые в окне extra НЕ восстанавливаем (осознанно: доп.занятия разовые).
-
-    Возвращает число переложенных курсовых строк (см. freeze_individual_group):
-    вызывающий (resume_student) реактивирует членство ТОЛЬКО если тут >0 —
-    иначе группа в этой заморозке не участвовала (давно-завершённый курс)."""
-    return freeze_individual_group(
-        group_id, frozen_from=frozen_from, resume_date=actual_resume_date)
 
 
 def rebuild_from_facts(group_id: int) -> dict | None:

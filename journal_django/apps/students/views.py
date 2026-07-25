@@ -21,19 +21,13 @@ from rest_framework.views import APIView
 
 from apps.core.pagination import StandardPagination
 from apps.core.permissions import IsAdminOrSuperAdmin, IsManagerOrAdmin, ReadStaffWriteAdmin
-from apps.extra_lessons.exceptions import MembershipHasScheduledMakeups
 from apps.payments import services as payment_services
 from apps.students import services
 from apps.students.models import StudentComment
 from apps.students.serializers import (
     StudentCommentSerializer,
     StudentCommentWriteSerializer,
-)
-from apps.students.serializers import (
-    StudentFreezePreviewSerializer,
     StudentManagerSerializer,
-    StudentResumeSerializer,
-    StudentStatusSerializer,
     StudentUpdateSerializer,
     StudentWriteSerializer,
 )
@@ -113,9 +107,9 @@ class StudentDetailView(APIView):
     GET    /api/admin/students/:id  — получить ученика
     PATCH  /api/admin/students/:id  — обновить ученика
 
-    DELETE нет: ученика не удаляют и не «деактивируют». Уход оформляется сменой
-    статуса на 'declined' через POST /students/:id/status — она, в отличие от
-    прежнего soft-delete, снимает членства и закрывает сделку продления.
+    DELETE нет: ученика не удаляют и не «деактивируют». Уход оформляется в воронке
+    продлений — сделка переводится в стадию «Ушёл»; членства и расписание менеджер
+    правит отдельно (спека 2026-07-25, статусы ученика удалены).
     """
 
     permission_classes = [IsManagerOrAdmin]
@@ -231,83 +225,6 @@ class StudentRefundView(APIView):
         if result.get('error') == 'nothing_to_refund':
             return Response({'error': 'nothing_to_refund'}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result, status=status.HTTP_201_CREATED)
-
-
-class StudentStatusView(APIView):
-    """POST /api/admin/students/:id/status — смена статуса с каскадом. 404 если нет.
-
-    400 при frozen→enrolled напрямую (services.change_student_status бросает
-    ValueError — используйте /resume для выхода из заморозки)."""
-
-    permission_classes = [IsManagerOrAdmin]
-
-    def post(self, request: Request, pk: int) -> Response:
-        ser = StudentStatusSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        data = ser.validated_data
-        try:
-            ok = services.change_student_status(
-                pk, data['status'],
-                frozen_from=data.get('frozen_from'),
-                frozen_until=data.get('frozen_until'),
-                membership_ids=data.get('membership_ids'),
-                actor=request.user,
-            )
-        except MembershipHasScheduledMakeups as exc:
-            # Снятие членства (заморозка/уход) заблокировано назначенными доп.уроками
-            # — 409 + код для модалки на фронте. str(exc) — человеко-читаемый текст.
-            return Response(
-                {'error': str(exc), 'code': 'membership_has_scheduled_makeups'},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except ValueError as exc:
-            raise ValidationError({'error': str(exc)})
-        if not ok:
-            raise NotFound({'error': 'Not found'})
-        return Response(services.get_student(pk))
-
-
-class StudentFreezePreviewView(APIView):
-    """POST /api/admin/students/:id/status/preview — дран-превью заморозки (read-only).
-
-    Для каждого ИНДИВ-членства из membership_ids считает без записи в БД:
-    lesson_on_frozen_from (на дату frozen_from стоит урок?) и
-    first_lesson_after_resume (первая дата хвоста после перекладки от frozen_until).
-    Групповые membership_ids молча исключаются (у групп расписание не сдвигается).
-
-    Возвращает плоский словарь {membership_id: {...}} (ключи станут строками в JSON —
-    фронт ищет по id). Существование ученика НЕ проверяем: это stateless-вычисление,
-    скоуп задаётся самими membership_ids, а не статусом/наличием ученика; путь под
-    /students/:id — лишь для единообразия с /status и /resume."""
-
-    permission_classes = [IsManagerOrAdmin]
-
-    def post(self, request: Request, pk: int) -> Response:
-        ser = StudentFreezePreviewSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        data = ser.validated_data
-        result = services.preview_freeze_schedule(
-            data['membership_ids'],
-            frozen_from=data['frozen_from'],
-            frozen_until=data['frozen_until'],
-        )
-        return Response(result)
-
-
-class StudentResumeView(APIView):
-    """POST /api/admin/students/:id/resume — выход из заморозки. 404 если нет/не заморожен."""
-
-    permission_classes = [IsManagerOrAdmin]
-
-    def post(self, request: Request, pk: int) -> Response:
-        ser = StudentResumeSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        ok = services.resume_student(
-            pk, actual_resume_date=ser.validated_data['actual_resume_date'],
-            actor=request.user)
-        if not ok:
-            raise NotFound({'error': 'Not found'})
-        return Response(services.get_student(pk))
 
 
 class StudentManagerView(APIView):

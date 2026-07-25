@@ -157,15 +157,14 @@ def sync_lesson_stage(student_id: int) -> None:
     если менеджер вручную увёл сделку в «Думает»/«Заморожен»/… или она закрыта —
     движок её не трогает.
 
-    ИСКЛЮЧЕНИЕ: сделка на стадии 'frozen' тоже не трогается, хотя эта стадия
-    is_auto=True (Task 5 сделала её авто исключительно чтобы заблокировать
-    РУЧНОЙ вход/выход — не чтобы движок сам её пересчитывал по посещаемости/балансу).
-    Разморозить может только явный вызов resume_from_freeze.
+    «Заморожен» — обычная ручная стадия (спека 2026-07-25), поэтому отсекается
+    общим правилом `not deal.stage.is_auto`, без отдельного исключения. Вернуть
+    сделку на расчётную авто-стадию может только явный return_from_freeze.
     """
     from apps.finances.repository import balance_for_student
 
     deal = _open_deal_for_update(student_id)
-    if deal is None or not deal.stage.is_auto or deal.stage.key == FROZEN_KEY:
+    if deal is None or not deal.stage.is_auto:
         return
 
     auto = _auto_stages(deal.pipeline)
@@ -269,77 +268,6 @@ def _open_deal_for_update(student_id: int) -> Optional[RenewalDeal]:
 
 
 @transaction.atomic
-def freeze_deal(student_id: int, author_id: Optional[int] = None) -> Optional[RenewalDeal]:
-    """Перевести открытую сделку ученика на авто-стадию 'frozen' напрямую (в обход
-    move_deal/валидатора — как reopen_deal). No-op, если сделки нет или в воронке
-    нет стадии 'frozen'. Идемпотентно (повторный вызов на 'frozen' ничего не пишет)."""
-    deal = _open_deal_for_update(student_id)
-    if deal is None:
-        return None
-    frozen = RenewalStage.objects.filter(pipeline=deal.pipeline, key=FROZEN_KEY).first()
-    if frozen is None:
-        return None
-    if deal.stage_id == frozen.id:
-        return deal  # уже заморожена — идемпотентно, ничего не пишем
-    from_stage = deal.stage
-    deal.stage = frozen
-    deal.stage_entered_at = timezone.now()
-    deal.save(update_fields=['stage', 'stage_entered_at', 'updated_at'])
-    RenewalActivity.objects.create(
-        deal=deal, kind='system', from_stage=from_stage, to_stage=frozen,
-        author_id=author_id, body='Заморозка (смена статуса ученика)')
-    return deal
-
-
-@transaction.atomic
-def decline_deal(student_id: int, author_id: Optional[int] = None) -> Optional[RenewalDeal]:
-    """Закрыть открытую сделку ученика как терминальную 'lost' («Ушёл») напрямую,
-    в обход валидатора. No-op, если открытой сделки нет или нет lost-стадии."""
-    deal = _open_deal_for_update(student_id)
-    if deal is None:
-        return None
-    lost = _stage(deal.pipeline, kind='lost')
-    if lost is None:
-        return None
-    from_stage = deal.stage
-    deal.stage = lost
-    deal.stage_entered_at = timezone.now()
-    deal.outcome_at = timezone.now()
-    deal.save(update_fields=['stage', 'stage_entered_at', 'outcome_at', 'updated_at'])
-    RenewalActivity.objects.create(
-        deal=deal, kind='system', from_stage=from_stage, to_stage=lost,
-        author_id=author_id, body='Отказ (смена статуса ученика)')
-    return deal
-
-
-@transaction.atomic
-def resume_from_freeze(student_id: int, author_id: Optional[int] = None) -> Optional[RenewalDeal]:
-    """Выход из заморозки: если открытая сделка ученика стоит на 'frozen', вернуть её
-    на РАСЧЁТНУЮ авто-стадию (та же _target_auto_stage, что при создании/reopen) по
-    attended/balance. No-op, если сделки нет или она не на 'frozen'."""
-    from apps.finances.repository import balance_for_student
-
-    deal = _open_deal_for_update(student_id)
-    if deal is None or deal.stage.key != FROZEN_KEY:
-        return None
-    auto = _auto_stages(deal.pipeline)
-    progress_stages = _progress_stages(deal.pipeline)
-    attended = _attended_total(student_id)
-    balance = float(balance_for_student(student_id))
-    target, _matured = _target_auto_stage(deal, attended, balance, auto, progress_stages)
-    if target is None:
-        return deal
-    from_stage = deal.stage
-    deal.stage = target
-    deal.stage_entered_at = timezone.now()
-    deal.save(update_fields=['stage', 'stage_entered_at', 'updated_at'])
-    RenewalActivity.objects.create(
-        deal=deal, kind='system', from_stage=from_stage, to_stage=target,
-        author_id=author_id, body='Автопереход после выхода из заморозки')
-    return deal
-
-
-@transaction.atomic
 def return_from_freeze(deal_id: int, author_id: Optional[int] = None) -> Optional[RenewalDeal]:
     """«Вернуть в работу»: сделка со стадии 'frozen' → расчётная авто-стадия.
 
@@ -349,9 +277,7 @@ def return_from_freeze(deal_id: int, author_id: Optional[int] = None) -> Optiona
     встать на авто-стадию руками правила воронки не дают (is_allowed запрещает
     ручной вход на is_auto=True стадию), а это не ручной переход, а пересчёт.
 
-    В отличие от resume_from_freeze (работает по student_id, зовётся из
-    students.services.resume_student — удаляется задачей 10), эта функция
-    адресуется по deal_id: так её вызывает UI карточки сделки.
+    Адресуется по deal_id: так её вызывает UI карточки сделки.
 
     None, если сделки нет, она закрыта или стоит не на 'frozen'.
     """

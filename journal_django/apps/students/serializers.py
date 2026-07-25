@@ -10,8 +10,6 @@ StudentUpdateSerializer — ввод для PATCH (updateStudentSchema, все �
 """
 from __future__ import annotations
 
-from datetime import date
-
 from rest_framework import serializers
 
 from apps.core.fields import DateStringField
@@ -138,62 +136,6 @@ class StudentCommentWriteSerializer(serializers.Serializer):
         if not stripped:
             raise serializers.ValidationError('body must not be blank')
         return stripped
-
-
-class StudentStatusSerializer(serializers.Serializer):
-    """Ввод POST /students/:id/status. frozen ⟺ обе даты; membership_ids опц."""
-    status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES)
-    frozen_from = DateStringField(required=False, allow_null=True)
-    frozen_until = DateStringField(required=False, allow_null=True)
-    membership_ids = serializers.ListField(
-        child=serializers.IntegerField(), required=False, allow_empty=True)
-
-    def validate(self, data: dict) -> dict:
-        if data['status'] == 'frozen':
-            if not data.get('frozen_from') or not data.get('frozen_until'):
-                raise serializers.ValidationError(
-                    'frozen requires frozen_from and frozen_until')
-            d_from = date.fromisoformat(data['frozen_from'])
-            d_until = date.fromisoformat(data['frozen_until'])
-            if d_from > d_until:
-                raise serializers.ValidationError('frozen_from must be <= frozen_until')
-            # Возвращаем date-объекты (не строки): их получает services.change_student_status
-            # → planner.relay_from_date, где идёт date-арифметика (start + timedelta);
-            # строка + timedelta → TypeError (500). Ср. StudentFreezePreviewSerializer.
-            data['frozen_from'] = d_from
-            data['frozen_until'] = d_until
-        else:
-            if data.get('frozen_from') or data.get('frozen_until'):
-                raise serializers.ValidationError(
-                    'frozen_from/frozen_until only allowed for frozen status')
-        return data
-
-
-class StudentFreezePreviewSerializer(serializers.Serializer):
-    """Ввод POST /students/:id/status/preview — дран-превью заморозки.
-
-    Обе даты обязательны, frozen_from <= frozen_until; membership_ids — непустой
-    список int. В отличие от StudentStatusSerializer, даты возвращаются из validate()
-    как date-объекты (не строки): их получает planner.relay_from_date (date-арифметика
-    start + timedelta), которому строка не подходит."""
-    frozen_from = DateStringField()
-    frozen_until = DateStringField()
-    membership_ids = serializers.ListField(
-        child=serializers.IntegerField(), allow_empty=False)
-
-    def validate(self, data: dict) -> dict:
-        d_from = date.fromisoformat(data['frozen_from'])
-        d_until = date.fromisoformat(data['frozen_until'])
-        if d_from > d_until:
-            raise serializers.ValidationError('frozen_from must be <= frozen_until')
-        data['frozen_from'] = d_from
-        data['frozen_until'] = d_until
-        return data
-
-
-class StudentResumeSerializer(serializers.Serializer):
-    """Ввод POST /students/:id/resume."""
-    actual_resume_date = DateStringField()
 
 
 class StudentManagerSerializer(serializers.Serializer):

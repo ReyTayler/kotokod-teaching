@@ -27,9 +27,8 @@ def test_move_off_auto_stage_blocked(admin_client, make_student, make_direction)
 @pytest.mark.django_db
 def test_move_from_terminal_409(admin_client, make_student, make_direction):
     """С терминальной стадии (lost) руками никуда — 409. Доводим сделку до
-    lost напрямую через ORM: штатный путь закрытия (engine.decline_deal)
-    добавляется в более поздней задаче плана, а руками на lost с авто-стадии
-    больше не встать."""
+    lost напрямую через ORM: руками на lost с авто-стадии не встать, а штатный
+    путь закрытия (move_deal с причиной) сюда не нужен — проверяем сам запрет."""
     from django.utils import timezone
     from apps.renewals.models import RenewalDeal
     sid, did = make_student(), make_direction()

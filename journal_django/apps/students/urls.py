@@ -13,13 +13,10 @@ from apps.students.views import (
     StudentCommentDetailView,
     StudentCommentListView,
     StudentDetailView,
-    StudentFreezePreviewView,
     StudentListCreateView,
     StudentManagerView,
     StudentRefundView,
-    StudentResumeView,
     StudentStatsView,
-    StudentStatusView,
 )
 
 urlpatterns = [
@@ -35,8 +32,4 @@ urlpatterns = [
         name='students-comment-detail',
     ),
     path('/<int:pk>/refund', StudentRefundView.as_view(), name='students-refund'),
-    path('/<int:pk>/status/preview', StudentFreezePreviewView.as_view(),
-         name='students-status-preview'),
-    path('/<int:pk>/status', StudentStatusView.as_view(), name='students-status'),
-    path('/<int:pk>/resume', StudentResumeView.as_view(), name='students-resume'),
 ]

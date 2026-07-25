@@ -438,18 +438,3 @@ def test_delete_method_not_allowed(admin_client):
         assert repository.get_student(student['id'])['enrollment_status'] == 'enrolled'
     finally:
         _cleanup_student(student['id'])
-
-
-@pytest.mark.django_db
-def test_status_rejects_removed_not_enrolled(admin_client):
-    """'not_enrolled' больше не входит в ENROLLMENT_STATUS_CHOICES → 400 на API."""
-    from apps.students import repository
-    student = repository.create_student({'full_name': '__test_status_gone__'})
-    try:
-        resp = admin_client.post(
-            f"{BASE_URL}/{student['id']}/status",
-            {'status': 'not_enrolled'}, format='json',
-        )
-        assert resp.status_code == 400
-    finally:
-        _cleanup_student(student['id'])
