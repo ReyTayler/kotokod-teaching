@@ -212,8 +212,7 @@ FIELD_RU = {
     'present': 'присутствие', 'present_count': 'присутствовало',
     'total_students': 'всего учеников', 'start_date': 'дата начала',
     'group_start_date': 'дата старта группы',
-    'enrollment_status': 'статус зачисления',
-    'frozen_from': 'заморожен с', 'frozen_until': 'заморожен до',
+    'frozen_until_month': 'заморозка до месяца',
     'created_at': 'создано', 'updated_at': 'обновлено',
 }
 

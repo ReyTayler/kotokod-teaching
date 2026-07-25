@@ -13,10 +13,10 @@
     из авто-создания pending, бэкфилл обязан вести себя так же (иначе поднимет
     ложную очередь по прощённым урокам);
   - группа активна (`groups.active`);
-  - ученик реально СОСТОИТ в этой группе сейчас (`group_memberships.active`);
-  - ученик не ушёл (`enrollment_status <> 'declined'` — у ушедших очередь как раз
-    чистится при снятии членства (enforce_membership_cancellation), поднимать её
-    обратно нельзя);
+  - ученик реально СОСТОИТ в этой группе сейчас (`group_memberships.active`) — это
+    же и признак «не ушёл»: статуса ученика больше нет (спека 2026-07-25), уход
+    оформляется снятием членства, при котором очередь чистится
+    (enforce_membership_cancellation) — поднимать её обратно нельзя;
   - у этого пропуска ещё нет НИКАКОЙ резолюции.
 
 dry_run=true — только считает и показывает примеры, ничего не пишет.
@@ -38,7 +38,6 @@ _FROM_WHERE = """
        AND l.lesson_type = 'regular'
        AND g.active = true
        AND gm.active = true
-       AND s.enrollment_status <> 'declined'
        AND NOT EXISTS (
              SELECT 1 FROM absence_resolutions ar
               WHERE ar.missed_lesson_id = la.lesson_id

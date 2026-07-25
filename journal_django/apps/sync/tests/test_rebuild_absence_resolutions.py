@@ -101,20 +101,16 @@ def test_dry_run_counts_without_writing():
 
 @pytest.mark.django_db
 def test_skips_left_student_and_inactive_membership():
+    """Ушедший ученик = снятое членство (статуса ученика больше нет, спека
+    2026-07-25): неактивное membership выводит пропуск из кандидатов, и очередь
+    ушедшего бэкфилл обратно не поднимает."""
     ctx = _setup()
     try:
-        # Ученик ушёл → в кандидаты не попадает (очередь ушедших не поднимаем).
         with connection.cursor() as cur:
-            cur.execute("UPDATE students SET enrollment_status='declined' WHERE id=%s", [ctx['student_id']])
-        res = rebuild_absence_resolutions.run(dry_run=False)
-        assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
-        # Вернём enrolled, но членство неактивно → тоже пропуск.
-        with connection.cursor() as cur:
-            cur.execute("UPDATE students SET enrollment_status='enrolled' WHERE id=%s", [ctx['student_id']])
             cur.execute("UPDATE group_memberships SET active=false WHERE id=%s", [ctx['membership_id']])
-        rebuild_absence_resolutions.run(dry_run=False)
-        assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
+        res = rebuild_absence_resolutions.run(dry_run=False)
         assert res['created'] == 0
+        assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
     finally:
         _teardown(ctx)
 

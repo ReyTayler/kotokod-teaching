@@ -5,7 +5,7 @@ from django.db import connection
 from apps.sync.backfills import students
 
 
-def _row(name, teacher='', group='', done='', enroll=''):
+def _row(name, teacher='', group='', done=''):
     row = [''] * 20
     row[0] = name
     row[2] = '10'
@@ -15,7 +15,6 @@ def _row(name, teacher='', group='', done='', enroll=''):
     row[13] = '01.09.2025'
     row[14] = '5'
     row[16] = done
-    row[19] = enroll
     return row
 
 
@@ -36,41 +35,11 @@ def test_extract_students_skips_uchenika_net_name():
 
 
 def test_extract_students_no_membership_without_teacher():
-    """Ученик без преподавателя/группы импортируется без членства. Статуса
-    'not_enrolled' больше нет (миграция 0015) — фоллбэк теперь 'enrolled'."""
+    """Ученик без преподавателя/группы импортируется без членства."""
     rows = [_row('Одиночка', teacher='', group='')]
     result = students.extract_students_and_memberships(rows)
     assert len(result['students']) == 1
     assert result['memberships'] == []
-    assert result['students'][0]['enrollment_status'] == 'enrolled'
-
-
-def test_map_enrollment_yes():
-    assert students.map_enrollment_from_sheets('Да') == {
-        'enrollment_status': 'enrolled', 'frozen_from': None, 'frozen_until': None,
-    }
-
-
-def test_map_enrollment_no_maps_to_enrolled():
-    """«Нет» раньше давало not_enrolled; статуса нет — падаем в 'enrolled'.
-    Явный отказ по-прежнему отличим (см. test_map_enrollment_declined)."""
-    assert students.map_enrollment_from_sheets('нет')['enrollment_status'] == 'enrolled'
-
-
-def test_map_enrollment_frozen_with_month():
-    # Лист держит только месяц окончания заморозки → инференс дат (месяц=январь).
-    result = students.map_enrollment_from_sheets('нет январь')
-    assert result['enrollment_status'] == 'frozen'
-    assert result['frozen_until'] is not None
-    assert result['frozen_until'].month == 1
-    assert result['frozen_from'] is not None
-    # Инвариант frozen_from <= frozen_until (CHECK на модели).
-    assert result['frozen_from'] <= result['frozen_until']
-
-
-def test_map_enrollment_declined():
-    result = students.map_enrollment_from_sheets('отказ от занятий')
-    assert result['enrollment_status'] == 'declined'
 
 
 @pytest.mark.django_db

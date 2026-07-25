@@ -176,15 +176,19 @@ def _next_lesson_subquery(today: datetime.date):
 
 def base_students_qs(today: datetime.date) -> QuerySet:
     """
-    Активные ученики (enrolled + есть активный membership в активной группе),
-    аннотированные вычисляемыми полями. База и для списка, и для сводки.
+    Активные ученики (есть активный membership в активной группе), аннотированные
+    вычисляемыми полями. База и для списка, и для сводки.
+
+    Статуса ученика больше нет (спека 2026-07-25): «учится» = активное членство.
+    Ушедший ученик покидает реестр, когда менеджер снимает членство, а не по
+    стадии сделки — фильтр по последней сделке был бы лишним коррелированным
+    подзапросом в тяжёлом кешируемом запросе дашборда.
     """
     active_membership = GroupMembership.objects.filter(
         student_id=OuterRef('pk'), active=True, group__active=True,
     )
     qs = (
         Student.objects
-        .filter(enrollment_status='enrolled')
         .filter(Exists(active_membership))
         .annotate(
             balance=ExpressionWrapper(

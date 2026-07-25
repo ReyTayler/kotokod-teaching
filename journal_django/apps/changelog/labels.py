@@ -32,8 +32,6 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/teachers$'), 'teacher.create'),
     ('PATCH', re.compile(r'^/api/admin/teachers/\d+$'), 'teacher.update'),
     ('DELETE', re.compile(r'^/api/admin/teachers/\d+$'), 'teacher.delete'),
-    ('POST', re.compile(r'^/api/admin/students/\d+/status$'), 'student.status'),
-    ('POST', re.compile(r'^/api/admin/students/\d+/resume$'), 'student.resume'),
     ('POST', re.compile(r'^/api/admin/students$'), 'student.create'),
     ('PATCH', re.compile(r'^/api/admin/students/\d+/manager$'), 'student.manager_update'),
     ('PATCH', re.compile(r'^/api/admin/students/\d+$'), 'student.update'),
@@ -95,6 +93,7 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/renewals$'), 'renewal.create'),
     ('POST', re.compile(r'^/api/admin/renewals/\d+/move$'), 'renewal.move'),
     ('POST', re.compile(r'^/api/admin/renewals/\d+/reopen$'), 'renewal.reopen'),
+    ('POST', re.compile(r'^/api/admin/renewals/\d+/unfreeze$'), 'renewal.unfreeze'),
     ('POST', re.compile(r'^/api/admin/renewals/\d+/comment$'), 'renewal.comment'),
     ('PATCH', re.compile(r'^/api/admin/renewals/\d+$'), 'renewal.update'),
     # teacher SPA
