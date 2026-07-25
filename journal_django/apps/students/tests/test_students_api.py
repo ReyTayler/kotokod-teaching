@@ -15,7 +15,7 @@ Cookie:
   - cookie role=admin → 200 (список)
   - cookie role=manager → 200 (список)
   - Форма list-ответа: {rows, total, page, page_size}
-  - Фильтры: enrollment_status, full_name (нет совпадений)
+  - Фильтры: full_name (нет совпадений)
   - Сортировка: невалидный sort_by → 400
   - GET /:id → 200 с нужными полями
   - GET /999999999 → 404 {error: 'Not found'}
@@ -24,11 +24,9 @@ Cookie:
   - GET /:id/balance → 200 с {paid_by_direction, attended_by_direction, total_balance, total_paid_amount, payments}
   - POST → 201, ученик создан в БД
   - POST без full_name → 400
-  - POST с frozen без frozen_from/frozen_until → 400
   - PATCH → 200
   - PATCH /999999999 → 404
   - DELETE → 405 (soft-delete удалён вместе со статусом 'not_enrolled')
-  - POST /:id/status со статусом 'not_enrolled' → 400
 """
 from __future__ import annotations
 
@@ -103,14 +101,6 @@ def test_list_response_shape(admin_client):
 
 
 @pytest.mark.django_db
-def test_list_filter_enrollment_status(admin_client):
-    resp = admin_client.get(BASE_URL + '?filter[enrollment_status]=enrolled')
-    assert resp.status_code == 200
-    for row in resp.json()['rows']:
-        assert row['enrollment_status'] == 'enrolled'
-
-
-@pytest.mark.django_db
 def test_list_filter_full_name_no_match(admin_client):
     resp = admin_client.get(BASE_URL + '?filter[full_name]=__nonexistent_xyz_student__')
     assert resp.status_code == 200
@@ -173,7 +163,7 @@ def test_retrieve_existing_returns_200(admin_client):
         body = resp.json()
         assert body['id'] == student['id']
         assert body['full_name'] == '__test_api_get__'
-        assert 'enrollment_status' in body
+        assert 'stage' in body
         assert 'created_at' in body
     finally:
         _cleanup_student(student['id'])
@@ -321,32 +311,6 @@ def test_create_invalid_bitrix24_link_returns_400(admin_client):
 
 
 @pytest.mark.django_db
-def test_create_frozen_without_dates_returns_400(admin_client):
-    """frozen status requires frozen_from and frozen_until — бизнес-правило."""
-    payload = _student_payload(
-        full_name='__test_post_frozen_bad__',
-        enrollment_status='frozen',
-        # frozen_from/frozen_until отсутствуют
-    )
-    resp = admin_client.post(BASE_URL, payload, format='json')
-    assert resp.status_code == 400
-
-
-@pytest.mark.django_db
-def test_create_frozen_with_dates_returns_201(admin_client):
-    payload = _student_payload(
-        full_name='__test_post_frozen_ok__',
-        enrollment_status='frozen',
-        frozen_from='2026-02-01',
-        frozen_until='2026-04-01',
-    )
-    resp = admin_client.post(BASE_URL, payload, format='json')
-    if resp.status_code == 201:
-        _cleanup_student(resp.json()['id'])
-    assert resp.status_code == 201
-
-
-@pytest.mark.django_db
 def test_create_with_birth_date(admin_client):
     # Поле age удалено — возраст считается на фронте из birth_date; сохраняем дату.
     payload = _student_payload(
@@ -426,15 +390,15 @@ def test_patch_birth_date(admin_client, existing_student):
 
 @pytest.mark.django_db
 def test_delete_method_not_allowed(admin_client):
-    """Soft-delete ученика убран: единственный способ оформить уход — смена
-    статуса на 'declined' (она снимает членства и закрывает сделку). Если DELETE
-    вернут обратно, этот тест упадёт и заставит осознанно пересмотреть решение."""
+    """Soft-delete ученика убран: уход оформляется стадией сделки продления
+    («Ушёл»), а не архивацией ученика. Если DELETE вернут обратно, этот тест
+    упадёт и заставит осознанно пересмотреть решение."""
     from apps.students import repository
     student = repository.create_student({'full_name': '__test_del_405__'})
     try:
         resp = admin_client.delete(f"{BASE_URL}/{student['id']}")
         assert resp.status_code == 405
-        # Ученик на месте и по-прежнему учится — молчаливой архивации не случилось.
-        assert repository.get_student(student['id'])['enrollment_status'] == 'enrolled'
+        # Ученик на месте — молчаливой архивации не случилось.
+        assert repository.get_student(student['id']) is not None
     finally:
         _cleanup_student(student['id'])

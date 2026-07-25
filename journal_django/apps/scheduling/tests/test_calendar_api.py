@@ -274,8 +274,8 @@ class TestExtraLessonMerge:
         )
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO students (full_name, enrollment_status) "
-                "VALUES ('__sched_extra_student__', 'enrolled') RETURNING id",
+                "INSERT INTO students (full_name) "
+                "VALUES ('__sched_extra_student__') RETURNING id",
             )
             student_id = cur.fetchone()[0]
             cur.execute(

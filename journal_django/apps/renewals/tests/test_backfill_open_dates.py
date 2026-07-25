@@ -33,8 +33,8 @@ def world(db):
             "VALUES ('__bf_d__', true, '4000.00') RETURNING id")
         ids['direction'] = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status, created_at) "
-            "VALUES ('__bf_s__','enrolled', now()) RETURNING id")
+            "INSERT INTO students (full_name, created_at) "
+            "VALUES ('__bf_s__', now()) RETURNING id")
         ids['student'] = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO groups (name, direction_id, teacher_id, is_individual, active, created_at, "

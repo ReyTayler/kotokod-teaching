@@ -25,8 +25,8 @@ def _setup():
             [direction_id, teacher_id])
         group_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status) "
-            "VALUES ('__ar_s__', 'enrolled') RETURNING id")
+            "INSERT INTO students (full_name) "
+            "VALUES ('__ar_s__') RETURNING id")
         student_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "

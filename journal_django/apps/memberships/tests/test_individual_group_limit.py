@@ -39,13 +39,13 @@ def seed():
         )
         ids['teacher_id'] = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status, created_at) "
-            "VALUES ('__il_student_1__', 'enrolled', NOW()) RETURNING id"
+            "INSERT INTO students (full_name, created_at) "
+            "VALUES ('__il_student_1__', NOW()) RETURNING id"
         )
         ids['s1'] = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status, created_at) "
-            "VALUES ('__il_student_2__', 'enrolled', NOW()) RETURNING id"
+            "INSERT INTO students (full_name, created_at) "
+            "VALUES ('__il_student_2__', NOW()) RETURNING id"
         )
         ids['s2'] = cur.fetchone()[0]
     yield ids

@@ -141,8 +141,8 @@ class TestListGroups:
             with connection.cursor() as cur:
                 for i, active in enumerate((True, True, False)):
                     cur.execute(
-                        "INSERT INTO students (full_name, enrollment_status) "
-                        "VALUES (%s, 'enrolled') RETURNING id", [f'__mc_student_{i}__'])
+                        "INSERT INTO students (full_name) "
+                        "VALUES (%s) RETURNING id", [f'__mc_student_{i}__'])
                     sid = cur.fetchone()[0]
                     student_ids.append(sid)
                     cur.execute(

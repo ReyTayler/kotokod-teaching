@@ -90,8 +90,8 @@ class TestReadAllStudents:
         # Создаём второго ученика с lessons_done=5
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO students (full_name, enrollment_status) "
-                "VALUES ('__spa_stu2__', 'enrolled') RETURNING id"
+                "INSERT INTO students (full_name) "
+                "VALUES ('__spa_stu2__') RETURNING id"
             )
             stu2_id = cur.fetchone()[0]
             cur.execute(

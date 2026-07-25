@@ -39,8 +39,8 @@ def _make_student() -> int:
     name = f'__test_manager_svc_student__{uuid.uuid4().hex[:8]}'
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status, created_at) "
-            "VALUES (%s, 'enrolled', now()) RETURNING id", [name])
+            "INSERT INTO students (full_name, created_at) "
+            "VALUES (%s, now()) RETURNING id", [name])
         return cur.fetchone()[0]
 
 

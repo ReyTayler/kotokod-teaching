@@ -207,7 +207,7 @@ from django.db import connection
 def _make_student(full_name):
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status) VALUES (%s, 'enrolled') RETURNING id",
+            "INSERT INTO students (full_name) VALUES (%s) RETURNING id",
             [full_name],
         )
         return cur.fetchone()[0]

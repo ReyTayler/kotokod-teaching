@@ -51,8 +51,8 @@ def graph():
         created['groups'].append(group_id)
 
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status) "
-            "VALUES ('__reg_bal_student__', 'enrolled') RETURNING id"
+            "INSERT INTO students (full_name) "
+            "VALUES ('__reg_bal_student__') RETURNING id"
         )
         student_id = cur.fetchone()[0]
         created['students'].append(student_id)

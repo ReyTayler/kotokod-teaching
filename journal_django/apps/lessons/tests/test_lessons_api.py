@@ -562,8 +562,8 @@ def test_attendance_toggle_on_extra_lesson_blocked_409():
     """Тоггл ячейки посещаемости на факте доп.урока через общий CRUD → 409."""
     lid, gid, tid, did = _make_extra_lesson()
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_extra_s__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_extra_s__') RETURNING id")
         sid = cur.fetchone()[0]
     try:
         resp = _client('admin').patch(f'{BASE_URL}/{lid}/attendance/{sid}', {'present': True}, format='json')

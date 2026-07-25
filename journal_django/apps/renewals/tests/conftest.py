@@ -12,8 +12,8 @@ def make_student(db):
     def _make(full_name='__renew_test_student__'):
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO students (full_name, enrollment_status, created_at) "
-                "VALUES (%s, 'enrolled', now()) RETURNING id", [full_name])
+                "INSERT INTO students (full_name, created_at) "
+                "VALUES (%s, now()) RETURNING id", [full_name])
             sid = cur.fetchone()[0]
         ids.append(sid)
         return sid

@@ -58,8 +58,8 @@ def renewals_fixture(db):
         def student(self, full_name='__report_test_student__'):
             with connection.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO students (full_name, enrollment_status, created_at) "
-                    "VALUES (%s, 'enrolled', now()) RETURNING id", [full_name])
+                    "INSERT INTO students (full_name, created_at) "
+                    "VALUES (%s, now()) RETURNING id", [full_name])
                 sid = cur.fetchone()[0]
             created['student'].append(sid)
             return sid

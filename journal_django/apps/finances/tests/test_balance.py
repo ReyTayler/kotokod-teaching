@@ -185,8 +185,8 @@ def test_balances_for_students_batches_multiple(
     try:
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO students (full_name, enrollment_status) "
-                "VALUES ('__fin_student_2__', 'enrolled') RETURNING id"
+                "INSERT INTO students (full_name) "
+                "VALUES ('__fin_student_2__') RETURNING id"
             )
             other_student_id = cur.fetchone()[0]
         result = repository.balances_for_students([student_fixture, other_student_id])

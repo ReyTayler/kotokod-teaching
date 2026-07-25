@@ -42,7 +42,6 @@ _SORTABLE: dict[str, str] = {
     'id':                  'id',
     'full_name':           'full_name',
     'birth_date':          'birth_date',
-    'enrollment_status':   'enrollment_status',
     'stage':               'stage_sort_order',
     'created_at':          'created_at',
 }
@@ -57,8 +56,7 @@ _STUDENT_VALUES_FIELDS = (
     'id', 'full_name', 'birth_date', 'platform_id', 'bitrix24_link',
     'parent1_name', 'parent1_phone', 'parent1_email',
     'parent2_name', 'parent2_phone', 'parent2_email',
-    'manager_id',
-    'enrollment_status', 'frozen_from', 'frozen_until', 'created_at',
+    'manager_id', 'created_at',
 )
 
 # Аннотации стадии: в .values() их нужно перечислять явно.
@@ -117,7 +115,7 @@ def _apply_filters(qs, filters: dict[str, Any]):
     """
     Фильтры (мимикрируют F.*-билдеры services/pagination.js):
       full_name (LIKE), parent1_phone/parent1_name/platform_id (likeNullable),
-      manager_id (exact), enrollment_status (exact), stage_id (exact, по аннотации).
+      manager_id (exact), stage_id (exact, по аннотации).
 
     likeNullable (col IS NOT NULL AND LOWER(col) LIKE) выражается __icontains —
     NULL по col не матчится автоматически, поэтому IS NOT NULL избыточен.
@@ -146,10 +144,6 @@ def _apply_filters(qs, filters: dict[str, Any]):
     platform_id = filters.get('platform_id')
     if platform_id not in (None, ''):
         qs = qs.filter(platform_id__icontains=str(platform_id))
-
-    enrollment_status = filters.get('enrollment_status')
-    if enrollment_status not in (None, ''):
-        qs = qs.filter(enrollment_status=str(enrollment_status))
 
     # Стадия последней сделки продления (аннотация _annotate_stage, применяется
     # до фильтров — иначе filter по несуществующему полю падает).
@@ -227,7 +221,7 @@ def create_student(data: dict) -> dict:
     Создаёт ученика (INSERT ... RETURNING *).
 
     NULLIF('', '') → пустая строка → None (platform_id/bitrix24_link/parent1_*/parent2_*).
-    enrollment_status по умолчанию 'enrolled'. created_at — DB DEFAULT now() через Now().
+    created_at — DB DEFAULT now() через Now().
     """
     obj = Student.objects.create(
         full_name=data['full_name'],
@@ -240,9 +234,6 @@ def create_student(data: dict) -> dict:
         parent2_name=data.get('parent2_name') or None,
         parent2_phone=data.get('parent2_phone') or None,
         parent2_email=data.get('parent2_email') or None,
-        enrollment_status=data.get('enrollment_status') or 'enrolled',
-        frozen_from=data.get('frozen_from') or None,
-        frozen_until=data.get('frozen_until') or None,
         created_at=Now(),
     )
     # Через get_student — чтобы ответ POST нёс те же поля стадии, что GET.
@@ -252,10 +243,6 @@ def create_student(data: dict) -> dict:
 def update_student(student_id: int, data: dict) -> Optional[dict]:
     """
     Обновляет ученика (PATCH через COALESCE, дословно из students.js).
-
-    frozen_from/frozen_until — НЕ COALESCE-поля: перезаписываются ВСЕГДА (включая
-    NULL-сброс). Отсутствие ключа эквивалентно None, чтобы смена статуса на
-    не-frozen гарантированно занулила даты.
     """
     obj = Student.objects.filter(id=student_id).first()
     if obj is None:
@@ -281,12 +268,6 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
         obj.parent2_phone = data['parent2_phone']
     if data.get('parent2_email'):
         obj.parent2_email = data['parent2_email']
-    if data.get('enrollment_status'):
-        obj.enrollment_status = data['enrollment_status']
-    # frozen_from/frozen_until — всегда перезаписываем (absent → None-сброс),
-    # чтобы смена статуса на не-frozen гарантированно занулила даты.
-    obj.frozen_from = data.get('frozen_from') or None
-    obj.frozen_until = data.get('frozen_until') or None
 
     obj.save()
     # Через get_student — единый контракт ответа с GET (включая поля стадии).

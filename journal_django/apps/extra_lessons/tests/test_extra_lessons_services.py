@@ -171,8 +171,8 @@ def test_create_assignment_raises_if_student_not_absent(
     за компенсацию несуществующего пропуска."""
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status) "
-            "VALUES ('__el_present_student__', 'enrolled') RETURNING id"
+            "INSERT INTO students (full_name) "
+            "VALUES ('__el_present_student__') RETURNING id"
         )
         present_student_id = cur.fetchone()[0]
         cur.execute(

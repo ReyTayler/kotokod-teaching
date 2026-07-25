@@ -452,7 +452,7 @@ class TestBalanceNumericTypes:
         """Ученик без оплат → paid_by_direction/attended_by_direction пусты, total_balance=0."""
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO students (full_name, enrollment_status) VALUES ('__bal_empty__', 'enrolled') RETURNING id",
+                "INSERT INTO students (full_name) VALUES ('__bal_empty__') RETURNING id",
             )
             sid = cur.fetchone()[0]
         try:

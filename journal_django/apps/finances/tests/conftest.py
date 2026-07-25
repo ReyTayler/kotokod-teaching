@@ -44,8 +44,8 @@ def direction_fixture():
 def student_fixture():
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status) "
-            "VALUES ('__fin_student__', 'enrolled') RETURNING id"
+            "INSERT INTO students (full_name) "
+            "VALUES ('__fin_student__') RETURNING id"
         )
         sid = cur.fetchone()[0]
     yield sid

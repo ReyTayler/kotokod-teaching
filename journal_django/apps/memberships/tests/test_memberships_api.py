@@ -491,8 +491,8 @@ def student_in_group():
             "VALUES ('__mem_guard_group__', %s, %s, false, 60, true, 0) RETURNING id",
             [direction_id, teacher_id])
         group_id = cur.fetchone()[0]
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__mem_guard_student__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__mem_guard_student__') RETURNING id")
         student_id = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true) RETURNING id", [group_id, student_id])

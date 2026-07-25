@@ -48,8 +48,8 @@ def student_fixture():
     with connection.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO students (full_name, enrollment_status)
-            VALUES ('__les_test_student__', 'enrolled')
+            INSERT INTO students (full_name)
+            VALUES ('__les_test_student__')
             RETURNING id
             """,
         )

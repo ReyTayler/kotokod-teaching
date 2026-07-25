@@ -38,40 +38,11 @@ class Student(models.Model):
         'accounts.Account', on_delete=models.SET_NULL, null=True, blank=True,
         db_column='manager_id', related_name='managed_students',
     )
-    enrollment_status = models.TextField(default='enrolled')
-    frozen_from = models.DateField(null=True, blank=True)
-    frozen_until = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField()
 
     class Meta:
         managed = True
         db_table = 'students'
-        constraints = [
-            models.CheckConstraint(
-                name='students_enrollment_status_check',
-                condition=models.Q(enrollment_status__in=[
-                    'enrolled', 'frozen', 'declined']),
-            ),
-            # frozen ⟺ обе даты заданы; иначе обе NULL.
-            models.CheckConstraint(
-                name='students_frozen_dates_presence_check',
-                condition=(
-                    (models.Q(enrollment_status='frozen')
-                     & models.Q(frozen_from__isnull=False)
-                     & models.Q(frozen_until__isnull=False))
-                    | (~models.Q(enrollment_status='frozen')
-                       & models.Q(frozen_from__isnull=True)
-                       & models.Q(frozen_until__isnull=True))
-                ),
-            ),
-            models.CheckConstraint(
-                name='students_frozen_dates_order_check',
-                condition=(
-                    models.Q(frozen_from__isnull=True)
-                    | models.Q(frozen_until__gte=models.F('frozen_from'))
-                ),
-            ),
-        ]
 
 
 class StudentComment(models.Model):

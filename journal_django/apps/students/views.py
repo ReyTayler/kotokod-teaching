@@ -34,8 +34,7 @@ from apps.students.serializers import (
 
 # Допустимые значения sort_by (whitelist)
 ORDERING_FIELDS = [
-    'id', 'full_name', 'birth_date',
-    'enrollment_status', 'stage', 'created_at',
+    'id', 'full_name', 'birth_date', 'stage', 'created_at',
 ]
 
 
@@ -44,7 +43,7 @@ def _parse_list_params(request: Request) -> dict:
     Извлечь и нормализовать параметры пагинации из query string.
 
     Поддерживаемые параметры:
-      page, page_size, sort_by, sort_dir, filter[name], filter[enrollment_status], ...
+      page, page_size, sort_by, sort_dir, filter[name], filter[stage_id], ...
 
     Зеркалит parsePaginationRequest() из services/pagination.js.
     Бросает ValidationError при невалидном sort_by или sort_dir.

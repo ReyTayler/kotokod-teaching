@@ -14,10 +14,6 @@ from rest_framework import serializers
 
 from apps.core.fields import DateStringField
 
-# Допустимые значения enrollment_status. Зеркалит CHECK students_enrollment_status_check
-# (apps/students/models.py) — статус 'not_enrolled' удалён из домена (миграция 0015).
-ENROLLMENT_STATUS_CHOICES = ('enrolled', 'frozen', 'declined')
-
 
 class StudentReadSerializer(serializers.Serializer):
     """
@@ -44,9 +40,6 @@ class StudentReadSerializer(serializers.Serializer):
     stage = serializers.DictField(allow_null=True)
     stage_is_open = serializers.BooleanField()
     stage_frozen_until_month = DateStringField(allow_null=True)
-    enrollment_status = serializers.CharField()
-    frozen_from = DateStringField(allow_null=True)
-    frozen_until = DateStringField(allow_null=True)
     created_at = serializers.DateTimeField()
 
 
@@ -55,7 +48,6 @@ class StudentWriteSerializer(serializers.Serializer):
     Ввод для POST /api/admin/students (createStudentSchema).
 
     Обязательные поля: full_name.
-    Бизнес-правило: frozen ↔ обе даты frozen_from/frozen_until заданы.
     """
 
     full_name = serializers.CharField(min_length=1)
@@ -68,23 +60,9 @@ class StudentWriteSerializer(serializers.Serializer):
     parent2_name = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_phone = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_email = serializers.EmailField(allow_null=True, allow_blank=True, required=False)
-    enrollment_status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES, required=False)
-    frozen_from = DateStringField(allow_null=True, required=False)
-    frozen_until = DateStringField(allow_null=True, required=False)
 
     def validate_full_name(self, value: str) -> str:
         return value.strip()
-
-    def validate(self, data: dict) -> dict:
-        """frozen ⟺ обе даты заданы. Пропускаем, если статус не передан."""
-        status = data.get('enrollment_status')
-        if status is None:
-            return data
-        has_dates = data.get('frozen_from') is not None and data.get('frozen_until') is not None
-        if (status == 'frozen') != has_dates:
-            raise serializers.ValidationError(
-                'frozen status requires frozen_from and frozen_until')
-        return data
 
 
 class StudentUpdateSerializer(serializers.Serializer):
@@ -92,7 +70,6 @@ class StudentUpdateSerializer(serializers.Serializer):
     Ввод для PATCH /api/admin/students/:id (updateStudentSchema).
 
     Все поля необязательны (partial по Zod .partial()).
-    Бизнес-правило frozen/frozen_from/frozen_until на update НЕ проверяем — как в JS.
     """
 
     full_name = serializers.CharField(min_length=1, required=False)
@@ -105,9 +82,6 @@ class StudentUpdateSerializer(serializers.Serializer):
     parent2_name = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_phone = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     parent2_email = serializers.EmailField(allow_null=True, allow_blank=True, required=False)
-    enrollment_status = serializers.ChoiceField(choices=ENROLLMENT_STATUS_CHOICES, required=False)
-    frozen_from = DateStringField(allow_null=True, required=False)
-    frozen_until = DateStringField(allow_null=True, required=False)
 
     def validate_full_name(self, value: str) -> str:
         return value.strip()

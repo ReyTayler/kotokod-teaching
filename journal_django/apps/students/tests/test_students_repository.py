@@ -9,8 +9,7 @@ Unit/integration тесты для StudentsRepository.
   - list_students: фильтры, сортировка
   - get_student: существующий/несуществующий
   - create_student: RETURNING * работает, поля заполнены
-  - update_student: COALESCE обновление, frozen_from/frozen_until могут стать NULL
-  - update_student: смена статуса; удалённый 'not_enrolled' отбивается CHECK-ом
+  - update_student: COALESCE обновление
   - student_stats: форма ответа (keys: student_id, directions, groups, overall)
   - get_student_balance: форма ответа (keys: paid_by_direction, attended_by_direction, total_balance, total_paid_amount, payments)
 """
@@ -46,9 +45,6 @@ def _make_student_data(**overrides) -> dict:
         'parent2_name': None,
         'parent2_phone': None,
         'parent2_email': None,
-        'enrollment_status': 'enrolled',
-        'frozen_from': None,
-        'frozen_until': None,
         **overrides,
     }
 
@@ -85,12 +81,6 @@ class TestListStudents:
         result = repository.list_students(page=1, page_size=2)
         assert result['page_size'] == 2
         assert len(result['rows']) <= 2
-
-    def test_filter_enrollment_status(self):
-        """Фильтр по enrollment_status возвращает только нужный статус."""
-        result = repository.list_students(filters={'enrollment_status': 'enrolled'})
-        for row in result['rows']:
-            assert row['enrollment_status'] == 'enrolled'
 
     def test_filter_full_name_no_match(self):
         """Несуществующее имя → пустой список."""
@@ -149,7 +139,7 @@ class TestGetStudent:
         sid = student['id']
         try:
             result = repository.get_student(sid)
-            for field in ['id', 'full_name', 'enrollment_status', 'created_at', 'manager_id', 'manager_name']:
+            for field in ['id', 'full_name', 'stage', 'created_at', 'manager_id', 'manager_name']:
                 assert field in result
         finally:
             _cleanup_student(sid)
@@ -195,15 +185,6 @@ class TestCreateStudent:
         finally:
             _cleanup_student(sid)
 
-    def test_enrollment_status_default_enrolled(self):
-        """Без enrollment_status — дефолт 'enrolled' (COALESCE в SQL)."""
-        data = {'full_name': '__test_create_default_status__'}
-        student = repository.create_student(data)
-        try:
-            assert student['enrollment_status'] == 'enrolled'
-        finally:
-            _cleanup_student(student['id'])
-
     def test_create_with_parent_contacts_and_birth_date(self):
         data = _make_student_data(
             full_name='__test_create_full__',
@@ -228,21 +209,6 @@ class TestCreateStudent:
             # repository отдаёт сырой ORM-объект date; строкой станет в сериализаторе
             assert student['birth_date'] == datetime.date(2013, 5, 20)
             assert 'age' not in student
-        finally:
-            _cleanup_student(student['id'])
-
-    def test_create_frozen_with_dates(self):
-        data = _make_student_data(
-            full_name='__test_create_frozen__',
-            enrollment_status='frozen',
-            frozen_from='2026-02-01',
-            frozen_until='2026-04-01',
-        )
-        student = repository.create_student(data)
-        try:
-            assert student['enrollment_status'] == 'frozen'
-            assert student['frozen_from'] == datetime.date(2026, 2, 1)
-            assert student['frozen_until'] == datetime.date(2026, 4, 1)
         finally:
             _cleanup_student(student['id'])
 
@@ -280,56 +246,6 @@ class TestUpdateStudent:
         try:
             updated = repository.update_student(sid, {'full_name': '__test_coalesce_new__'})
             assert updated['birth_date'] == datetime.date(2012, 1, 15)
-        finally:
-            _cleanup_student(sid)
-
-    def test_update_frozen_dates_to_none(self):
-        """
-        frozen_from/frozen_until сбрасываются в NULL вместе со сменой статуса.
-
-        БД-CHECK: (enrollment_status = 'frozen') = (обе даты NOT NULL).
-        Нельзя обнулить даты, не убрав статус 'frozen' одновременно.
-        """
-        data = _make_student_data(
-            full_name='__test_upd_frozen__',
-            enrollment_status='frozen',
-            frozen_from='2026-03-01',
-            frozen_until='2026-05-01',
-        )
-        student = repository.create_student(data)
-        sid = student['id']
-        try:
-            # Сброс: передаём enrollment_status; даты отсутствуют → None-сброс
-            updated = repository.update_student(
-                sid,
-                {'enrollment_status': 'enrolled'},
-            )
-            assert updated['frozen_from'] is None
-            assert updated['frozen_until'] is None
-            assert updated['enrollment_status'] == 'enrolled'
-        finally:
-            _cleanup_student(sid)
-
-    def test_update_enrollment_status(self):
-        data = _make_student_data(full_name='__test_upd_status__')
-        student = repository.create_student(data)
-        sid = student['id']
-        try:
-            updated = repository.update_student(sid, {'enrollment_status': 'declined'})
-            assert updated['enrollment_status'] == 'declined'
-        finally:
-            _cleanup_student(sid)
-
-    def test_update_rejects_removed_not_enrolled(self):
-        """CHECK students_enrollment_status_check больше не знает 'not_enrolled'
-        (миграция 0015) — запись такого статуса в обход API падает на уровне БД."""
-        from django.db import IntegrityError, transaction
-        data = _make_student_data(full_name='__test_upd_status_gone__')
-        student = repository.create_student(data)
-        sid = student['id']
-        try:
-            with pytest.raises(IntegrityError), transaction.atomic():
-                repository.update_student(sid, {'enrollment_status': 'not_enrolled'})
         finally:
             _cleanup_student(sid)
 

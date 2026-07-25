@@ -46,9 +46,9 @@ def progress_group():
         group_id = cur.fetchone()[0]
 
         # 'Аня' сортируется раньше 'Боря' (порядок строк по имени).
-        cur.execute("INSERT INTO students (full_name, enrollment_status) VALUES ('__pg Аня__','enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) VALUES ('__pg Аня__') RETURNING id")
         anya = cur.fetchone()[0]
-        cur.execute("INSERT INTO students (full_name, enrollment_status) VALUES ('__pg Боря__','enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) VALUES ('__pg Боря__') RETURNING id")
         borya = cur.fetchone()[0]
         for sid in (anya, borya):
             cur.execute(
@@ -177,8 +177,8 @@ class TestContract:
         gid = progress_group['group_id']
         l1 = progress_group['lesson_ids'][0]
         with connection.cursor() as cur:
-            cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                        "VALUES ('__pg Гена__','enrolled') RETURNING id")
+            cur.execute("INSERT INTO students (full_name) "
+                        "VALUES ('__pg Гена__') RETURNING id")
             gena = cur.fetchone()[0]
             cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                         "VALUES (%s,%s,0,true)", [gid, gena])
@@ -232,8 +232,8 @@ class TestContract:
         gid = progress_group['group_id']
         with connection.cursor() as cur:
             cur.execute(
-                "INSERT INTO students (full_name, enrollment_status) "
-                "VALUES ('__pg Выбывший__','enrolled') RETURNING id"
+                "INSERT INTO students (full_name) "
+                "VALUES ('__pg Выбывший__') RETURNING id"
             )
             gone = cur.fetchone()[0]
             cur.execute(
@@ -521,7 +521,7 @@ def progress_group_45():
         )
         group_id = cur.fetchone()[0]
 
-        cur.execute("INSERT INTO students (full_name, enrollment_status) VALUES ('__pg45 Аня__','enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) VALUES ('__pg45 Аня__') RETURNING id")
         anya = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) VALUES (%s,%s,0,true)",

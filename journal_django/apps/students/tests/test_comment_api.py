@@ -16,8 +16,8 @@ def _create_student() -> int:
     name = f'__test_api_comment_student__{uuid.uuid4().hex[:8]}'
     with connection.cursor() as cur:
         cur.execute(
-            "INSERT INTO students (full_name, enrollment_status, created_at) "
-            "VALUES (%s, 'enrolled', NOW()) RETURNING id",
+            "INSERT INTO students (full_name, created_at) "
+            "VALUES (%s, NOW()) RETURNING id",
             [name],
         )
         return cur.fetchone()[0]

@@ -557,8 +557,8 @@ def test_attendance_cell_set_free_postfactum_frees_student_not_payroll(
     from apps.finances.repository import balance_for_student
 
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_free_pf__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_free_pf__') RETURNING id")
         s2 = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true)", [group_fixture, s2])
@@ -613,8 +613,8 @@ def test_attendance_cell_free_needs_no_balance_but_unfree_does(
     """Ученик с НУЛЕВЫМ балансом: «бесплатно» ставится без ошибки (баланс не нужен),
     а возврат в платный present (is_free=false) блокируется UnpaidAttendanceBlocked."""
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_free_zero__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_free_zero__') RETURNING id")
         s = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true)", [group_fixture, s])  # без payments → баланс 0
@@ -700,8 +700,8 @@ def test_record_lesson_payroll_excludes_locked_student_across_rate_bracket(
     extra_students: list[int] = []
     with connection.cursor() as cur:
         for name in ('__les_pay_s2__', '__les_pay_s3__'):
-            cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                        "VALUES (%s, 'enrolled') RETURNING id", [name])
+            cur.execute("INSERT INTO students (full_name) "
+                        "VALUES (%s) RETURNING id", [name])
             sid = cur.fetchone()[0]
             extra_students.append(sid)
             cur.execute(
@@ -782,8 +782,8 @@ def test_record_lesson_free_outcome_no_money_but_progress_and_renewal(
     from apps.finances.repository import attended_units_total, balance_for_student
 
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_free_s2__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_free_s2__') RETURNING id")
         student2_id = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true)", [group_fixture, student2_id])
@@ -878,8 +878,8 @@ def test_record_lesson_unpaid_skip_excluded_and_no_pending(
     from apps.extra_lessons.models import AbsenceResolution
 
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_skip_s2__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_skip_s2__') RETURNING id")
         s2 = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true)", [group_fixture, s2])
@@ -934,8 +934,8 @@ def test_set_unpaid_skip_on_recorded_lesson_for_newly_added_student(
     )
     lid = result['lesson_id']
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_skip_new__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_skip_new__') RETURNING id")
         s_new = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true)", [group_fixture, s_new])
@@ -978,8 +978,8 @@ def test_lesson_skip_on_future_slot_then_recorded_excludes_student(
     from apps.extra_lessons.models import AbsenceResolution
 
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_lsk_s2__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_lsk_s2__') RETURNING id")
         s2 = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true)", [group_fixture, s2])
@@ -1037,8 +1037,8 @@ def test_lesson_skip_on_recorded_slot_materializes_and_unset(
     )
     lid = result['lesson_id']
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_lsk_new__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_lsk_new__') RETURNING id")
         s_new = cur.fetchone()[0]
         cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
                     "VALUES (%s, %s, 0, true)", [group_fixture, s_new])
@@ -1074,8 +1074,8 @@ def test_record_lesson_silently_excludes_locked_students(
     """B=5 для student_fixture; урок №3 (locked) исключает его из attendance/total_students,
     но обычный ученик той же группы (student2) отмечается нормально."""
     with connection.cursor() as cur:
-        cur.execute("INSERT INTO students (full_name, enrollment_status) "
-                    "VALUES ('__les_locked_s2__', 'enrolled') RETURNING id")
+        cur.execute("INSERT INTO students (full_name) "
+                    "VALUES ('__les_locked_s2__') RETURNING id")
         student2_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
