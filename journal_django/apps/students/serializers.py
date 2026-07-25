@@ -41,6 +41,11 @@ class StudentReadSerializer(serializers.Serializer):
     parent2_email = serializers.CharField(allow_null=True, allow_blank=True)
     manager_id = serializers.IntegerField(allow_null=True)
     manager_name = serializers.CharField(allow_null=True, allow_blank=True)
+    # Стадия последней сделки продления — заменила enrollment_status.
+    # dict или None; поля совпадают с renewal_stage (id/key/label/kind/sort_order).
+    stage = serializers.DictField(allow_null=True)
+    stage_is_open = serializers.BooleanField()
+    stage_frozen_until_month = DateStringField(allow_null=True)
     enrollment_status = serializers.CharField()
     frozen_from = DateStringField(allow_null=True)
     frozen_until = DateStringField(allow_null=True)

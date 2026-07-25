@@ -41,7 +41,7 @@ from apps.students.serializers import (
 # Допустимые значения sort_by (whitelist)
 ORDERING_FIELDS = [
     'id', 'full_name', 'birth_date',
-    'enrollment_status', 'created_at',
+    'enrollment_status', 'stage', 'created_at',
 ]
 
 

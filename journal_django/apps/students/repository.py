@@ -11,10 +11,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from django.db import connection
-from django.db.models import F
+from django.db.models import F, OuterRef, Subquery
 from django.db.models.functions import Now
 
-from apps.core.utils.orm import dictrow, dictrows
+from apps.core.utils.orm import dictrows
 from apps.finances.repository import balance_for_student
 
 from .models import Student
@@ -43,6 +43,7 @@ _SORTABLE: dict[str, str] = {
     'full_name':           'full_name',
     'birth_date':          'birth_date',
     'enrollment_status':   'enrollment_status',
+    'stage':               'stage_sort_order',
     'created_at':          'created_at',
 }
 
@@ -60,12 +61,62 @@ _STUDENT_VALUES_FIELDS = (
     'enrollment_status', 'frozen_from', 'frozen_until', 'created_at',
 )
 
+# Аннотации стадии: в .values() их нужно перечислять явно.
+_STAGE_VALUES_FIELDS = ('stage_id', 'stage_sort_order', 'stage_outcome_at', 'stage_month')
+
+
+def _annotate_stage(qs):
+    """Стадия ПОСЛЕДНЕЙ сделки ученика (max cycle_no) — «статус» ученика после
+    удаления enrollment_status (спека 2026-07-25).
+
+    Четыре коррелированных подзапроса вместо джойна: одна сделка на строку.
+    Каждый — Index Scan Backward по (student_id, cycle_no): подходит и явный
+    renewal_deal_student_cycle_idx, и UNIQUE renewal_deal_student_cycle_uq
+    (планировщик на dev-БД выбирает второй — префикс тот же).
+    Подписи стадий подзапросом НЕ тянем — воронка это 11 строк, их отдаёт
+    _stage_index() одним запросом (см. _attach_stage).
+    """
+    from apps.renewals.models import RenewalDeal
+    latest = RenewalDeal.objects.filter(student_id=OuterRef('pk')).order_by('-cycle_no')
+    return qs.annotate(
+        stage_id=Subquery(latest.values('stage_id')[:1]),
+        stage_sort_order=Subquery(latest.values('stage__sort_order')[:1]),
+        stage_outcome_at=Subquery(latest.values('outcome_at')[:1]),
+        stage_month=Subquery(latest.values('frozen_until_month')[:1]),
+    )
+
+
+def _stage_index() -> dict[int, dict]:
+    """stage_id → {id, key, label, kind, sort_order}. Воронка мала, читаем целиком."""
+    from apps.renewals.models import RenewalStage
+    return {s['id']: s for s in RenewalStage.objects.values(
+        'id', 'key', 'label', 'kind', 'sort_order')}
+
+
+def _attach_stage(rows: list[dict]) -> list[dict]:
+    """Разворачивает аннотации в контракт stage / stage_is_open /
+    stage_frozen_until_month. Месяц показываем только на стадии 'frozen' —
+    на других он либо мёртвый, либо ещё не обнулён историческими данными."""
+    from apps.renewals.transitions import FROZEN_KEY
+    index = _stage_index() if any(r.get('stage_id') for r in rows) else {}
+    for r in rows:
+        stage_id = r.pop('stage_id', None)
+        outcome_at = r.pop('stage_outcome_at', None)
+        month = r.pop('stage_month', None)
+        r.pop('stage_sort_order', None)  # только для ORDER BY
+        stage = index.get(stage_id)
+        r['stage'] = dict(stage) if stage else None
+        r['stage_is_open'] = stage is not None and outcome_at is None
+        r['stage_frozen_until_month'] = (
+            month if stage is not None and stage['key'] == FROZEN_KEY else None)
+    return rows
+
 
 def _apply_filters(qs, filters: dict[str, Any]):
     """
     Фильтры (мимикрируют F.*-билдеры services/pagination.js):
       full_name (LIKE), parent1_phone/parent1_name/platform_id (likeNullable),
-      manager_id (exact), enrollment_status (exact).
+      manager_id (exact), enrollment_status (exact), stage_id (exact, по аннотации).
 
     likeNullable (col IS NOT NULL AND LOWER(col) LIKE) выражается __icontains —
     NULL по col не матчится автоматически, поэтому IS NOT NULL избыточен.
@@ -99,6 +150,17 @@ def _apply_filters(qs, filters: dict[str, Any]):
     if enrollment_status not in (None, ''):
         qs = qs.filter(enrollment_status=str(enrollment_status))
 
+    # Стадия последней сделки продления (аннотация _annotate_stage, применяется
+    # до фильтров — иначе filter по несуществующему полю падает).
+    stage_id = filters.get('stage_id')
+    if stage_id not in (None, ''):
+        try:
+            stage_id = int(stage_id)
+        except (TypeError, ValueError):
+            pass  # невалидное значение — фильтр молча игнорируется (как manager_id)
+        else:
+            qs = qs.filter(stage_id=stage_id)
+
     # Фильтра по возрасту нет: поле удалено, возраст считается на фронте из
     # birth_date (вычисляемое → не фильтруется SQL-ом без пересчёта в диапазон дат).
     return qs
@@ -122,18 +184,27 @@ def list_students(
     sort_field = _SORTABLE.get(sort_by) or _SORTABLE[_DEFAULT_SORT_BY]
     order_prefix = '' if sort_dir == 'asc' else '-'
 
-    qs = _apply_filters(Student.objects.all(), filters)
+    # Аннотация стадии нужна для COUNT только если по ней фильтруют или сортируют:
+    # иначе считаем по «чистому» queryset, не платя за 4 подзапроса на строку.
+    needs_stage_in_count = (filters.get('stage_id') not in (None, '')
+                            or sort_field == 'stage_sort_order')
+    base = Student.objects.all()
+    if needs_stage_in_count:
+        base = _annotate_stage(base)
+    base = _apply_filters(base, filters)
 
-    total = qs.count()
+    total = base.count()
 
+    page_qs = base if needs_stage_in_count else _annotate_stage(base)
     offset = max(0, (page - 1) * page_size)
-    ordered = qs.order_by(f'{order_prefix}{sort_field}', '-id')
+    ordered = page_qs.order_by(f'{order_prefix}{sort_field}', '-id')
     rows = dictrows(ordered[offset:offset + page_size].values(
-        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
+        *_STUDENT_VALUES_FIELDS, *_STAGE_VALUES_FIELDS,
+        manager_name=F('manager__full_name'),
     ))
 
     return {
-        'rows': rows,
+        'rows': _attach_stage(rows),
         'total': total,
         'page': page,
         'page_size': page_size,
@@ -142,9 +213,12 @@ def list_students(
 
 def get_student(student_id: int) -> Optional[dict]:
     """Возвращает одного ученика по id или None."""
-    return dictrow(Student.objects.filter(id=student_id).values(
-        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
-    ))
+    rows = _attach_stage(dictrows(
+        _annotate_stage(Student.objects.filter(id=student_id)).values(
+            *_STUDENT_VALUES_FIELDS, *_STAGE_VALUES_FIELDS,
+            manager_name=F('manager__full_name'),
+        )))
+    return rows[0] if rows else None
 
 
 def create_student(data: dict) -> dict:
@@ -170,9 +244,8 @@ def create_student(data: dict) -> dict:
         frozen_until=data.get('frozen_until') or None,
         created_at=Now(),
     )
-    return dictrow(Student.objects.filter(pk=obj.pk).values(
-        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
-    ))
+    # Через get_student — чтобы ответ POST нёс те же поля стадии, что GET.
+    return get_student(obj.pk)
 
 
 def update_student(student_id: int, data: dict) -> Optional[dict]:
@@ -215,9 +288,8 @@ def update_student(student_id: int, data: dict) -> Optional[dict]:
     obj.frozen_until = data.get('frozen_until') or None
 
     obj.save()
-    return dictrow(Student.objects.filter(id=student_id).values(
-        *_STUDENT_VALUES_FIELDS, manager_name=F('manager__full_name'),
-    ))
+    # Через get_student — единый контракт ответа с GET (включая поля стадии).
+    return get_student(student_id)
 
 
 
