@@ -51,9 +51,11 @@ apps/<feature>/
 - **балансы выводятся, не хранятся**: `purchased − attended` per direction (half-lesson в SUM).
 - **FIFO** по фактической цене партии-оплаты (`total_amount/(subscriptions_count×4)`); Decimal + копеечное
   округление; guard: оплаты с `subscriptions_count` NULL/0 пропускать (иначе Infinity ломает суммы).
-- **soft-delete**: groups/accounts/teachers/… → `active=false`. У students soft-delete НЕТ — статус
-  `not_enrolled` и `DELETE /students/:id` удалены (миграция students/0015); уход = статус `declined`
-  через `POST /students/:id/status` (снимает членства + закрывает сделку продления).
+- **soft-delete**: groups/accounts/teachers/… → `active=false`. У students soft-delete НЕТ, как и
+  статуса вообще: `enrollment_status` с датами заморозки удалён (миграция students/0016), `DELETE
+  /students/:id` — ещё раньше (0015). «Статус» ученика = стадия его последней сделки продления;
+  уход и заморозка — переходы сделки (`POST /api/admin/renewals/:id/move`) БЕЗ каскадов: членства
+  и расписание менеджер правит сам.
   Списки по умолчанию скрывают `active=false` ровно там, где это делал Express (сверять diff'ом).
 - **порядок mount при cutover**: `/api/auth` → `/api/admin` → `/api/...` (teacher) — admin до teacher-guard.
 

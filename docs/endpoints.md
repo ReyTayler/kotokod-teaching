@@ -56,7 +56,20 @@
 | GET | `/api/admin/students/:id/balance` | Баланс (payments - attended) |
 | POST | `/api/admin/students` | Создать |
 | PATCH | `/api/admin/students/:id` | Обновить |
-| POST | `/api/admin/students/:id/status` | Смена статуса с каскадом (`enrolled`/`frozen`/`declined`). DELETE ученика удалён — уход оформляется здесь статусом `declined` |
+
+Статуса у ученика нет: `enrollment_status` и даты заморозки удалены (миграция
+students/0016). «Статус» — стадия последней сделки продления, она приезжает в
+каждой строке ученика (`stage`, `stage_is_open`, `stage_frozen_until_month`) и
+фильтруется через `filter[stage_id]`. Заморозка и уход оформляются переходом
+сделки в разделе «Продления» (см. ниже), без каскадов по членствам и расписанию.
+
+### Renewals (сделки продления)
+
+| Метод | Путь | Описание |
+|---|---|---|
+| POST | `/api/admin/renewals/:id/move` | Перевод стадии. Для стадии `frozen` обязателен `frozen_until_month` (`YYYY-MM-01`), при уходе с неё месяц обнуляется |
+| POST | `/api/admin/renewals/:id/unfreeze` | «Вернуть в работу»: со стадии `frozen` на расчётную авто-стадию. 409, если сделка не заморожена |
+| POST | `/api/admin/renewals/:id/reopen` | Переоткрыть закрытую сделку |
 
 ### Groups (paginated, join direction/teacher/slots)
 
