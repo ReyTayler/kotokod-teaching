@@ -72,6 +72,7 @@ def deal_computed(deal_id: int) -> dict | None:
         SELECT d.id, d.student_id, d.cycle_no, d.stage_id,
                d.assignee_id, d.reason_code,
                d.due_at, d.stage_entered_at, d.outcome_at, d.created_at,
+               d.frozen_until_month,
                s.full_name AS student_name,
                {DIRECTIONS_AGG_SQL} AS directions,
                st.key AS stage_key, st.label AS stage_label, st.kind AS stage_kind,
@@ -290,6 +291,7 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
                    {DIRECTIONS_AGG_SQL} AS directions,
                    d.cycle_no,
                    d.due_at, a.full_name AS assignee_name,
+                   d.frozen_until_month,
                    EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage,
                    COALESCE((
                        SELECT SUM(CASE WHEN l.lesson_duration_minutes = 45
@@ -483,6 +485,7 @@ def list_deals(page: int, page_size: int, sort_by: str, sort_dir: str, filters: 
                    d.cycle_no, st.label AS stage_label,
                    st.kind AS stage_kind, st.color AS stage_color,
                    d.due_at, a.full_name AS assignee_name,
+                   d.frozen_until_month,
                    EXTRACT(DAY FROM now() - d.stage_entered_at)::int AS days_in_stage
             FROM renewal_deal d
             JOIN students s ON s.id = d.student_id

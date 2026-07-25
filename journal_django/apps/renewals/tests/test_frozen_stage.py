@@ -163,3 +163,18 @@ def test_unfreeze_not_found_for_missing_deal(admin_client):
     """Несуществующая сделка — 404, а не 409 (отличаем «нет сделки» от «не заморожена»)."""
     resp = admin_client.post(UNFREEZE_URL.format(0))
     assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_frozen_month_visible_in_api(admin_client, open_deal, frozen_stage):
+    """Месяц заморозки видно в детали сделки, на карточке доски и в списке."""
+    from apps.renewals import repository as repo
+    repo.move_deal(open_deal.id, frozen_stage.id, None, None,
+                   frozen_until_month=date(2026, 9, 1))
+
+    detail = admin_client.get(f'/api/admin/renewals/{open_deal.id}').json()
+    assert detail['frozen_until_month'] == '2026-09-01'
+
+    board = admin_client.get('/api/admin/renewals?view=board').json()
+    frozen_col = next(c for c in board['columns'] if c['key'] == 'frozen')
+    assert frozen_col['cards'][0]['frozen_until_month'] == '2026-09-01'
