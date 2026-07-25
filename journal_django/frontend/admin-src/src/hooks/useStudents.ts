@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { api, fetchAllPages } from '../lib/api';
 import type { Student, Paginated } from '../lib/types';
 
 interface StudentStats {
@@ -36,18 +36,16 @@ const KEY = ['students'] as const;
 
 // ──────────────────────────────────────────────────────
 // Для PaymentModal и других мест, где нужен ВЕСЬ список учеников (autocomplete).
-// Бэк теперь всегда отдаёт Paginated — распаковываем .rows здесь, page_size 2000 хватит.
+// Читаем ВСЕ страницы: бэкенд зажимает page_size до 500, поэтому прежний запрос
+// с page_size=2000 за этим порогом молча терял учеников (см. fetchAllPages).
 // ──────────────────────────────────────────────────────
 export function useStudentsAll() {
   return useQuery({
     queryKey: [...KEY, 'all'],
-    queryFn: async () => {
-      const res = await api<Paginated<Student>>(
-        'GET',
-        '/api/admin/students?page=1&page_size=2000&sort_by=full_name&sort_dir=asc',
-      );
-      return res.rows;
-    },
+    queryFn: () => fetchAllPages<Student>('/api/admin/students', new URLSearchParams({
+      sort_by: 'full_name',
+      sort_dir: 'asc',
+    })),
     staleTime: 60_000,
   });
 }

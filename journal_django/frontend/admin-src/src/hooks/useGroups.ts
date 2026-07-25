@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { api, fetchAllPages } from '../lib/api';
 import type { Group, GroupScheduleSlot, Paginated } from '../lib/types';
 
 export interface GroupPayload {
@@ -24,15 +24,11 @@ const KEY = ['groups'] as const;
 export function useGroupsAll(includeInactive = false) {
   return useQuery({
     queryKey: [...KEY, 'all', { includeInactive }],
-    queryFn: async () => {
-      const qs = new URLSearchParams();
-      qs.set('page', '1');
-      qs.set('page_size', '2000');
-      qs.set('sort_by', 'name');
-      qs.set('sort_dir', 'asc');
+    queryFn: () => {
+      const qs = new URLSearchParams({ sort_by: 'name', sort_dir: 'asc' });
       if (includeInactive) qs.set('include_inactive', '1');
-      const res = await api<Paginated<Group>>('GET', `/api/admin/groups?${qs.toString()}`);
-      return res.rows;
+      // Все страницы, а не первая: бэкенд зажимает page_size до 500 (см. fetchAllPages).
+      return fetchAllPages<Group>('/api/admin/groups', qs);
     },
     staleTime: 60_000,
   });

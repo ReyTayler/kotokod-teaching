@@ -1,3 +1,5 @@
+import type { Paginated } from './types';
+
 export class ApiError extends Error {
   status: number;
   details?: unknown;
@@ -142,4 +144,49 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     throw new ApiError(res.status, json?.error || res.statusText, json?.details, json?.code);
   }
   return json as T;
+}
+
+/**
+ * Максимальный `page_size`, который принимает бэкенд: он ЖЁСТКО зажимает значение
+ * (`min(500, ...)` в парсерах списков, `max_page_size` в apps/core/pagination.py).
+ * Просить больше бессмысленно — сервер молча отдаст 500 строк.
+ */
+export const MAX_PAGE_SIZE = 500;
+
+/** Предохранитель от бесконечного цикла, если `total` придёт неадекватным. */
+const MAX_PAGES_TO_FETCH = 40;
+
+/**
+ * Забрать ВЕСЬ пагинированный список, а не первую страницу.
+ *
+ * Хуки «…All» раньше просили `page_size=2000` и брали `rows` одного ответа. Так как
+ * бэкенд зажимает размер страницы до MAX_PAGE_SIZE, за порогом 500 записей список
+ * молча обрезался: в подборе ученика для оплаты и в составе группы часть людей
+ * просто отсутствовала — без пагинации и без сообщения об усечении.
+ *
+ * Страницы читаются последовательно: полный список нужен редко, а параллельные
+ * запросы на VPS с 2 CPU дороже, чем лишние сотни миллисекунд. Дедупликация по
+ * `id` защищает от сдвига окна, если между запросами кто-то добавил запись.
+ */
+export async function fetchAllPages<T extends { id: number }>(
+  path: string,
+  params: URLSearchParams,
+): Promise<T[]> {
+  const qs = new URLSearchParams(params);
+  qs.set('page_size', String(MAX_PAGE_SIZE));
+  qs.set('page', '1');
+
+  const first = await api<Paginated<T>>('GET', `${path}?${qs.toString()}`);
+  const byId = new Map<number, T>(first.rows.map((r) => [r.id, r]));
+
+  const pages = Math.min(
+    Math.ceil((first.total || 0) / MAX_PAGE_SIZE),
+    MAX_PAGES_TO_FETCH,
+  );
+  for (let page = 2; page <= pages; page += 1) {
+    qs.set('page', String(page));
+    const next = await api<Paginated<T>>('GET', `${path}?${qs.toString()}`);
+    next.rows.forEach((r) => byId.set(r.id, r));
+  }
+  return [...byId.values()];
 }
