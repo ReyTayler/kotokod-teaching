@@ -102,6 +102,11 @@ class RenewalDeal(models.Model):
     # Дата «созревания» продления: 4-й урок цикла отработан (ставит движок).
     # Основа когортной аналитики по месяцам. NULL — цикл ещё не отработан.
     due_at = models.DateField(null=True, blank=True)
+    # Месяц окончания заморозки («до какого месяца»), всегда 1-е число.
+    # Заполнено ТОЛЬКО пока сделка на стадии key='frozen'; уход со стадии
+    # обнуляет (repository.move_deal / engine.return_from_freeze). DB-CHECK нет:
+    # ключ стадии живёт в другой таблице, условие по FK-джойну не выражается.
+    frozen_until_month = models.DateField(null=True, blank=True)
     reason_code = models.TextField(null=True, blank=True)
     stage_entered_at = models.DateTimeField(auto_now_add=True)
     outcome_at = models.DateTimeField(null=True, blank=True)  # NOT NULL ⇒ сделка закрыта
@@ -122,6 +127,11 @@ class RenewalDeal(models.Model):
                          name='renewal_deal_open_stage_idx'),
             models.Index(fields=['assignee'], name='renewal_deal_assignee_idx'),
             models.Index(fields=['student'], name='renewal_deal_student_idx'),
+            # Подзапрос «последняя сделка ученика» (аннотация стадии в
+            # apps/students/repository.py): без -cycle_no это сортировка на
+            # каждую строку списка учеников.
+            models.Index(fields=['student', '-cycle_no'],
+                         name='renewal_deal_student_cycle_idx'),
         ]
 
 
