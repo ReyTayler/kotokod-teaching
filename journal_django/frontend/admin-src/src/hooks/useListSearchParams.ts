@@ -34,7 +34,7 @@ interface Defaults {
  *
  * URL формат:
  *   ?page=2&page_size=50&sort_by=lesson_date&sort_dir=desc
- *   &f.full_name=Иван&f.enrollment_status=enrolled
+ *   &f.full_name=Иван&f.stage_id=4
  *
  * Префикс `f.` для пользовательских фильтров — чтобы не конфликтовать
  * с зарезервированными page/page_size/sort_by/sort_dir/etc.

@@ -4,13 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useStudents } from '../../hooks/useStudents';
 import { useRenewalAssignees } from '../../hooks/useRenewals';
+import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { Avatar } from '../../components/Avatar';
-import { StatusBadge } from '../../components/StatusBadge';
+import { StageBadge } from '../../components/StageBadge';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { fmtDate, fmtAge } from '../../lib/format';
-import { ENROLLMENT_STATUS_OPTIONS } from '../../lib/labels';
 import type { Student } from '../../lib/types';
 import { PageHeader } from '../../components/shell/PageHeader';
 import StudentFormModal from './StudentFormModal';
@@ -23,6 +23,8 @@ export default function StudentsListPage() {
   const search = useListSearchParams({ sortBy: 'full_name', sortDir: 'asc' });
   const { page, pageSize, sortBy, sortDir, filters, setPage, setPageSize, setSort, setFilters } = search;
   const { data: assignees } = useRenewalAssignees();
+  // Стадии воронки — варианты фильтра колонки «Стадия» (бэк ждёт filter[stage_id]).
+  const { data: stages } = useRenewalStages();
 
   // Debounce фильтров — не гоним запрос на каждый символ.
   const debouncedFilters = useDeferredValue(filters);
@@ -108,12 +110,16 @@ export default function StudentsListPage() {
       cell: (r) => r.manager_name || '—',
     },
     {
-      key: 'enrollment_status',
-      label: 'Статус',
+      // «Статус» ученика = стадия его последней сделки продления.
+      // key = имя фильтра (бэк ждёт filter[stage_id]), sortKey — имя сортировки
+      // (sort_by=stage, по sort_order стадии). Тот же приём, что у 'manager_id'.
+      key: 'stage_id',
+      label: 'Стадия',
+      sortKey: 'stage',
       sortable: true,
       searchable: true,
-      searchOptions: ENROLLMENT_STATUS_OPTIONS,
-      cell: (r) => <StatusBadge row={r} />,
+      searchOptions: (stages || []).map((s) => ({ value: String(s.id), label: s.label })),
+      cell: (r) => <StageBadge row={r} />,
     },
   ];
   const visibleColumns = useTableColumns('students', columns);

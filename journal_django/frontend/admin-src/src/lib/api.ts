@@ -14,14 +14,14 @@ export class ApiError extends Error {
 
 // custom_exception_handler на бэке всегда заворачивает ValidationError как
 // {error: 'Validation failed', details: {...}} — реальное человеко-читаемое
-// сообщение (см. например StudentStatusSerializer.validate, где ValueError
-// заворачивается в ValidationError({'error': str(exc)})) лежит внутри
+// сообщение (см. например MoveSerializer.validate, где отсутствие месяца
+// заморозки отдаётся как {'frozen_until_month': '...'}) лежит внутри
 // `details` под одним из полевых ключей. Без этой распаковки пользователь
 // увидит только общее «Validation failed».
 export function extractErrorDetail(details: unknown): string | undefined {
   if (!details || typeof details !== 'object') return undefined;
   const d = details as Record<string, unknown>;
-  for (const key of ['error', 'non_field_errors', 'status', 'frozen_from', 'frozen_until']) {
+  for (const key of ['error', 'non_field_errors', 'frozen_until_month']) {
     const v = d[key];
     if (Array.isArray(v) && v.length > 0) return String(v[0]);
   }

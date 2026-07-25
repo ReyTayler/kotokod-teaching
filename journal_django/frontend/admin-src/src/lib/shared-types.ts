@@ -78,7 +78,15 @@ export interface GroupScheduleData {
 }
 
 // ===== Students =====
-export type EnrollmentStatus = 'enrolled' | 'frozen' | 'declined';
+
+/** Стадия воронки продлений — «статус» ученика после удаления enrollment_status. */
+export interface StudentStage {
+  id: ID;
+  key: string;
+  label: string;
+  kind: 'progress' | 'decision' | 'won' | 'lost';
+  sort_order: number;
+}
 
 export interface Student {
   id: ID;
@@ -94,9 +102,12 @@ export interface Student {
   parent2_email: string | null;
   manager_id: ID | null;
   manager_name: string | null;
-  enrollment_status: EnrollmentStatus;
-  frozen_from: string | null;
-  frozen_until: string | null;
+  /** Стадия ПОСЛЕДНЕЙ сделки продления; null — сделок ещё не было. */
+  stage: StudentStage | null;
+  /** false — последняя сделка закрыта (won/lost): бейдж рисуется приглушённым. */
+  stage_is_open: boolean;
+  /** «До какого месяца заморозка» ('YYYY-MM-01'), непусто только на стадии frozen. */
+  stage_frozen_until_month: string | null;
   created_at: string;
 }
 

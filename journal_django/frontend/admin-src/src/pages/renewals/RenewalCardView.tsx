@@ -1,6 +1,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { Avatar } from '../../components/Avatar';
 import { SLA_OVERDUE_DAYS, type RenewalCard } from '../../lib/renewals';
+import { fmtMonth } from '../../lib/format';
 
 /**
  * Разметка карточки без drag-обвязки — переиспользуется и в самой колонке,
@@ -35,6 +36,11 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
         {card.debt && (
           <span className="status-badge status-badge--negative" title="Баланс ученика отрицательный">
             Долг
+          </span>
+        )}
+        {card.frozen_until_month && (
+          <span className="status-badge status-badge--muted" title="Заморозка до месяца">
+            до {fmtMonth(card.frozen_until_month)}
           </span>
         )}
       </div>

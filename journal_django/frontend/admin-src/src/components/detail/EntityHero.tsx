@@ -10,7 +10,7 @@ interface Props {
   monogram: string;
   color: string;
   title: string;
-  /** Бейдж статуса справа от имени (StatusBadge и т.п.). */
+  /** Бейдж статуса справа от имени (StageBadge и т.п.). */
   badge?: ReactNode;
   /** Ряд чипов под именем: id, тип, расписание, длительность. */
   meta?: ReactNode;

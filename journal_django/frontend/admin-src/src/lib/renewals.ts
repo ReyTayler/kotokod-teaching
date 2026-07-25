@@ -39,6 +39,8 @@ export interface RenewalCard {
   debt: boolean;
   /** Отработаны ли все 4 урока текущего цикла — пока false, «Продлён» недоступен. */
   cycle_completed: boolean;
+  /** «До какого месяца заморозка» ('YYYY-MM-01'); непусто только на стадии frozen. */
+  frozen_until_month: string | null;
 }
 
 export interface RenewalColumn {
@@ -66,6 +68,8 @@ export interface RenewalListRow {
   due_at: string | null;
   assignee_name: string | null;
   days_in_stage: number;
+  /** «До какого месяца заморозка» ('YYYY-MM-01'); непусто только на стадии frozen. */
+  frozen_until_month: string | null;
 }
 
 export interface RenewalDealDetail {
@@ -94,6 +98,8 @@ export interface RenewalDealDetail {
   balance: number;
   /** Баланс ученика < 0 — красный бейдж «Долг». */
   debt: boolean;
+  /** «До какого месяца заморозка» ('YYYY-MM-01'); непусто только на стадии frozen. */
+  frozen_until_month: string | null;
 }
 
 export interface RenewalActivityItem {

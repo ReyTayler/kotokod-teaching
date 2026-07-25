@@ -112,3 +112,19 @@ export function fmtAge(birthDate: string | null | undefined): string {
     : 'лет';
   return `${a} ${word}`;
 }
+
+const MONTHS_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/**
+ * Месяц без дня: '2026-09-01' → «сентября 2026». Нужен там, где дата означает
+ * именно месяц (frozen_until_month у сделки — всегда 1-е число), и fmtDate с
+ * его «01.09.2026» вводил бы в заблуждение точностью до дня.
+ * Пустое/некорректное значение → '—' (как fmtDate).
+ */
+export function fmtMonth(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})/.exec(String(iso ?? '').trim());
+  if (!m) return '—';
+  const month = MONTHS_GENITIVE[+m[2] - 1];
+  return month ? `${month} ${m[1]}` : '—';
+}

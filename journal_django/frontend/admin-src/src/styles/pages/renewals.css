@@ -489,6 +489,16 @@
   color: var(--text);
 }
 
+/* Ряд действий открытой сделки: «Внести оплату» + «Вернуть в работу» (только на
+   стадии «Заморожен»). Без обёртки кнопки — прямые flex-дети .renewal-drawer и
+   растягиваются на всю ширину колонки. */
+.renewal-drawer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .renewal-drawer__pay-btn {
   align-self: flex-start;
   border-radius: var(--r-lg);

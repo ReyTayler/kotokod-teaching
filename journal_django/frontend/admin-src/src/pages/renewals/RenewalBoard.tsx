@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
@@ -7,15 +7,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRenewalBoard, useRenewalMutations } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useApiError } from '../../hooks/useApiError';
-import { useMemberships } from '../../hooks/useMemberships';
-import { useGroupsAll } from '../../hooks/useGroups';
 import { useToast } from '../../components/ui/Toast';
 import { RenewalColumn } from './RenewalColumn';
 import { RenewalCardContent } from './RenewalCardView';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
-import { StudentStatusModal } from '../students/StudentStatusModal';
+import { FreezeDealDialog } from './FreezeDealDialog';
 import type { RenewalBoard as RenewalBoardData, RenewalCard, RenewalFilters } from '../../lib/renewals';
-import type { EnrollmentStatus } from '../../lib/types';
 
 interface Props {
   filters: RenewalFilters;
@@ -51,35 +48,11 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   const [activeCard, setActiveCard] = useState<RenewalCard | null>(null);
   // Сделка, ожидающая подтверждения закрытия в диалоге (drop на зону закрытия).
   const [closeTarget, setCloseTarget] = useState<CloseDialogTarget | null>(null);
-  // Ученик, для которого дроп на «Заморожен»/«Ушёл» открыл смену статуса —
-  // сделка переедет в нужную стадию сама, каскадом (engine.freeze_deal/decline_deal).
-  const [statusModalStudent, setStatusModalStudent] = useState<
-    { id: number; initialStatus: EnrollmentStatus } | null
+  // Сделка, брошенная в «Заморожен»: move требует месяц окончания, поэтому
+  // сначала спрашиваем его диалогом.
+  const [freezeTarget, setFreezeTarget] = useState<
+    { dealId: number; studentName: string; stageId: number } | null
   >(null);
-
-  // Мемберства ученика, на которого сейчас бросили карточку — тот же паттерн,
-  // что и в StudentDetailPage. Хуки вызываются безусловно (правила хуков);
-  // без выбранного ученика useMemberships отключён (enabled: !!student_id).
-  const { data: groupsAll = [] } = useGroupsAll(true);
-  const { data: statusRawMemberships = [], isSuccess: statusMembershipsReady, isError: statusMembershipsFailed } =
-    useMemberships({ student_id: statusModalStudent?.id });
-  const statusMemberships = useMemo(
-    () => statusRawMemberships.map((m) => ({
-      id: Number(m.id),
-      group_name: m.group_name || `#${m.group_id}`,
-      is_individual: groupsAll.find((g) => g.id === m.group_id)?.is_individual ?? false,
-    })),
-    [statusRawMemberships, groupsAll],
-  );
-
-  // Если запрос членств для брошенной карточки упал — не оставляем менеджера
-  // с молчаливым «дроп в никуда»: закрываем ожидание и показываем тост.
-  useEffect(() => {
-    if (statusMembershipsFailed && statusModalStudent) {
-      toast('Не удалось загрузить членства ученика — попробуйте ещё раз', 'error');
-      setStatusModalStudent(null);
-    }
-  }, [statusMembershipsFailed, statusModalStudent, toast]);
 
   // Терминальные стадии больше не колонки — их id нужны только для move при закрытии.
   const wonStage = (stages || []).find((s) => s.kind === 'won');
@@ -113,12 +86,18 @@ export function RenewalBoard({ filters, onOpen }: Props) {
 
     // Зона «Ушёл» — терминальная стадия 'churned' (kind='lost') не показана
     // колонкой на доске (board() её исключает), это единственный способ на
-    // неё «бросить». Смену стадии сделки здесь больше не делаем сами — она
-    // произойдёт каскадом внутри смены статуса ученика (engine.decline_deal),
-    // поэтому вместо RenewalCloseDialog открываем StudentStatusModal.
+    // неё «бросить». Каскадов по членствам и расписанию больше нет: это
+    // обычное закрытие сделки с причиной (спека 2026-07-25).
     if (over.id === 'close-lost') {
       const card = dragCard(event);
-      if (card) setStatusModalStudent({ id: card.student_id, initialStatus: 'declined' });
+      if (card) {
+        setCloseTarget({
+          dealId,
+          studentId: card.student_id,
+          studentName: card.student_name,
+          mode: 'lost',
+        });
+      }
       return;
     }
 
@@ -143,16 +122,19 @@ export function RenewalBoard({ filters, onOpen }: Props) {
 
     // Авто-стадии двигает только движок (transitions.is_allowed блокирует
     // ручной вход) — колонка «Урок 1–4» вообще не droppable (RenewalColumn),
-    // но «Ждём оплату»/«Ждём продление»/«Заморожен» технически droppable.
-    // 'frozen' — особый случай: каскад через смену статуса ученика, поэтому
-    // открываем модалку вместо тихого no-op/ошибки 409.
+    // но «Ждём оплату»/«Ждём продление» технически droppable.
     const targetStage = (stages || []).find((s) => s.id === toStageId);
     if (targetStage?.is_auto) {
-      if (targetStage.key === 'frozen') {
-        const card = dragCard(event);
-        if (card) setStatusModalStudent({ id: card.student_id, initialStatus: 'frozen' });
-      } else {
-        toast('Эта стадия управляется системой', 'info');
+      toast('Эта стадия управляется системой', 'info');
+      return;
+    }
+
+    // «Заморожен» — обычная ручная стадия, но move требует месяц окончания,
+    // поэтому вместо тихого переноса спрашиваем его диалогом.
+    if (targetStage?.key === 'frozen') {
+      const card = dragCard(event);
+      if (card) {
+        setFreezeTarget({ dealId, studentName: card.student_name, stageId: toStageId });
       }
       return;
     }
@@ -260,13 +242,23 @@ export function RenewalBoard({ filters, onOpen }: Props) {
           onConfirm={handleCloseConfirm}
         />
       )}
-      {statusModalStudent && statusMembershipsReady && (
-        <StudentStatusModal
-          studentId={statusModalStudent.id}
-          open
-          onClose={() => setStatusModalStudent(null)}
-          memberships={statusMemberships}
-          initialStatus={statusModalStudent.initialStatus}
+      {freezeTarget && (
+        <FreezeDealDialog
+          studentName={freezeTarget.studentName}
+          pending={move.isPending}
+          onClose={() => setFreezeTarget(null)}
+          onConfirm={(frozen_until_month) => {
+            move.mutate(
+              { id: freezeTarget.dealId, to_stage_id: freezeTarget.stageId, frozen_until_month },
+              {
+                onSuccess: () => setFreezeTarget(null),
+                onError: (err) => {
+                  setFreezeTarget(null);
+                  showError(err, 'Не удалось заморозить сделку');
+                },
+              },
+            );
+          }}
         />
       )}
     </DndContext>

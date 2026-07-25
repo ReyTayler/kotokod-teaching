@@ -1,18 +1,7 @@
-import type { EnrollmentStatus, LessonType, RegistryStatus } from './types';
+import type { LessonType, RegistryStatus } from './types';
 
-// ===== Enrollment status =====
-// Подписи в Title Case — используются и в badge, и в формах, и в фильтрах.
-// Бэк хранит коды (enrolled/frozen/declined), UI показывает подписи.
-
-export const ENROLLMENT_STATUS_LABELS: Record<EnrollmentStatus, string> = {
-  enrolled:     'Учится',
-  frozen:       'Заморожен',
-  declined:     'Отказался',
-};
-
-export const ENROLLMENT_STATUS_OPTIONS: { value: EnrollmentStatus; label: string }[] =
-  (Object.entries(ENROLLMENT_STATUS_LABELS) as [EnrollmentStatus, string][])
-    .map(([value, label]) => ({ value, label }));
+// Статуса ученика больше нет (спека 2026-07-25): его «статус» — стадия последней
+// сделки продления, подписи стадий приходят с бэка (useRenewalStages).
 
 // ===== Реестр куратора — статус ученика =====
 // Подписи бейджа и строк сигналов. Коды приходят с бэка (registry_service.classify).

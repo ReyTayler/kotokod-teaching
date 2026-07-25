@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useParams, Navigate, useSearchParams } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useStudent, useStudentMutations } from '../../hooks/useStudents';
 import { useGroupsAll } from '../../hooks/useGroups';
 import { useDirections } from '../../hooks/useDirections';
@@ -9,15 +8,13 @@ import { useApiError } from '../../hooks/useApiError';
 import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
 import { EntityHero, HeroChip, monogramOf, type HeroFact } from '../../components/detail/EntityHero';
 import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
-import { StatusBadge } from '../../components/StatusBadge';
+import { StageBadge } from '../../components/StageBadge';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { Dialog } from '../../components/ui/Dialog';
-import { DateInput } from '../../components/form/DateInput';
 import { Field } from '../../components/form/Field';
 import { useToast } from '../../components/ui/Toast';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
-import { api, ApiError, extractErrorDetail } from '../../lib/api';
 import { fmtDate, fmtDateTime, fmtAge } from '../../lib/format';
 import type { Student } from '../../lib/types';
 import StudentFormModal from './StudentFormModal';
@@ -26,61 +23,11 @@ import StudentKpiRow from './StudentKpiRow';
 import { StudentBalanceBlock } from './StudentBalanceBlock';
 import StudentCommentsBlock from './StudentCommentsBlock';
 import { useLatestStudentComment } from '../../hooks/useStudentComments';
-import { StudentStatusModal } from './StudentStatusModal';
 import { useAuth } from '../../hooks/useAuth';
 import { canSeeChangelog, canWriteStudentManager, type Role } from '../../lib/permissions';
 import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
 import { useRenewalAssignees } from '../../hooks/useRenewals';
 import { SelectInput } from '../../components/form/SelectInput';
-
-// ── Мини-диалог разморозки: POST /students/:id/resume, отдельно от общей
-// смены статуса (там действует запрет frozen→enrolled напрямую). ──
-function StudentResumeDialog({ student, onClose }: { student: Student; onClose: () => void }) {
-  const qc = useQueryClient();
-  const showError = useApiError();
-  const { toast } = useToast();
-  const [date, setDate] = useState(student.frozen_until || '');
-
-  const mutation = useMutation({
-    mutationFn: () => api<Student>('POST', `/api/admin/students/${student.id}/resume`, {
-      actual_resume_date: date,
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['students'] });
-      qc.invalidateQueries({ queryKey: ['memberships'] });
-      toast('Ученик разморожен', 'ok');
-      onClose();
-    },
-    onError: (err) => {
-      const detail = err instanceof ApiError ? extractErrorDetail(err.details) : undefined;
-      showError(detail ? new Error(detail) : err, 'Не удалось разморозить');
-    },
-  });
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title="Разморозить ученика">
-      <div className="status-form">
-        <Field label="Дата фактического возврата">
-          <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
-        </Field>
-        <div className="status-form__hint">
-          Индивидуальные занятия перекладываются от этой даты, статус вернётся в «Учится».
-        </div>
-        <div className="status-form__footer">
-          <button type="button" className="btn-cancel" onClick={onClose}>Отмена</button>
-          <button
-            type="button"
-            className="btn-save"
-            onClick={() => mutation.mutate()}
-            disabled={!date || mutation.isPending}
-          >
-            Разморозить
-          </button>
-        </div>
-      </div>
-    </Dialog>
-  );
-}
 
 // ── Диалог смены ответственного менеджера — только admin/superadmin.
 // Меняет Student.manager И синхронно активную (открытую) сделку продления
@@ -156,22 +103,9 @@ export default function StudentDetailPage() {
   const { data: lastComment } = useLatestStudentComment(id);
   const { data: activeMemberships = [] } = useMemberships({ student_id: id });
   const [editing, setEditing] = useState(false);
-  const [changingStatus, setChangingStatus] = useState(false);
-  const [resuming, setResuming] = useState(false);
   const [managingManager, setManagingManager] = useState(false);
   const { open: openPaymentModal } = usePaymentModal();
   const [searchParams, setSearchParams] = useSearchParams();
-
-  // Мемберства ученика + is_individual группы (не приходит в GroupMembership,
-  // берём из уже загруженного списка групп) — прокидывается в StudentStatusModal.
-  const statusMemberships = useMemo(
-    () => activeMemberships.map((m) => ({
-      id: Number(m.id),
-      group_name: m.group_name || `#${m.group_id}`,
-      is_individual: groups.find((g) => g.id === m.group_id)?.is_individual ?? false,
-    })),
-    [activeMemberships, groups],
-  );
 
   const rawTab = searchParams.get('tab');
   const activeTab: StudentTab = isStudentTab(rawTab) ? rawTab : DEFAULT_TAB;
@@ -204,14 +138,11 @@ export default function StudentDetailPage() {
   }
   facts.push({ label: 'Менеджер', value: student.manager_name || '—' });
 
-  // Вторичные действия уезжают в «…»: пять равновесных кнопок в ряд читались
-  // как список без приоритета, теперь видно основное действие и «Редактировать».
-  const menuItems: ActionMenuItem[] = [
-    { label: 'Изменить статус', onSelect: () => setChangingStatus(true) },
-  ];
-  if (student.enrollment_status === 'frozen') {
-    menuItems.push({ label: 'Разморозить', onSelect: () => setResuming(true) });
-  }
+  // Вторичные действия уезжают в «…», в шапке остаются оплата и «Редактировать».
+  // Заморозка и уход больше не действия ученика — это переходы его сделки
+  // продления (спека 2026-07-25), они живут в разделе «Продления». Пустой список
+  // ActionMenu не рендерит вовсе.
+  const menuItems: ActionMenuItem[] = [];
   if (canWriteStudentManager(me?.role as Role)) {
     menuItems.push({ label: 'Сменить менеджера', onSelect: () => setManagingManager(true) });
   }
@@ -221,7 +152,7 @@ export default function StudentDetailPage() {
       monogram={monogramOf(student.full_name)}
       color={identityColor}
       title={student.full_name}
-      badge={<StatusBadge row={student} />}
+      badge={<StageBadge row={student} />}
       meta={
         <>
           <HeroChip mono>id {student.id}</HeroChip>
@@ -287,14 +218,14 @@ export default function StudentDetailPage() {
     { key: 'platform_id', label: 'Platform ID' },
     { key: 'bitrix24_link', label: 'Bitrix24' },
     { key: 'manager_name', label: 'Менеджер', cell: (r) => r.manager_name || '—' },
-    { key: 'enrollment_status', label: 'Статус', cell: (r) => <StatusBadge row={r} /> },
     { key: 'created_at', label: 'Создан', cell: (r) => fmtDate(r.created_at) },
   ];
 
-  // То, чего НЕТ в шапке: возраст, родитель 1, телефон, менеджер и статус уже
-  // показаны там, повторять их в карточке полей незачем.
+  // То, чего НЕТ в шапке: возраст, родитель 1, телефон и менеджер уже показаны
+  // там, повторять их в карточке полей незачем. Стадии сделки в этом списке нет
+  // вовсе — её показывает только бейдж героя (спека 2026-07-25).
   const HERO_KEYS = new Set(['id', 'full_name', 'age', 'parent1_name', 'parent1_phone',
-    'manager_name', 'enrollment_status']);
+    'manager_name']);
   const otherFields = fields.filter((f) => !HERO_KEYS.has(f.key));
 
   const tabs: TabItem[] = [
@@ -309,7 +240,7 @@ export default function StudentDetailPage() {
             directions={directions}
           />
           {/* Паспортные поля — под основным содержимым и свёрнуты: возраст,
-              родитель, телефон, менеджер и статус теперь живут в шапке. */}
+              родитель, телефон, менеджер и стадия сделки живут в шапке. */}
           <EntityCard title="Прочие данные ученика" row={student} fields={otherFields} />
         </div>
       ),
@@ -351,18 +282,6 @@ export default function StudentDetailPage() {
       </DetailShell>
       {editing && (
         <StudentFormModal initial={student} onClose={() => setEditing(false)} />
-      )}
-      {changingStatus && (
-        <StudentStatusModal
-          studentId={student.id}
-          open={changingStatus}
-          onClose={() => setChangingStatus(false)}
-          memberships={statusMemberships}
-          initialStatus={student.enrollment_status}
-        />
-      )}
-      {resuming && (
-        <StudentResumeDialog student={student} onClose={() => setResuming(false)} />
       )}
       {managingManager && (
         <StudentManagerDialog student={student} onClose={() => setManagingManager(false)} />

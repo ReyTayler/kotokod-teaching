@@ -15,6 +15,7 @@ import { fmtDate, fmtDateTime, fmtLessons } from '../../lib/format';
 import { RENEWAL_STAGE_LABELS } from '../../lib/labels';
 import { StageBadge } from './StageBadge';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
+import { FreezeDealDialog } from './FreezeDealDialog';
 import type { RenewalActivityItem } from '../../lib/renewals';
 
 interface Props {
@@ -52,12 +53,15 @@ export function RenewalDrawer({ id, onClose }: Props) {
   const { data: deal, isLoading: dealLoading } = useRenewalDeal(id);
   const { data: activity, isLoading: activityLoading } = useRenewalActivity(id);
   const { data: stages } = useRenewalStages();
-  const { comment, patch, move, reopen } = useRenewalMutations();
+  const { comment, patch, move, reopen, unfreeze } = useRenewalMutations();
   const { open: openPayment } = usePaymentModal();
   const showError = useApiError();
   const [text, setText] = useState('');
   const [closeTarget, setCloseTarget] = useState<CloseDialogTarget | null>(null);
   const [confirmReopen, setConfirmReopen] = useState(false);
+  // Стадия «Заморожен» выбрана в дропдауне: move требует месяц окончания,
+  // спрашиваем его тем же диалогом, что и доска.
+  const [freezeStageId, setFreezeStageId] = useState<number | null>(null);
 
   // onClose обычно приходит как новая инлайн-функция от родителя на каждый рендер —
   // без useCallback здесь listener пересоздавался бы при каждом ре-рендере RenewalDrawer.
@@ -98,6 +102,10 @@ export function RenewalDrawer({ id, onClose }: Props) {
       });
       return;
     }
+    if (target.key === 'frozen') {
+      setFreezeStageId(stageId);
+      return;
+    }
     move.mutate({ id: deal.id, to_stage_id: stageId }, {
       onError: (err) => showError(err, 'Не удалось сменить стадию'),
     });
@@ -128,11 +136,11 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
   const stageLabel = deal?.stage_label || (deal ? RENEWAL_STAGE_LABELS[deal.stage_key] : undefined);
   const isClosed = deal?.outcome_at != null;
-  // Ручной перевод стадии возможен ТОЛЬКО с ручной decision-стадии или со стадии
-  // «Ждём продление» — с прочих авто-стадий (прогресс, «Ждём оплату», «Заморожен»)
-  // бэк блокирует любой move (transitions.py: from_is_auto). На них дропдаун стадии
-  // не показываем вовсе — стадия видна бейджем в шапке, а не предлагаем выбор,
-  // который гарантированно вернёт 409.
+  // Ручной перевод стадии возможен ТОЛЬКО с ручной decision-стадии (в том числе
+  // «Заморожен» — она снова ручная, спека 2026-07-25) или со стадии «Ждём
+  // продление» — с авто-стадий (прогресс, «Ждём оплату») бэк блокирует любой move
+  // (transitions.py: from_is_auto). На них дропдаун стадии не показываем вовсе —
+  // стадия видна бейджем в шапке, а не предлагаем выбор, гарантированно дающий 409.
   const cycleDone = !!deal?.cycle_completed;
   const currentStage = (stages || []).find((s) => s.id === deal?.stage_id);
   const stageMovable = !!currentStage
@@ -250,13 +258,30 @@ export function RenewalDrawer({ id, onClose }: Props) {
                   </Field>
                 </div>
 
-                <button
-                  type="button"
-                  className="btn-primary renewal-drawer__pay-btn"
-                  onClick={() => openPayment({ studentId: deal.student_id })}
-                >
-                  Внести оплату
-                </button>
+                <div className="renewal-drawer__actions">
+                  <button
+                    type="button"
+                    className="btn-primary renewal-drawer__pay-btn"
+                    onClick={() => openPayment({ studentId: deal.student_id })}
+                  >
+                    Внести оплату
+                  </button>
+                  {/* Единственный выход из заморозки: ставит расчётную авто-стадию
+                      по посещаемости и балансу и гасит месяц. Автовыхода по факту
+                      записанного урока нет (решение пользователя 2026-07-25). */}
+                  {deal.stage_key === 'frozen' && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={unfreeze.isPending}
+                      onClick={() => unfreeze.mutate({ id: deal.id }, {
+                        onError: (err) => showError(err, 'Не удалось вернуть сделку в работу'),
+                      })}
+                    >
+                      Вернуть в работу
+                    </button>
+                  )}
+                </div>
               </>
             )}
 
@@ -301,6 +326,26 @@ export function RenewalDrawer({ id, onClose }: Props) {
                 pending={move.isPending}
                 onClose={() => setCloseTarget(null)}
                 onConfirm={handleCloseConfirm}
+              />
+            )}
+
+            {freezeStageId !== null && (
+              <FreezeDealDialog
+                studentName={deal.student_name}
+                pending={move.isPending}
+                onClose={() => setFreezeStageId(null)}
+                onConfirm={(frozen_until_month) => {
+                  move.mutate(
+                    { id: deal.id, to_stage_id: freezeStageId, frozen_until_month },
+                    {
+                      onSuccess: () => setFreezeStageId(null),
+                      onError: (err) => {
+                        setFreezeStageId(null);
+                        showError(err, 'Не удалось заморозить сделку');
+                      },
+                    },
+                  );
+                }}
               />
             )}
 

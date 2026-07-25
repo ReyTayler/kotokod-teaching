@@ -114,12 +114,22 @@ export function useRenewalActivity(id: number | null) {
 export function useRenewalMutations() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['renewals'] });
+  // Стадия сделки — это и «статус» ученика (бейдж в списке учеников, составе
+  // группы и герое страницы ученика, спека 2026-07-25), поэтому всё, что двигает
+  // стадию, освежает и кэш учеников.
+  const invalidateWithStudents = () => {
+    invalidate();
+    qc.invalidateQueries({ queryKey: ['students'] });
+  };
   return {
     move: useMutation({
-      mutationFn: ({ id, to_stage_id, reason_code }:
-        { id: number; to_stage_id: number; reason_code?: string }) =>
-        api<RenewalDealDetail>('POST', `/api/admin/renewals/${id}/move`, { to_stage_id, reason_code }),
-      onSuccess: invalidate,
+      // frozen_until_month обязателен при переходе на стадию 'frozen' (иначе
+      // бэк отвечает 400 с details.frozen_until_month) и игнорируется на прочих.
+      mutationFn: ({ id, to_stage_id, reason_code, frozen_until_month }:
+        { id: number; to_stage_id: number; reason_code?: string; frozen_until_month?: string }) =>
+        api<RenewalDealDetail>('POST', `/api/admin/renewals/${id}/move`,
+          { to_stage_id, reason_code, frozen_until_month }),
+      onSuccess: invalidateWithStudents,
     }),
     patch: useMutation({
       mutationFn: ({ id, body }: { id: number; body: Record<string, unknown> }) =>
@@ -134,12 +144,18 @@ export function useRenewalMutations() {
     reopen: useMutation({
       mutationFn: ({ id }: { id: number }) =>
         api<RenewalDealDetail>('POST', `/api/admin/renewals/${id}/reopen`),
-      onSuccess: invalidate,
+      onSuccess: invalidateWithStudents,
+    }),
+    /** «Вернуть в работу»: со стадии «Заморожен» на расчётную авто-стадию. */
+    unfreeze: useMutation({
+      mutationFn: ({ id }: { id: number }) =>
+        api<RenewalDealDetail>('POST', `/api/admin/renewals/${id}/unfreeze`),
+      onSuccess: invalidateWithStudents,
     }),
     create: useMutation({
       mutationFn: ({ student_id }: { student_id: number }) =>
         api<RenewalDealDetail>('POST', '/api/admin/renewals', { student_id }),
-      onSuccess: invalidate,
+      onSuccess: invalidateWithStudents,
     }),
   };
 }

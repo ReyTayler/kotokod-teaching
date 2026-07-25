@@ -40,7 +40,9 @@ export const ENTITY_COLUMN_CATALOG: Record<EntityKey, ColumnMeta[]> = {
     // фильтруется по manager_id). С прежним 'manager_name' настройка не работала:
     // applyColumnPrefs матчит по ключу, а он не совпадал с ключом колонки.
     { key: 'manager_id',          label: 'Менеджер' },
-    { key: 'enrollment_status',   label: 'Статус' },
+    // Ключ строго 'stage_id' — как Column.key на StudentsListPage (колонка
+    // фильтруется по filter[stage_id]).
+    { key: 'stage_id',            label: 'Стадия' },
   ],
   groups: [
     { key: 'id',                       label: 'ID', alwaysVisible: true },

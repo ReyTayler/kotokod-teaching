@@ -13,7 +13,6 @@ import { useDiscounts } from '../../hooks/useDiscounts';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
 import { fmtRub, todayMSK } from '../../lib/format';
-import { ENROLLMENT_STATUS_LABELS } from '../../lib/labels';
 import type { Discount } from '../../lib/types';
 import { BlockSelector } from './BlockSelector';
 
@@ -164,9 +163,7 @@ export function PaymentModal({ open, onClose, studentId, directionId }: Props) {
       .sort((a, b) => a.full_name.localeCompare(b.full_name))
       .map((s) => ({
         value: String(s.id),
-        label: s.enrollment_status === 'enrolled'
-          ? s.full_name
-          : `${s.full_name} (${ENROLLMENT_STATUS_LABELS[s.enrollment_status]})`,
+        label: s.full_name,
       }));
   }, [students.data]);
 
