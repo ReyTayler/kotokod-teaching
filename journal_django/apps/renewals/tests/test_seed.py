@@ -29,8 +29,15 @@ def test_awaiting_renewal_stage_seeded():
 
 
 @pytest.mark.django_db
-def test_frozen_stage_is_auto():
+def test_frozen_stage_is_manual():
+    """Миграция 0012 отменила 0010: «Заморожен» снова обычная ручная стадия.
+
+    0010 пометила её is_auto=True искусственно — только чтобы
+    transitions.is_allowed запретил ручной вход, а двигал стадию каскад смены
+    статуса ученика. Статусы удалены (спека 2026-07-25), заморозка — обычная
+    decision-стадия, которую ставит менеджер.
+    """
     pipe = RenewalPipeline.objects.get(is_default=True)
     frozen = RenewalStage.objects.get(pipeline=pipe, key='frozen')
-    assert frozen.is_auto is True
+    assert frozen.is_auto is False
     assert frozen.kind == 'decision'
