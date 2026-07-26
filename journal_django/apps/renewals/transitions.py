@@ -30,6 +30,14 @@ def _is_freeze_target(to_key: str | None, to_kind: str) -> bool:
     return to_key == FROZEN_KEY and to_kind == 'decision'
 
 
+def _is_auto_exit_target(to_kind: str, to_key: str | None) -> bool:
+    """Цели, уход к которым разрешён с авто-стадии прогресса помимо
+    «Ждём продление»: заморозка и «Ушёл» — обе случаются в любой момент цикла,
+    а не только в точке принятия решения о продлении (решение пользователя
+    2026-07-25 приравняло «Ушёл» и заморозку в этом смысле)."""
+    return _is_freeze_target(to_key, to_kind) or to_kind == 'lost'
+
+
 def is_allowed(*, from_kind: str, to_kind: str,
                from_is_auto: bool = False, to_is_auto: bool = False,
                from_key: str | None = None, to_key: str | None = None,
@@ -40,10 +48,10 @@ def is_allowed(*, from_kind: str, to_kind: str,
       «Ждём продление». У «Заморожен» с миграции 0012_frozen_manual_stage
       is_auto=False — обычная ручная decision-стадия, этот запрет её не касается;
     - с авто-стадии уйти нельзя (from_is_auto) — КРОМЕ «Ждём продление»
-      (from_key == AWAITING_RENEWAL_KEY) и КРОМЕ ухода в «Заморожен»
-      (_is_freeze_target): заморозка — реакция менеджера на обстоятельства
-      ученика (болезнь, отпуск), она не привязана к точке принятия решения о
-      продлении и может понадобиться с любой прогресс-стадии («Урок N»).
+      (from_key == AWAITING_RENEWAL_KEY) и КРОМЕ ухода в «Заморожен» или «Ушёл»
+      (_is_auto_exit_target): обе — реакция на обстоятельства ученика
+      (болезнь/отпуск или решение уйти), не привязаны к точке принятия решения
+      о продлении и могут понадобиться с любой прогресс-стадии («Урок N»).
     С «Ждём продление» (kind='decision') работают обычные ворота decision-стадий:
     в другую ручную decision / «Продлён» — при завершённом цикле; «Ушёл» — всегда.
     В «Продлён» — дополнительно только при положительном балансе (> 0 уроков):
@@ -61,7 +69,7 @@ def is_allowed(*, from_kind: str, to_kind: str,
     if from_kind in _TERMINAL:
         return False
     if (from_is_auto and from_key != AWAITING_RENEWAL_KEY
-            and not _is_freeze_target(to_key, to_kind)):
+            and not _is_auto_exit_target(to_kind, to_key)):
         return False
     if to_is_auto:
         return False
