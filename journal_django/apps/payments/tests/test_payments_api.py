@@ -341,7 +341,9 @@ def test_refund_endpoint_admin(admin_client, student_fixture, direction_fixture)
         body = resp.json()
         assert float(body['refunded_amount']) == 4000.0
         assert body['new_balance'] == 0
-        assert body['refund']['kind'] == 'refund'
+        # Возврат раскладывается по направлениям — здесь оно одно.
+        assert [r['kind'] for r in body['refunds']] == ['refund']
+        assert body['refunds'][0]['direction_id'] == direction_fixture
     finally:
         with connection.cursor() as cur:
             cur.execute('DELETE FROM payments WHERE student_id = %s', [student_fixture])

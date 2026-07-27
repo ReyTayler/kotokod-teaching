@@ -425,8 +425,16 @@ def build_summary(operation: str, events: list[dict], lk: Lookups) -> str:
         data = payments[0].get('pgh_data') or {}
         student = lk.student(data.get('student_id'))
         is_refund = data.get('kind') == 'refund'
-        amt_raw = data.get('total_amount')
-        amount = abs(float(amt_raw)) if (is_refund and amt_raw is not None) else amt_raw
+        if is_refund:
+            # Возврат — по строке на каждое направление остатка (refund_student),
+            # поэтому в сводке операции показываем сумму по всем строкам.
+            amount = _fmt_num(sum(
+                abs(float((e.get('pgh_data') or {}).get('total_amount') or 0))
+                for e in payments
+                if (e.get('pgh_data') or {}).get('kind') == 'refund'
+            ))
+        else:
+            amount = _fmt_num(data.get('total_amount'))
         if payments[0]['pgh_label'] == 'delete':
             verb = 'Отменён возврат' if is_refund else 'Удалена оплата'
         else:

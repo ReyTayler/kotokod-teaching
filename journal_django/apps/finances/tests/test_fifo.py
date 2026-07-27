@@ -234,3 +234,51 @@ def test_refund_consumption_zeroes_remaining_without_revenue():
     r = compute_fifo(lots, cons, '2026-01-01', '2026-02-01')
     assert r['remaining_value'] == Decimal('0.00')      # хвост погашен возвратом
     assert r['worked_off_total'] == Decimal('1000.00')  # только 1 реальный урок
+
+
+# ---------------------------------------------------------------------------
+# remaining_by_direction — из каких направлений состоит непогашенный хвост.
+# Нужен возврату средств: строка возврата пишется в то направление, чьи деньги
+# реально возвращаются (иначе лимит курса не освобождается).
+# ---------------------------------------------------------------------------
+
+def test_remaining_by_direction_splits_tail_between_lots():
+    # 5 уроков гасят лот A целиком (4) и один урок лота B → хвост = 3 урока лота B.
+    lots = [
+        {'lessons': 4, 'price_per_lesson': _D(500), 'direction_id': 1},
+        {'lessons': 4, 'price_per_lesson': _D(450), 'direction_id': 2},
+    ]
+    r = compute_fifo(lots, _lessons(5, '2026-06-10'), MS, ME)
+    assert r['remaining_by_direction'] == {2: {'lessons': _D('3'), 'value': _D('1350.00')}}
+
+
+def test_remaining_by_direction_merges_lots_of_same_direction():
+    lots = [
+        {'lessons': 4, 'price_per_lesson': _D(500), 'direction_id': 7},
+        {'lessons': 2, 'price_per_lesson': _D(300), 'direction_id': 7},
+    ]
+    r = compute_fifo(lots, _lessons(1, '2026-06-10'), MS, ME)
+    assert r['remaining_by_direction'] == {7: {'lessons': _D('5'), 'value': _D('2100.00')}}
+
+
+def test_remaining_by_direction_sums_to_remaining_value():
+    lots = [
+        {'lessons': 4, 'price_per_lesson': _D(500), 'direction_id': 1},
+        {'lessons': 3, 'price_per_lesson': _D('333.33'), 'direction_id': 2},
+    ]
+    r = compute_fifo(lots, _lessons(2, '2026-06-10'), MS, ME)
+    parts = r['remaining_by_direction']
+    assert sum(b['lessons'] for b in parts.values()) == _D('5')
+    assert sum(b['value'] for b in parts.values()) == r['remaining_value']
+
+
+def test_remaining_by_direction_keeps_lots_without_direction():
+    lots = [{'lessons': 2, 'price_per_lesson': _D(500), 'direction_id': None}]
+    r = compute_fifo(lots, [], MS, ME)
+    assert r['remaining_by_direction'] == {None: {'lessons': _D('2'), 'value': _D('1000.00')}}
+
+
+def test_remaining_by_direction_empty_when_nothing_left():
+    lots = [{'lessons': 2, 'price_per_lesson': _D(500), 'direction_id': 1}]
+    r = compute_fifo(lots, _lessons(2, '2026-06-10'), MS, ME)
+    assert r['remaining_by_direction'] == {}

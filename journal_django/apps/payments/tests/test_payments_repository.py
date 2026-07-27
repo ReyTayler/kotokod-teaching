@@ -494,8 +494,9 @@ class TestRefundStudent:
             res = repository.refund_student(student_fixture, created_by='Админ')
             assert res['refunded_amount'] == Decimal('3000.00')  # 3 unworked * 1000
             assert res['new_balance'] == 0
-            assert res['refund']['kind'] == 'refund'
-            assert res['refund']['lessons_count'] == -3
+            assert res['refunds'][0]['kind'] == 'refund'
+            assert res['refunds'][0]['lessons_count'] == -3
+            assert res['refunds'][0]['direction_id'] == direction_fixture
             assert balance_for_student(student_fixture) == 0
             assert student_fifo_remaining(student_fixture)['remaining_value'] == Decimal('0.00')
         finally:
@@ -510,7 +511,7 @@ class TestRefundStudent:
             res = repository.refund_student(student_fixture, created_by='Админ')
             # remaining 3.5 lessons * 1000 = 3500
             assert res['refunded_amount'] == Decimal('3500.00')
-            assert res['refund']['lessons_count'] == -3.5
+            assert res['refunds'][0]['lessons_count'] == -3.5
             assert balance_for_student(student_fixture) == 0
         finally:
             self._cleanup_payments(student_fixture)

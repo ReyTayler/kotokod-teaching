@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pghistory
 import pytest
+from django.utils import timezone
 
 from apps.audit.models import SecurityAuditLog
 
@@ -63,6 +64,46 @@ def test_revert_endpoint_rbac(admin_client, manager_client, teacher_client, supe
     assert teacher_client.post(f'/api/admin/changelog/{op_id}/revert').status_code == 403
     resp = admin_client.post(f'/api/admin/changelog/{op_id}/revert')
     assert resp.status_code != 403
+
+
+def test_revert_refund_removes_all_direction_rows(admin_client):
+    """Возврат пишет строку на каждое направление — откат обязан снять их все разом.
+
+    Строки создаются в одном запросе → один pghistory-контекст → одна операция.
+    """
+    from apps.directions.models import Direction
+    from apps.finances.repository import balance_for_student
+    from apps.payments.models import Payment
+    from apps.students.models import Student
+
+    student = Student.objects.create(full_name='__rev_refund_student__',
+                                     created_at=timezone.now())
+    dir_a = Direction.objects.create(name='__rev_refund_a__', total_lessons=8)
+    dir_b = Direction.objects.create(name='__rev_refund_b__', total_lessons=8)
+    for direction in (dir_a, dir_b):
+        resp = admin_client.post('/api/admin/payments', {
+            'student_id': student.id, 'direction_id': direction.id,
+            'lessons_count': 4, 'total_amount': '4000.00', 'paid_at': '2026-01-01',
+        }, format='json')
+        assert resp.status_code == 201, resp.content
+
+    refund = admin_client.post(f'/api/admin/students/{student.id}/refund', {}, format='json')
+    assert refund.status_code == 201, refund.content
+    assert len(refund.json()['refunds']) == 2
+    assert balance_for_student(student.id) == 0
+
+    # Не _last_op_id: внутри одного теста все контексты создаются в одной
+    # транзакции, поэтому created_at у них совпадает и порядок ленты решает uuid.
+    op_id = next(
+        r['id'] for r in admin_client.get('/api/admin/changelog?page_size=10').json()['rows']
+        if r['operation'] == 'payment.refund'
+    )
+    resp = admin_client.post(f'/api/admin/changelog/{op_id}/revert')
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()['inserts_undone'] == 2
+    assert not Payment.objects.filter(student=student, kind='refund').exists()
+    assert balance_for_student(student.id) == 8
 
 
 def test_revert_endpoint_double_revert_400(superadmin_client):

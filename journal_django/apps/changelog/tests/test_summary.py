@@ -175,6 +175,32 @@ def test_describe_event_refund_insert():
     assert 'Иванов' in out
 
 
+def test_build_summary_refund_sums_rows_per_direction():
+    """Возврат пишется строкой на каждое направление — в сводке нужна общая сумма."""
+    from apps.changelog.summary import build_summary, Lookups
+    events = [
+        {'entity': 'payment', 'pgh_label': 'insert',
+         'pgh_data': {'student_id': 1, 'kind': 'refund', 'total_amount': '-4000.00'},
+         'pgh_diff': {}},
+        {'entity': 'payment', 'pgh_label': 'insert',
+         'pgh_data': {'student_id': 1, 'kind': 'refund', 'total_amount': '-2000.00'},
+         'pgh_diff': {}},
+    ]
+    out = build_summary('payment.refund', events, Lookups(students={1: 'Иванов'}))
+    assert out == 'Возврат 6000 ₽: Иванов'
+
+
+def test_build_summary_single_payment_unchanged():
+    from apps.changelog.summary import build_summary, Lookups
+    events = [
+        {'entity': 'payment', 'pgh_label': 'insert',
+         'pgh_data': {'student_id': 1, 'kind': 'purchase', 'total_amount': '4000.00'},
+         'pgh_diff': {}},
+    ]
+    out = build_summary('payment.create', events, Lookups(students={1: 'Иванов'}))
+    assert out == 'Оплата 4000 ₽: Иванов'
+
+
 def test_describe_event_prepayment_insert():
     from apps.changelog.summary import describe_event, Lookups
     ev = {

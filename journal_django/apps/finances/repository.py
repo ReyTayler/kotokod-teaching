@@ -280,6 +280,9 @@ def student_fifo_remaining(student_id: int) -> dict:
     Неотработанный остаток ученика: сколько уроков и денег ещё не списано.
     remaining_lessons = баланс (purchased − attended, half-lesson учтён).
     remaining_value   = FIFO remaining_value по партиям-покупкам ученика.
+    remaining_by_direction = из партий каких направлений состоит этот остаток —
+    по нему возврат раскладывается на строки (apps/payments::refund_student),
+    иначе лимит курса после возврата не освобождается.
 
     Строки kind='refund' (см. apps/payments/repository.py::refund_student) не
     образуют партий — как в fifo_inputs(), они становятся синтетическими
@@ -294,7 +297,7 @@ def student_fifo_remaining(student_id: int) -> dict:
     payment_rows = (
         Payment.objects.filter(student_id=student_id)
         .order_by('paid_at', 'id')
-        .values('total_amount', 'lessons_count', 'kind', 'paid_at')
+        .values('total_amount', 'lessons_count', 'kind', 'paid_at', 'direction_id')
     )
     lots = []
     refund_cons = []
@@ -313,10 +316,18 @@ def student_fifo_remaining(student_id: int) -> dict:
             lots.append({
                 'lessons': lessons,
                 'price_per_lesson': to_decimal(r['total_amount']) / Decimal(lessons),
+                # Направление партии — чьи деньги вернутся при возврате (см.
+                # remaining_by_direction). Доплата сверх курса (kind='extra') в лимит
+                # направления не входила, поэтому её возврат лимит и не освобождает —
+                # такая партия остаётся без направления.
+                'direction_id': None if r['kind'] == 'extra' else r['direction_id'],
             })
 
     cons_rows = (
-        LessonAttendance.objects.filter(student_id=student_id, present=True)
+        # is_free=False — как в fifo_inputs и balances_for_students: за бесплатное
+        # занятие деньги не берутся, партии оно не гасит. Иначе остаток к возврату
+        # оказался бы меньше баланса и клиент недополучил бы деньги.
+        LessonAttendance.objects.filter(student_id=student_id, present=True, is_free=False)
         # доп.урок (lesson_type='extra') учитывается в потреблении: исходный
         # пропуск остаётся present=false, потребление идёт от факта доп.урока.
         # Один пропуск списывается ровно один раз (новая модель компенсации).
@@ -340,6 +351,7 @@ def student_fifo_remaining(student_id: int) -> dict:
     return {
         'remaining_lessons': remaining_lessons,
         'remaining_value': fifo['remaining_value'],
+        'remaining_by_direction': fifo['remaining_by_direction'],
     }
 
 

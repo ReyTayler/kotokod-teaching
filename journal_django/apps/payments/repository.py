@@ -85,12 +85,17 @@ def create_payment(data: dict) -> dict:
         if not dir_row['total_lessons'] or dir_row['total_lessons'] <= 0:
             return {'error': 'no_capacity'}
 
-        # cap в уроках: считаем только покупки (kind='purchase') этого направления.
-        # Доплата сверх курса (kind='extra') лимитом не ограничена и в него не входит.
+        # cap в уроках: покупки этого направления МИНУС возвращённые уроки
+        # (строки kind='refund' отрицательные — SUM вычитает их сам). Без возвратов
+        # лимит оставался бы занятым и вернувшийся ученик не смог бы оплатить курс
+        # заново, хотя деньги за него уже вернули (см. refund_student).
+        # Доплата сверх курса (kind='extra') лимитом не ограничена и в него не входит —
+        # её возврат пишется без направления и сюда тоже не попадает.
         if kind != 'extra':
             already = (
                 Payment.objects
-                .filter(student_id=student_id, direction_id=direction_id, kind='purchase')
+                .filter(student_id=student_id, direction_id=direction_id,
+                        kind__in=('purchase', 'refund'))
                 .aggregate(s=Coalesce(Sum('lessons_count'), Value(Decimal('0'))))['s']
             )
             if already + lessons_count > dir_row['total_lessons']:
@@ -203,14 +208,47 @@ def get_direction_payments_count(direction_id: int) -> int:
     return Payment.objects.filter(direction_id=direction_id).count()
 
 
+def _split_refund(remaining_lessons: Decimal, remaining_value: Decimal,
+                  by_direction: dict) -> list[tuple]:
+    """
+    Раскладывает возврат на доли по направлениям: [(direction_id, lessons, value)].
+
+    Доли берутся из непогашенного хвоста FIFO (какие партии реально гасятся), а
+    расхождение округления добивается в самую крупную долю — сумма долей ОБЯЗАНА
+    сойтись с общим остатком до копейки, иначе баланс не станет нулём.
+    """
+    parts = [
+        (direction_id, b['lessons'], b['value'])
+        for direction_id, b in by_direction.items()
+        if b['lessons'] > 0
+    ]
+    if not parts:
+        return []
+
+    biggest = max(range(len(parts)), key=lambda i: parts[i][2])
+    lessons_gap = remaining_lessons - sum(p[1] for p in parts)
+    value_gap = remaining_value - sum(p[2] for p in parts)
+    if lessons_gap or value_gap:
+        direction_id, lessons, value = parts[biggest]
+        parts[biggest] = (direction_id, lessons + lessons_gap, value + value_gap)
+    return parts
+
+
 def refund_student(student_id: int, created_by: str | None = None) -> dict:
     """
     Оформляет возврат неотработанного остатка ученика (единый пул).
 
     Возвращает {'error': 'student_not_found'|'nothing_to_refund'} или
-    {'refund': row, 'new_balance': <=0, 'refunded_amount': Decimal}.
-    Строка возврата: kind='refund', lessons_count/total_amount отрицательные,
-    direction_id=NULL (пул-возврат). Иммутабельна как все payments.
+    {'refunds': [row, ...], 'new_balance': <=0, 'refunded_amount': Decimal}.
+
+    Строк возврата столько, из партий скольких направлений состоит остаток:
+    kind='refund', lessons_count/total_amount отрицательные, direction_id — то
+    направление, чьи деньги возвращаются. Это не косметика: cap в create_payment
+    считает уроки per-direction, и без direction_id на строке возврата лимит курса
+    остаётся занятым — вернувшийся ученик не смог бы оплатить тот же курс заново.
+    Доплаты сверх курса (kind='extra') лимит не занимали → их доля возвращается
+    строкой без направления (см. student_fifo_remaining). Строки иммутабельны, как
+    все payments.
     """
     from apps.finances.repository import student_fifo_remaining, balance_for_student
     from apps.students.models import Student
@@ -225,20 +263,29 @@ def refund_student(student_id: int, created_by: str | None = None) -> dict:
         if remaining_lessons <= 0 or remaining_value <= 0:
             return {'error': 'nothing_to_refund'}
 
-        obj = Payment.objects.create(
-            student_id=student_id,
-            direction_id=None,
-            subscriptions_count=None,
-            lessons_count=-Decimal(str(remaining_lessons)),
-            kind='refund',
-            unit_price=Decimal('0'),
-            total_amount=-remaining_value,
-            paid_at=Now(),
-            note=f'Возврат {remaining_lessons} уроков на сумму {remaining_value} ₽',
-            created_by=created_by or None,
-            created_at=Now(),
+        parts = _split_refund(
+            Decimal(str(remaining_lessons)), remaining_value, rem['remaining_by_direction'],
         )
-        row = _normalize_lessons_count(dictrow(Payment.objects.filter(pk=obj.pk).values()))
+        created_ids = []
+        for direction_id, lessons, value in parts:
+            obj = Payment.objects.create(
+                student_id=student_id,
+                direction_id=direction_id,
+                subscriptions_count=None,
+                lessons_count=-lessons,
+                kind='refund',
+                unit_price=Decimal('0'),
+                total_amount=-value,
+                paid_at=Now(),
+                note=f'Возврат {_js_number(lessons)} уроков на сумму {value} ₽',
+                created_by=created_by or None,
+                created_at=Now(),
+            )
+            created_ids.append(obj.pk)
+        rows = [
+            _normalize_lessons_count(r)
+            for r in dictrows(Payment.objects.filter(pk__in=created_ids).order_by('id').values())
+        ]
         new_balance = balance_for_student(student_id)
 
-    return {'refund': row, 'new_balance': new_balance, 'refunded_amount': remaining_value}
+    return {'refunds': rows, 'new_balance': new_balance, 'refunded_amount': remaining_value}

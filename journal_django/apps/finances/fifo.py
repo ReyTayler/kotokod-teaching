@@ -17,7 +17,9 @@ FIFO-оценка денег по партиям-оплатам. Чистая ф
 feedback_financial_accounting_precision выбран Decimal. Следствие: e2e-diff
 dashboard getMonthlyFinance не будет байт-пустым в нескольких исторических ячейках.
 
-lots:         [{ 'lessons': n, 'price_per_lesson': Decimal }]  — в порядке оплаты (старые первыми).
+lots:         [{ 'lessons': n, 'price_per_lesson': Decimal, 'direction_id': int|None }]
+              — в порядке оплаты (старые первыми). direction_id опционален: нужен
+              только для remaining_by_direction (см. ниже), на очередь не влияет.
 consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None }] — в порядке даты урока.
               direction_id — направление УРОКА (не оплаты), опционально (может отсутствовать).
 
@@ -31,6 +33,10 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
   worked_off_units_month: [Decimal, ...] — сколько уроков (units, half-lesson=0.5)
   отработано по каждой цене выше; выровнен по индексу с worked_off_unit_prices_month
   (sum(units[i] × prices[i]) == worked_off_month до округления).
+  remaining_by_direction: { direction_id|None: {'lessons': Decimal, 'value': Decimal} }
+  — из партий каких направлений состоит непогашенный хвост. Нужен возврату средств
+  (apps/payments/repository.py::refund_student): строка возврата пишется в то
+  направление, чьи деньги реально возвращаются, иначе лимит курса не освобождается.
 """
 from __future__ import annotations
 
@@ -100,10 +106,25 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             over_consumed_lessons += need
 
     remaining_value = _ZERO
+    # Из чего состоит непогашенный хвост: { direction_id | None: {lessons, value} }.
+    # Порядок ключей = порядок партий в очереди (dict сохраняет вставку).
+    remaining_by_direction: dict = {}
+
+    def _keep(lot, lessons: Decimal) -> None:
+        if lessons <= 0:
+            return
+        bucket = remaining_by_direction.setdefault(
+            lot.get('direction_id'), {'lessons': _ZERO, 'value': _ZERO},
+        )
+        bucket['lessons'] += lessons
+        bucket['value'] += lessons * to_decimal(lot['price_per_lesson'])
+
     if lot_idx < len(lots):
         remaining_value += lot_remaining * to_decimal(lots[lot_idx]['price_per_lesson'])
+        _keep(lots[lot_idx], lot_remaining)
         for i in range(lot_idx + 1, len(lots)):
             remaining_value += to_decimal(lots[i]['lessons']) * to_decimal(lots[i]['price_per_lesson'])
+            _keep(lots[i], to_decimal(lots[i]['lessons']))
 
     return {
         'worked_off_total': round_kopecks(worked_off_total),
@@ -117,4 +138,11 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         # выровнено по индексу с worked_off_unit_prices_month. Возвраты и перерасход
         # (over_consumed) сюда не идут, как и в цены. Не деньги → без округления до копеек.
         'worked_off_units_month': list(unit_qtys_month),
+        # Состав непогашенного хвоста по направлениям партий (lots[i]['direction_id'],
+        # т.е. направление ОПЛАТЫ, не урока). Сумма value == remaining_value до
+        # округления каждой доли; lessons — без округления (half-lesson=0.5).
+        'remaining_by_direction': {
+            k: {'lessons': v['lessons'], 'value': round_kopecks(v['value'])}
+            for k, v in remaining_by_direction.items()
+        },
     }

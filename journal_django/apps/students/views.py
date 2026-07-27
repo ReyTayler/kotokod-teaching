@@ -211,7 +211,13 @@ class StudentCommentDetailView(APIView):
 
 
 class StudentRefundView(APIView):
-    """POST /api/admin/students/{id}/refund — возврат неотработанного остатка (admin/superadmin)."""
+    """POST /api/admin/students/{id}/refund — возврат неотработанного остатка (admin/superadmin).
+
+    Ответ 201: {refunds: [строка на каждое направление остатка], new_balance: 0,
+    refunded_amount}. Строк несколько, потому что лимит курса считается
+    per-direction: возврат без направления его не освобождал бы (см.
+    apps/payments/repository.py::refund_student).
+    """
 
     permission_classes = [IsAdminOrSuperAdmin]
 
