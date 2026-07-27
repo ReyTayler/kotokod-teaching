@@ -209,6 +209,7 @@ FIELD_RU = {
     'lesson_date': 'дата урока', 'lesson_type': 'тип урока',
     'lessons_done': 'проведено занятий', 'lessons_per_week': 'занятий в неделю',
     'total_lessons': 'всего занятий', 'remaining': 'осталось',
+    'lessons_total': 'уроков в группе',
     'present': 'присутствие', 'present_count': 'присутствовало',
     'total_students': 'всего учеников', 'start_date': 'дата начала',
     'group_start_date': 'дата старта группы',

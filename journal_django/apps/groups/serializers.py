@@ -69,6 +69,8 @@ class GroupReadSerializer(serializers.Serializer):
     lesson_number_offset = serializers.DecimalField(
         max_digits=6, decimal_places=1, required=False, coerce_to_string=False,
     )
+    # Ручная длина курса группы в уроках; null — «как в направлении».
+    lessons_total = serializers.IntegerField(allow_null=True, required=False)
     # Поля из JOIN — присутствуют только в списке (listGroups)
     direction_name = serializers.CharField(allow_null=True, required=False)
     direction_color = serializers.CharField(allow_null=True, required=False)
@@ -92,6 +94,7 @@ class GroupWriteSerializer(serializers.Serializer):
     is_individual = serializers.BooleanField()
     lesson_duration_minutes = serializers.ChoiceField(choices=VALID_LESSON_DURATIONS)
     lessons_per_week = serializers.IntegerField(min_value=1, max_value=7)
+    lessons_total = serializers.IntegerField(min_value=1, allow_null=True, required=False)
     group_start_date = DateStringField(allow_null=True, required=False)
     vk_chat = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     slots = GroupScheduleSlotSerializer(many=True, required=False)
@@ -122,6 +125,7 @@ class GroupUpdateSerializer(serializers.Serializer):
         choices=VALID_LESSON_DURATIONS, required=False
     )
     lessons_per_week = serializers.IntegerField(min_value=1, max_value=7, required=False)
+    lessons_total = serializers.IntegerField(min_value=1, allow_null=True, required=False)
     group_start_date = DateStringField(allow_null=True, required=False)
     vk_chat = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     active = serializers.BooleanField(required=False)

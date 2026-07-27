@@ -51,6 +51,9 @@ export interface Group {
   // группу) начинает курс с lesson_number_offset+step, а не с 1. 0/undefined —
   // обычная группа. См. LessonGrid (не рисует ячейки 1..offset).
   lesson_number_offset?: number;
+  // Ручная длина курса группы в уроках; null/undefined — «как в направлении».
+  // Единица — уроки, не занятия: у 45-мин группы 2 урока = 4 занятия.
+  lessons_total?: number | null;
   // joined-only:
   direction_name?: string;
   direction_color?: string | null;

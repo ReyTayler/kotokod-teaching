@@ -47,8 +47,13 @@ export function LessonGrid({ group, selectedSlot, onSelectSlot }: Props) {
     return { map, max };
   }, [lessons, step]);
 
-  const totalSlots = direction?.total_lessons != null
-    ? Math.round(Number(direction.total_lessons) / step)
+  // Длина курса ИМЕННО ЭТОЙ группы (groups.lessons_total) перекрывает программу
+  // направления: группа-остаток проходит только часть курса, и рисовать ей клетки
+  // до конца программы — врать. Пусто — как в направлении (прежнее поведение).
+  // Единица — уроки, поэтому делим на шаг: у 45-мин группы 1 урок = 2 клетки.
+  const courseLessons = group.lessons_total ?? direction?.total_lessons ?? null;
+  const totalSlots = courseLessons != null
+    ? Math.round(Number(courseLessons) / step)
     : null;
   const slotCount = totalSlots
     ? Math.max(totalSlots, byNumber.max)

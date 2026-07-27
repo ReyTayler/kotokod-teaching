@@ -9,6 +9,7 @@ export interface GroupPayload {
   is_individual: boolean;
   lesson_duration_minutes: 45 | 60 | 90;
   lessons_per_week: number;
+  lessons_total?: number | null;
   group_start_date?: string | null;
   vk_chat?: string | null;
   slots: Pick<GroupScheduleSlot, 'day_of_week' | 'start_time'>[];
@@ -79,6 +80,11 @@ export function useGroupMutations() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['groups'] });
     qc.invalidateQueries({ queryKey: ['archive'] });
+    // План живёт под отдельным ключом ['group-plan', id] — префикс ['groups'] его
+    // НЕ накрывает. Правка группы может двигать план на сервере (смена длины курса
+    // lessons_total дописывает или урезает хвост), поэтому инвалидируем явно,
+    // иначе вкладка «Расписание» показывает прежние занятия до перезагрузки.
+    qc.invalidateQueries({ queryKey: ['group-plan'] });
   };
   return {
     create: useMutation({

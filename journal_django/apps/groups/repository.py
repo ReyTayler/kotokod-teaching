@@ -24,6 +24,7 @@ from django.db.models.functions import Now
 from apps.core.utils.dates import msk_today
 from apps.core.utils.orm import dictrow, dictrows
 
+from .course_length import effective_total_lessons_expr
 from .exceptions import ImmutableGroupFormat
 from .models import Group, GroupScheduleSlot
 
@@ -40,7 +41,7 @@ from .models import Group, GroupScheduleSlot
 _GROUP_FIELDS = (
     'id', 'name', 'direction_id', 'teacher_id', 'is_individual',
     'lesson_duration_minutes', 'lessons_per_week', 'group_start_date',
-    'vk_chat', 'active', 'created_at', 'lesson_number_offset',
+    'vk_chat', 'active', 'created_at', 'lesson_number_offset', 'lessons_total',
 )
 
 # Whitelist sort_by → ORM-поле. g.id DESC — вторичная сортировка.
@@ -229,6 +230,7 @@ def create_group(data: dict) -> dict:
             lessons_per_week=data.get('lessons_per_week', 1),
             group_start_date=data.get('group_start_date') or None,
             vk_chat=data.get('vk_chat') or None,
+            lessons_total=data.get('lessons_total'),
             created_at=Now(),
         )
         slots = data.get('slots') or []
@@ -295,6 +297,10 @@ def update_group(group_id: int, data: dict) -> Optional[dict]:
             obj.vk_chat = data['vk_chat']
         if data.get('active') is not None and 'active' in data:
             obj.active = data['active']
+        # Ручная длина курса: ключ присутствует → пишем как есть, включая None
+        # («вернуться к длине направления»). Подгонку плана делает services.
+        if 'lessons_total' in data:
+            obj.lessons_total = data['lessons_total']
 
         obj.save()
 
@@ -447,7 +453,8 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     grp = (
         Group.objects
         .filter(id=group_id)
-        .values('id', 'lesson_duration_minutes', total_lessons=F('direction__total_lessons'))
+        .values('id', 'lesson_duration_minutes',
+                total_lessons=effective_total_lessons_expr())
         .first()
     )
     if grp is None:

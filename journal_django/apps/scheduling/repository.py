@@ -12,15 +12,17 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F, Min, Q
+from django.db.models import Exists, F, Min, OuterRef, Q
 
 from apps.core.utils.dates import msk_now
+from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import GroupScheduleSlot
 from apps.groups.models import Group
 from apps.lessons.models import Lesson
 from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import planner
+from apps.scheduling.exceptions import PlanHasRecordedLessons
 from apps.scheduling.models import PlannedLesson
 from apps.scheduling.occurrences import (
     CANCELLED, DONE, MOVED, OVERDUE, PENDING, Slot, _step_for, _walk,
@@ -40,7 +42,7 @@ def active_groups(teacher_id: int | None = None) -> list[dict]:
             teacher_name=F('teacher__name'),
             direction_name=F('direction__name'),
             direction_color=F('direction__color'),
-            total_lessons=F('direction__total_lessons'),
+            total_lessons=effective_total_lessons_expr(),
         )
     )
 
@@ -142,6 +144,12 @@ def unfilled_planned_lessons(
     Незаполненные плановые занятия ВСЕХ активных групп по школе (или одного
     преподавателя) с датой <= today — источник вкладки «Заполнить».
 
+    Группы БЕЗ активных членств пропускаются: заполнять там нечего (урока не
+    было — некому), а их план продолжал бы копить просрочку и маскировать
+    настоящие долги преподавателей. Сюда попадают оба случая: группу завели, но
+    учеников не набрали, и группа, из которой все ушли. EXISTS-подзапрос, а не
+    JOIN + DISTINCT: строк плана на группу много, дубли пришлось бы схлопывать.
+
     Overdue-порог по времени (момент урока в МСК уже прошёл) досчитывает вызывающий
     (fill_service), как и `_planned_status`/`build_calendar` — здесь только грубый
     DB-срез по дате. `status=PENDING` + `fact_lesson__isnull` исключают done/
@@ -150,7 +158,10 @@ def unfilled_planned_lessons(
 
     Возвращает «сырые» словари (date/time — объекты) для fill_service.
     """
+    has_students = GroupMembership.objects.filter(
+        group_id=OuterRef('group_id'), active=True)
     qs = PlannedLesson.objects.filter(
+        Exists(has_students),
         group__active=True,
         status=PENDING,
         fact_lesson__isnull=True,
@@ -833,7 +844,7 @@ def permanent_change(
     with transaction.atomic():
         g = Group.objects.filter(id=group_id).values(
             'lesson_duration_minutes', 'teacher_id',
-            total_lessons=F('direction__total_lessons')).first()
+            total_lessons=effective_total_lessons_expr()).first()
         step = _step_for(g['lesson_duration_minutes'])
         start_seq = from_seq
         start_number = (Decimal(from_seq) - 1) * step
@@ -1140,7 +1151,7 @@ def generate_for_group(group_id: int) -> dict | None:
         .values(
             'id', 'lesson_duration_minutes', 'group_start_date', 'teacher_id',
             'lesson_number_offset',
-            total_lessons=F('direction__total_lessons'),
+            total_lessons=effective_total_lessons_expr(),
         )
         .first()
     )
@@ -1284,7 +1295,7 @@ def rebuild_from_facts(group_id: int) -> dict | None:
         .filter(id=group_id)
         .values(
             'id', 'lesson_duration_minutes', 'group_start_date', 'teacher_id',
-            total_lessons=F('direction__total_lessons'),
+            total_lessons=effective_total_lessons_expr(),
         )
         .first()
     )
@@ -1293,3 +1304,110 @@ def rebuild_from_facts(group_id: int) -> dict | None:
     slots = slots_by_group([group_id]).get(group_id, [])
     facts = facts_by_group([group_id]).get(group_id, [])
     return rebuild_group_plan(group_id, g, slots, facts)
+
+
+# ---------------------------------------------------------------------------
+# Подгонка плана под изменение длины курса группы (groups.lessons_total).
+# ---------------------------------------------------------------------------
+
+def resize_plan(group_id: int) -> int:
+    """
+    Подогнать план группы под её текущую длину курса (после правки lessons_total).
+
+    Хвост за границей новой длины удаляется — но ТОЛЬКО pending/overdue строки;
+    done/moved защищены (PlanHasRecordedLessons). Недостающие позиции дописываются
+    от даты последнего планового занятия по текущим открытым слотам, тем же
+    примитивом planner.generate, что строит план с нуля, — поэтому seq/номера
+    продолжаются непрерывно. Маркеры отмен (seq IS NULL) не трогаются.
+
+    Единицы: длина курса — в УРОКАХ, план — в занятиях. Число занятий =
+    уроки / шаг (45 мин → шаг 0.5 → вдвое больше занятий), поэтому граница
+    считается через step, а не по числу уроков напрямую.
+
+    Возвращает число изменённых строк (удалённых + созданных). No-op, если длина
+    курса не задана нигде, нет открытых слотов или дописывать некуда.
+    """
+    g = (
+        Group.objects
+        .filter(id=group_id)
+        .values(
+            'id', 'lesson_duration_minutes', 'teacher_id', 'group_start_date',
+            total_lessons=effective_total_lessons_expr(),
+        )
+        .first()
+    )
+    if g is None or g['total_lessons'] is None:
+        return 0
+
+    step = _step_for(g['lesson_duration_minutes'])
+    target_count = int(Decimal(g['total_lessons']) / step)
+    now = msk_now()
+    changed = 0
+
+    with transaction.atomic():
+        rows = list(
+            PlannedLesson.objects
+            .select_for_update()
+            .filter(group_id=group_id, seq__isnull=False)
+            .order_by('seq')
+        )
+        extra = [p for p in rows if p.seq > target_count]
+        blocked = [p for p in extra if p.status not in _MUTABLE_STATUSES]
+        if blocked:
+            recorded = len([p for p in rows if p.status not in _MUTABLE_STATUSES])
+            raise PlanHasRecordedLessons(recorded)
+
+        if extra:
+            PlannedLesson.objects.filter(id__in=[p.id for p in extra]).delete()
+            changed += len(extra)
+
+        kept = [p for p in rows if p.seq <= target_count]
+        if len(kept) >= target_count:
+            return changed
+
+        open_slots = [
+            s for s in slots_by_group([group_id]).get(group_id, [])
+            if s.effective_to is None
+        ]
+        if not open_slots:
+            return changed  # некуда разворачивать хвост — план останется коротким
+
+        if kept:
+            last = kept[-1]
+            start_seq = last.seq + 1
+            start_number = last.lesson_number
+            start_date = last.scheduled_date + datetime.timedelta(days=1)
+        elif g['group_start_date'] is not None:
+            start_seq = 1
+            start_number = Decimal('0')
+            start_date = g['group_start_date']
+        else:
+            return changed
+
+        new_rows = planner.generate(
+            start_date=start_date,
+            slots=open_slots,
+            total_lessons=g['total_lessons'],
+            duration_minutes=g['lesson_duration_minutes'],
+            default_teacher_id=g['teacher_id'],
+            start_seq=start_seq,
+            start_number=start_number,
+        )
+        if new_rows:
+            PlannedLesson.objects.bulk_create([
+                PlannedLesson(
+                    group_id=group_id,
+                    seq=r.seq,
+                    lesson_number=r.lesson_number,
+                    scheduled_date=r.scheduled_date,
+                    scheduled_time=r.scheduled_time,
+                    teacher_id=r.teacher_id,
+                    status=r.status,
+                    created_at=now,
+                    updated_at=now,
+                )
+                for r in new_rows
+            ])
+            changed += len(new_rows)
+
+    return changed

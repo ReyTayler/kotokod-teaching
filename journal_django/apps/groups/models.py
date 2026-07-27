@@ -54,6 +54,16 @@ class Group(models.Model):
     lessons_per_week = models.IntegerField(default=1)
     group_start_date = models.DateField(null=True, blank=True)
     vk_chat = models.TextField(null=True, blank=True)
+    # Длина курса ИМЕННО ЭТОЙ группы в уроках. NULL — «как в направлении»
+    # (directions.total_lessons), это дефолт и поведение всех старых групп.
+    # Задаётся вручную в форме группы, когда группа должна отходить только часть
+    # курса (ученик начал не с первого урока — прошёл остальное в другой группе).
+    # Единица — УРОКИ, не занятия: у 45-мин группы шаг 0.5, поэтому 2 урока = 4
+    # занятия. Читать только через apps.groups.course_length — длина группы НЕ
+    # применяется к лимиту продаж (apps.payments) и к прогрессу ученика по
+    # направлению (apps.students). См.
+    # docs/superpowers/specs/2026-07-27-group-lessons-total-design.md.
+    lessons_total = models.IntegerField(null=True, blank=True)
     # Фаза 1b transfer-progress-alignment: если группа была продолжена курсом
     # переведённого ученика (см. apps.memberships.repository.place_student_in_group),
     # здесь хранится B (сколько уроков ученик уже отработал в старой группе) —
@@ -79,6 +89,10 @@ class Group(models.Model):
             models.CheckConstraint(
                 name='groups_lessons_per_week_check',
                 condition=models.Q(lessons_per_week__gte=1) & models.Q(lessons_per_week__lte=7),
+            ),
+            models.CheckConstraint(
+                name='groups_lessons_total_check',
+                condition=models.Q(lessons_total__isnull=True) | models.Q(lessons_total__gt=0),
             ),
         ]
 

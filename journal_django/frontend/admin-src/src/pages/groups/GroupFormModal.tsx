@@ -9,6 +9,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
 import { TextInput } from '../../components/form/TextInput';
 import { SelectInput } from '../../components/form/SelectInput';
+import { NumberInput } from '../../components/form/NumberInput';
 import type { Group, LessonDuration } from '../../lib/types';
 
 interface Props { initial: Group | null; onClose: () => void; }
@@ -38,6 +39,10 @@ export default function GroupFormModal({ initial, onClose }: Props) {
   const [duration, setDuration] = useState<LessonDuration>(initial?.lesson_duration_minutes || 90);
   // Новая группа по умолчанию — индивидуальный формат; при редактировании берём значение группы.
   const [isIndividual, setIsIndividual] = useState(initial ? initial.is_individual : true);
+  // Пустая строка = «как в направлении» (на бэк уйдёт null).
+  const [lessonsTotal, setLessonsTotal] = useState<string>(
+    initial?.lessons_total != null ? String(initial.lessons_total) : '',
+  );
 
   const teacherOptions = [{ value: '', label: '— выберите —' }, ...teachers
     .filter((t) => t.active || (initial && initial.teacher_id === t.id))
@@ -45,6 +50,12 @@ export default function GroupFormModal({ initial, onClose }: Props) {
   const directionOptions = [{ value: '', label: '— выберите —' }, ...directions
     .filter((d) => d.active || (initial && initial.direction_id === d.id))
     .map((d) => ({ value: d.id, label: d.name }))];
+  const selectedDirection = directions.find((d) => d.id === Number(directionId));
+  const directionLessons = selectedDirection?.total_lessons ?? null;
+  // Половинный формат: один урок курса = два занятия по 45 минут.
+  const sessionsHint = lessonsTotal && duration === 45
+    ? `${lessonsTotal} ур. = ${Number(lessonsTotal) * 2} занятий по 45 мин`
+    : null;
 
   // Формат закреплён за группой после создания — при редактировании смена запрещена.
   const chooseFormat = (individual: boolean) => {
@@ -70,6 +81,7 @@ export default function GroupFormModal({ initial, onClose }: Props) {
           is_individual: isIndividual,
           lesson_duration_minutes: duration,
           lessons_per_week: 1,
+          lessons_total: lessonsTotal ? Number(lessonsTotal) : null,
           vk_chat: vkChat || null,
           slots: [],
         });
@@ -83,6 +95,7 @@ export default function GroupFormModal({ initial, onClose }: Props) {
         await muts.update.mutateAsync({ id: initial!.id, body: {
           name,
           vk_chat: vkChat || null,
+          lessons_total: lessonsTotal ? Number(lessonsTotal) : null,
         } });
         toast('Сохранено', 'ok');
         onClose();
@@ -170,6 +183,19 @@ export default function GroupFormModal({ initial, onClose }: Props) {
           {!isNew && (
             <span className="field-hint">Длительность закреплена за группой после создания</span>
           )}
+        </Field>
+        <Field label="Уроков в группе">
+          <NumberInput
+            min={1}
+            step={1}
+            value={lessonsTotal}
+            onChange={(e) => setLessonsTotal(e.target.value)}
+            placeholder={directionLessons ? `как в направлении (${directionLessons})` : 'как в направлении'}
+          />
+          <span className="field-hint">
+            {sessionsHint
+              || 'Сколько уроков курса пройдёт эта группа. Пусто — весь курс направления.'}
+          </span>
         </Field>
 
         {isNew && (

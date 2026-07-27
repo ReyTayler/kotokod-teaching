@@ -272,6 +272,11 @@ def generate_plan(group_id: int, request) -> list[dict] | None:
     return result['plan']
 
 
+def resize_plan(group_id: int) -> int:
+    """Подогнать план под текущую длину курса группы. См. repository.resize_plan."""
+    return repository.resize_plan(group_id)
+
+
 def reschedule(group_id: int, lesson_id: int, data: dict, request) -> dict | None:
     """Разовый перенос. None → строки нет; ValueError → перенос 'done'."""
     new_teacher_id = data.get('new_teacher_id')

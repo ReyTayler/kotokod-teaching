@@ -33,6 +33,7 @@ from django.db.models import F
 from apps.core.pagination import StandardPagination
 from apps.core.permissions import IsTeacher
 from apps.core.utils.dates import msk_now
+from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import Group
 from apps.lessons.models import Lesson
 from apps.teacher_spa import repository, services
@@ -538,7 +539,7 @@ class GroupDirectionsView(APIView):
                 color=F('direction__color'),
                 is_ind=F('is_individual'),
                 duration=F('lesson_duration_minutes'),
-                total=F('direction__total_lessons'),
+                total=effective_total_lessons_expr(),
             )
         )
         groups = {
@@ -548,6 +549,9 @@ class GroupDirectionsView(APIView):
                 'isIndividual': r['is_ind'],
                 # Ф4: half-lesson и лимит курса — структурно (не regex по имени).
                 'lessonDurationMinutes': r['duration'],
+                # Длина КУРСА ЭТОЙ ГРУППЫ: groups.lessons_total, если задано
+                # (группа-остаток курса другой длины), иначе — длина курса
+                # направления. См. apps.groups.course_length.
                 'totalLessons': r['total'],
             }
             for r in rows

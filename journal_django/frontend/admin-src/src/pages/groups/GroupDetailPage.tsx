@@ -90,6 +90,10 @@ export default function GroupDetailPage() {
     { key: 'is_individual', label: 'Индивидуальная', cell: (r) => r.is_individual ? 'да' : 'нет' },
     { key: 'lesson_duration_minutes', label: 'Длительность урока', cell: (r) => `${r.lesson_duration_minutes} мин` },
     { key: 'lessons_per_week', label: 'Уроков в неделю' },
+    { key: 'lessons_total', label: 'Уроков в группе',
+      cell: (r) => r.lessons_total != null
+        ? `${r.lessons_total} (задано вручную)`
+        : 'как в направлении' },
     { key: 'group_start_date', label: 'Дата старта', cell: (r) => fmtDate(r.group_start_date) },
     { key: 'slots', label: 'Расписание', cell: (r) => (r.slots || []).map(formatSlot).join(', ') || '—' },
     { key: 'vk_chat', label: 'Чат ВК' },

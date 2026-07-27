@@ -65,10 +65,29 @@ def create_group(data: dict) -> dict:
 
 
 def update_group(group_id: int, data: dict) -> Optional[dict]:
-    """Обновляет группу. Возвращает None если не найдена."""
-    group = repository.update_group(group_id, data)
-    if group is not None:
-        _autogenerate_plan(group_id, 'group_update')
+    """Обновляет группу. Возвращает None если не найдена.
+
+    Если сменилась ручная длина курса (lessons_total) — план подгоняется под неё
+    в ТОЙ ЖЕ транзакции: 409 (PlanHasRecordedLessons) откатывает и запись поля,
+    иначе в БД осталось бы число, которому план не соответствует.
+    """
+    from django.db import transaction
+    from apps.groups.models import Group
+    from apps.scheduling import services as scheduling_services
+
+    before = (
+        Group.objects.filter(id=group_id)
+        .values_list('lessons_total', flat=True)
+        .first()
+    )
+    with transaction.atomic():
+        group = repository.update_group(group_id, data)
+        if group is None:
+            return None
+        if 'lessons_total' in data and data['lessons_total'] != before:
+            scheduling_services.resize_plan(group_id)
+
+    _autogenerate_plan(group_id, 'group_update')
     return group
 
 

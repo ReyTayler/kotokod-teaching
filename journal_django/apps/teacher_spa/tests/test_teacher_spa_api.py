@@ -1167,6 +1167,26 @@ class TestGroupDirections:
         assert entry['lessonDurationMinutes'] == 60
         assert entry['totalLessons'] == 8
 
+    def test_group_own_lessons_total_overrides_direction(
+        self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
+    ):
+        """
+        groups.lessons_total задан (группа-остаток курса) → API отдаёт длину
+        ИМЕННО ГРУППЫ, а не длину курса направления (иначе преподаватель
+        группы-остатка увидит лимит «X / 8» вместо «X / 2»).
+        """
+        with connection.cursor() as cur:
+            cur.execute('UPDATE groups SET lessons_total = 2 WHERE id = %s', [group_fixture])
+
+        resp = _client('teacher', account_fixture).get('/api/group-directions')
+        assert resp.status_code == 200
+        entry = resp.json()['groups'].get('__spa_test_group__ пн 10:00')
+        assert entry is not None
+        assert entry['totalLessons'] == 2
+
+        # Регресс покрыт test_returns_groups_map выше: без lessons_total (NULL)
+        # та же группа отдаёт длину направления (8).
+
 
 # ---------------------------------------------------------------------------
 # GET /api/group-progress — матрица посещаемости группы (страница группы)

@@ -28,6 +28,7 @@ from apps.groups.serializers import (
     GroupReadSerializer, GroupUpdateSerializer, GroupWriteSerializer,
     ScheduleChangeSerializer,
 )
+from apps.scheduling.exceptions import PlanHasRecordedLessons
 
 
 # Допустимые значения sort_by (whitelist)
@@ -148,6 +149,8 @@ class GroupDetailView(APIView):
             updated = services.update_group(pk, data)
         except ImmutableGroupFormat as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except PlanHasRecordedLessons as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if updated is None:
             raise NotFound({'error': 'Not found'})
 
