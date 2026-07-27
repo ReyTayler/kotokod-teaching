@@ -1,5 +1,8 @@
-"""Правило переходов: НИ ОДНА авто-стадия не достижима и не покидается руками —
-их двигает только движок. Ручные decision→decision/won/lost — при завершённом цикле."""
+"""Правило переходов: авто-стадии недостижимы руками и, как правило, не покидаются
+руками — их двигает движок. Исключения на выход: «Ждём продление» (менеджер
+подтверждает/отклоняет продление), «Заморожен» и «Ушёл» — последние две случаются
+в любой момент цикла, а не только в точке решения о продлении. Ручные
+decision→decision/won — при завершённом цикле."""
 from apps.renewals.transitions import is_allowed
 
 
@@ -12,10 +15,22 @@ def test_cannot_move_onto_any_auto_stage():
                           to_is_auto=True, cycle_completed=True)
 
 
-def test_cannot_move_off_auto_stage_even_to_lost():
-    # с авто-стадии (напр. Урок 1) руками никуда, включая Ушёл
+def test_can_leave_auto_stage_to_lost():
+    """С авто-стадии (напр. «Урок 1») уход в «Ушёл» разрешён — ученик может уйти
+    в любой момент, не только в точке решения о продлении (коммит d4de2a5)."""
+    assert is_allowed(from_kind='progress', from_is_auto=True,
+                      to_kind='lost', to_is_auto=False, cycle_completed=True)
+    # ...в том числе посреди незавершённого цикла — как и заморозка.
+    assert is_allowed(from_kind='progress', from_is_auto=True,
+                      to_kind='lost', to_is_auto=False, cycle_completed=False)
+
+
+def test_cannot_move_off_auto_stage_to_won():
+    """Поблажка касается только «Ушёл» и заморозки: закрыть сделку как «Продлён»
+    прямо с прогресс-стадии по-прежнему нельзя — это делает движок через
+    «Ждём продление»."""
     assert not is_allowed(from_kind='progress', from_is_auto=True,
-                          to_kind='lost', to_is_auto=False, cycle_completed=True)
+                          to_kind='won', to_is_auto=False, cycle_completed=True)
 
 
 def test_manual_decision_to_lost_allowed_anytime():
@@ -97,9 +112,9 @@ def test_other_auto_stages_still_locked_off():
     assert not is_allowed(from_kind='decision', from_is_auto=True,
                           from_key='awaiting_payment', to_kind='won',
                           cycle_completed=True)
-    # progress-авто — тоже нельзя.
+    # progress-авто — тоже нельзя (в «Ушёл» можно, см. test_can_leave_auto_stage_to_lost).
     assert not is_allowed(from_kind='progress', from_is_auto=True,
-                          from_key='lesson_1', to_kind='lost', cycle_completed=True)
+                          from_key='lesson_1', to_kind='won', cycle_completed=True)
 
 
 def test_frozen_allowed_mid_cycle():
