@@ -11,7 +11,12 @@ export function QueryProvider({ children }: { children: ReactNode }) {
           return count < 1;
         },
         staleTime: 30_000,
-        refetchOnWindowFocus: false,
+        // Возврат к вкладке обновляет то, что на экране: правки коллеги (другой
+        // менеджер, преподаватель) иначе не видны вообще — инвалидация react-query
+        // локальна для вкладки, push-канала (SSE/WS) в проекте нет. Перезапрос
+        // идёт только по АКТИВНЫМ и УСТАРЕВШИМ (staleTime 30с) запросам, поэтому
+        // частое переключение окон лишнего трафика не создаёт.
+        refetchOnWindowFocus: true,
       },
     },
   }));

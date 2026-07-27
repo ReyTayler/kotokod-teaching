@@ -94,6 +94,13 @@ export function useLessonMutations() {
     qc.invalidateQueries({ queryKey: ['memberships'] });
     qc.invalidateQueries({ queryKey: ['students'] });
     qc.invalidateQueries({ queryKey: ['lesson-skips'] });
+    // Запись/правка урока двигает и план, и матрицу прогресса: link_facts
+    // переводит плановое занятие в «проведено», прогресс пересчитывается из
+    // фактов. План лежит под своим ключом ['group-plan', id] — префикс ['groups']
+    // его не накрывает, поэтому инвалидируем оба; иначе «Расписание» и «Прогресс»
+    // показывают дореактивное состояние до перезагрузки страницы.
+    qc.invalidateQueries({ queryKey: ['groups'] });
+    qc.invalidateQueries({ queryKey: ['group-plan'] });
   };
   return {
     create: useMutation({

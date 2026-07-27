@@ -53,6 +53,10 @@ export function useExtraLessonMutations() {
     qc.invalidateQueries({ queryKey: ['lessons'] });
     qc.invalidateQueries({ queryKey: ['memberships'] });
     qc.invalidateQueries({ queryKey: ['calendar'] });
+    // Матрица прогресса группы (['groups', id, 'progress']) строится из фактов —
+    // доп.урок и сгорание её меняют. План НЕ трогаем: эти уроки не занимают
+    // позицию курса (seq = NULL), плановых строк за ними нет.
+    qc.invalidateQueries({ queryKey: ['groups'] });
   };
   return {
     create: useMutation({
