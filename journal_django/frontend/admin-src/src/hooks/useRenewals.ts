@@ -77,12 +77,31 @@ export function useRenewalList(p: RenewalListParams) {
   });
 }
 
-/** Сводка «Ученики без сделок» — из неё менеджер вручную создаёт сделки. */
+/**
+ * Сводка «Ученики без сделок» (новички) — из неё менеджер вручную создаёт сделки.
+ *
+ * Вызывать только из открытого диалога: список тянет направления, посещаемость
+ * и балансы по каждой строке. Для бейджа в шапке есть лёгкий
+ * useRenewalUnassignedCount — он читается при каждом входе в раздел.
+ */
 export function useRenewalUnassigned() {
   return useQuery({
     queryKey: [...KEY, 'unassigned'],
     queryFn: () => api<RenewalUnassignedRow[]>('GET', '/api/admin/renewals/unassigned'),
-    staleTime: 30_000,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Число для бейджа «Без сделок (N)». Меняется редко (ученика записали в группу
+ * либо менеджер создал сделку), а мутации сбрасывают весь ключ 'renewals' —
+ * поэтому длинный staleTime не даёт бейджу устареть после действий менеджера.
+ */
+export function useRenewalUnassignedCount() {
+  return useQuery({
+    queryKey: [...KEY, 'unassigned', 'count'],
+    queryFn: () => api<{ count: number }>('GET', '/api/admin/renewals/unassigned/count'),
+    staleTime: 5 * 60_000,
   });
 }
 

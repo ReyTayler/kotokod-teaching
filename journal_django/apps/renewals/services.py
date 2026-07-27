@@ -26,8 +26,13 @@ def move_deal(deal_id, to_stage_id, reason_code, author_id, frozen_until_month=N
 
 
 def list_unassigned() -> list[dict]:
-    """Сводка «Ученики без сделок» — активный membership без открытой сделки."""
+    """Сводка «Ученики без сделок» — новички: активный membership, сделок не было."""
     return repository.students_without_deal()
+
+
+def count_unassigned() -> int:
+    """Число для бейджа «Без сделок (N)» — без выгрузки самого списка."""
+    return repository.count_students_without_deal()
 
 
 def create_deal(student_id: int, author_id: int | None) -> dict | str | None:
@@ -35,8 +40,14 @@ def create_deal(student_id: int, author_id: int | None) -> dict | str | None:
     Ручное создание сделки учеником сводки: None — ученика нет; 'exists' —
     открытая сделка уже есть; dict — созданная сделка.
 
-    Номер цикла — расчётный от общей истории; занятые (в т.ч. закрытые «Ушёл»
-    у вернувшегося ученика) номера перешагиваем вперёд.
+    Номер цикла — расчётный от общей истории (cycle.open_cycle_no: ровно на
+    рубеже 4 уроков открыт ТОТ ЖЕ цикл, решение по нему ещё не принято, поэтому
+    сделка встанет на «Ждём продление»); занятые (в т.ч. закрытые «Ушёл» у
+    вернувшегося ученика) номера перешагиваем вперёд.
+
+    Вернувшемуся после «Ушёл» правильнее не создавать сделку здесь, а переоткрыть
+    закрытую из её карточки: тогда сохранится её номер цикла и прогресс не
+    обнулится (см. docs/renewals-user-guide.md, §9).
     """
     from apps.renewals import cycle, engine
     from apps.renewals.models import RenewalDeal
@@ -47,7 +58,7 @@ def create_deal(student_id: int, author_id: int | None) -> dict | str | None:
     if RenewalDeal.objects.filter(student_id=student_id, outcome_at__isnull=True).exists():
         return 'exists'
 
-    min_cycle_no = cycle.cycle_no_from_attended(engine._attended_total(student_id))
+    min_cycle_no = cycle.open_cycle_no(engine._attended_total(student_id))
     cycle_no = engine.next_open_cycle_no(student_id, min_cycle_no)
 
     deal = engine.ensure_deal(student_id, cycle_no)

@@ -164,6 +164,15 @@ class RenewalUnassignedView(APIView):
         return Response(services.list_unassigned())
 
 
+class RenewalUnassignedCountView(APIView):
+    """Только число для бейджа в шапке раздела — читается при каждом входе,
+    поэтому не тянет список с направлениями, посещаемостью и балансами."""
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request) -> Response:
+        return Response({'count': services.count_unassigned()})
+
+
 class RenewalAssigneesView(APIView):
     """Кандидаты в ответственные (для SelectInput в карточке сделки)."""
     permission_classes = [IsManagerOrAdmin]

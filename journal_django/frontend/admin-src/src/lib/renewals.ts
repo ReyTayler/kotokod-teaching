@@ -163,7 +163,7 @@ export interface RenewalAssignee {
 
 export type RenewalLostReason = 'price' | 'schedule' | 'lost_interest' | 'relocation' | 'other';
 
-/** Строка сводки «Ученики без сделок» (активный membership, открытой сделки нет). */
+/** Строка сводки «Ученики без сделок» (активный membership, сделок не было ни разу). */
 export interface RenewalUnassignedRow {
   student_id: number;
   student_name: string;

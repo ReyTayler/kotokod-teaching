@@ -24,10 +24,44 @@ def _directions_agg(student_col: str) -> str:
 DIRECTIONS_AGG_SQL = _directions_agg('d.student_id')
 
 
+# Кандидаты сводки «Без сделок» — ОДНО правило на список и на счётчик бейджа:
+# активное членство есть, сделки не было ни разу. Держим общим куском SQL, иначе
+# бейдж и содержимое диалога однажды разойдутся (тест test_unassigned_count_matches_list).
+_UNASSIGNED_SOURCE = """
+    FROM students s
+    WHERE EXISTS (SELECT 1 FROM group_memberships m
+                  WHERE m.student_id = s.id AND m.active = true)
+      AND NOT EXISTS (SELECT 1 FROM renewal_deal d
+                      WHERE d.student_id = s.id)
+"""
+
+
+def count_students_without_deal() -> int:
+    """
+    Число учеников сводки — для бейджа «Без сделок (N)» в шапке раздела.
+
+    Отдельно от students_without_deal осознанно: бейдж читается при КАЖДОМ входе
+    в раздел, а сам список — только при открытии диалога. Здесь нет ни
+    per-row подзапросов (направления, посещаемость), ни расчёта балансов,
+    поэтому цена не зависит от длины списка.
+    """
+    with connection.cursor() as cur:
+        cur.execute(f'SELECT count(*) {_UNASSIGNED_SOURCE}')
+        return cur.fetchone()[0]
+
+
 def students_without_deal() -> list[dict]:
     """
-    Сводка «Ученики без сделок»: активный membership есть, открытой сделки нет.
-    Для каждого — направления, суммарно посещено, расчётный цикл и флаг долга.
+    Сводка «Ученики без сделок»: активный membership есть, а сделки не было
+    НИКОГДА — ни открытой, ни закрытой. То есть только новички.
+
+    Ученик с закрытой сделкой (ушёл, вернулся, спавн следующего цикла не
+    состоялся) сюда НЕ попадает осознанно (решение 2026-07-27): его возвращают в
+    воронку переоткрытием его же сделки («Список» → «Показать закрытые» →
+    «Переоткрыть»), при котором сохраняется номер цикла и прогресс. Создание
+    новой сделки перешагнуло бы занятый номер и обнулило прогресс.
+
+    Для каждого — направления, суммарно посещено, открытый цикл и флаг долга.
     Из неё менеджер вручную создаёт сделку (POST /api/admin/renewals).
     """
     from apps.finances.repository import balances_for_students
@@ -42,11 +76,7 @@ def students_without_deal() -> list[dict]:
                    JOIN lessons l ON l.id = la.lesson_id
                    WHERE la.student_id = s.id AND la.present = true
                ), 0) AS attended
-        FROM students s
-        WHERE EXISTS (SELECT 1 FROM group_memberships m
-                      WHERE m.student_id = s.id AND m.active = true)
-          AND NOT EXISTS (SELECT 1 FROM renewal_deal d
-                          WHERE d.student_id = s.id AND d.outcome_at IS NULL)
+        {_UNASSIGNED_SOURCE}
         ORDER BY s.full_name
     """
     with connection.cursor() as cur:
@@ -56,7 +86,7 @@ def students_without_deal() -> list[dict]:
     balances = balances_for_students([r['student_id'] for r in rows])
     for r in rows:
         r['attended'] = float(r['attended'])
-        r['cycle_no'] = cycle.cycle_no_from_attended(r['attended'])
+        r['cycle_no'] = cycle.open_cycle_no(r['attended'])
         r['debt'] = float(balances.get(r['student_id'], 0)) < 0
     return rows
 

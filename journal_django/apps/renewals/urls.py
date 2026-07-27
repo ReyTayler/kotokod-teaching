@@ -14,6 +14,7 @@ from apps.renewals.views import (
     RenewalStageDetailView,
     RenewalStageListView,
     RenewalStageReorderView,
+    RenewalUnassignedCountView,
     RenewalUnassignedView,
     RenewalUnfreezeView,
 )
@@ -28,6 +29,8 @@ urlpatterns = [
     path('/analytics', RenewalAnalyticsView.as_view(), name='renewals-analytics'),
     path('/assignees', RenewalAssigneesView.as_view(), name='renewals-assignees'),
     path('/unassigned', RenewalUnassignedView.as_view(), name='renewals-unassigned'),
+    path('/unassigned/count', RenewalUnassignedCountView.as_view(),
+         name='renewals-unassigned-count'),
     path('/columns/<int:stage_id>', RenewalColumnCardsView.as_view(), name='renewals-column-cards'),
     path('/<int:pk>', RenewalDetailView.as_view(), name='renewals-detail'),
     path('/<int:pk>/move', RenewalMoveView.as_view(), name='renewals-move'),

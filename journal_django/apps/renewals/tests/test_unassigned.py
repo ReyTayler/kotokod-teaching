@@ -58,6 +58,99 @@ def test_unassigned_lists_student_and_create_removes(manager_client, make_studen
 
 
 @pytest.mark.django_db
+def test_unassigned_count_requires_staff(teacher_client):
+    assert teacher_client.get(f'{BASE}/unassigned/count').status_code == 403
+
+
+@pytest.mark.django_db
+def test_unassigned_count_matches_list(manager_client, make_student, make_direction,
+                                       make_teacher):
+    """
+    Бейдж «Без сделок (N)» берёт число отдельной лёгкой ручкой — она обязана
+    считать тем же правилом, что и сам список (иначе бейдж и диалог разойдутся).
+    """
+    sid, did, tid = make_student('__un_count__'), make_direction(), make_teacher()
+    gid = _make_group_membership(did, tid, sid, name='__un_count_group__')
+    try:
+        rows = manager_client.get(f'{BASE}/unassigned').json()
+        before = manager_client.get(f'{BASE}/unassigned/count').json()
+        assert any(r['student_id'] == sid for r in rows)
+        assert before['count'] == len(rows)
+
+        manager_client.post(BASE, {'student_id': sid}, format='json')
+
+        after = manager_client.get(f'{BASE}/unassigned/count').json()
+        assert after['count'] == before['count'] - 1
+    finally:
+        _cleanup(sid, gid)
+
+
+@pytest.mark.django_db
+def test_student_with_closed_deal_is_not_listed(manager_client, make_student,
+                                                make_direction, make_teacher):
+    """
+    Сводка — только про новичков: ученик, у которого сделка когда-либо БЫЛА
+    (закрыта «Ушёл» или «Продлён»), в неё не попадает, даже если членство активно.
+    Такого возвращают в воронку переоткрытием его сделки, а не созданием новой —
+    иначе номер цикла перешагивается и прогресс обнуляется.
+    """
+    sid, did, tid = make_student('__un_closed__'), make_direction(), make_teacher()
+    gid = _make_group_membership(did, tid, sid, name='__un_closed_group__')
+    try:
+        pipe = RenewalPipeline.objects.get(is_default=True)
+        lost = RenewalStage.objects.filter(pipeline=pipe, kind='lost').first()
+        RenewalDeal.objects.create(student_id=sid, cycle_no=1, pipeline=pipe,
+                                   stage=lost, outcome_at=timezone.now())
+
+        rows = manager_client.get(f'{BASE}/unassigned').json()
+        assert not [r for r in rows if r['student_id'] == sid]
+    finally:
+        _cleanup(sid, gid)
+
+
+@pytest.mark.django_db
+def test_boundary_cycle_creates_decision_deal(manager_client, make_student, make_direction,
+                                              make_teacher, make_attendance):
+    """
+    Ровно 4 отработанных урока: решение по циклу 1 ещё НЕ принято, поэтому сделка
+    создаётся циклом 1 на «Ждём продление», а не циклом 2 «Не было урока».
+    Та же раскладка, что у пересбора (rebuild.plan_for_student) — один механизм.
+    """
+    sid, did, tid = make_student('__un_boundary__'), make_direction(), make_teacher()
+    gid = _make_group_membership(did, tid, sid, name='__un_boundary_group__')
+    try:
+        make_attendance(sid, gid, tid, count=4)
+
+        row = [r for r in manager_client.get(f'{BASE}/unassigned').json()
+               if r['student_id'] == sid][0]
+        assert row['attended'] == 4
+        assert row['cycle_no'] == 1, 'сводка тоже должна показывать открытый цикл'
+
+        created = manager_client.post(BASE, {'student_id': sid}, format='json').json()
+        assert created['cycle_no'] == 1
+        assert created['stage_key'] == 'awaiting_renewal'
+    finally:
+        _cleanup(sid, gid)
+
+
+@pytest.mark.django_db
+def test_mid_cycle_create_keeps_current_cycle(manager_client, make_student, make_direction,
+                                              make_teacher, make_payment, make_attendance):
+    """Цикл не добит (2 из 4) — сделка того же цикла на стадии прогресса."""
+    sid, did, tid = make_student('__un_midcycle__'), make_direction(), make_teacher()
+    gid = _make_group_membership(did, tid, sid, name='__un_midcycle_group__')
+    try:
+        make_payment(sid, did, lessons=8)  # без баланса уехало бы в «Ждём оплату»
+        make_attendance(sid, gid, tid, count=2)
+
+        created = manager_client.post(BASE, {'student_id': sid}, format='json').json()
+        assert created['cycle_no'] == 1
+        assert created['stage_key'] == 'lesson_2'
+    finally:
+        _cleanup(sid, gid)
+
+
+@pytest.mark.django_db
 def test_create_conflicts_when_open_deal_exists(manager_client, make_student):
     sid = make_student()
     engine.ensure_deal(sid, cycle_no=1)

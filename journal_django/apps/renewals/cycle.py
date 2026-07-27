@@ -11,9 +11,23 @@ import math
 LESSONS_PER_CYCLE = 4
 
 
-def cycle_no_from_attended(attended: float) -> int:
-    """attended отработанных уроков по направлению → номер текущего цикла (1-based)."""
-    return math.floor(float(attended) / LESSONS_PER_CYCLE) + 1
+def open_cycle_no(attended: float) -> int:
+    """
+    attended отработанных уроков → номер ОТКРЫТОГО цикла ученика (1-based).
+
+    Ровно на рубеже (attended кратно 4 и > 0) цикл ещё открыт: уроки отработаны,
+    но решение «продлил / ушёл» по нему не принято — сделка должна встать на
+    «Ждём продление», а не начинать следующий цикл с нуля.
+
+    Правило одно на весь раздел: та же раскладка, что у пересбора истории
+    (rebuild.plan_for_student). Совпадение закреплено тестом
+    test_open_cycle_no_matches_rebuild_plan — при правке любой из сторон он упадёт.
+    """
+    units = float(attended)
+    completed_full = math.floor(units / LESSONS_PER_CYCLE)
+    if completed_full >= 1 and units % LESSONS_PER_CYCLE == 0:
+        return completed_full
+    return completed_full + 1
 
 
 def in_renewal_window(remaining: float, balance: float) -> bool:

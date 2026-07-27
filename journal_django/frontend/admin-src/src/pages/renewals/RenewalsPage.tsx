@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useDirections } from '../../hooks/useDirections';
-import { useRenewalAssignees, useRenewalUnassigned } from '../../hooks/useRenewals';
+import { useRenewalAssignees, useRenewalUnassignedCount } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { RenewalUnassignedDialog } from './RenewalUnassignedDialog';
 import { SelectInput } from '../../components/form/SelectInput';
@@ -25,9 +25,10 @@ export default function RenewalsPage() {
   const { data: assignees } = useRenewalAssignees();
   const { data: directions } = useDirections();
   const { data: stages } = useRenewalStages();
-  const { data: unassigned } = useRenewalUnassigned();
+  // Только число: сам список грузит диалог, и только когда его открыли.
+  const { data: unassigned } = useRenewalUnassignedCount();
   const [showUnassigned, setShowUnassigned] = useState(false);
-  const unassignedCount = unassigned?.length ?? 0;
+  const unassignedCount = unassigned?.count ?? 0;
 
   // Ключи фильтров, живущие в URL: общие (доска+список) + списочные.
   const FILTER_KEYS = ['assignee_id', 'direction_id', 'student', 'cycle_no', 'stage_id', 'include_closed'];
