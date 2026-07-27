@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useAuth } from '@shared/hooks/useAuth';
+import { hideSplash } from '@shared/lib/splash';
 import type { Me } from '@shared/providers/AuthProvider';
 
 /**
@@ -36,7 +37,15 @@ export function AuthGate() {
     }
   }, [ready, authenticated, allowed, me]);
 
+  // Стартовый экран снимаем ТОЛЬКО когда кабинет действительно рисуется. На
+  // ветках редиректа (не залогинен / чужая роль) он остаётся до перехода —
+  // иначе между «погас» и «браузер ушёл» мелькнёт пустая страница.
+  useEffect(() => {
+    if (allowed) hideSplash();
+  }, [allowed]);
+
   if (!ready) {
+    // Не видно за стартовым экраном; остаётся на случай, если он уже снят.
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)' }}>Загрузка…</div>;
   }
   if (!allowed) return null;

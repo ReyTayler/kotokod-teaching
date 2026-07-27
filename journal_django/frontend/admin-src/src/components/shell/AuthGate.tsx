@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { hideSplash } from '../../lib/splash';
 import type { Me } from '../../providers/AuthProvider';
 
 /**
@@ -43,7 +44,15 @@ export function AuthGate() {
     }
   }, [ready, authenticated, allowed, me]);
 
+  // Стартовый экран снимаем ТОЛЬКО когда админка действительно рисуется. На
+  // ветках редиректа (не залогинен / чужая роль) он остаётся на месте до
+  // перехода — иначе между «погас» и «браузер ушёл» мелькнёт пустая страница.
+  useEffect(() => {
+    if (allowed) hideSplash();
+  }, [allowed]);
+
   if (!ready) {
+    // Не видно за стартовым экраном; остаётся на случай, если он уже снят.
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)' }}>Загрузка…</div>;
   }
   // Пока идёт редирект (не залогинен или чужая роль) — ничего не рендерим,
