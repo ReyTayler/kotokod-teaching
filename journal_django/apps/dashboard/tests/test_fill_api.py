@@ -16,7 +16,12 @@ from apps.dashboard import fill_service
 
 @pytest.fixture
 def fill_setup(db):
-    """Преподаватель + активная группа + плановые строки под разные кейсы."""
+    """Преподаватель + активная группа С УЧЕНИКОМ + плановые строки под разные кейсы.
+
+    Ученик обязателен: группа без активных членств во вкладку не попадает вовсе
+    (см. test_unfilled_lessons_skips_group_without_students), и без него фикстура
+    проверяла бы не тот случай.
+    """
     with connection.cursor() as cur:
         cur.execute("INSERT INTO teachers (name, active) VALUES ('__fill_T__', true) RETURNING id")
         teacher = cur.fetchone()[0]
@@ -40,11 +45,19 @@ def fill_setup(db):
             "INSERT INTO planned_lessons (group_id,seq,lesson_number,scheduled_date,"
             "scheduled_time,teacher_id,status,created_at,updated_at) "
             "VALUES (%s,2,2,'2026-07-01','23:00',%s,'pending',NOW(),NOW())", [group, teacher])
-    data = {'teacher': teacher, 'direction': direction, 'group': group}
+        cur.execute("INSERT INTO students (full_name, created_at) "
+                    "VALUES ('__fill_student__', NOW()) RETURNING id")
+        student = cur.fetchone()[0]
+        cur.execute(
+            'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+            'VALUES (%s,%s,0,true)', [group, student])
+    data = {'teacher': teacher, 'direction': direction, 'group': group, 'student': student}
     yield data
     with connection.cursor() as cur:
         cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group])
+        cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [group])
         cur.execute('DELETE FROM groups WHERE id = %s', [group])
+        cur.execute('DELETE FROM students WHERE id = %s', [student])
         cur.execute('DELETE FROM directions WHERE id = %s', [direction])
         cur.execute('DELETE FROM teachers WHERE id = %s', [teacher])
 
@@ -60,6 +73,24 @@ def test_unfilled_lessons_includes_overdue_excludes_future(fill_setup):
     assert ours[0]['time'] == '10:00'
     assert ours[0]['teacher_name'] == '__fill_T__'
     assert ours[0]['lesson_number'] == 1.0
+
+
+def test_unfilled_lessons_skips_group_without_students(fill_setup):
+    """
+    Группа, в которой не осталось ни одного активного ученика, из вкладки уходит:
+    заполнять там нечего, а её план продолжал бы копить просрочку и маскировать
+    настоящие долги преподавателей.
+    """
+    now = datetime.datetime(2026, 7, 1, 12, 0, tzinfo=MSK)
+    before = fill_service.unfilled_lessons(now=now)
+    assert any(r['group_id'] == fill_setup['group'] for r in before), 'пока ученик есть — видно'
+
+    with connection.cursor() as cur:
+        cur.execute('UPDATE group_memberships SET active = false WHERE group_id = %s',
+                    [fill_setup['group']])
+
+    after = fill_service.unfilled_lessons(now=now)
+    assert not any(r['group_id'] == fill_setup['group'] for r in after)
 
 
 def test_unfilled_lessons_teacher_filter(fill_setup):

@@ -120,7 +120,8 @@ class TestCalendar:
         assert first['durationMinutes'] == 60
         assert first['vkChat'] == 'https://vk.me/join/sched_a'
         assert first['color'] == '#4F59F9'
-        assert first['students'] == []
+        # Состав группы приходит из активных членств фикстуры (там один ученик).
+        assert first['students'] == [{'name': '__sched_student__'}]
 
     def test_scoped_to_own_teacher(self, planned_setup):
         """Календарь учителя A НЕ содержит группу учителя B (скоуп по teacher_id)."""

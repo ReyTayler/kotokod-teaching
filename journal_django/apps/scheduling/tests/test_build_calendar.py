@@ -119,6 +119,26 @@ def test_unfilled_planned_lessons_filters_and_scope(sched_setup):
     assert s['group_a'] in a_groups and s['group_b'] not in a_groups  # фильтр по преподавателю
 
 
+def test_unfilled_planned_lessons_skips_groups_without_students(sched_setup):
+    """Группа без активных членств не отдаёт строк: и «ученика сняли», и «группа
+    заведена, но никого не набрали» — заполнять там нечего."""
+    s = sched_setup
+    _insert_planned(s['group_a'], s['teacher_a'], '2026-06-02', '10:00')
+    _insert_planned(s['group_b'], s['teacher_b'], '2026-06-05', '12:00')
+    today = datetime.date(2026, 7, 1)
+
+    rows = repository.unfilled_planned_lessons(today)
+    assert any(r['group_pk'] == s['group_a'] for r in rows)
+
+    with connection.cursor() as cur:
+        cur.execute('UPDATE group_memberships SET active = false WHERE group_id = %s',
+                    [s['group_a']])
+
+    rows = repository.unfilled_planned_lessons(today)
+    assert not any(r['group_pk'] == s['group_a'] for r in rows)
+    assert any(r['group_pk'] == s['group_b'] for r in rows), 'соседняя группа не задета'
+
+
 def test_unfilled_planned_lessons_excludes_future_and_filled(sched_setup):
     s = sched_setup
     _insert_planned(s['group_a'], s['teacher_a'], '2026-08-01', '10:00')

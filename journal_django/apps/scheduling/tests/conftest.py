@@ -33,6 +33,10 @@ def sched_setup(db):
     """
     Учитель A с запланированной группой (старт 2026-06-01 пн, слот Пн 10:00,
     direction.total_lessons=8) + учитель B со своей группой. Возвращает dict.
+
+    В каждой группе есть активный ученик — как в жизни: пустая группа выпадает
+    из «Заполнить» (repository.unfilled_planned_lessons), и без ученика фикстура
+    молча проверяла бы не тот случай.
     """
     with connection.cursor() as cur:
         cur.execute("INSERT INTO teachers (name, active) VALUES ('__sched_A__', true) RETURNING id")
@@ -81,12 +85,20 @@ def sched_setup(db):
             [group_b],
         )
 
+        cur.execute("INSERT INTO students (full_name, created_at) "
+                    "VALUES ('__sched_student__', NOW()) RETURNING id")
+        student_id = cur.fetchone()[0]
+        for gid in (group_a, group_b):
+            cur.execute(
+                'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+                'VALUES (%s,%s,0,true)', [gid, student_id])
+
     data = {
         'client_a': _jwt_client(account_a),
         'account_a': account_a, 'teacher_a': teacher_a, 'teacher_b': teacher_b,
         'group_a': group_a, 'group_b': group_b,
         'group_a_name': '__sched_group_A__', 'group_b_name': '__sched_group_B__',
-        'direction_id': direction_id,
+        'direction_id': direction_id, 'student_id': student_id,
     }
     yield data
 
@@ -94,10 +106,12 @@ def sched_setup(db):
         # planned_lessons: FK на groups с Python-CASCADE (не ON DELETE в БД) —
         # raw-DELETE групп не каскадит, поэтому чистим детей явно и первыми.
         cur.execute('DELETE FROM planned_lessons WHERE group_id IN (%s,%s)', [group_a, group_b])
+        cur.execute('DELETE FROM group_memberships WHERE group_id IN (%s,%s)', [group_a, group_b])
         cur.execute('DELETE FROM lessons WHERE group_id IN (%s,%s)', [group_a, group_b])
         cur.execute('DELETE FROM group_schedule_slots WHERE group_id IN (%s,%s)', [group_a, group_b])
         cur.execute('DELETE FROM groups WHERE id IN (%s,%s)', [group_a, group_b])
         cur.execute('DELETE FROM directions WHERE id = %s', [direction_id])
+        cur.execute('DELETE FROM students WHERE id = %s', [student_id])
         cur.execute('DELETE FROM accounts WHERE id = %s', [account_a])
         cur.execute('DELETE FROM teachers WHERE id IN (%s,%s)', [teacher_a, teacher_b])
 
