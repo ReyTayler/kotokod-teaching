@@ -70,7 +70,9 @@ export function usePaymentMutations() {
     }),
     refund: useMutation({
       mutationFn: (studentId: number) =>
-        api<{ refund: Payment; new_balance: number; refunded_amount: number }>(
+        // refunds — по строке на каждое направление, из партий которого возвращаются
+        // деньги (иначе лимит курса не освобождается). refunded_amount — общая сумма.
+        api<{ refunds: Payment[]; new_balance: number; refunded_amount: number }>(
           'POST', `/api/admin/students/${studentId}/refund`, {}),
       onSuccess: invalidate,
     }),
