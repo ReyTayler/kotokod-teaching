@@ -200,6 +200,7 @@ FIELD_RU = {
     'unit_price': 'цена за единицу', 'total_amount': 'сумма', 'amount': 'сумма',
     'subscriptions_count': 'кол-во абонементов', 'penalty': 'штраф',
     'paid_at': 'дата оплаты',
+    'parent_payment_id': 'доплата к оплате', 'subscription_index': 'номер абонемента',
     'duration': 'длительность', 'lesson_duration_minutes': 'длительность',
     'day_of_week': 'день недели', 'start_time': 'время начала',
     'effective_from': 'действует с', 'effective_to': 'действует по',

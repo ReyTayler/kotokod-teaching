@@ -26,6 +26,7 @@ from django.db.models import Case, DecimalField, F, Sum, Value, When
 from django.db.models.functions import Coalesce
 
 from apps.core.utils.decimal import to_decimal
+from apps.finances.lots import build_lots
 
 from apps.directions.models import Direction
 from apps.lessons.models import LessonAttendance
@@ -62,6 +63,26 @@ def _attended_units_case():
     )
 
 
+def surcharges_by_parent(student_id: int | None = None) -> dict[int, dict[int, Decimal]]:
+    """{parent_payment_id: {subscription_index: сумма}} — доплаты к абонементам.
+
+    Без student_id — один запрос на всю школу (fifo_inputs: доплат мало, редкий
+    случай недобора платежа, это не N+1). С student_id — тот же запрос, но
+    отфильтрованный по ученику (student_fifo_remaining: считаем остаток одного
+    ученика, не нужно тянуть доплаты всей школы). См. apps/finances/lots.py::build_lots.
+    """
+    out: dict[int, dict[int, Decimal]] = {}
+    qs = Payment.objects.filter(kind='surcharge')
+    if student_id is not None:
+        qs = qs.filter(parent_payment__student_id=student_id)
+    rows = qs.values('parent_payment_id', 'subscription_index', 'total_amount')
+    for r in rows:
+        bucket = out.setdefault(r['parent_payment_id'], {})
+        idx = r['subscription_index']
+        bucket[idx] = bucket.get(idx, Decimal('0')) + to_decimal(r['total_amount'])
+    return out
+
+
 # ---------------------------------------------------------------------------
 # FIFO-входы (порт _fifoInputs из dashboard.js)
 # ---------------------------------------------------------------------------
@@ -87,12 +108,19 @@ def fifo_inputs() -> dict:
     пула 2026-07-08 — иначе дашборд «Долги» считал устаревшие остатки).
     Строки kind='refund' не образуют партий — становятся синтетическими
     consumption-записями (флаг refund), готовыми для compute_fifo.
+    Строки kind='surcharge' сами по себе партий не образуют (не покупка) — они
+    дробят партию своего parent_payment на блоки по 4 урока и поднимают цену
+    только своего блока (apps/finances/lots.py::build_lots). См.
+    docs/superpowers/specs/2026-07-28-course-surcharge-design.md.
     """
     lots_rows = (
         Payment.objects
+        .exclude(kind='surcharge')          # доплаты партий не образуют
         .order_by('student_id', 'paid_at', 'id')
-        .values('student_id', 'total_amount', 'lessons_count', 'kind', 'paid_at')
+        .values('id', 'student_id', 'total_amount', 'lessons_count', 'kind', 'paid_at',
+                'direction_id')
     )
+    surcharges = surcharges_by_parent()
 
     cons_rows = (
         LessonAttendance.objects
@@ -114,7 +142,7 @@ def fifo_inputs() -> dict:
         )
     )
 
-    lots_by_key: dict[str, list] = {}
+    purchase_rows_by_key: dict[str, list] = {}  # сырые строки покупок — вход build_lots
     purchased_by_key: dict[str, int] = {}
     refund_cons: dict[str, list] = {}   # синтетические списания-возвраты
     for r in lots_rows:
@@ -132,11 +160,15 @@ def fifo_inputs() -> dict:
         lessons = int(raw) if raw is not None else 0  # покупки всегда целые
         if not (lessons > 0):  # guard: NULL/0
             continue
-        lots_by_key.setdefault(key, []).append({
-            'lessons': lessons,
-            'price_per_lesson': to_decimal(r['total_amount']) / Decimal(lessons),
-        })
+        purchase_rows_by_key.setdefault(key, []).append(r)
         purchased_by_key[key] = purchased_by_key.get(key, 0) + lessons
+
+    # Партии строим одним общим билдером (apps/finances/lots.py) — оплата без
+    # доплат остаётся одной партией байт-в-байт как раньше, с доплатами дробится
+    # на блоки по 4 урока (см. Task 3, docstring build_lots).
+    lots_by_key: dict[str, list] = {
+        key: build_lots(rows, surcharges) for key, rows in purchase_rows_by_key.items()
+    }
 
     cons_by_key: dict[str, list] = {}
     consumed_by_key: dict[str, Decimal] = {}
@@ -289,6 +321,9 @@ def student_fifo_remaining(student_id: int) -> dict:
     consumption-записями (флаг refund), которые гасят остаток партий без
     учёта в worked_off_*. Иначе повторный вызов после возврата продолжал бы
     показывать остаток, который уже был возвращён (см. Task 4.2).
+    Строки kind='surcharge' партий не образуют — как в fifo_inputs(), они
+    дробят партию parent_payment на блоки по 4 урока (apps/finances/lots.py).
+    Так возврат средств считается по уже подорожавшим ценам без отдельных правок.
     """
     from apps.finances.fifo import compute_fifo
 
@@ -296,10 +331,11 @@ def student_fifo_remaining(student_id: int) -> dict:
 
     payment_rows = (
         Payment.objects.filter(student_id=student_id)
+        .exclude(kind='surcharge')          # доплаты партий не образуют
         .order_by('paid_at', 'id')
-        .values('total_amount', 'lessons_count', 'kind', 'paid_at', 'direction_id')
+        .values('id', 'total_amount', 'lessons_count', 'kind', 'paid_at', 'direction_id')
     )
-    lots = []
+    purchase_rows = []
     refund_cons = []
     for r in payment_rows:
         if r['kind'] == 'refund':
@@ -313,15 +349,9 @@ def student_fifo_remaining(student_id: int) -> dict:
             continue
         lessons = int(r['lessons_count']) if r['lessons_count'] is not None else 0
         if lessons > 0:
-            lots.append({
-                'lessons': lessons,
-                'price_per_lesson': to_decimal(r['total_amount']) / Decimal(lessons),
-                # Направление партии — чьи деньги вернутся при возврате (см.
-                # remaining_by_direction). Доплата сверх курса (kind='extra') в лимит
-                # направления не входила, поэтому её возврат лимит и не освобождает —
-                # такая партия остаётся без направления.
-                'direction_id': None if r['kind'] == 'extra' else r['direction_id'],
-            })
+            purchase_rows.append(r)
+
+    lots = build_lots(purchase_rows, surcharges_by_parent(student_id))
 
     cons_rows = (
         # is_free=False — как в fifo_inputs и balances_for_students: за бесплатное

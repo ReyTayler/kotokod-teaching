@@ -253,11 +253,15 @@ export interface Payment {
   unit_price: number | string;   // numeric(10,2) → строка от pg
   total_amount: number | string;
   lessons_count: number | null;
-  kind: 'purchase' | 'refund';
+  kind: 'purchase' | 'refund' | 'surcharge';
   paid_at: string;               // 'YYYY-MM-DD'
   note: string | null;
   created_at: string;
   created_by: string | null;
+  // Доплата к абонементу (kind='surcharge'): деньги без уроков, поднимающие цену
+  // конкретного блока родительской оплаты.
+  parent_payment_id?: number | null;
+  subscription_index?: number | null;
   // joined-only:
   student_name?: string;
   direction_name?: string;

@@ -27,9 +27,13 @@ from .models import Payment
 
 
 # Поля строки оплаты (p.* / RETURNING *), в порядке схемы.
+# Whitelist колонок для списков оплат. Новое поле модели, не добавленное сюда,
+# молча не доедет до фронта: так доплата к абонементу приезжала без привязки
+# (parent_payment_id/subscription_index) и интерфейс не мог пересчитать цену блока.
 _PAYMENT_FIELDS = (
     'id', 'student_id', 'direction_id', 'subscriptions_count', 'lessons_count', 'kind', 'unit_price',
     'total_amount', 'paid_at', 'note', 'created_at', 'created_by',
+    'parent_payment_id', 'subscription_index',
 )
 
 # _js_number и расчёт баланса живут в едином доме apps/finances.
@@ -61,6 +65,9 @@ def create_payment(data: dict) -> dict:
     Порядок (инвариант): лок direction → подсчёт already под локом → проверка cap → INSERT.
     """
     from apps.directions.models import Direction
+
+    if data.get('kind') == 'surcharge':
+        return _create_surcharge(data)
 
     student_id = data['student_id']
     direction_id = data['direction_id']
@@ -124,6 +131,54 @@ def create_payment(data: dict) -> dict:
         )
         row = _normalize_lessons_count(dictrow(Payment.objects.filter(pk=obj.pk).values()))
 
+    return {'payment': row}
+
+
+def _create_surcharge(data: dict) -> dict:
+    """
+    Доплата к абонементу: деньги без уроков, поднимающие цену конкретного блока.
+
+    Лимит курса не трогаем (уроков не добавляем), направление берём у родителя —
+    иначе доплата не попала бы в фильтры отчётов по направлению. Номер блока
+    проверяем здесь: в CHECK его не выразить (зависит от строки-родителя).
+    """
+    from apps.finances.lots import LESSONS_PER_SUBSCRIPTION
+
+    parent = (
+        Payment.objects
+        .filter(id=data['parent_payment_id'])
+        .values('id', 'student_id', 'direction_id', 'lessons_count', 'kind')
+        .first()
+    )
+    if parent is None:
+        return {'error': 'parent_not_found'}
+    if parent['student_id'] != data['student_id']:
+        return {'error': 'parent_other_student'}
+    if parent['kind'] not in ('purchase', 'extra'):
+        return {'error': 'parent_not_purchase'}
+
+    lessons = int(parent['lessons_count'] or 0)
+    blocks = -(-lessons // LESSONS_PER_SUBSCRIPTION)  # ceil
+    index = data['subscription_index']
+    if not (1 <= index <= blocks):
+        return {'error': 'block_out_of_range', 'blocks': blocks}
+
+    obj = Payment.objects.create(
+        student_id=data['student_id'],
+        direction_id=parent['direction_id'],
+        subscriptions_count=None,
+        lessons_count=None,
+        kind='surcharge',
+        parent_payment_id=parent['id'],
+        subscription_index=index,
+        unit_price=Decimal('0'),
+        total_amount=round_kopecks(data['total_amount']),
+        paid_at=data['paid_at'],
+        note=data.get('note') or None,
+        created_by=data.get('created_by') or None,
+        created_at=Now(),
+    )
+    row = _normalize_lessons_count(dictrow(Payment.objects.filter(pk=obj.pk).values()))
     return {'payment': row}
 
 

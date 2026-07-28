@@ -978,6 +978,63 @@
 }
 .fin-tag--refund { color: var(--danger); background: color-mix(in oklab, var(--danger) 12%, transparent); }
 .fin-tag--prepay { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); }
+/* Оплата с доплатами к абонементам — итог отличается от суммы этой строки. */
+.fin-tag--surcharge {
+  display: inline-block; margin-top: 2px;
+  color: var(--warning); background: color-mix(in oklab, var(--warning) 14%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Раскрытие строки оплаты — список её абонементов (Task 6, доплаты). */
+.fin-history__subs-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0; border: none; background: none; cursor: pointer; font: inherit;
+  color: inherit;
+}
+.fin-history__subs-toggle:hover .fin-history__count { color: var(--accent); }
+.fin-history__subs-caret {
+  color: var(--text4);
+  transition: transform var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.fin-history__subs-caret.is-open { transform: rotate(180deg); color: var(--accent); }
+
+.fin-subs-row td { padding: 0; background: var(--bg3); }
+.fin-subs-list {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+.fin-subs-item {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-sm);
+}
+.fin-subs-item__row {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  font-size: 13px;
+}
+.fin-subs-item__num { font-weight: 600; color: var(--text2); }
+.fin-subs-item__lessons { color: var(--text3); }
+.fin-subs-item__price {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text);
+  margin-right: auto;
+}
+.fin-subs-item__extras {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-left: var(--space-3); padding-left: var(--space-3);
+  border-left: 2px solid var(--border2);
+}
+.fin-subs-extra {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: 12px; color: var(--text3);
+}
+.fin-subs-extra__date { font-family: var(--font-mono); white-space: nowrap; }
+.fin-subs-extra__amount {
+  font-family: var(--font-mono); font-weight: 600; color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+.fin-subs-extra__note { color: var(--text4); overflow-wrap: anywhere; }
 
 /* Ghost-кнопка удаления в строке таблицы: краснеет только при наведении */
 .fin-history__action .btn-delete:not(.is-confirming) {

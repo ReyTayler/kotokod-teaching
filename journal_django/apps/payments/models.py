@@ -29,7 +29,7 @@ class Payment(models.Model):
     Источник правды о количестве — lessons_count; subscriptions_count —
     презентационный; total_amount авторитетен, unit_price информационный.
 
-    Инварианты БД (CHECK): kind ∈ {purchase, refund, extra}; unit_price ≥ 0;
+    Инварианты БД (CHECK): kind ∈ {purchase, refund, extra, surcharge}; unit_price ≥ 0;
     purchase/extra → lessons_count > 0 и total_amount ≥ 0; refund → lessons_count < 0
     и total_amount ≤ 0.
 
@@ -37,6 +37,12 @@ class Payment(models.Model):
     направлении, но МИМО лимита курса (`already + lessons_count > total_lessons` в
     create_payment этот вид не проверяет и в cap не считает — cap суммирует только
     kind='purchase'). Знаки — как у purchase (положительные). См. lesson-outcomes-spec.
+
+    kind='surcharge' — доплата к уже купленному абонементу (блоку из 4 уроков)
+    внутри существующей оплаты (2026-07-28): деньги без уроков (lessons_count=NULL),
+    привязана к parent_payment + subscription_index. Баланс уроков не меняет, лимит
+    курса не занимает — считается только в цене блока. См.
+    docs/superpowers/specs/2026-07-28-course-surcharge-design.md.
     """
 
     id = models.AutoField(primary_key=True)
@@ -65,6 +71,19 @@ class Payment(models.Model):
     note = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField()
     created_by = models.TextField(null=True, blank=True)
+    # Доплата к абонементу (kind='surcharge'): деньги без уроков, добивающие цену
+    # уже купленного блока. parent_payment — та оплата, чей абонемент дорожает;
+    # subscription_index — номер абонемента внутри неё (1-based). У остальных видов
+    # оба поля NULL. См. docs/superpowers/specs/2026-07-28-course-surcharge-design.md.
+    parent_payment = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        db_column='parent_payment_id',
+        related_name='surcharges',
+        null=True,
+        blank=True,
+    )
+    subscription_index = models.IntegerField(null=True, blank=True)
 
     class Meta:
         managed = True
@@ -78,7 +97,7 @@ class Payment(models.Model):
         constraints = [
             models.CheckConstraint(
                 name='payments_kind_check',
-                condition=models.Q(kind__in=['purchase', 'refund', 'extra']),
+                condition=models.Q(kind__in=['purchase', 'refund', 'extra', 'surcharge']),
             ),
             models.CheckConstraint(
                 name='payments_unit_price_check',
@@ -105,6 +124,26 @@ class Payment(models.Model):
                     ~models.Q(kind='refund')
                     | (models.Q(lessons_count__isnull=False)
                        & models.Q(lessons_count__lt=0) & models.Q(total_amount__lte=0))
+                ),
+            ),
+            # Форма доплаты: деньги есть, уроков нет, родитель и номер блока обязательны.
+            models.CheckConstraint(
+                name='payments_surcharge_shape',
+                condition=(
+                    ~models.Q(kind='surcharge')
+                    | (models.Q(lessons_count__isnull=True)
+                       & models.Q(total_amount__gt=0)
+                       & models.Q(parent_payment__isnull=False)
+                       & models.Q(subscription_index__gte=1))
+                ),
+            ),
+            # Родитель и номер блока бывают ТОЛЬКО у доплаты.
+            models.CheckConstraint(
+                name='payments_parent_only_surcharge',
+                condition=(
+                    models.Q(kind='surcharge')
+                    | (models.Q(parent_payment__isnull=True)
+                       & models.Q(subscription_index__isnull=True))
                 ),
             ),
         ]

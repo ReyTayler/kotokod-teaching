@@ -76,5 +76,19 @@ export function usePaymentMutations() {
           'POST', `/api/admin/students/${studentId}/refund`, {}),
       onSuccess: invalidate,
     }),
+    // Доплата к абонементу (kind='surcharge'): деньги без уроков, поднимающие цену
+    // конкретного блока родительской оплаты. См. docs/superpowers/specs/
+    // 2026-07-28-course-surcharge-design.md.
+    surcharge: useMutation({
+      mutationFn: (body: {
+        student_id: number;
+        parent_payment_id: number;
+        subscription_index: number;
+        total_amount: string;
+        paid_at: string;
+        note?: string | null;
+      }) => api<Payment>('POST', '/api/admin/payments', { ...body, kind: 'surcharge' }),
+      onSuccess: invalidate,
+    }),
   };
 }

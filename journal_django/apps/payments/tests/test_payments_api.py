@@ -53,6 +53,38 @@ def test_manager_list_returns_200(manager_client):
 
 
 # ---------------------------------------------------------------------------
+# RBAC мутаций: деньги заводит и стирает только админ (решение 2026-07-28).
+# Менеджер оплаты видит (тесты выше), но не создаёт и не удаляет.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_manager_post_returns_403(manager_client, direction_fixture, student_fixture):
+    payload = _payment_payload(student_fixture, direction_fixture)
+    resp = manager_client.post(BASE_URL, payload, format='json')
+    assert resp.status_code == 403
+    # Ничего не записалось — проверяем факт, а не только код ответа.
+    with connection.cursor() as cur:
+        cur.execute('SELECT COUNT(*) FROM payments WHERE student_id = %s', [student_fixture])
+        assert cur.fetchone()[0] == 0
+
+
+@pytest.mark.django_db
+def test_manager_delete_returns_403(manager_client, payment_fixture):
+    resp = manager_client.delete(f'{BASE_URL}/{payment_fixture}')
+    assert resp.status_code == 403
+    with connection.cursor() as cur:
+        cur.execute('SELECT COUNT(*) FROM payments WHERE id = %s', [payment_fixture])
+        assert cur.fetchone()[0] == 1, 'оплата не должна быть удалена'
+
+
+@pytest.mark.django_db
+def test_manager_get_detail_returns_200(manager_client, payment_fixture):
+    """Чтение менеджеру остаётся: блокируются только мутации."""
+    resp = manager_client.get(f'{BASE_URL}/{payment_fixture}')
+    assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # GET list filters
 # ---------------------------------------------------------------------------
 

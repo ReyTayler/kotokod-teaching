@@ -76,14 +76,19 @@ def collect_monthly_report(month: str) -> list[MonthlyReportRow]:
     )
     student_ids = [s['id'] for s in students]
 
-    # kind__in=['purchase','extra']: доплата за доп.урок сверх курса (kind='extra')
-    # — реальная выручка и полноценная FIFO-партия (fifo_inputs берёт всё, кроме
-    # refund), поэтому в листе оплат/«Итого оплачено» она обязана присутствовать —
-    # иначе отчёт теряет деньги и рассинхронен с «Остатком аванса». refund не
-    # входит: это возврат, он гасит остаток отдельной синтетической записью в FIFO.
+    # kind__in=['purchase','extra','surcharge']: доплата за доп.урок сверх курса
+    # (kind='extra') — реальная выручка и полноценная FIFO-партия (fifo_inputs
+    # берёт всё, кроме refund), поэтому в листе оплат/«Итого оплачено» она обязана
+    # присутствовать — иначе отчёт теряет деньги и рассинхронен с «Остатком
+    # аванса». Доплата к абонементу (kind='surcharge') — по той же причине: это
+    # реально полученные от клиента деньги (просто без уроков, они уже куплены
+    # родительской оплатой), без неё касса месяца, в котором клиент доплатил,
+    # была бы занижена ровно на сумму доплаты. refund не входит: это возврат, он
+    # гасит остаток отдельной синтетической записью в FIFO.
     payment_rows = (
         Payment.objects
-        .filter(kind__in=['purchase', 'extra'], paid_at__gte=month_start, paid_at__lte=month_end)
+        .filter(kind__in=['purchase', 'extra', 'surcharge'],
+                paid_at__gte=month_start, paid_at__lte=month_end)
         .order_by('student_id', 'paid_at', 'id')
         .values('student_id', 'paid_at', 'total_amount')
     )
