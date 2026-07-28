@@ -4,6 +4,8 @@ import { Field } from '../../components/form/Field';
 import { SelectInput } from '../../components/form/SelectInput';
 import { Textarea } from '../../components/form/Textarea';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
+import { useAuth } from '../../hooks/useAuth';
+import { canWritePayments, type Role } from '../../lib/permissions';
 import { RENEWAL_LOST_REASON_LABELS } from '../../lib/labels';
 import type { RenewalLostReason } from '../../lib/renewals';
 
@@ -35,6 +37,10 @@ const REASON_OPTIONS = Object.entries(RENEWAL_LOST_REASON_LABELS)
  */
 export function RenewalCloseDialog({ target, onClose, onConfirm, pending }: Props) {
   const { open: openPayment } = usePaymentModal();
+  const { me } = useAuth();
+  // Ярлык на форму оплаты — только тем, кто оплаты вносит (админ/суперадмин).
+  // Само закрытие сделки остаётся менеджеру: это решение, а не деньги.
+  const canPay = canWritePayments(me?.role as Role);
   const [reason, setReason] = useState<RenewalLostReason | ''>('');
   const [comment, setComment] = useState('');
 
@@ -55,16 +61,18 @@ export function RenewalCloseDialog({ target, onClose, onConfirm, pending }: Prop
   ) : (
     <>
       <button type="button" className="btn-secondary" onClick={onClose}>Отмена</button>
-      <button
-        type="button"
-        className="btn-secondary"
-        onClick={() => {
-          onClose();
-          openPayment({ studentId: target.studentId });
-        }}
-      >
-        Внести оплату
-      </button>
+      {canPay && (
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => {
+            onClose();
+            openPayment({ studentId: target.studentId });
+          }}
+        >
+          Внести оплату
+        </button>
+      )}
       <button
         type="button"
         className="btn-primary"

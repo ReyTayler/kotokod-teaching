@@ -22,7 +22,7 @@ import { useApiError } from '../../hooks/useApiError';
 import { useGroupPlanCalendar } from '../../hooks/useGroupPlanCalendar';
 import { CalendarView } from '../../shared/calendar/CalendarView';
 import { useAuth } from '../../hooks/useAuth';
-import { canSeeChangelog, canArchiveEntities, type Role } from '../../lib/permissions';
+import { canSeeChangelog, canArchiveEntities, canSeeGroupLessonsTab, type Role } from '../../lib/permissions';
 import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
@@ -65,8 +65,13 @@ export default function GroupDetailPage() {
   const teacher = group ? teachers.find((t) => t.id === group.teacher_id) || null : null;
   const planCalendar = useGroupPlanCalendar(group, direction, teachers);
 
+  const showLessonsTab = canSeeGroupLessonsTab(me?.role as Role);
   const rawTab = searchParams.get('tab');
-  const activeTab: GroupTab = isGroupTab(rawTab) ? rawTab : DEFAULT_TAB;
+  const requestedTab: GroupTab = isGroupTab(rawTab) ? rawTab : DEFAULT_TAB;
+  // ?tab=lessons из закладки/ссылки не должен открывать скрытую вкладку.
+  const activeTab: GroupTab = requestedTab === 'lessons' && !showLessonsTab
+    ? DEFAULT_TAB
+    : requestedTab;
   const setActiveTab = (tab: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -208,7 +213,8 @@ export default function GroupDetailPage() {
       label: 'Ученики',
       content: <GroupMembersBlock group={group} />,
     },
-    {
+    // Уроки — только admin/superadmin: менеджер их не правит и вкладку не видит.
+    ...(showLessonsTab ? [{
       value: 'lessons',
       label: 'Уроки',
       content: (
@@ -232,7 +238,7 @@ export default function GroupDetailPage() {
           )}
         </div>
       ),
-    },
+    }] : []),
     {
       value: 'progress',
       label: 'Прогресс',

@@ -12,6 +12,8 @@ import {
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useApiError } from '../../hooks/useApiError';
 import { fmtDate, fmtDateTime, fmtLessons } from '../../lib/format';
+import { useAuth } from '../../hooks/useAuth';
+import { canWritePayments, type Role } from '../../lib/permissions';
 import { RENEWAL_STAGE_LABELS } from '../../lib/labels';
 import { StageBadge } from './StageBadge';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
@@ -55,6 +57,9 @@ export function RenewalDrawer({ id, onClose }: Props) {
   const { data: stages } = useRenewalStages();
   const { comment, patch, move, reopen, unfreeze } = useRenewalMutations();
   const { open: openPayment } = usePaymentModal();
+  const { me } = useAuth();
+  // Оплату вносит админ/суперадмин — менеджер ведёт сделку, но не деньги.
+  const canPay = canWritePayments(me?.role as Role);
   const showError = useApiError();
   const [text, setText] = useState('');
   const [closeTarget, setCloseTarget] = useState<CloseDialogTarget | null>(null);
@@ -275,13 +280,15 @@ export function RenewalDrawer({ id, onClose }: Props) {
                 </div>
 
                 <div className="renewal-drawer__actions">
-                  <button
-                    type="button"
-                    className="btn-primary renewal-drawer__pay-btn"
-                    onClick={() => openPayment({ studentId: deal.student_id })}
-                  >
-                    Внести оплату
-                  </button>
+                  {canPay && (
+                    <button
+                      type="button"
+                      className="btn-primary renewal-drawer__pay-btn"
+                      onClick={() => openPayment({ studentId: deal.student_id })}
+                    >
+                      Внести оплату
+                    </button>
+                  )}
                   {/* Продление заморозки: переход «Заморожен → Заморожен» бэк
                       разрешает и перезаписывает месяц. Без этой кнопки менеджеру
                       пришлось бы разморозить и заморозить заново, оставив в

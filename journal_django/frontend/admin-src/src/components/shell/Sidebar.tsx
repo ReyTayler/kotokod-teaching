@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { ThemeToggle } from './ThemeToggle';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import { usePendingExtraLessonsCount } from '../../hooks/useExtraLessons';
-import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, canSeeArchive, type Role } from '../../lib/permissions';
+import { canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog, canSeeSync, canSeeArchive, canWritePayments, type Role } from '../../lib/permissions';
 
 /** Красный бейдж с числом необработанных пропусков на кнопке «Доп.уроки». */
 export function ExtraLessonsBadge() {
@@ -248,6 +248,10 @@ function Avatar({ name }: { name: string }) {
 
 function PayButton() {
   const { open } = usePaymentModal();
+  const { me } = useAuth();
+  // Оплаты вносит только админ/суперадмин — менеджеру кнопку не показываем
+  // (бэк отдаст 403 в любом случае, это UX-слой).
+  if (!canWritePayments(me?.role as Role)) return null;
   return (
     <button
       type="button"

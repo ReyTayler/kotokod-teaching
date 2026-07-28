@@ -21,8 +21,16 @@ export const canWriteTeachers = isSuper;
 export const canWriteDirections = isSuper;
 export const canWriteSubscriptions = isSuper; // абонементы + скидки
 export const canWriteLessons = isAdminUp;     // CRUD урока + посещаемость
+// Оплаты: менеджер их видит, но не вносит и не удаляет — деньги заводит
+// админ/суперадмин (решение 2026-07-28). Бэк: ReadStaffWriteAdmin на
+// /api/admin/payments. Возврат средств менеджеру закрыт отдельно (IsAdminOrSuperAdmin).
+export const canWritePayments = isAdminUp;
 export const canSeeLessonPayroll = isSuper;   // зарплата за урок
 export const canRevertChangelog = isAdminUp;
 export const canWriteRenewalStages = isSuper; // конфиг стадий воронки продлений (Фаза 6)
 export const canDeleteStudentComments = isAdminUp; // удаление комментария к ученику
+// Вкладка «Уроки» на странице группы (сетка занятий + редактор урока). Менеджеру
+// не нужна — уроки он всё равно не правит (canWriteLessons), а вкладка только
+// шумит (решение 2026-07-28). Набор группы («Ученики») менеджеру доступен.
+export const canSeeGroupLessonsTab = isAdminUp;
 export const canWriteStudentManager = isAdminUp; // назначение ответственного менеджера ученику

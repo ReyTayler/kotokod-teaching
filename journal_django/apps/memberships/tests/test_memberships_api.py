@@ -18,6 +18,8 @@ Cookie:
   - POST → 201, UPSERT (повторный POST → 201 с реактивацией)
   - PATCH → 200/404
   - DELETE → 204/404
+
+RBAC на запись — в test_memberships_rbac.py (самодостаточный seed).
 """
 from __future__ import annotations
 
@@ -569,42 +571,5 @@ def test_delete_auto_deletes_pending(superadmin_client, student_in_group):
             cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
 
 
-# ---------------------------------------------------------------------------
-# RBAC: чтение — manager/admin/superadmin; запись — только superadmin
-# ---------------------------------------------------------------------------
-
-@pytest.mark.django_db
-def test_memberships_read_staff_write_superadmin(manager_client, admin_client, superadmin_client):
-    for c in (manager_client, admin_client, superadmin_client):
-        assert c.get(BASE_URL).status_code == 200
-
-    group_id = _get_valid_group_id()
-    student_id = _get_valid_student_id()
-    _cleanup_pair(group_id, student_id)
-    payload = {'group_id': group_id, 'student_id': student_id}
-    try:
-        resp_manager = manager_client.post(BASE_URL, payload, format='json')
-        resp_admin = admin_client.post(BASE_URL, payload, format='json')
-        assert resp_manager.status_code == 403
-        assert resp_admin.status_code == 403
-
-        resp_super = superadmin_client.post(BASE_URL, payload, format='json')
-        assert resp_super.status_code in (200, 201, 409)
-    finally:
-        _cleanup_pair(group_id, student_id)
-
-
-@pytest.mark.django_db
-def test_memberships_patch_delete_forbidden_for_manager_and_admin(manager_client, admin_client, existing_membership):
-    resp = manager_client.patch(
-        f"{BASE_URL}/{existing_membership['id']}", {'active': False}, format='json'
-    )
-    assert resp.status_code == 403
-    resp = admin_client.patch(
-        f"{BASE_URL}/{existing_membership['id']}", {'active': False}, format='json'
-    )
-    assert resp.status_code == 403
-    resp = manager_client.delete(f"{BASE_URL}/{existing_membership['id']}")
-    assert resp.status_code == 403
-    resp = admin_client.delete(f"{BASE_URL}/{existing_membership['id']}")
-    assert resp.status_code == 403
+# RBAC записи вынесен в test_memberships_rbac.py: тамошние фикстуры сеют свои
+# группы/учеников, а здешние хелперы берут их из БД и скипаются на пустой базе.

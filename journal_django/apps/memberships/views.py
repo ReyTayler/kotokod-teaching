@@ -7,18 +7,27 @@ MembershipsView — тонкие APIView для /api/admin/memberships.
   PATCH  /api/admin/memberships/:id → обновить → 200 | 404
   DELETE /api/admin/memberships/:id → soft-delete (active=false) → 204 | 404
 
-Права: чтение — manager/admin/superadmin; запись — только superadmin (ReadStaffWriteSuperAdmin).
+Права: чтение — manager/admin/superadmin.
+Запись:
+  POST /memberships          (добавить в группу)  — manager/admin/superadmin
+  DELETE /memberships/:id    (убрать из группы)   — manager/admin/superadmin
+  PATCH /memberships/:id     (правка lessons_done/start_date/active) — только superadmin
+  POST /memberships/:id/transfer (перевод в другую группу)           — только superadmin
+Решение 2026-07-28: набор группы — рутина менеджера, а ручная правка счётчиков
+и перевод между группами двигают прогресс/деньги и остаются за суперадмином.
+
 Фильтры: group_id, student_id (числа), include_inactive ('1' → True).
 """
 from __future__ import annotations
 
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import ReadStaffWriteSuperAdmin
+from apps.core.permissions import IsManagerOrAdmin, ReadStaffWriteSuperAdmin
 from apps.extra_lessons.exceptions import MembershipHasScheduledMakeups
 from apps.memberships import services
 from apps.memberships.exceptions import (
@@ -51,10 +60,10 @@ def _parse_int_param(qp, key: str):
 class MembershipListCreateView(APIView):
     """
     GET  /api/admin/memberships  — список без пагинации
-    POST /api/admin/memberships  — UPSERT membership
+    POST /api/admin/memberships  — UPSERT membership (добавление ученика в группу)
     """
 
-    permission_classes = [ReadStaffWriteSuperAdmin]
+    permission_classes = [IsManagerOrAdmin]
 
     def get(self, request: Request) -> Response:
         qp = request.query_params
@@ -83,11 +92,18 @@ class MembershipListCreateView(APIView):
 
 class MembershipDetailView(APIView):
     """
-    PATCH  /api/admin/memberships/:id  — обновить membership
-    DELETE /api/admin/memberships/:id  — мягкое удаление
+    PATCH  /api/admin/memberships/:id  — обновить membership (superadmin)
+    DELETE /api/admin/memberships/:id  — мягкое удаление (manager и выше)
     """
 
     permission_classes = [ReadStaffWriteSuperAdmin]
+
+    def get_permissions(self) -> list[BasePermission]:
+        # Штатный DRF-хук для разных прав на разные методы одной вьюхи:
+        # «убрать из группы» доступно менеджеру, ручная правка полей — нет.
+        if self.request.method == 'DELETE':
+            return [IsManagerOrAdmin()]
+        return super().get_permissions()
 
     def patch(self, request: Request, pk: int) -> Response:
         serializer = MembershipUpdateSerializer(data=request.data)

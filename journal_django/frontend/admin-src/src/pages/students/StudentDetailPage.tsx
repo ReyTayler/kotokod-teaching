@@ -24,7 +24,7 @@ import { StudentBalanceBlock } from './StudentBalanceBlock';
 import StudentCommentsBlock from './StudentCommentsBlock';
 import { useLatestStudentComment } from '../../hooks/useStudentComments';
 import { useAuth } from '../../hooks/useAuth';
-import { canSeeChangelog, canWriteStudentManager, type Role } from '../../lib/permissions';
+import { canSeeChangelog, canWriteStudentManager, canWritePayments, type Role } from '../../lib/permissions';
 import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
 import { useRenewalAssignees } from '../../hooks/useRenewals';
 import { SelectInput } from '../../components/form/SelectInput';
@@ -166,9 +166,11 @@ export default function StudentDetailPage() {
       }
       actions={
         <>
-          <button type="button" className="btn-save" onClick={() => openPaymentModal({ studentId: student.id })}>
-            + Внести оплату
-          </button>
+          {canWritePayments(me?.role as Role) && (
+            <button type="button" className="btn-save" onClick={() => openPaymentModal({ studentId: student.id })}>
+              + Внести оплату
+            </button>
+          )}
           <button type="button" className="edit-btn" onClick={() => setEditing(true)}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>

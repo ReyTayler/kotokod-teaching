@@ -217,7 +217,10 @@ def test_transfer_teacher_403(teacher_client, seed):
 
 @pytest.mark.django_db
 def test_transfer_manager_403(manager_client, seed):
-    """Запись в memberships — только superadmin (ReadStaffWriteSuperAdmin), как у POST/PATCH/DELETE."""
+    """Перевод между группами двигает прогресс — остаётся за суперадмином.
+
+    Набор группы (POST/DELETE) менеджеру открыт, transfer и PATCH — нет.
+    """
     old = repository.add_membership({'group_id': seed['group_a1'], 'student_id': seed['s1']})
     resp = manager_client.post(f"{BASE_URL}/{old['id']}/transfer", {'to_group_id': seed['group_a2']}, format='json')
     assert resp.status_code == 403
