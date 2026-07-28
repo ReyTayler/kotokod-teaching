@@ -585,6 +585,67 @@ body::after {
   color: var(--text);
 }
 
+/* ── Резервные коды: экран сохранения (recovery.js) ──
+   Показываются один раз, их переписывают или копируют — отсюда сетка в две
+   колонки вместо сплошной строки и моноширинный шрифт с разрядкой. */
+.recovery-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+  margin: 0 0 4px;
+  padding: 14px;
+  list-style: none;
+  white-space: normal;
+}
+.recovery-code {
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  user-select: all;   /* клик выделяет код целиком */
+}
+@media (max-width: 380px) {
+  .recovery-list { grid-template-columns: 1fr; }
+}
+
+.recovery-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.recovery-actions .ghost {
+  margin-top: 0;
+  text-align: center;
+  text-decoration: none;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recovery-ack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 4px;
+  color: var(--text2);
+  font-size: 14px;
+  cursor: pointer;
+}
+.recovery-ack input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}
+
+/* Поле ввода резервного кода: 10 символов с буквами, не сегментированное. */
+.field.mono {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
 /* ── Сегментированный ввод кода (otp.js) ──
    Реальный <input.code> лежит прозрачным слоем поверх ячеек:
    нативные фокус/вставка/autofill/значение сохранены, визуал — ячейки. */

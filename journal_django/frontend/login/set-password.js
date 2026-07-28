@@ -148,10 +148,7 @@ $('twofa-form').addEventListener('submit', async (ev) => {
   const { ok, j } = await req('POST', path, { challenge_token: tok, code });
   if (!ok || !j) return err('twofa-err', (j && j.error) || 'Неверный код');
   if (enroll && j.recovery_codes) {
-    const box = $('recovery-box');
-    box.textContent = 'Сохраните резервные коды (показаны один раз):\n' + j.recovery_codes.join('  ');
-    box.classList.remove('hidden');
-    setTimeout(() => (window.location = j.redirect || '/'), 6000);
+    window.RecoveryCodes.show(j.recovery_codes, j.redirect || '/');
     return;
   }
   window.location = j.redirect || '/';
