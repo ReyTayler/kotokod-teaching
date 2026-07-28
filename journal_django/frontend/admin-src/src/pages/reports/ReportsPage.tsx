@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Checkbox } from '../../components/form/Checkbox';
 import { SelectInput } from '../../components/form/SelectInput';
 import { MONTHS_RU, REPORT_TYPES, type ReportTypeDef } from '../../lib/reports';
 import { useReportRun, downloadReport } from '../../hooks/useReports';
@@ -12,6 +13,7 @@ const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 function ReportCard({ def }: { def: ReportTypeDef }) {
   const [year, setYear] = useState(CURRENT_YEAR);
   const [month, setMonth] = useState(now.getMonth() + 1); // 1..12
+  const [toggles, setToggles] = useState<Record<string, boolean>>({});
   const [downloaded, setDownloaded] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const { run, taskId, status, isBusy, triggerError, statusError } = useReportRun(def.reportType);
@@ -36,7 +38,7 @@ function ReportCard({ def }: { def: ReportTypeDef }) {
   const start = () => {
     setDownloaded(false);
     setDownloadError(null);
-    run(def.buildParams(year, month));
+    run(def.buildParams(year, month, toggles));
   };
 
   return (
@@ -49,6 +51,7 @@ function ReportCard({ def }: { def: ReportTypeDef }) {
         </span>
       </div>
       <div className="report-card__controls">
+        {def.monthLabel && <span className="report-card__control-label">{def.monthLabel}</span>}
         <SelectInput
           value={month}
           onChange={(e) => { setMonth(Number(e.target.value)); setDownloaded(false); }}
@@ -61,10 +64,29 @@ function ReportCard({ def }: { def: ReportTypeDef }) {
           options={YEARS.map((y) => ({ value: y, label: String(y) }))}
           disabled={isBusy}
         />
+        {def.toggles?.map((t) => (
+          <Checkbox
+            key={t.key}
+            label={t.label}
+            title={t.hint}
+            checked={Boolean(toggles[t.key])}
+            onChange={(e) => {
+              const { checked } = e.target;
+              setToggles((prev) => ({ ...prev, [t.key]: checked }));
+              setDownloaded(false);
+            }}
+            disabled={isBusy}
+          />
+        ))}
         <button type="button" className="btn-add" disabled={isBusy || isFuture} onClick={start}>
           {isBusy ? 'Формируется…' : 'Сформировать'}
         </button>
       </div>
+      {def.toggles?.some((t) => toggles[t.key] && t.hint) && (
+        <div className="report-card__hint">
+          {def.toggles.filter((t) => toggles[t.key] && t.hint).map((t) => t.hint).join(' ')}
+        </div>
+      )}
       {isFuture && (
         <div className="report-card__hint report-card__hint--warn">
           Выбран будущий месяц — по нему ещё нет данных.

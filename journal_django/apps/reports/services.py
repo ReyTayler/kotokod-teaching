@@ -7,13 +7,15 @@
 """
 from __future__ import annotations
 
-from apps.reports.builders import accounting, renewals
+from apps.reports.builders import accounting, attendance, renewals, revenue_forecast
 from apps.reports.models import ReportType
 
 # Диспетчер построителей по типу отчёта. Новый отчёт → новая запись здесь.
 _BUILDERS = {
     ReportType.RENEWALS_MONTH: renewals.build,
     ReportType.ACCOUNTING_MONTH: accounting.build,
+    ReportType.ATTENDANCE_MONTH: attendance.build,
+    ReportType.REVENUE_FORECAST: revenue_forecast.build,
 }
 
 

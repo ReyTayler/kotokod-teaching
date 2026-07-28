@@ -26,7 +26,9 @@ from apps.core.permissions import IsManagerOrAdmin
 from apps.reports.models import ReportType
 from apps.reports.serializers import (
     AccountingReportParamsSerializer,
+    AttendanceReportParamsSerializer,
     RenewalsReportParamsSerializer,
+    RevenueForecastParamsSerializer,
 )
 from apps.reports.tasks import generate_report_task
 
@@ -38,6 +40,8 @@ XLSX_CONTENT_TYPE = (
 _PARAM_SERIALIZERS = {
     ReportType.RENEWALS_MONTH: RenewalsReportParamsSerializer,
     ReportType.ACCOUNTING_MONTH: AccountingReportParamsSerializer,
+    ReportType.ATTENDANCE_MONTH: AttendanceReportParamsSerializer,
+    ReportType.REVENUE_FORECAST: RevenueForecastParamsSerializer,
 }
 
 

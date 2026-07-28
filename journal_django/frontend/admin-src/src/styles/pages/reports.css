@@ -51,6 +51,19 @@
   min-width: auto;
 }
 
+/* Подпись к селектору месяца — нужна там, где «за месяц» неточно (у прогноза
+   это месяц НАЧАЛА раскладки, а не отчётный период). */
+.report-card__control-label {
+  min-width: auto;
+  font-size: 13px;
+  color: var(--text3);
+}
+
+/* Флажок в ряду контролов не тянется на общую min-width селектов. */
+.report-card__controls .checkbox {
+  min-width: auto;
+}
+
 .report-card__hint {
   font-size: 13px;
   color: var(--text3);

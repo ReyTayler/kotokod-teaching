@@ -21,9 +21,9 @@ class RenewalsReportParamsSerializer(serializers.Serializer):
         return attrs
 
 
-class AccountingReportParamsSerializer(serializers.Serializer):
-    """Параметры «Бухгалтерского отчёта»: месяц строкой YYYY-MM (формат
-    apps.finances.reports.collect_monthly_report)."""
+class _MonthStringSerializer(serializers.Serializer):
+    """Общая база: месяц строкой YYYY-MM, не в будущем."""
+
     month = serializers.RegexField(
         r'^\d{4}-(0[1-9]|1[0-2])$', error_messages={'invalid': 'Ожидается месяц в формате YYYY-MM.'})
 
@@ -33,3 +33,23 @@ class AccountingReportParamsSerializer(serializers.Serializer):
         if (y, m) > (today.year, today.month):
             raise serializers.ValidationError('Месяц ещё не наступил.')
         return value
+
+
+class AccountingReportParamsSerializer(_MonthStringSerializer):
+    """Параметры «Бухгалтерского отчёта»: месяц строкой YYYY-MM (формат
+    apps.finances.reports.collect_monthly_report)."""
+
+
+class AttendanceReportParamsSerializer(_MonthStringSerializer):
+    """Параметры «Отчёта по посещаемости»: месяц строкой YYYY-MM."""
+
+
+class RevenueForecastParamsSerializer(_MonthStringSerializer):
+    """Параметры «Прогноза отработки денег».
+
+    month — месяц НАЧАЛА раскладки (обычно текущий; прошлый допустим — можно
+    пересобрать прогноз «как он выглядел бы тогда»). full_history разворачивает
+    строку на всю историю: прошлые месяцы фактом отработки, будущие прогнозом.
+    """
+
+    full_history = serializers.BooleanField(required=False, default=False)

@@ -17,6 +17,8 @@ export interface ReportTaskStatus {
 
 export const RENEWALS_MONTH = 'renewals_month';
 export const ACCOUNTING_MONTH = 'accounting_month';
+export const ATTENDANCE_MONTH = 'attendance_month';
+export const REVENUE_FORECAST = 'revenue_forecast';
 
 // Месяцы для селекта.
 export const MONTHS_RU = [
@@ -24,13 +26,32 @@ export const MONTHS_RU = [
   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
 ];
 
-/** Описание типа отчёта для UI: заголовок, подпись и сборка params(year, month→1..12). */
+/** Дополнительный флажок в карточке отчёта (кроме месяца/года). */
+export interface ReportToggleDef {
+  key: string;
+  label: string;
+  hint?: string;
+}
+
+/**
+ * Описание типа отчёта для UI: заголовок, подпись, опциональные флажки и сборка
+ * params(year, month→1..12, значения флажков).
+ */
 export interface ReportTypeDef {
   reportType: string;
   title: string;
   desc: string;
-  buildParams: (year: number, month: number) => Record<string, unknown>;
+  toggles?: ReportToggleDef[];
+  /** Подпись к селектору месяца, если «за месяц» неточно (у прогноза это старт раскладки). */
+  monthLabel?: string;
+  buildParams: (
+    year: number,
+    month: number,
+    toggles: Record<string, boolean>,
+  ) => Record<string, unknown>;
 }
+
+const ym = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
 
 export const REPORT_TYPES: ReportTypeDef[] = [
   {
@@ -43,6 +64,29 @@ export const REPORT_TYPES: ReportTypeDef[] = [
     reportType: ACCOUNTING_MONTH,
     title: 'Бухгалтерский отчёт',
     desc: 'По каждому ученику за месяц: посещённые уроки, оплаты, остаток оплаченных уроков и остаток аванса.',
-    buildParams: (year, month) => ({ month: `${year}-${String(month).padStart(2, '0')}` }),
+    buildParams: (year, month) => ({ month: ym(year, month) }),
+  },
+  {
+    reportType: ATTENDANCE_MONTH,
+    title: 'Отчёт по посещаемости',
+    desc: 'По каждому ученику базы и каждой его группе: даты уроков за месяц и статус «Был» / «Не был» / «Отработал» / «Сгорел».',
+    buildParams: (year, month) => ({ month: ym(year, month) }),
+  },
+  {
+    reportType: REVENUE_FORECAST,
+    title: 'Прогноз отработки денег',
+    desc: 'Неотработанные деньги каждого ученика, разложенные на месяцы вперёд по одному абонементу (4 урока) в месяц. Лист на каждое направление.',
+    monthLabel: 'Раскладка с месяца',
+    toggles: [
+      {
+        key: 'full_history',
+        label: 'Вся история',
+        hint: 'Добавить прошлые месяцы фактом отработки — видно и уже признанную выручку, и прогноз.',
+      },
+    ],
+    buildParams: (year, month, toggles) => ({
+      month: ym(year, month),
+      full_history: Boolean(toggles.full_history),
+    }),
   },
 ];

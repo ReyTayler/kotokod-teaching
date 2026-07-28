@@ -69,3 +69,83 @@ def test_anon_unauthorized(anon_client):
 
 def test_admin_allowed(admin_client):
     assert admin_client.post(RUN, {'year': 2026, 'month': 5}, format='json').status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# Отчёт по посещаемости и прогноз отработки денег (добавлены 2026-07-28)
+# ---------------------------------------------------------------------------
+
+ATTENDANCE_RUN = f'{BASE}/attendance_month/run'
+FORECAST_RUN = f'{BASE}/revenue_forecast/run'
+
+
+def test_attendance_run_then_download(manager_client):
+    task_id = manager_client.post(
+        ATTENDANCE_RUN, {'month': '2026-05'}, format='json').json()['task_id']
+
+    st = manager_client.get(f'{BASE}/status/{task_id}').json()
+    assert st['state'] == 'SUCCESS'
+    assert st['filename'] == 'attendance_2026-05.xlsx'
+
+    resp = manager_client.get(f'{BASE}/download/{task_id}')
+    assert resp.status_code == 200
+    from openpyxl import load_workbook
+    ws = load_workbook(io.BytesIO(resp.getvalue())).active
+    assert ws.cell(row=1, column=1).value == 'ФИО ученика'
+    assert ws.cell(row=1, column=2).value == 'Группа'
+
+
+def test_attendance_rejects_bad_and_future_month(manager_client):
+    assert manager_client.post(ATTENDANCE_RUN, {'month': '2026-13'},
+                               format='json').status_code == 400
+    assert manager_client.post(ATTENDANCE_RUN, {'month': '2999-12'},
+                               format='json').status_code == 400
+
+
+def test_forecast_run_then_download(manager_client):
+    task_id = manager_client.post(
+        FORECAST_RUN, {'month': '2026-05'}, format='json').json()['task_id']
+
+    st = manager_client.get(f'{BASE}/status/{task_id}').json()
+    assert st['state'] == 'SUCCESS'
+    assert st['filename'] == 'revenue_forecast_2026-05.xlsx'
+
+    resp = manager_client.get(f'{BASE}/download/{task_id}')
+    assert resp.status_code == 200
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(resp.getvalue()))
+    assert wb.sheetnames[0] == 'Сводка'
+    assert wb['Сводка'].cell(row=1, column=1).value == 'Направление'
+
+
+def test_forecast_full_history_flag_changes_file_and_columns(manager_client):
+    task_id = manager_client.post(
+        FORECAST_RUN, {'month': '2026-05', 'full_history': True},
+        format='json').json()['task_id']
+
+    st = manager_client.get(f'{BASE}/status/{task_id}').json()
+    assert st['filename'] == 'revenue_forecast_2026-05_full.xlsx'
+
+    resp = manager_client.get(f'{BASE}/download/{task_id}')
+    from openpyxl import load_workbook
+    header = [c.value for c in load_workbook(io.BytesIO(resp.getvalue()))['Сводка'][1]]
+    assert 'Признано выручки, ₽' in header
+
+
+def test_forecast_full_history_defaults_to_false(manager_client):
+    task_id = manager_client.post(
+        FORECAST_RUN, {'month': '2026-05'}, format='json').json()['task_id']
+
+    resp = manager_client.get(f'{BASE}/download/{task_id}')
+    from openpyxl import load_workbook
+    header = [c.value for c in load_workbook(io.BytesIO(resp.getvalue()))['Сводка'][1]]
+    assert 'Признано выручки, ₽' not in header
+
+
+def test_new_reports_respect_rbac(teacher_client, anon_client):
+    assert teacher_client.post(ATTENDANCE_RUN, {'month': '2026-05'},
+                               format='json').status_code == 403
+    assert teacher_client.post(FORECAST_RUN, {'month': '2026-05'},
+                               format='json').status_code == 403
+    assert anon_client.post(FORECAST_RUN, {'month': '2026-05'},
+                            format='json').status_code in (401, 403)
