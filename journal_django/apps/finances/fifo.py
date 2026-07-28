@@ -37,6 +37,10 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
   — из партий каких направлений состоит непогашенный хвост. Нужен возврату средств
   (apps/payments/repository.py::refund_student): строка возврата пишется в то
   направление, чьи деньги реально возвращаются, иначе лимит курса не освобождается.
+  remaining_lots: [{'lessons': Decimal, 'price_per_lesson': Decimal, 'direction_id': ...}]
+  — тот же хвост, но по партиям и в порядке очереди. Нужен прогнозу выручки
+  (apps/finances/revenue_forecast.py): месяц режется по 4 урока и может попасть
+  на партии с РАЗНОЙ ценой, поэтому свёрнутой суммы по направлению не хватает.
 """
 from __future__ import annotations
 
@@ -68,6 +72,14 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     over_consumed_lessons = _ZERO
     by_month: dict[str, Decimal] = {}
     by_direction: dict = {}
+    # Отработано по (месяц, направление ПАРТИИ-ОПЛАТЫ). НЕ путать с by_direction
+    # выше: тот считает по направлению УРОКА (кто отработал), а этот — по
+    # направлению оплаты (чьи деньги), как remaining_lots. Пул общий на ученика,
+    # поэтому эти два разреза расходятся, когда урок направления A гасит партию
+    # направления B. Нужен полной истории прогноза (revenue_forecast): строка
+    # «ученик × направление оплаты» обязана сходиться как
+    # оплачено = отработано + остаток по партиям ЭТОГО направления.
+    by_month_lot_direction: dict = {}
     unit_prices_month: list[Decimal] = []
     unit_qtys_month: list[Decimal] = []  # уроков (units, half-lesson=0.5) на каждую цену
 
@@ -92,6 +104,12 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                 by_month[ym] = by_month.get(ym, _ZERO) + value
                 if direction_id is not None:
                     by_direction[direction_id] = by_direction.get(direction_id, _ZERO) + value
+                lot_bucket = by_month_lot_direction.setdefault(
+                    (ym, lots[lot_idx].get('direction_id')),
+                    {'value': _ZERO, 'lessons': _ZERO},
+                )
+                lot_bucket['value'] += value
+                lot_bucket['lessons'] += take
                 if in_month:
                     worked_off_month += value
                     price = to_decimal(lots[lot_idx]['price_per_lesson'])
@@ -109,15 +127,26 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     # Из чего состоит непогашенный хвост: { direction_id | None: {lessons, value} }.
     # Порядок ключей = порядок партий в очереди (dict сохраняет вставку).
     remaining_by_direction: dict = {}
+    # Тот же хвост, но НЕ свёрнутый: партии по одной, в порядке FIFO-очереди.
+    # Нужен прогнозу выручки (apps/finances/revenue_forecast.py), который режет
+    # остаток на календарные месяцы по 4 урока: там важна не сумма по направлению,
+    # а цена каждой партии — месяцы могут попадать на партии с разной ценой.
+    remaining_lots: list[dict] = []
 
     def _keep(lot, lessons: Decimal) -> None:
         if lessons <= 0:
             return
+        price = to_decimal(lot['price_per_lesson'])
         bucket = remaining_by_direction.setdefault(
             lot.get('direction_id'), {'lessons': _ZERO, 'value': _ZERO},
         )
         bucket['lessons'] += lessons
-        bucket['value'] += lessons * to_decimal(lot['price_per_lesson'])
+        bucket['value'] += lessons * price
+        remaining_lots.append({
+            'lessons': lessons,
+            'price_per_lesson': price,
+            'direction_id': lot.get('direction_id'),
+        })
 
     if lot_idx < len(lots):
         remaining_value += lot_remaining * to_decimal(lots[lot_idx]['price_per_lesson'])
@@ -144,5 +173,17 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         'remaining_by_direction': {
             k: {'lessons': v['lessons'], 'value': round_kopecks(v['value'])}
             for k, v in remaining_by_direction.items()
+        },
+        # Несвёрнутый хвост в порядке FIFO: [{lessons, price_per_lesson, direction_id}].
+        # price_per_lesson НЕ округляется — потребитель домножает её на уроки и
+        # округляет один раз на выходе (та же дисциплина, что во всём модуле).
+        'remaining_lots': remaining_lots,
+        # { (ym, direction_id партии): {'value': Decimal, 'lessons': Decimal} } —
+        # факт отработки в разрезе направления ОПЛАТЫ (см. комментарий у
+        # by_month_lot_direction выше). value округлён до копеек, lessons — нет
+        # (half-lesson=0.5).
+        'worked_off_by_month_lot_direction': {
+            k: {'value': round_kopecks(v['value']), 'lessons': v['lessons']}
+            for k, v in by_month_lot_direction.items()
         },
     }
