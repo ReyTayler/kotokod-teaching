@@ -375,17 +375,14 @@
   color: var(--text);
 }
 
-.reg-stream__who {
+/* Преподаватель группы — третья колонка (1fr), длинное имя обрезается. */
+.reg-stream__teacher {
   font-size: 13px;
-  color: var(--text2);
+  color: var(--text3);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.reg-stream__teacher {
-  color: var(--text4);
 }
 
 .reg-stream__status {

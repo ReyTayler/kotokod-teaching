@@ -7,7 +7,7 @@ const STATUS_LABEL: Record<string, string> = {
   done: 'проведено',
 };
 
-// «Поток дня» — плановые занятия всех групп на сегодня (время · код · препод · статус).
+// «Поток дня» — плановые занятия всех групп на сегодня: время · группа · препод · статус.
 export function TodayStreamCard({ items }: { items: TodayStreamItem[] }) {
   return (
     <section className="dash-card">
@@ -25,6 +25,7 @@ export function TodayStreamCard({ items }: { items: TodayStreamItem[] }) {
               <span className="reg-stream__code">
                 <EntityLink section="groups" id={it.group_id} text={it.group_code} />
               </span>
+              <span className="reg-stream__teacher">{it.teacher_name || '—'}</span>
               <span className={`reg-stream__status reg-stream__status--${it.status}`}>
                 {STATUS_LABEL[it.status] || it.status}
               </span>
