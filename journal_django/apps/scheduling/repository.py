@@ -18,7 +18,7 @@ from apps.core.utils.dates import msk_now
 from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import GroupScheduleSlot
 from apps.groups.models import Group
-from apps.lessons.models import Lesson
+from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
 from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import planner
@@ -458,8 +458,12 @@ def link_facts(group_id: int) -> int:
         )
 
         # Непривязанные факты; по номеру берём самый ранний по дате (детерминизм).
+        # Только настоящие занятия курса: сгорание пропуска (burned) — денежное
+        # списание без занятия, доп.урок (extra) идёт сверх сетки курса. Без этого
+        # фильтра они занимали позицию плана, и курс показывал занятие проведённым.
         facts = [
-            f for f in Lesson.objects.filter(group_id=group_id)
+            f for f in Lesson.objects
+            .filter(group_id=group_id, lesson_type__in=COURSE_LESSON_TYPES)
             .order_by('lesson_date', 'id')
             .values('id', 'lesson_date', 'lesson_number')
             if f['id'] not in already_linked
@@ -523,6 +527,71 @@ def link_facts(group_id: int) -> int:
             )
 
     return len(to_update)
+
+
+def relink_fact(lesson_id: int) -> bool:
+    """
+    Пересчитать привязку ОДНОГО факта по инварианту «номер факта = номер позиции».
+
+    Зачем: link_facts работает только со свободными фактами и пустыми позициями —
+    существующую привязку она не переносит никогда. Поэтому после правки урока
+    (PATCH /api/admin/lessons/:id) факт мог остаться на чужой позиции, и позиция с
+    его номером висела «не проведена» при проведённом занятии (случай ВДГ18).
+
+    Матчинг ТОЛЬКО по lesson_number: плановая дата и фактическая законно расходятся
+    (разовый перенос — link_facts специально не перезаписывает scheduled_date), так
+    что дата признаком «своей» позиции быть не может.
+
+    Консервативно — ничего не ломаем:
+      • не-курсовые факты (extra/burned) игнорируем (позиций они не занимают);
+      • если позиции с таким номером нет ИЛИ она занята другим фактом — оставляем
+        как есть (иначе выбили бы чужую привязку);
+      • факт без номера не трогаем.
+
+    True — привязка переехала. Под select_for_update: конкурирующий record_lesson/
+    delete сериализуется на тех же строках.
+    """
+    lesson = (
+        Lesson.objects.filter(id=lesson_id)
+        .values('id', 'group_id', 'lesson_number', 'lesson_type')
+        .first()
+    )
+    if lesson is None or lesson['lesson_type'] not in COURSE_LESSON_TYPES:
+        return False
+    if lesson['lesson_number'] is None:
+        return False
+
+    with transaction.atomic():
+        current = (
+            PlannedLesson.objects.select_for_update()
+            .filter(fact_lesson_id=lesson_id).first()
+        )
+        if current is not None and current.lesson_number == lesson['lesson_number']:
+            return False  # уже на своей позиции
+
+        target = (
+            PlannedLesson.objects.select_for_update()
+            .filter(group_id=lesson['group_id'], seq__isnull=False,
+                    lesson_number=lesson['lesson_number'])
+            .order_by('seq')  # детерминизм: номер обязан быть уникален, но не полагаемся
+            .first()
+        )
+        if target is None or target.fact_lesson_id is not None:
+            return False
+
+        now = msk_now()
+        # Сначала освободить прежнюю позицию: fact_lesson уникален.
+        if current is not None:
+            current.fact_lesson_id = None
+            current.status = PENDING
+            current.updated_at = now
+            current.save(update_fields=['fact_lesson', 'status', 'updated_at'])
+
+        target.fact_lesson_id = lesson_id
+        target.status = DONE
+        target.updated_at = now
+        target.save(update_fields=['fact_lesson', 'status', 'updated_at'])
+        return True
 
 
 def unlink_fact(lesson_id: int) -> None:

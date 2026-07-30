@@ -15,6 +15,19 @@ from __future__ import annotations
 import pghistory
 from django.db import models
 
+# Типы уроков — единый источник для всех потребителей (сериализаторы, план курса,
+# членства). Держим здесь, рядом с моделью: раньше наборы дублировались literal'ами
+# в apps.lessons.serializers, apps.lessons.services и apps.memberships.repository.
+#
+# COURSE_LESSON_TYPES — настоящие занятия курса. Только они занимают позицию плана
+#   (apps.scheduling.repository.link_facts) и двигают прогресс группы.
+# SYSTEM_LESSON_TYPES — факты, которыми владеет apps.extra_lessons: доп.урок
+#   (отработка пропуска) и сгорание пропуска. Сгорание — денежное списание, занятия
+#   не было; доп.урок идёт сверх сетки курса. Позицию плана не занимают, общим CRUD
+#   /api/admin/lessons не правятся (см. services._assert_not_system_lesson).
+COURSE_LESSON_TYPES = ('regular', 'substitution', 'reschedule')
+SYSTEM_LESSON_TYPES = ('extra', 'burned')
+
 
 @pghistory.track(
     pghistory.InsertEvent(),

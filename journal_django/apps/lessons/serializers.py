@@ -19,10 +19,12 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from apps.core.fields import DateStringField
+from apps.lessons.models import COURSE_LESSON_TYPES
 
 # ---- константы из Zod-схем (shared/schemas.js) ----
 VALID_LESSON_DURATIONS = (45, 60, 90)
-VALID_LESSON_TYPES = ('regular', 'substitution', 'reschedule')
+# Единый источник набора — apps.lessons.models (там же SYSTEM_LESSON_TYPES).
+VALID_LESSON_TYPES = COURSE_LESSON_TYPES
 
 
 class AttendanceItemSerializer(serializers.Serializer):

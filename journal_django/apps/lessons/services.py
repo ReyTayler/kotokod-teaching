@@ -21,15 +21,15 @@ from apps.lessons.exceptions import (
     AttendanceCompensatedElsewhere, LessonHasMakeupResolutions, SystemLessonProtected,
 )
 from apps.core.utils.decimal import to_decimal
-from apps.lessons.models import Lesson
+from apps.lessons.models import SYSTEM_LESSON_TYPES, Lesson
 from apps.memberships.repository import locked_through_map
 from apps.payroll.calculator import calculate_payment, calculate_penalty
-from apps.scheduling.repository import link_facts
+from apps.scheduling.repository import link_facts, relink_fact
 
 # Подтипы уроков, которыми владеет apps.extra_lessons (факты доп.урока/сгорания).
 # Общий CRUD /api/admin/lessons их не трогает — только откат из раздела «Доп.уроки».
-# 'burned' появится в Фазе 2; включён заранее (таких строк ещё нет — безвредно).
-_SYSTEM_LESSON_TYPES = ('extra', 'burned')
+# Набор — в apps.lessons.models (единый источник, там же COURSE_LESSON_TYPES).
+_SYSTEM_LESSON_TYPES = SYSTEM_LESSON_TYPES
 
 
 def _assert_not_system_lesson(lesson_id: int) -> None:
@@ -238,7 +238,17 @@ def create_lesson_full(data: dict) -> dict:
 
 def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
     _assert_not_system_lesson(lesson_id)
-    return repository.update_lesson(lesson_id, fields)
+    updated = repository.update_lesson(lesson_id, fields)
+    if updated is None:
+        return None
+    # Правка номера/типа могла увести факт с его позиции курса — пересчитываем
+    # привязку (link_facts существующие привязки не переносит, см. relink_fact).
+    # Дата на привязку не влияет: плановая и фактическая законно расходятся.
+    if fields.get('lesson_number') is not None or fields.get('lesson_type') is not None:
+        relink_fact(lesson_id)
+        # Позиция, освободившаяся после переезда, могла ждать другой свободный факт.
+        link_facts(updated['group_id'])
+    return updated
 
 
 def _assert_no_makeup_done_resolutions(lesson_id: int) -> None:
@@ -257,7 +267,16 @@ def _assert_no_makeup_done_resolutions(lesson_id: int) -> None:
 def delete_lesson_full(lesson_id: int) -> bool:
     _assert_not_system_lesson(lesson_id)
     _assert_no_makeup_done_resolutions(lesson_id)
-    return repository.delete_lesson_full(lesson_id)
+    group_id = (
+        Lesson.objects.filter(id=lesson_id).values_list('group_id', flat=True).first()
+    )
+    deleted = repository.delete_lesson_full(lesson_id)
+    # Позиция удалённого урока вернулась в «ждём» (unlink_fact). На неё мог
+    # претендовать другой свободный факт с тем же номером — подхватываем его,
+    # иначе позиция висит непроведённой при фактически прошедшем занятии (ВДГ18).
+    if deleted and group_id is not None:
+        link_facts(group_id)
+    return deleted
 
 
 def _assert_not_compensated(lesson_id: int, student_id: int) -> None:

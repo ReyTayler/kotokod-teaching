@@ -465,9 +465,9 @@ def _seed_continuation(to_group_id: int, student_id: int, b) -> None:
     if other_active:
         return
 
-    from apps.lessons.models import Lesson
+    from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
     has_course_lessons = Lesson.objects.filter(
-        group_id=to_group_id, lesson_type__in=('regular', 'substitution', 'reschedule'),
+        group_id=to_group_id, lesson_type__in=COURSE_LESSON_TYPES,
     ).exists()
     if has_course_lessons:
         return
