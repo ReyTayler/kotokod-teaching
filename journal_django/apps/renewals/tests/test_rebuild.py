@@ -89,11 +89,19 @@ def test_churned_partial_last_cycle_is_lost():
     assert kinds == {1: 'renewed', 2: 'churned'}
 
 
-def test_churned_exactly_on_boundary_all_renewed_no_lost():
+def test_inactive_exactly_on_boundary_opens_awaiting_renewal():
+    """Ровно на рубеже решение о продлении не принято — ученик остаётся в воронке.
+
+    Раньше все циклы закрывались «Продлён» без открытой сделки, и ученик пропадал
+    из сводки: связаться с ним было неоткуда. Правило рубежа теперь одно и для
+    активных, и для неактивных (решение 2026-07-30).
+    """
     plan = plan_for_student(_visits([(0, 4), (1, 4)]), is_active=False,
                             balance=0, progress_keys=PROGRESS)
-    assert plan.open is None
-    assert [c.kind for c in plan.closed] == ['renewed', 'renewed']
+    assert [c.kind for c in plan.closed] == ['renewed']
+    assert plan.open is not None
+    assert plan.open.cycle_no == 2
+    assert plan.open.stage_key == 'awaiting_renewal'
 
 
 # --- Интеграция оркестратора rebuild_all (пишет в БД) ---

@@ -89,10 +89,23 @@ def plan_for_student(visits: list[tuple[date, float]], *, is_active: bool,
                                    due_date=None, entered=entered)
         return StudentPlan(closed=closed, open=open_cycle)
 
-    # покинувший: неполный последний цикл → «Ушёл»; ровно на рубеже — все won.
+    # Покинувший с неполным последним циклом → «Ушёл»: занятия брошены на середине.
     if rem > 0 and visits:
         closed.append(ClosedCycle(cycle_no=completed_full + 1, kind='churned',
                                   date=visits[-1][0]))
+        return StudentPlan(closed=closed, open=None)
+
+    # Ровно на рубеже цикла решение о продлении не принято — ни «Продлён», ни
+    # «Ушёл». Раньше такой ученик оставался со всеми циклами won и без открытой
+    # сделки, то есть пропадал из воронки: менеджер его не видел и связаться было
+    # неоткуда. Правило рубежа одно для всех (см. cycle.open_cycle_no): последний
+    # won откатывается в открытую «Ждём продление» независимо от того, числится ли
+    # ученик в активной группе (решение 2026-07-30).
+    if completed_full >= 1:
+        last = closed.pop()
+        return StudentPlan(closed=closed, open=OpenCycle(
+            cycle_no=last.cycle_no, stage_key='awaiting_renewal',
+            due_date=last.date, entered=last.date))
     return StudentPlan(closed=closed, open=None)
 
 
