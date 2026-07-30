@@ -19,8 +19,15 @@ outcome_at → NULL, стадия пересчитывается авто-пра
 Изменения идут под pghistory-контекстом (RenewalDeal трекается) — попадают в
 журнал изменений и откатываются оттуда.
 
-    python manage.py reopen_stale_renewed_deals            # разбор, без записи
-    python manage.py reopen_stale_renewed_deals --apply    # записать
+    python manage.py reopen_stale_renewed_deals                      # разбор, без записи
+    python manage.py reopen_stale_renewed_deals --apply              # записать всех найденных
+    python manage.py reopen_stale_renewed_deals --students 91 138    # только этих учеников
+    python manage.py reopen_stale_renewed_deals --students 91 --apply
+
+`--students` берёт id из колонки «ученик» пробного прогона. Ученики вне списка не
+затрагиваются, даже если попадают под критерий. Если указанный ученик под критерий
+не подходит (у него есть открытая сделка или последняя закрыта не в «Продлён») —
+команда об этом скажет и его пропустит.
 """
 from __future__ import annotations
 
@@ -43,10 +50,26 @@ class Command(BaseCommand):
             '--apply', action='store_true',
             help='Записать изменения. Без флага — только показать, что будет сделано.',
         )
+        parser.add_argument(
+            '--students', nargs='+', type=int, metavar='ID', default=None,
+            help='ID учеников: обработать только их. Без флага — всех подходящих.',
+        )
 
     def handle(self, *args, **options):
         apply_changes = options['apply']
+        only_students = options['students']
         targets = self._find_targets()
+
+        if only_students is not None:
+            requested = set(only_students)
+            found = {d.student_id for d in targets}
+            targets = [d for d in targets if d.student_id in requested]
+            skipped = requested - found
+            if skipped:
+                self.stdout.write(self.style.WARNING(
+                    f'Под критерий не подходят и пропущены: {sorted(skipped)}\n'
+                    '(у такого ученика либо уже есть открытая сделка, либо последняя '
+                    'закрыта не в «Продлён»)'))
 
         if not targets:
             self.stdout.write(self.style.SUCCESS('Таких сделок нет — всё в порядке.'))
@@ -63,7 +86,7 @@ class Command(BaseCommand):
         )
 
         self.stdout.write(f'\nНайдено учеников: {len(targets)}\n')
-        self.stdout.write('  сделка  ученик                      цикл  уроков  баланс  активен  станет')
+        self.stdout.write('  сделка  ученик                             id  цикл  уроков  баланс  активен  станет')
 
         plan = []
         for deal in sorted(targets, key=lambda d: names.get(d.student_id, '')):
@@ -75,7 +98,7 @@ class Command(BaseCommand):
             plan.append((deal, stage))
             self.stdout.write(
                 f'  {deal.id:<7} {names.get(deal.student_id, "?")[:27]:<27} '
-                f'{deal.cycle_no:<5} {attended:<7} {balance:<7} '
+                f'{deal.student_id:<5} {deal.cycle_no:<5} {attended:<7} {balance:<7} '
                 f'{"да" if deal.student_id in active else "нет":<8} '
                 f'{stage.label if stage else "— правило не дало стадии"}'
             )

@@ -61,6 +61,23 @@ def test_apply_reopens_into_awaiting_renewal(student_on_boundary):
     assert deal.stage.key == 'awaiting_renewal'
 
 
+def test_students_filter_skips_others(student_on_boundary):
+    """--students с чужим id: подходящий ученик не в списке — не трогаем."""
+    _sid, deal = student_on_boundary
+    call_command('reopen_stale_renewed_deals', '--students', '999999999', '--apply')
+    deal.refresh_from_db()
+    assert deal.outcome_at is not None, 'ученика вне --students трогать нельзя'
+
+
+def test_students_filter_applies_to_listed(student_on_boundary):
+    """--students со своим id: обрабатываем только его."""
+    sid, deal = student_on_boundary
+    call_command('reopen_stale_renewed_deals', '--students', str(sid), '--apply')
+    deal.refresh_from_db()
+    assert deal.outcome_at is None
+    assert deal.stage.key == 'awaiting_renewal'
+
+
 def test_student_with_open_deal_untouched(student_on_boundary, make_student):
     """Ученика, у которого уже есть открытая сделка, команда не трогает."""
     sid, deal = student_on_boundary
