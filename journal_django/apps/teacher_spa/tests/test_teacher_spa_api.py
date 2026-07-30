@@ -503,6 +503,64 @@ class TestSubmitLesson:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
 
+    def test_substitute_teacher_can_submit(
+        self,
+        teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """
+        Разовая замена на дату (planned_lessons.substitute_teacher_id) — такое же
+        основание отметить урок чужой группы, как и смена преподавателя контента.
+
+        Регрессия 2026-07-30: has_assigned_planned_lesson смотрела только teacher_id,
+        поэтому замещающий видел занятие в своём календаре (там скоуп учитывает
+        substitute_teacher_id), но при сохранении получал 403, а фронт показывал
+        «Сессия истекла. Обновите страницу и войдите заново».
+        """
+        owner_id, _ = teacher_fixture
+        sub_id, _ = sub_teacher_fixture
+
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, substitute_teacher_id, status, created_at, '
+                'updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, %s, 'pending', NOW(), NOW()) "
+                'RETURNING id',
+                [group_fixture, owner_id, sub_id],
+            )
+            planned_id = cur.fetchone()[0]
+
+        try:
+            resp = self._submit(sub_account_fixture, {
+                'group': '__spa_test_group__ пн 10:00',
+                'date': '2026-06-10',
+                'students': [{'name': '__spa_test_student__', 'present': True}],
+            })
+            assert resp.status_code == 200, resp.json()
+
+            lesson_id = _get_lesson_id(group_fixture, f'acct:{sub_account_fixture}')
+            assert lesson_id is not None
+            try:
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'SELECT lesson_type, teacher_id, original_teacher_id '
+                        'FROM lessons WHERE id = %s', [lesson_id])
+                    lt, tid, orig = cur.fetchone()
+                assert lt == 'substitution'
+                assert tid == sub_id
+                assert orig == owner_id
+            finally:
+                _cleanup_lesson(lesson_id)
+                with connection.cursor() as cur:
+                    cur.execute(
+                        'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture])
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
+
     def test_foreign_group_without_assignment_403(
         self,
         teacher_fixture, account_fixture,

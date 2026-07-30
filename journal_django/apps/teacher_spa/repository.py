@@ -18,7 +18,7 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
-from django.db.models import F, Min
+from django.db.models import F, Min, Q
 
 from apps.finances.repository import balances_for_students
 from apps.groups.models import Group
@@ -284,12 +284,23 @@ def has_assigned_planned_lesson(group_id: int, lesson_date: str, teacher_id: int
     """
     Есть ли у преподавателя НЕотменённое плановое занятие этой группы на дату.
 
-    Основание отметить урок ЧУЖОЙ группы: замена, назначенная админом через
-    «Сменить преподавателя» (planned_lessons.teacher_id ≠ учитель группы).
+    Основание отметить урок ЧУЖОЙ группы — назначение админом, в двух видах:
+      • «Сменить преподавателя» → planned_lessons.teacher_id (препод контента);
+      • разовая замена на дату → planned_lessons.substitute_teacher_id.
+
+    Скоуп ОБЯЗАН совпадать с календарём (scheduling.repository.
+    planned_lessons_in_window): эффективный преподаватель занятия — замена, если
+    она задана, иначе препод контента. Пока здесь смотрели только teacher_id,
+    замещающий видел занятие в своём календаре, но получал 403 при сохранении
+    урока — фронт показывал это как «Сессия истекла» (баг 2026-07-30).
     """
     return (
         PlannedLesson.objects
-        .filter(group_id=group_id, scheduled_date=lesson_date, teacher_id=teacher_id)
+        .filter(group_id=group_id, scheduled_date=lesson_date)
+        .filter(
+            Q(substitute_teacher_id=teacher_id)
+            | Q(substitute_teacher_id__isnull=True, teacher_id=teacher_id)
+        )
         .exclude(status='cancelled')
         .exists()
     )
