@@ -367,6 +367,21 @@ def test_delete_404(admin_client):
     assert resp.status_code == 404
 
 
+def test_delete_forbidden_for_manager(manager_client):
+    """Откат факта (проведённый доп.урок / сгорание) двигает баланс ученика и
+    зарплату преподавателя — менеджеру закрыт (решение 2026-07-30).
+    RBAC проверяется до логики вьюхи, поэтому 403 приходит независимо от id."""
+    resp = manager_client.delete(f'{ADMIN_URL}/999999999')
+    assert resp.status_code == 403
+
+
+def test_detail_get_still_allowed_for_manager(manager_client):
+    """Закрыт только откат: карточку менеджер по-прежнему открывает (иначе
+    пропала бы и кнопка, а она должна быть видна, но неактивна)."""
+    resp = manager_client.get(f'{ADMIN_URL}/999999999')
+    assert resp.status_code == 404  # не 403 — доступ есть, записи нет
+
+
 def test_delete_conflict_when_not_done(
     admin_client, teacher_fixture, missed_lesson_fixture, student_fixture,
     cleanup_resolutions,

@@ -9,6 +9,11 @@ Admin (IsManagerOrAdmin, менеджер/админ/суперадмин — я
                                                на нём, ИЛИ у кого-то balance<=0)
   GET  /api/admin/extra-lessons/:id         → 200 | 404
   DELETE /api/admin/extra-lessons/:id       → 204 | 404 | 409 (не done/burned)
+      ⚠ ReadStaffWriteAdmin, а не IsManagerOrAdmin: откат проведённого доп.урока и
+      откат сгорания возвращают урок на баланс ученика и снимают зарплату
+      преподавателю — деньги правит админ/суперадмин (решение 2026-07-30).
+      Менеджеру GET по-прежнему доступен (карточка открывается, кнопка видна,
+      но неактивна — см. frontend permissions.canRollbackExtraLesson).
   POST /api/admin/extra-lessons/:id/cancel  → 200 | 404 | 409 (не scheduled)
   POST /api/admin/extra-lessons/:id/burn    → 200 | 404 | 409 (не pending) |
                                                400 (balance<=0)
@@ -30,7 +35,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin, IsTeacher
+from apps.core.permissions import IsManagerOrAdmin, IsTeacher, ReadStaffWriteAdmin
 from apps.core.utils.dates import msk_today
 from apps.extra_lessons import repository, services
 from apps.extra_lessons.exceptions import (
@@ -132,7 +137,9 @@ class ExtraLessonPendingCountView(APIView):
 
 
 class ExtraLessonDetailView(APIView):
-    permission_classes = [IsManagerOrAdmin]
+    # GET — весь staff; DELETE (откат факта: проведённый доп.урок или сгорание) —
+    # только админ/суперадмин: операция двигает баланс ученика и зарплату.
+    permission_classes = [ReadStaffWriteAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
         full = repository.get_resolution_full(pk)

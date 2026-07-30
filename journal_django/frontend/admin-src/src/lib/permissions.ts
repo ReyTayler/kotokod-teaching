@@ -25,6 +25,11 @@ export const canWriteLessons = isAdminUp;     // CRUD урока + посеща�
 // админ/суперадмин (решение 2026-07-28). Бэк: ReadStaffWriteAdmin на
 // /api/admin/payments. Возврат средств менеджеру закрыт отдельно (IsAdminOrSuperAdmin).
 export const canWritePayments = isAdminUp;
+// Откат проведённого доп.урока и откат сгорания: обе операции возвращают урок на
+// баланс ученика и снимают зарплату преподавателю — значит это деньги, и правит их
+// админ/суперадмин (решение 2026-07-30). Менеджер кнопку видит, но она неактивна.
+// Бэк: ReadStaffWriteAdmin на DELETE /api/admin/extra-lessons/:id.
+export const canRollbackExtraLesson = isAdminUp;
 export const canSeeLessonPayroll = isSuper;   // зарплата за урок
 export const canRevertChangelog = isAdminUp;
 export const canWriteRenewalStages = isSuper; // конфиг стадий воронки продлений (Фаза 6)

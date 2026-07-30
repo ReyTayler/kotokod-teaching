@@ -10,6 +10,11 @@ import { ManualExtraLessonModal } from '../../components/lessons/ManualExtraLess
 import { fmtDate } from '../../lib/format';
 import type { AbsenceResolution } from '../../lib/types';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { useAuth } from '../../hooks/useAuth';
+import { canRollbackExtraLesson, type Role } from '../../lib/permissions';
+
+/** Подсказка на неактивной кнопке отката (менеджеру эти операции закрыты). */
+const NO_ROLLBACK_HINT = 'Обратитесь к администратору';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Ждёт решения',
@@ -34,6 +39,10 @@ export default function ExtraLessonsListPage() {
   const muts = useExtraLessonMutations();
   const showError = useApiError();
   const { toast } = useToast();
+  const { me } = useAuth();
+  // Откат факта двигает баланс ученика и зарплату — только админ/суперадмин.
+  // Менеджеру кнопку оставляем на месте, но неактивной с подсказкой.
+  const canRollback = canRollbackExtraLesson(me?.role as Role);
   // pending → назначить доп.урок (модалка); makeup_scheduled → отмена (сразу,
   // возврат в «ждёт решения»); makeup_done → откат факта (разрушительно —
   // откатывает Payroll/посещаемость исходного урока), поэтому по подтверждению.
@@ -77,6 +86,33 @@ export default function ExtraLessonsListPage() {
       toast('Пропуск сожжён, урок списан с баланса', 'ok');
     } catch (err) { showError(err); }
     setConfirmingBurnId(null);
+  };
+
+  /**
+   * Кнопка отката факта — одна на два статуса (проведён / сгорел), меняется подпись.
+   * Без прав кнопка остаётся на месте, но неактивна: обёртка-span нужна потому, что
+   * disabled-элемент не получает событий мыши и свой title показывает не везде.
+   */
+  const renderRollback = (id: number, label: string) => {
+    if (!canRollback) {
+      return (
+        <span className="gated-action" title={NO_ROLLBACK_HINT}>
+          <button type="button" className="btn-delete" disabled aria-label={`${label} (${NO_ROLLBACK_HINT})`}>
+            {label}
+          </button>
+        </span>
+      );
+    }
+    const confirming = confirmingRollbackId === id;
+    return (
+      <button
+        type="button"
+        className={`btn-delete${confirming ? ' is-confirming' : ''}`}
+        onClick={() => { void handleRollback(id); }}
+      >
+        {confirming ? 'Точно откатить?' : label}
+      </button>
+    );
   };
 
   const columns: Column<AbsenceResolution>[] = [
@@ -132,30 +168,8 @@ export default function ExtraLessonsListPage() {
             </button>
           );
         }
-        if (r.status === 'makeup_done') {
-          const confirming = confirmingRollbackId === r.id;
-          return (
-            <button
-              type="button"
-              className={`btn-delete${confirming ? ' is-confirming' : ''}`}
-              onClick={() => { void handleRollback(r.id); }}
-            >
-              {confirming ? 'Точно откатить?' : 'Откатить'}
-            </button>
-          );
-        }
-        if (r.status === 'burned') {
-          const confirming = confirmingRollbackId === r.id;
-          return (
-            <button
-              type="button"
-              className={`btn-delete${confirming ? ' is-confirming' : ''}`}
-              onClick={() => { void handleRollback(r.id); }}
-            >
-              {confirming ? 'Точно откатить?' : 'Откат сгорания'}
-            </button>
-          );
-        }
+        if (r.status === 'makeup_done') return renderRollback(r.id, 'Откатить');
+        if (r.status === 'burned') return renderRollback(r.id, 'Откат сгорания');
         return null;
       },
     },
