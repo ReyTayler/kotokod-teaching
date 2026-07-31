@@ -594,6 +594,102 @@ def relink_fact(lesson_id: int) -> bool:
         return True
 
 
+def find_course_position_by_date(group_id: int, lesson_date) -> dict | None:
+    """
+    Позиция курса группы, назначенная на эту дату — для записи урока без явного
+    plannedLessonId (вход «Мои уроки», где занятия календаря нет).
+
+    Разовый перенос УВОЗИТ позицию вместе с номером (reschedule_lesson не трогает
+    seq/lesson_number, меняет только scheduled_date), поэтому поиск по дате
+    находит перенесённое занятие на НОВОЙ дате с исходным номером — это и нужно.
+
+    Возвращает позицию ВНЕ ЗАВИСИМОСТИ от того, занята ли она: занятая означает
+    «урок за эту дату уже записан», и вызывающий обязан отказать, а не молча
+    уйти на фолбэк — иначе повторная отправка снова создаст дубль.
+
+    None — позиции нет (группа без плана, дата вне плана) ИЛИ несколько свободных
+    (мультислотовая группа с двумя занятиями в один день): в обоих случаях
+    вызывающий уходит на прежний расчёт номера. Мультислот различается только
+    явным plannedLessonId из календаря.
+    """
+    rows = list(
+        PlannedLesson.objects
+        .filter(group_id=group_id, seq__isnull=False, scheduled_date=lesson_date)
+        .exclude(status=CANCELLED)
+        .order_by('seq')
+        .values('id', 'seq', 'lesson_number', 'scheduled_date', 'fact_lesson_id')
+    )
+    if len(rows) == 1:
+        return rows[0]
+    if not rows:
+        return None
+    # Мультислот: если занята вся сетка кроме одной — берём единственную свободную.
+    free = [r for r in rows if r['fact_lesson_id'] is None]
+    return free[0] if len(free) == 1 else None
+
+
+_POSITION_FIELDS = ('id', 'seq', 'lesson_number', 'scheduled_date', 'fact_lesson_id')
+
+
+def _course_position_qs(planned_lesson_id: int, group_id: int):
+    """
+    Позиция курса по id В ПРЕДЕЛАХ группы. group_id в фильтре — не украшение:
+    без него преподаватель, подставив чужой plannedLessonId, записал бы урок на
+    позицию другой группы. Не курсовые строки (seq NULL — доп.занятие, маркер
+    отмены) и отменённые исключены: захватывать там нечего.
+    """
+    return (
+        PlannedLesson.objects
+        .filter(id=planned_lesson_id, group_id=group_id, seq__isnull=False)
+        .exclude(status=CANCELLED)
+    )
+
+
+def get_course_position(planned_lesson_id: int, group_id: int) -> dict | None:
+    """
+    Прочитать позицию курса БЕЗ блокировки — предварительная проверка вне
+    транзакции (apps.teacher_spa.services.submit_lesson резолвит номер урока до
+    того, как record_lesson откроет atomic). select_for_update здесь нельзя:
+    ATOMIC_REQUESTS в проекте не включён, вне atomic-блока он бросает
+    TransactionManagementError.
+
+    Решение по захвату принимает lock_course_position внутри транзакции.
+    """
+    return _course_position_qs(planned_lesson_id, group_id).values(*_POSITION_FIELDS).first()
+
+
+def lock_course_position(planned_lesson_id: int, group_id: int) -> dict | None:
+    """
+    Залочить позицию курса под захват (select_for_update) и вернуть её поля.
+    Вызывать ТОЛЬКО внутри transaction.atomic (record_lesson).
+
+    Лок держится до конца транзакции вызывающего — этим сериализуются два
+    параллельных захвата одной позиции: второй ждёт коммита первого и увидит
+    уже проставленный fact_lesson_id. Без лока оба повтора прошли бы
+    предварительную проверку до коммита друг друга и создали два урока.
+    """
+    return (
+        _course_position_qs(planned_lesson_id, group_id)
+        .select_for_update()
+        .values(*_POSITION_FIELDS)
+        .first()
+    )
+
+
+def attach_fact(planned_lesson_id: int, lesson_id: int) -> None:
+    """
+    Закрепить факт за позицией курса: fact_lesson_id + status='done'.
+
+    Вызывается из record_lesson внутри той же транзакции, СРАЗУ после вставки
+    урока и только по позиции, уже залоченной lock_course_position. Заменяет для
+    этого факта «угадывающий» link_facts: позиция названа явно, номер урока взят
+    из неё, поэтому сопоставлять по номеру нечего.
+    """
+    PlannedLesson.objects.filter(id=planned_lesson_id).update(
+        fact_lesson_id=lesson_id, status=DONE, updated_at=msk_now(),
+    )
+
+
 def unlink_fact(lesson_id: int) -> None:
     """
     Отвязать плановую строку от удаляемого факта: fact_lesson_id=NULL,

@@ -35,6 +35,12 @@ export function extractErrorDetail(details: unknown): string | undefined {
 // нему блокирующую модалку, а не generic-тост.
 export const MEMBERSHIP_HAS_SCHEDULED_MAKEUPS = 'membership_has_scheduled_makeups';
 
+// Код конфликта teacher SPA (apps.teacher_spa.views): урок за это занятие уже
+// записан — позиция курса занята другим фактом. Почти всегда это повторная
+// отправка после потерянного ответа, поэтому форма показывает спокойное
+// «уже записано» и обновляет данные, а не красную ошибку.
+export const LESSON_ALREADY_RECORDED = 'lesson_already_recorded';
+
 /** Если ошибка — именно блок «есть назначенные доп.уроки», вернуть её текст для
  *  модалки, иначе null (обрабатывать как обычную ошибку через useApiError). */
 export function scheduledMakeupsBlockMessage(err: unknown): string | null {

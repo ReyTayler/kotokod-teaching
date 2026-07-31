@@ -106,6 +106,8 @@ export default function CalendarPage() {
             group={marking.group}
             groupData={markingData}
             initialDate={marking.date}
+            plannedLessonId={marking.id}
+            plannedLessonNumber={marking.lessonNumber}
             isSubstitution={!!marking.teacherOverride}
             onClose={() => setMarking(null)}
           />

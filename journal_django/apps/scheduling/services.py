@@ -84,6 +84,12 @@ def _planned_occurrence_dict(
     return {
         'group': r['group_name'],
         'groupId': r['group_pk'],
+        # PlannedLesson.id. Раньше отдавался только admin-мапингом /plan (операции
+        # переноса/отмены по id); теперь и teacher-календарём — им LessonForm
+        # называет серверу, КАКОЕ занятие отмечается (submitLesson.plannedLessonId).
+        # Единственный способ различить два занятия группы в один день (мультислот)
+        # и не угадывать позицию по дате.
+        'id': r['id'],
         'groupDisplay': r['group_name'],
         'teacher': teacher,
         'teacherOverride': tnames.get(effective_id) if is_override else None,
@@ -133,6 +139,10 @@ def _extra_lesson_occurrence_dict(r: dict, now_msk: datetime.datetime) -> dict:
     return {
         'group': label,
         'groupId': None,
+        # Не позиция курса: у карточки доп.урока своя сущность (extraLessonId ниже)
+        # и свой путь отметки — ExtraLessonRecordModal → /api/extra-lessons/:id/record,
+        # не submitLesson. Явный None, чтобы id доп.урока не приняли за позицию плана.
+        'id': None,
         'groupDisplay': label,
         'teacher': r['teacher_name'],
         'teacherOverride': None,

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Field } from '@shared/components/form/Field';
 import { DateInput } from '@shared/components/form/DateInput';
-import { ApiError } from '@shared/lib/api';
+import { ApiError, LESSON_ALREADY_RECORDED } from '@shared/lib/api';
 import { useToast } from '@shared/components/ui/Toast';
 import { useSubmitLesson } from '../../hooks/useSubmitLesson';
 import { useGroupDirections } from '../../hooks/useGroupDirections';
@@ -52,6 +52,8 @@ export function LessonForm({
   group,
   groupData,
   initialDate,
+  plannedLessonId,
+  plannedLessonNumber,
   isSubstitution,
   onClose,
 }: {
@@ -59,6 +61,16 @@ export function LessonForm({
   groupData: GroupData;
   /** Предзаполнение даты (клик по занятию в календаре); по умолчанию — сегодня МСК. */
   initialDate?: string;
+  /**
+   * Позиция курса отмечаемого занятия (Occurrence.plannedLessonId) из календаря.
+   * Сервер берёт из неё номер урока и закрепляет за ней факт, поэтому повторная
+   * отправка упирается в занятую позицию (409) вместо создания второго урока.
+   * Не задан при входе из «Моих уроков» — там занятия нет, сервер резолвит по дате.
+   */
+  plannedLessonId?: number | null;
+  /** Номер урока по плану (Occurrence.lessonNumber) — показываем его вместо
+   *  расчёта по прогрессу, чтобы превью совпадало с тем, что запишет сервер. */
+  plannedLessonNumber?: number | null;
   isSubstitution?: boolean;
   onClose: () => void;
 }) {
@@ -79,7 +91,13 @@ export function LessonForm({
   const { data: dirData } = useGroupDirections();
   const dir = dirData?.groups[group];
   const isHalf = dir ? dir.lessonDurationMinutes === 45 : isHalfLesson(group);
-  const { done, step, next } = lessonNumber(groupData.students, isHalf);
+  const { done, step, next: nextByProgress } = lessonNumber(groupData.students, isHalf);
+  // Номер урока: план авторитетен. Раньше превью считалось из прогресса учеников
+  // (max(lessonsDone)+step), и это же значение писал сервер — из-за чего номер
+  // «уезжал», стоило прогрессу разойтись с планом. Теперь сервер берёт номер из
+  // позиции курса, поэтому и показывать надо его, иначе превью врёт.
+  // Фолбэк на расчёт — «Мои уроки» и группы без плана (там сервер тоже считает так).
+  const next = plannedLessonNumber ?? nextByProgress;
   const limit = dir ? dir.totalLessons : getCourseLimit(group);
 
   const blockedStudents = groupData.students.filter((s) => isBlocked(s));
@@ -138,6 +156,7 @@ export function LessonForm({
       date,
       students: groupData.students.map((s) => ({ name: s.name, present: !!present[s.name] })),
       ...(recordUrl.trim() ? { recordUrl: recordUrl.trim() } : {}),
+      ...(plannedLessonId != null ? { plannedLessonId } : {}),
     };
 
     submitLesson.mutate(payload, {
@@ -153,6 +172,15 @@ export function LessonForm({
         }
       },
       onError: (err) => {
+        // Урок за это занятие уже записан — типично после потерянного ответа:
+        // предыдущая отправка дошла, подтверждение не вернулось. Работа сделана,
+        // поэтому закрываем форму и говорим спокойно, а не красной ошибкой:
+        // иначе учитель решит, что не сохранилось, и нажмёт ещё раз.
+        if (err instanceof ApiError && err.code === LESSON_ALREADY_RECORDED) {
+          toast(err.message, 'ok');
+          onClose();
+          return;
+        }
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
           setSubmitError('Сессия истекла. Обновите страницу и войдите заново.');
         } else if (err instanceof ApiError) {

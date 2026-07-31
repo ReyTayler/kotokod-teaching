@@ -35,9 +35,14 @@ from apps.core.permissions import IsTeacher
 from apps.core.utils.dates import msk_now
 from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import Group
+from apps.lessons.exceptions import LessonAlreadyRecorded
 from apps.lessons.models import Lesson
 from apps.teacher_spa import repository, services
 from apps.teacher_spa.serializers import MyLessonSerializer, SubmitLessonSerializer
+
+# Машиночитаемый код конфликта для фронта (тот же приём, что
+# MEMBERSHIP_HAS_SCHEDULED_MAKEUPS в admin SPA): урок за это занятие уже записан.
+LESSON_ALREADY_RECORDED = 'lesson_already_recorded'
 
 # ---------------------------------------------------------------------------
 # Константы для парсинга расписания (дословно из routes/teacher.js)
@@ -191,7 +196,18 @@ class SubmitLessonView(APIView):
         serializer = SubmitLessonSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        result = services.submit_lesson(request.user.id, serializer.validated_data)
+        try:
+            result = services.submit_lesson(request.user.id, serializer.validated_data)
+        except LessonAlreadyRecorded as e:
+            # Урок за это занятие уже записан — почти всегда повторная отправка
+            # после потерянного ответа (учитель не увидел подтверждения и нажал
+            # «Сохранить» ещё раз). 409, а не 400: конфликт состояния, а не
+            # ошибка ввода. code — чтобы фронт мог показать это спокойным
+            # сообщением «уже записано», а не красной ошибкой валидации.
+            return Response(
+                {'error': str(e), 'code': LESSON_ALREADY_RECORDED},
+                status=status.HTTP_409_CONFLICT,
+            )
         if '_error' in result:
             return Response(
                 {'error': result['_error']},

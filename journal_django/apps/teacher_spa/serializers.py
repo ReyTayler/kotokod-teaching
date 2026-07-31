@@ -53,6 +53,14 @@ class SubmitLessonSerializer(serializers.Serializer):
         allow_blank=True, required=False, trim_whitespace=False
     )
     students = StudentAttendanceSerializer(many=True)
+    # Позиция курса (planned_lessons.id), по которой кликнули в календаре. НЕ
+    # входит в _SERVER_DERIVED_FIELDS: это идентификатор занятия, а не выводимое
+    # сервером решение — клиент лишь называет, ЧТО отмечает, а номер урока, тип и
+    # преподавателя сервер по-прежнему определяет сам. Принадлежность группе
+    # проверяется на сервере (scheduling.repository.get_course_position) — чужой
+    # id доступа не даёт. Необязателен: вход «Мои уроки» занятия не знает, там
+    # позиция резолвится по дате.
+    plannedLessonId = serializers.IntegerField(min_value=1, required=False)
 
     def validate(self, attrs):
         forbidden = set(_SERVER_DERIVED_FIELDS) & set(self.initial_data or {})

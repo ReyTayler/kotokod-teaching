@@ -18,13 +18,16 @@ from django.db import transaction
 from apps.groups.models import Group
 from apps.lessons import repository
 from apps.lessons.exceptions import (
-    AttendanceCompensatedElsewhere, LessonHasMakeupResolutions, SystemLessonProtected,
+    AttendanceCompensatedElsewhere, LessonAlreadyRecorded, LessonHasMakeupResolutions,
+    SystemLessonProtected,
 )
 from apps.core.utils.decimal import to_decimal
 from apps.lessons.models import SYSTEM_LESSON_TYPES, Lesson
 from apps.memberships.repository import locked_through_map
 from apps.payroll.calculator import calculate_payment, calculate_penalty
-from apps.scheduling.repository import link_facts, relink_fact
+from apps.scheduling.repository import (
+    attach_fact, link_facts, lock_course_position, relink_fact,
+)
 
 # Подтипы уроков, которыми владеет apps.extra_lessons (факты доп.урока/сгорания).
 # Общий CRUD /api/admin/lessons их не трогает — только откат из раздела «Доп.уроки».
@@ -59,6 +62,7 @@ def record_lesson(*,
     submit_date: str,
     attendance: list[dict],
     skip_balance_check: bool = False,
+    planned_lesson_id: Optional[int] = None,
 ) -> dict:
     """
     Единое ядро записи урока. Атомарно создаёт Lesson+LessonAttendance,
@@ -66,6 +70,17 @@ def record_lesson(*,
     planned_lessons (link_facts), создаёт Payroll (сервер считает
     payment/penalty сам — клиентского payroll не принимает), синхронизирует
     авто-стадию «Продлений» после коммита.
+
+    planned_lesson_id — позиция курса, за которой закрепляется факт (резолвит
+    вызывающий: apps.teacher_spa.services.submit_lesson). Если задан:
+      • lesson_number берётся ИЗ ПОЗИЦИИ, а не из переданного аргумента —
+        позиция является источником правды по номеру урока;
+      • позиция лочится (select_for_update) и захватывается в этой же
+        транзакции, что делает повторную запись того же занятия невозможной:
+        второй захват видит проставленный fact_lesson_id → LessonAlreadyRecorded;
+      • link_facts для этого факта не нужен — захват и есть привязка.
+    Не задан → прежнее поведение: номер из аргумента + «угадывающий» link_facts
+    (админский путь, группы без плана, запись на дату вне плана).
 
     attendance: [{'student_id': int, 'present': bool}, ...] — student_id уже
     резолвлен вызывающей стороной (teacher_spa резолвит по имени, admin SPA
@@ -154,6 +169,21 @@ def record_lesson(*,
     )
 
     with transaction.atomic():
+        # Захват позиции курса — АВТОРИТЕТНАЯ проверка «урок за это занятие уже
+        # записан». Вызывающий проверяет то же самое заранее (ради внятного 409
+        # без открытия транзакции), но решает здесь, под select_for_update: два
+        # параллельных повтора иначе оба прошли бы предварительную проверку до
+        # коммита друг друга и создали два урока. Тот же приём, что в
+        # apps.extra_lessons.services.burn (lock_for_record).
+        position = (
+            lock_course_position(planned_lesson_id, group_id)
+            if planned_lesson_id is not None else None
+        )
+        if position is not None and position['fact_lesson_id'] is not None:
+            raise LessonAlreadyRecorded(
+                position['lesson_number'], position['scheduled_date'],
+            )
+
         lesson_id = repository.insert_lesson({
             'lesson_date': lesson_date,
             'teacher_id': teacher_id,
@@ -167,7 +197,11 @@ def record_lesson(*,
         })
         # Привязать факт к плановой строке (planned_lessons.fact_lesson_id/status='done'),
         # иначе занятие остаётся «не проведено» в расписании/календаре.
-        link_facts(group_id)
+        # Позиция названа явно → закрепляем за ней; иначе прежний матчинг по номеру.
+        if position is not None:
+            attach_fact(position['id'], lesson_id)
+        else:
+            link_facts(group_id)
         repository.increment_lessons_done(group_id, present_student_ids, step)
         repository.insert_attendance(lesson_id, attendance)
         repository.insert_payroll({

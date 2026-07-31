@@ -13,7 +13,7 @@ import warnings
 from typing import Optional
 
 from apps.accounts.repository import get_by_id_with_teacher
-from apps.lessons.exceptions import UnpaidAttendanceBlocked
+from apps.lessons.exceptions import LessonAlreadyRecorded, UnpaidAttendanceBlocked
 from apps.lessons.services import record_lesson
 from apps.scheduling import repository as scheduling_repository
 from apps.teacher_spa import repository
@@ -25,6 +25,32 @@ UNFILLED_LESSONS_BLOCKED = (
     'Есть не отмеченные занятия. Обратитесь к менеджеру или '
     'администратору за правкой расписания.'
 )
+
+
+def _resolve_course_position(
+    group_id: int, date: str, planned_lesson_id: Optional[int],
+) -> Optional[dict]:
+    """
+    Позиция курса, за которой закрепится записываемый урок. None → позиции нет,
+    вызывающий считает номер по-старому (группа без плана, дата вне плана,
+    неразличимый мультислот).
+
+    Приоритет:
+      1. plannedLessonId с фронта — занятие, по которому кликнули в календаре.
+         Единственный способ различить мультислотовую группу (два занятия в один
+         день). Принадлежность группе проверяет get_course_position — чужой id
+         даёт None, а не доступ к чужой позиции.
+      2. Поиск по дате — вход «Мои уроки», где занятия календаря нет. Разовый
+         перенос увозит позицию вместе с номером, поэтому по новой дате находится
+         именно она (см. find_course_position_by_date).
+    """
+    if planned_lesson_id is not None:
+        position = scheduling_repository.get_course_position(planned_lesson_id, group_id)
+        if position is not None:
+            return position
+        # id не подошёл (чужая группа / не курсовая строка / отменена) — не падаем,
+        # пробуем дату: клиент мог прислать устаревший id из закэшированного календаря.
+    return scheduling_repository.find_course_position_by_date(group_id, date)
 
 
 def get_current_teacher(account_id: int) -> Optional[str]:
@@ -174,15 +200,43 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     if scheduling_repository.has_unfilled_before(ids['group_id'], date):
         return {'success': False, 'error': UNFILLED_LESSONS_BLOCKED}
 
-    # 4. lesson_number — done = max(lessonsDone) по студентам группы, или 0 если пусто.
+    # 4. lesson_number — из ПОЗИЦИИ КУРСА (planned_lessons), а не из прогресса учеников.
+    #
+    #    Раньше номер выводился как max(lessonsDone) + step. Это конфляция двух
+    #    разных величин: lessons_done считает посещаемость КОНКРЕТНОГО ученика,
+    #    а lesson_number — позицию занятия в курсе. Пока они совпадали, разницы
+    #    не было; стоило lessons_done уехать (например, осиротевший пропуск
+    #    «сожгли» — ученику +1 без занятия), факт получал номер следующей позиции,
+    #    садился на неё, а своя позиция оставалась «не проведена». Плюс номер,
+    #    выведенный из состояния, которое сама запись инкрементирует, делал
+    #    lessons_natural_key бесполезным: каждый повтор отправки получал НОВЫЙ
+    #    номер и создавал ещё один урок вместо конфликта (инцидент ПГ215 31.07.2026).
+    #
+    #    Позиция — источник правды: её номер стабилен между повторами, поэтому
+    #    повторная отправка упирается в уже занятую позицию (LessonAlreadyRecorded).
     is_half = ids['lesson_duration_minutes'] == 45
     step = 0.5 if is_half else 1
-    group_students = group_data.get('students', [])
-    done = max((s.get('lessonsDone') or 0 for s in group_students), default=0)
-    # lessonNum = Math.round((done + step) * 10) / 10
-    # (done + step) * 10 всегда целое (step кратен 0.5), поэтому round — no-op.
-    raw = (done + step) * 10
-    lesson_num = round(raw) / 10
+
+    position = _resolve_course_position(
+        ids['group_id'], date, validated.get('plannedLessonId'),
+    )
+    if position is not None:
+        # Занятая позиция = урок за это занятие уже записан. Проверяем ЗДЕСЬ ради
+        # внятного отказа без открытия транзакции; авторитетно то же самое решает
+        # record_lesson под select_for_update (гонка двух одновременных повторов).
+        if position['fact_lesson_id'] is not None:
+            raise LessonAlreadyRecorded(
+                position['lesson_number'], position['scheduled_date'],
+            )
+        lesson_num = float(position['lesson_number'])
+    else:
+        # Фолбэк — группы без плана и записи на дату вне плана: прежний расчёт.
+        group_students = group_data.get('students', [])
+        done = max((s.get('lessonsDone') or 0 for s in group_students), default=0)
+        # lessonNum = Math.round((done + step) * 10) / 10
+        # (done + step) * 10 всегда целое (step кратен 0.5), поэтому round — no-op.
+        raw = (done + step) * 10
+        lesson_num = round(raw) / 10
 
     # 5. Mapping student_name → student_id (группа знает имена, admin шлёт id напрямую —
     #    поэтому это остаётся teacher_spa-специфичным шагом, не частью record_lesson).
@@ -243,6 +297,7 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
             submitted_by_token=f'acct:{account_id}',
             submit_date=format_msk_date(),
             attendance=attendance,
+            planned_lesson_id=position['id'] if position is not None else None,
         )
     except UnpaidAttendanceBlocked as e:
         return {'success': False, 'error': str(e)}

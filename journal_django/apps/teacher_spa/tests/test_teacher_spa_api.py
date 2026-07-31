@@ -15,6 +15,8 @@ _client(role, account_id) создаёт JWT-клиент для реально�
 """
 from __future__ import annotations
 
+import datetime
+
 import pytest
 from django.conf import settings
 from django.db import connection
@@ -968,6 +970,331 @@ class TestSubmitLesson:
         finally:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_fixture])
+
+
+# ---------------------------------------------------------------------------
+# submitLesson — номер урока из позиции курса + защита от дублей
+# ---------------------------------------------------------------------------
+
+def _make_position(group_id, teacher_id, seq, number, date, time='10:00'):
+    """Плановая позиция курса. Возвращает id."""
+    with connection.cursor() as cur:
+        cur.execute(
+            'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+            'scheduled_time, teacher_id, status, created_at, updated_at) '
+            "VALUES (%s, %s, %s, %s, %s, %s, 'pending', NOW(), NOW()) RETURNING id",
+            [group_id, seq, number, date, time, teacher_id],
+        )
+        return cur.fetchone()[0]
+
+
+def _position_row(planned_id):
+    with connection.cursor() as cur:
+        cur.execute(
+            'SELECT fact_lesson_id, status FROM planned_lessons WHERE id = %s',
+            [planned_id],
+        )
+        return cur.fetchone()
+
+
+def _lesson_number(lesson_id):
+    with connection.cursor() as cur:
+        cur.execute('SELECT lesson_number FROM lessons WHERE id = %s', [lesson_id])
+        return float(cur.fetchone()[0])
+
+
+def _count_lessons(group_id, token):
+    with connection.cursor() as cur:
+        cur.execute(
+            'SELECT count(*) FROM lessons WHERE group_id = %s AND submitted_by_token = %s',
+            [group_id, token],
+        )
+        return cur.fetchone()[0]
+
+
+class TestLessonNumberFromPlan:
+    """
+    Номер урока берётся из ПОЗИЦИИ КУРСА (planned_lessons), а не из прогресса
+    учеников, и позиция захватывается при записи.
+
+    Зачем (инцидент ПГ215, 31.07.2026): раньше номер считался как
+    max(lessons_done)+step — из состояния, которое сама запись инкрементирует.
+    Поэтому (а) номер уезжал, стоило прогрессу разойтись с планом, и (б)
+    повторная отправка получала НОВЫЙ номер, проходила мимо lessons_natural_key
+    и создавала ещё один урок. Три отправки подряд дали три урока.
+    """
+
+    GROUP = '__spa_test_group__ пн 10:00'
+    STUDENT = '__spa_test_student__'
+
+    def _submit(self, account_id: int, payload: dict):
+        return _client('teacher', account_id).post('/api/submitLesson', payload, format='json')
+
+    def _payload(self, date='2026-06-10', **extra):
+        return {
+            'group': self.GROUP,
+            'date': date,
+            'students': [{'name': self.STUDENT, 'present': True}],
+            **extra,
+        }
+
+    def _reset(self, membership_id, group_id):
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM planned_lessons WHERE group_id = %s', [group_id])
+            cur.execute(
+                'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                [membership_id],
+            )
+
+    def test_number_comes_from_position_not_progress(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Позиция №5 при lessons_done=0 → урок получает номер 5, а не 1.
+
+        Прежний расчёт дал бы 1 (0 + step). Это и есть суть перехода: позиция
+        курса — источник правды по номеру.
+        """
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        planned_id = _make_position(group_fixture, teacher_id, 5, 5, '2026-06-10')
+        lesson_id = None
+        try:
+            resp = self._submit(account_fixture, self._payload(plannedLessonId=planned_id))
+            assert resp.status_code == 200
+            assert resp.json()['success'] is True
+            assert resp.json()['lessonNumber'] == 5
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert _lesson_number(lesson_id) == 5.0
+            # Факт закреплён именно за названной позицией.
+            assert _position_row(planned_id) == (lesson_id, 'done')
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(membership_fixture, group_fixture)
+
+    def test_position_resolved_by_date_without_explicit_id(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Без plannedLessonId (вход «Мои уроки») позиция ищется по дате.
+
+        Именно этот путь закрывает инцидент ПГ215: занятие календаря там не
+        передаётся, но позиция на дату существовала.
+        """
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        planned_id = _make_position(group_fixture, teacher_id, 7, 7, '2026-06-10')
+        lesson_id = None
+        try:
+            resp = self._submit(account_fixture, self._payload())
+            assert resp.status_code == 200
+            assert resp.json()['lessonNumber'] == 7
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert _position_row(planned_id) == (lesson_id, 'done')
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(membership_fixture, group_fixture)
+
+    def test_duplicate_submit_rejected_with_409(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Повторная отправка того же занятия → 409, второго урока НЕТ.
+
+        Регрессия на ПГ215: три отправки подряд создавали три урока.
+        """
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        planned_id = _make_position(group_fixture, teacher_id, 1, 1, '2026-06-10')
+        lesson_id = None
+        try:
+            first = self._submit(account_fixture, self._payload(plannedLessonId=planned_id))
+            assert first.status_code == 200
+            assert first.json()['success'] is True
+            lesson_id = _get_lesson_id(group_fixture, token)
+
+            second = self._submit(account_fixture, self._payload(plannedLessonId=planned_id))
+            assert second.status_code == 409
+            body = second.json()
+            assert body['code'] == 'lesson_already_recorded'
+            assert 'уже записан' in body['error']
+
+            # Главное: второго урока не появилось, счётчик не двинулся дважды.
+            assert _count_lessons(group_fixture, token) == 1
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(membership_fixture, group_fixture)
+
+    def test_duplicate_rejected_also_without_explicit_id(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Повтор ловится и на резолве по дате — путь «Моих уроков».
+
+        Занятая позиция обязана давать 409, а НЕ уходить на фолбэк-расчёт:
+        иначе повтор снова создал бы урок со следующим номером.
+        """
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        _make_position(group_fixture, teacher_id, 1, 1, '2026-06-10')
+        lesson_id = None
+        try:
+            assert self._submit(account_fixture, self._payload()).status_code == 200
+            lesson_id = _get_lesson_id(group_fixture, token)
+
+            second = self._submit(account_fixture, self._payload())
+            assert second.status_code == 409
+            assert _count_lessons(group_fixture, token) == 1
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(membership_fixture, group_fixture)
+
+    def test_rescheduled_position_keeps_its_number_at_new_date(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Перенос: позиция уезжает на новую дату ВМЕСТЕ с номером.
+
+        Проверяем настоящим reschedule_lesson (не сымитированным состоянием) —
+        если семантика переноса когда-нибудь изменится и seq/lesson_number
+        перестанут сохраняться, тест упадёт здесь, а не в проде.
+        """
+        from apps.scheduling import repository as scheduling_repository
+
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        planned_id = _make_position(group_fixture, teacher_id, 3, 3, '2026-06-03')
+        lesson_id = None
+        try:
+            scheduling_repository.reschedule_lesson(
+                group_fixture, planned_id,
+                new_date=datetime.date(2026, 6, 10), new_time=None, new_teacher_id=None,
+            )
+            resp = self._submit(account_fixture, self._payload(date='2026-06-10'))
+            assert resp.status_code == 200
+            # Номер — исходный (3), несмотря на другую дату и lessons_done=0.
+            assert resp.json()['lessonNumber'] == 3
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert _position_row(planned_id) == (lesson_id, 'done')
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(membership_fixture, group_fixture)
+
+    def test_multislot_same_day_disambiguated_by_id(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Два занятия группы в один день: явный id выбирает нужную позицию.
+
+        По дате они неразличимы — ради этого случая фронт и присылает id.
+        """
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        first_pos = _make_position(group_fixture, teacher_id, 1, 1, '2026-06-10', '10:00')
+        second_pos = _make_position(group_fixture, teacher_id, 2, 2, '2026-06-10', '18:00')
+        lesson_id = None
+        try:
+            resp = self._submit(account_fixture, self._payload(plannedLessonId=second_pos))
+            assert resp.status_code == 200
+            assert resp.json()['lessonNumber'] == 2
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+            assert _position_row(second_pos) == (lesson_id, 'done')
+            # Первое занятие дня осталось нетронутым.
+            assert _position_row(first_pos) == (None, 'pending')
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(membership_fixture, group_fixture)
+
+    def test_foreign_position_id_does_not_grant_access(
+        self, teacher_fixture, account_fixture,
+        group_fixture, half_group_fixture, student_fixture, membership_fixture,
+    ):
+        """Позиция ЧУЖОЙ группы по id не захватывается.
+
+        Иначе преподаватель, подставив чужой plannedLessonId, записал бы урок на
+        позицию другой группы. Ожидаем: чужая позиция не тронута, запись идёт по
+        своей группе (позиции на дату нет → прежний расчёт номера).
+        """
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        foreign_pos = _make_position(half_group_fixture, teacher_id, 4, 4, '2026-06-10')
+        lesson_id = None
+        try:
+            resp = self._submit(account_fixture, self._payload(plannedLessonId=foreign_pos))
+            assert resp.status_code == 200
+            assert resp.json()['success'] is True
+            # Номер посчитан фолбэком по прогрессу (1), а не взят из чужой позиции (4).
+            assert resp.json()['lessonNumber'] == 1
+            assert _position_row(foreign_pos) == (None, 'pending')
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            with connection.cursor() as cur:
+                cur.execute(
+                    'DELETE FROM planned_lessons WHERE group_id IN (%s, %s)',
+                    [group_fixture, half_group_fixture],
+                )
+                cur.execute(
+                    'UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                    [membership_fixture],
+                )
+
+    def test_half_lesson_number_from_position(
+        self, teacher_fixture, account_fixture,
+        half_group_fixture, student_fixture, half_membership_fixture,
+    ):
+        """Half-lesson: дробный номер позиции (2.5) переносится в урок как есть."""
+        teacher_id, _ = teacher_fixture
+        token = f'acct:{account_fixture}'
+        planned_id = _make_position(half_group_fixture, teacher_id, 5, 2.5, '2026-06-10', '11:00')
+        lesson_id = None
+        try:
+            resp = self._submit(account_fixture, {
+                'group': '__spa_half_group__ 45 минут вт 11:00',
+                'date': '2026-06-10',
+                'students': [{'name': self.STUDENT, 'present': True}],
+                'plannedLessonId': planned_id,
+            })
+            assert resp.status_code == 200
+            assert resp.json()['lessonNumber'] == 2.5
+
+            lesson_id = _get_lesson_id(half_group_fixture, token)
+            assert _lesson_number(lesson_id) == 2.5
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(half_membership_fixture, half_group_fixture)
+
+    def test_group_without_plan_falls_back_to_progress(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Группа без плана (8 таких на проде) — прежнее поведение сохраняется."""
+        token = f'acct:{account_fixture}'
+        lesson_id = None
+        try:
+            resp = self._submit(account_fixture, self._payload())
+            assert resp.status_code == 200
+            assert resp.json()['success'] is True
+            assert resp.json()['lessonNumber'] == 1
+
+            lesson_id = _get_lesson_id(group_fixture, token)
+        finally:
+            if lesson_id:
+                _cleanup_lesson(lesson_id)
+            self._reset(membership_fixture, group_fixture)
 
 
 # ---------------------------------------------------------------------------

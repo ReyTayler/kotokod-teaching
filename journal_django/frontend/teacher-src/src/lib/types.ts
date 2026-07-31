@@ -84,6 +84,9 @@ export interface SubmitPayload {
   date: string; // 'YYYY-MM-DD'
   recordUrl?: string;
   students: { name: string; present: boolean }[];
+  /** Позиция курса из календаря (Occurrence.plannedLessonId). Не отправляется из
+   *  «Моих уроков» — там занятия нет, сервер резолвит позицию по дате. */
+  plannedLessonId?: number;
 }
 
 export type SubmitResult =
@@ -152,6 +155,14 @@ export interface OccStudent {
 }
 
 export interface Occurrence {
+  /**
+   * PlannedLesson.id — позиция курса этого занятия. Ею LessonForm называет
+   * серверу, КАКОЙ урок отмечается (submitLesson.plannedLessonId): сервер берёт
+   * из позиции номер урока и закрепляет за ней факт, поэтому повторная отправка
+   * упирается в занятую позицию (409) вместо создания второго урока.
+   * null у карточек доп.урока — они отмечаются своим путём (extraLessonId).
+   */
+  id: number | null;
   group: string;
   groupDisplay: string;
   teacher: string;

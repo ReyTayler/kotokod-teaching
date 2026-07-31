@@ -76,6 +76,34 @@ class LessonHasMakeupResolutions(Exception):
         )
 
 
+class LessonAlreadyRecorded(Exception):
+    """
+    Попытка записать урок на позицию курса (planned_lessons), за которой уже
+    закреплён факт. Так выглядит повторная отправка одного и того же занятия:
+    учитель не увидел подтверждения (потерянный ответ, таймаут gunicorn) и нажал
+    «Сохранить» ещё раз — сервер обязан отказать, а не создать второй урок.
+
+    Раньше это не ловилось: lesson_number выводился из max(lessons_done)+step,
+    то есть из состояния, которое сама запись инкрементирует, поэтому каждый
+    повтор получал НОВЫЙ номер и проходил мимо lessons_natural_key. Теперь номер
+    берётся из позиции плана, а позиция захватывается под select_for_update —
+    второй захват невозможен (см. apps.lessons.services.record_lesson).
+
+    Сообщение называет номер и дату уже записанного урока: без idempotency-ключа
+    сервер не может отличить повтор от осмысленной второй попытки, поэтому говорит
+    как есть, а не выдаёт чужой результат за успех.
+    """
+
+    def __init__(self, lesson_number, lesson_date) -> None:
+        self.lesson_number = lesson_number
+        self.lesson_date = lesson_date
+        num = int(lesson_number) if lesson_number == int(lesson_number) else lesson_number
+        super().__init__(
+            f'Урок №{num} за {lesson_date} уже записан. Если нужно изменить '
+            f'посещаемость — откройте урок в истории «Мои уроки».'
+        )
+
+
 class AttendanceLockedByTransfer(Exception):
     """
     Попытка отметить посещаемость (present ИЛИ absent) ученику, переведённому в
