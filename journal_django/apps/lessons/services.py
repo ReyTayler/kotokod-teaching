@@ -58,6 +58,7 @@ def record_lesson(*,
     submitted_by_token: str,
     submit_date: str,
     attendance: list[dict],
+    skip_balance_check: bool = False,
 ) -> dict:
     """
     Единое ядро записи урока. Атомарно создаёт Lesson+LessonAttendance,
@@ -124,7 +125,12 @@ def record_lesson(*,
 
     present_student_ids = [a['student_id'] for a in attendance if a['present']]
     # Оплату проверяем только у ПЛАТНЫХ present-учеников (free не обязан иметь баланс).
-    repository.assert_students_paid([s for s in present_student_ids if s not in free_ids])
+    # skip_balance_check — ручное решение администратора «записать, невзирая на долг»:
+    # занятие остаётся платным (спишется с баланса, зарплата начислится), снят только
+    # запрет. Прокидывается ТОЛЬКО из management-команды; ни teacher SPA, ни admin API
+    # его не передают — иначе блокировка перестала бы защищать.
+    if not skip_balance_check:
+        repository.assert_students_paid([s for s in present_student_ids if s not in free_ids])
 
     is_half = lesson_duration_minutes == 45
     step = _step(lesson_duration_minutes)
