@@ -11,14 +11,20 @@
 """
 from __future__ import annotations
 
+import re
+
+from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsSuperAdmin
+from apps.core.permissions import IsSuperAdmin, IsTeacher
+from apps.core.utils.dates import msk_now
 from apps.payroll import services
 from apps.payroll.serializers import PayrollUpdateSerializer
+
+_MONTH_RE = re.compile(r'^(\d{4})-(0[1-9]|1[0-2])$')
 
 _DEFAULT_SORT_BY = 'lesson_date'
 _DEFAULT_SORT_DIR = 'desc'
@@ -85,6 +91,29 @@ class PayrollSummaryView(APIView):
         return Response(services.payroll_summary(
             teacher_id=teacher_id, date_from=date_from, date_to=date_to,
         ))
+
+
+class MyPayrollView(APIView):
+    """
+    GET /api/my-payroll?month=YYYY-MM — зарплата ТЕКУЩЕГО преподавателя за месяц.
+
+    Скоуп по teacher_id из JWT (request.user.teacher_id), НИКОГДА из запроса —
+    иначе преподаватель прочитает чужую зарплату (тот же принцип, что в
+    apps.teacher_spa.views.MyLessonsView).
+
+    month необязателен: без него — текущий месяц по МСК.
+    """
+
+    permission_classes = [IsTeacher]
+
+    def get(self, request: Request) -> Response:
+        month = request.query_params.get('month') or msk_now().strftime('%Y-%m')
+        if not _MONTH_RE.match(month):
+            return Response(
+                {'error': 'Некорректный параметр month (ожидается YYYY-MM)'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(services.my_payroll_month(request.user.teacher_id, month))
 
 
 class PayrollDetailView(APIView):

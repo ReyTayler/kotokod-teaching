@@ -14,6 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Optional
 
+from django.db import connection
 from django.db.models import Count, DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 
@@ -191,6 +192,79 @@ def payroll_summary(
         }
 
     return sorted(result_by_teacher.values(), key=lambda r: r['teacher_name'] or '')
+
+
+def teacher_month_entries(teacher_id: int, date_from: str, date_to: str) -> list[dict]:
+    """
+    Строки расчётного листа ОДНОГО преподавателя за период (границы включительно).
+
+    Для кабинета преподавателя: ~30 строк в месяц, пагинация не нужна. Тянем
+    сразу контекст урока (группа, направление, длительность, дата сдачи отчёта),
+    чтобы расшифровка собиралась без дозапросов.
+
+    teacher_id обязателен и приходит из JWT — фильтр по преподавателю здесь не
+    опциональный, иначе вьюха отдала бы чужую зарплату.
+    """
+    qs = (
+        Payroll.objects
+        .filter(
+            teacher_id=teacher_id,
+            lesson__lesson_date__gte=date_from,
+            lesson__lesson_date__lte=date_to,
+        )
+        .annotate(
+            lesson_date=F('lesson__lesson_date'),
+            lesson_number=F('lesson__lesson_number'),
+            lesson_type=F('lesson__lesson_type'),
+            duration_minutes=F('lesson__lesson_duration_minutes'),
+            submitted_at=F('lesson__submitted_at'),
+            group_name=F('lesson__group__name'),
+            direction_name=F('lesson__group__direction__name'),
+            direction_color=F('lesson__group__direction__color'),
+        )
+        .values(
+            'id', 'lesson_id', 'total_students', 'present_count', 'payment', 'penalty',
+            'lesson_date', 'lesson_number', 'lesson_type', 'duration_minutes',
+            'submitted_at', 'group_name', 'direction_name', 'direction_color',
+        )
+        .order_by('-lesson_date', '-id')
+    )
+    return dictrows(qs)
+
+
+def excluded_headcount(lesson_ids: list[int]) -> dict[int, dict]:
+    """
+    Сколько учеников исключено из headcount зарплаты по каждому уроку:
+    {lesson_id: {'free': n, 'skip': n}}.
+
+    Нужно, чтобы объяснить преподавателю, почему в оплате «4 из 4», хотя в
+    группе пятеро (is_free и unpaid_skip из headcount исключены, см.
+    apps.lessons.services.record_lesson).
+
+    Один запрос на все уроки месяца; уроки без исключений в результат не
+    попадают (HAVING) — словарь остаётся компактным.
+    """
+    if not lesson_ids:
+        return {}
+
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT lesson_id,
+                   COUNT(*) FILTER (WHERE is_free)     AS free_count,
+                   COUNT(*) FILTER (WHERE unpaid_skip) AS skip_count
+              FROM lesson_attendance
+             WHERE lesson_id = ANY(%s)
+             GROUP BY lesson_id
+            HAVING COUNT(*) FILTER (WHERE is_free) > 0
+                OR COUNT(*) FILTER (WHERE unpaid_skip) > 0
+            """,
+            [list(lesson_ids)],
+        )
+        return {
+            row[0]: {'free': row[1], 'skip': row[2]}
+            for row in cur.fetchall()
+        }
 
 
 def update_payroll(payroll_id: int, fields: dict) -> Optional[dict]:

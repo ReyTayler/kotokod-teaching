@@ -158,3 +158,16 @@ export function monthLabel(d: Date): string {
 }
 
 export { DAY_MS };
+
+/** Date → 'YYYY-MM' (по UTC-компонентам) — параметр month у /api/my-payroll. */
+export function isoMonth(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+const DAY_SHORT_MON_FIRST = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+/** Короткий день недели даты 'YYYY-MM-DD': «Пн» … «Вс». */
+export function weekdayShortOfIso(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return DAY_SHORT_MON_FIRST[(new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7];
+}

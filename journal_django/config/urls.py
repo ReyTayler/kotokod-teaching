@@ -54,6 +54,8 @@ urlpatterns = [
     path('api', include('apps.scheduling.urls')),
     # Доп.уроки — фиксация проведения преподавателем (/api/extra-lessons, role=teacher)
     path('api/extra-lessons', include('apps.extra_lessons.teacher_urls')),
+    # Своя зарплата за месяц с расшифровкой (/api/my-payroll, role=teacher)
+    path('api/my-payroll', include('apps.payroll.teacher_urls')),
 ]
 
 # ---------------------------------------------------------------------------

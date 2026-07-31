@@ -195,3 +195,66 @@ export interface CalendarResponse {
   unscheduled: UnscheduledGroup[];
   window: { from: string; to: string };
 }
+
+/**
+ * GET /api/my-payroll?month=YYYY-MM — своя зарплата за месяц с расшифровкой
+ * (apps/payroll/views.py::MyPayrollView). Деньги приходят строками с масштабом
+ * ('800.00') — как во всём teacher-контракте; на фронте форматировать через
+ * lib/money.ts, а не Number() + toFixed по месту.
+ */
+export type PayrollRuleCode =
+  | 'per_student'
+  | 'small_group_full'
+  | 'small_group_partial'
+  | 'half_lesson'
+  | 'extra_flat'
+  | 'extra_individual'
+  | 'none'
+  | 'adjusted';
+
+export interface PayrollRule {
+  code: PayrollRuleCode;
+  /** Короткая формула для строки урока: '4 × 200 ₽'. */
+  text: string;
+  /** Правило словами: 'группа от 3 человек — 200 ₽ за каждого пришедшего'. */
+  note: string;
+}
+
+export type PayrollLessonKind =
+  | 'regular' | 'substitution' | 'reschedule' | 'extra' | 'burned';
+
+export interface PayrollEntry {
+  lessonId: number;
+  date: string;             // 'YYYY-MM-DD'
+  group: string;
+  direction: string | null;
+  directionColor: string | null;
+  lessonNumber: string;
+  kind: PayrollLessonKind;
+  durationMinutes: number;
+  totalStudents: number;
+  presentCount: number;
+  payment: string;          // начислено
+  penalty: string;          // удержано
+  net: string;              // к выплате за этот урок
+  rule: PayrollRule;
+  /** Почему удержали; null — штрафа нет. */
+  penaltyNote: string | null;
+  /** Почему headcount меньше группы (бесплатные/непл. пропуски); null — все учтены. */
+  excludedNote: string | null;
+  /** Сумму правил администратор — формулой она не объясняется. */
+  adjusted: boolean;
+}
+
+export interface MyPayrollResponse {
+  month: string;            // 'YYYY-MM'
+  monthLabel: string;       // 'Июль 2026'
+  totals: {
+    lessons: number;
+    presences: number;
+    payment: string;
+    penalty: string;
+    net: string;
+  };
+  rows: PayrollEntry[];
+}

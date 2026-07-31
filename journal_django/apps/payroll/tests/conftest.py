@@ -67,6 +67,22 @@ def group_fixture(direction_fixture, teacher_id_fixture):
 
 
 @pytest.fixture
+def student_fixture():
+    """Ученик для строк lesson_attendance (исключения из headcount зарплаты)."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO students (full_name) VALUES ('__pr_student__') RETURNING id"
+        )
+        student_id = cur.fetchone()[0]
+    yield student_id
+    with connection.cursor() as cur:
+        # Свои строки посещаемости убираем сами: порядок разрушения фикстур
+        # не гарантирует, что урок уже удалён, а FK этого не простит.
+        cur.execute('DELETE FROM lesson_attendance WHERE student_id = %s', [student_id])
+        cur.execute('DELETE FROM students WHERE id = %s', [student_id])
+
+
+@pytest.fixture
 def payroll_fixture(group_fixture, teacher_id_fixture):
     """Один урок + строка payroll. Возвращает (payroll_id, lesson_id)."""
     with connection.cursor() as cur:

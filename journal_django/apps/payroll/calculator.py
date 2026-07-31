@@ -17,6 +17,11 @@ PAY_RATES = {
     'perStudent': 200,    # большая группа (3+ чел.) — за каждого пришедшего
 }
 
+# Штраф за отчёт, сданный не в день урока — на каждого присутствовавшего.
+# Вынесен из calculate_penalty, чтобы расшифровка в кабинете преподавателя
+# (apps.payroll.explain) не дублировала ставку у себя.
+PENALTY_PER_STUDENT = 40
+
 
 def calculate_payment(total: int, present: int, is_half: bool = False) -> int:
     """
@@ -48,7 +53,7 @@ def calculate_penalty(lesson_date: str, submit_date: str, count_students: int) -
     """
     if lesson_date == submit_date:
         return 0
-    return 40 * count_students
+    return PENALTY_PER_STUDENT * count_students
 
 
 def calculate_extra_lesson_payment(present: int) -> int:

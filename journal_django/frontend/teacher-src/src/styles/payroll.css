@@ -1,0 +1,184 @@
+/* ── ЗАРПЛАТА ──
+ * Экран должен читаться сверху вниз как расчётный лист: сначала итог, затем
+ * строки, каждая со своим правилом. Числа — моноширинные и табличные, чтобы
+ * колонка сумм выстраивалась в столбец и её можно было пробежать глазами.
+ * Только токены (см. docs/design-system.md). */
+
+.pr-page { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* ── Итог за месяц ── */
+
+.pr-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-6);
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-lg);
+}
+
+.pr-summary-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+.pr-summary-value {
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-6xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.pr-summary-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  text-align: right;
+}
+.pr-summary-line {
+  font-size: var(--fs-sm);
+  color: var(--text3);
+}
+.pr-summary-line b {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text2);
+}
+.pr-summary-penalty { color: var(--danger); }
+.pr-summary-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  color: var(--text4);
+}
+
+/* ── Список уроков ── */
+
+.pr-list {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.pr-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  align-items: start;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-left: 3px solid var(--subject-color, var(--accent));
+}
+.pr-row + .pr-row { border-top: 1px solid var(--border2); }
+
+.pr-date {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.pr-date-day { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.pr-date-dow { font-size: var(--fs-2xs); color: var(--text4); }
+
+.pr-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+
+.pr-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.pr-group {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--text3);
+  background: var(--bg3);
+}
+.pr-badge--substitution { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); }
+.pr-badge--reschedule   { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); }
+.pr-badge--extra        { color: var(--accent); background: var(--accent-soft); }
+.pr-badge--burned       { color: var(--warning); background: color-mix(in oklab, var(--warning) 12%, transparent); }
+
+/* Формула — то, ради чего экран существует: почему сумма именно такая. */
+.pr-formula {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text3);
+}
+.pr-rule {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--text2);
+  cursor: help;
+}
+.pr-sep { color: var(--text4); }
+
+.pr-note { font-size: var(--fs-xs); color: var(--text4); }
+.pr-penalty { font-size: var(--fs-xs); color: var(--danger); }
+
+.pr-amount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  text-align: right;
+}
+.pr-net {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--text);
+}
+.pr-gross {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-2xs);
+  color: var(--text4);
+}
+
+/* ── Узкий экран: дата и сумма в одну строку, подробности — под ними ── */
+
+@media (max-width: 600px) {
+  .pr-summary { flex-direction: column; align-items: flex-start; }
+  .pr-summary-side { align-items: flex-start; text-align: left; }
+
+  .pr-row {
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2) var(--space-3);
+  }
+  .pr-date {
+    grid-column: 1; grid-row: 1;
+    flex-direction: row; align-items: baseline; gap: var(--space-2);
+  }
+  .pr-amount { grid-column: 2; grid-row: 1; }
+  .pr-main { grid-column: 1 / -1; grid-row: 2; }
+}

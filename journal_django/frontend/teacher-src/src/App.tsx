@@ -5,6 +5,7 @@ import CalendarPage from './pages/calendar/CalendarPage';
 import GroupsPage from './pages/groups/GroupsPage';
 import GroupDetailPage from './pages/groups/GroupDetailPage';
 import MyLessonsPage from './pages/lessons/MyLessonsPage';
+import PayrollPage from './pages/payroll/PayrollPage';
 import ReportPage from './pages/report/ReportPage';
 
 // basename роутера = Vite base ('/teacher/' в финале, '/teacher-next/' в preview).
@@ -24,6 +25,7 @@ export function App() {
             <Route path="/groups/:group" element={<GroupDetailPage />} />
             <Route path="/lessons" element={<MyLessonsPage />} />
             <Route path="/report" element={<ReportPage />} />
+            <Route path="/payroll" element={<PayrollPage />} />
             <Route path="*" element={<Navigate to="/calendar" replace />} />
           </Route>
         </Route>
