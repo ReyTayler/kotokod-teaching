@@ -390,6 +390,7 @@ def delete_lesson_full(lesson_id: int) -> bool:
 
 def update_attendance_cell(
     lesson_id: int, student_id: int, present: bool, is_free: bool = False,
+    skip_balance_check: bool = False,
 ) -> bool:
     """
     Toggle исхода одной ячейки (UPSERT) + корректировка lessons_done дельтой +
@@ -452,7 +453,11 @@ def update_attendance_cell(
 
         # Баланс нужен только платному present; бесплатное занятие (free) его не
         # требует — так же, как record_lesson исключает free из assert_students_paid.
-        if present and not free_val:
+        # skip_balance_check — ручное решение администратора «отметить, невзирая на
+        # долг»: занятие остаётся ПЛАТНЫМ (списывается с баланса, зарплата идёт),
+        # просто запрет снят. Доступен только из management-команды, API его не
+        # прокидывает — иначе блокировка перестала бы защищать.
+        if present and not free_val and not skip_balance_check:
             assert_students_paid([student_id])
 
         prev = (
