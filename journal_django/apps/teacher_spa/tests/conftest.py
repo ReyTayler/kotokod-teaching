@@ -262,3 +262,30 @@ def _lessons_done(group_id: int, student_id: int):
 @pytest.fixture
 def lessons_done():
     return _lessons_done
+
+
+@pytest.fixture
+def group_with_two_slots(group_fixture):
+    """
+    Группа с ДВУМЯ курсовыми позициями на одну дату (мультислот, «два занятия
+    подряд»). Возвращает (group_id, date, [position_id, position_id]).
+    """
+    date = '2026-08-16'
+    ids = []
+    with connection.cursor() as cur:
+        # scheduled_time — NOT NULL без умолчания в схеме, пропустить нельзя.
+        for seq, number, at in ((31, 31, '14:00'), (32, 32, '15:30')):
+            cur.execute(
+                """
+                INSERT INTO planned_lessons
+                    (group_id, seq, lesson_number, scheduled_date, scheduled_time,
+                     status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, 'pending', NOW(), NOW())
+                RETURNING id
+                """,
+                [group_fixture, seq, number, date, at],
+            )
+            ids.append(cur.fetchone()[0])
+    yield group_fixture, date, ids
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM planned_lessons WHERE id = ANY(%s)', [ids])
