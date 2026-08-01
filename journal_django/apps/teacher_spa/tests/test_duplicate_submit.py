@@ -171,3 +171,37 @@ def test_vanished_position_raises_instead_of_silent_fallback(group_with_two_slot
             attendance=[],
             planned_lesson_id=positions[0],
         )
+
+
+def test_stale_position_id_with_other_date_is_ignored(group_with_two_slots):
+    """
+    Клиент прислал id позиции, которая стоит на другой дате (календарь во
+    вкладке устарел). Использовать её нельзя — закроется не то занятие.
+    Резолвер обязан уйти на поиск по фактической дате.
+    """
+    from apps.teacher_spa.services import _resolve_course_position
+
+    group_id, date, positions = group_with_two_slots
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE planned_lessons SET scheduled_date = '2026-09-20' WHERE id = %s",
+            [positions[0]],
+        )
+
+    resolved = _resolve_course_position(group_id, date, positions[0])
+
+    # Устаревшую позицию брать нельзя. Допустимо: вернуть оставшуюся позицию
+    # этого дня (она теперь единственная) либо None.
+    assert resolved is None or resolved['id'] != positions[0]
+
+
+def test_matching_position_id_is_used(group_with_two_slots):
+    """Актуальный id с совпадающей датой используется как раньше."""
+    from apps.teacher_spa.services import _resolve_course_position
+
+    group_id, date, positions = group_with_two_slots
+
+    resolved = _resolve_course_position(group_id, date, positions[1])
+
+    assert resolved is not None
+    assert resolved['id'] == positions[1]
