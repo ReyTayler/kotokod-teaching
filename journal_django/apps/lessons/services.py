@@ -74,7 +74,8 @@ def record_lesson(*,
     planned_lesson_id — позиция курса, за которой закрепляется факт (резолвит
     вызывающий: apps.teacher_spa.services.submit_lesson). Если задан:
       • lesson_number берётся ИЗ ПОЗИЦИИ, а не из переданного аргумента —
-        позиция является источником правды по номеру урока;
+        позиция является источником правды по номеру урока
+        (номер читается из позиции ПОСЛЕ select_for_update — см. тело функции);
       • позиция лочится (select_for_update) и захватывается в этой же
         транзакции, что делает повторную запись того же занятия невозможной:
         второй захват видит проставленный fact_lesson_id → LessonAlreadyRecorded;
@@ -183,6 +184,14 @@ def record_lesson(*,
             raise LessonAlreadyRecorded(
                 position['lesson_number'], position['scheduled_date'],
             )
+
+        # Номер — из позиции, захваченной ПОД БЛОКИРОВКОЙ, а не из аргумента:
+        # аргумент посчитан вызывающим до транзакции по незалоченному чтению, и
+        # между этими моментами план могли перенумеровать (отмена другого
+        # занятия группы вызывает _renumber_persist). Разъехавшиеся номер факта
+        # и номер позиции ломают последующий матчинг link_facts/relink_fact.
+        if position is not None:
+            lesson_number = position['lesson_number']
 
         lesson_id = repository.insert_lesson({
             'lesson_date': lesson_date,

@@ -96,3 +96,45 @@ def test_two_free_positions_are_ambiguous(group_with_two_slots):
 
     from apps.scheduling.repository import find_course_position_by_date
     assert find_course_position_by_date(group_id, date) is None
+
+
+def test_lesson_number_comes_from_locked_position(group_with_two_slots, teacher_fixture):
+    """
+    Номер пишется из позиции, захваченной под блокировкой, а не из аргумента,
+    посчитанного до открытия транзакции. Иначе перенумерация плана между
+    предпроверкой и локом разводит номер факта и номер позиции.
+    """
+    from apps.lessons.services import record_lesson
+
+    group_id, date, positions = group_with_two_slots
+    teacher_id, _ = teacher_fixture
+    with connection.cursor() as cur:
+        cur.execute(
+            'UPDATE planned_lessons SET lesson_number = 99 WHERE id = %s',
+            [positions[0]],
+        )
+
+    result = record_lesson(
+        group_id=group_id,
+        teacher_id=teacher_id,
+        original_teacher_id=None,
+        lesson_date=date,
+        lesson_number=31,          # устаревший аргумент
+        lesson_duration_minutes=60,
+        lesson_type='regular',
+        record_url=None,
+        submitted_by_token='test:number',
+        submit_date=date,
+        attendance=[],
+        planned_lesson_id=positions[0],
+    )
+
+    with connection.cursor() as cur:
+        cur.execute('SELECT lesson_number FROM lessons WHERE id = %s', [result['lesson_id']])
+        written = cur.fetchone()[0]
+        # Прибираем за собой: тестовая БД общая.
+        cur.execute('UPDATE planned_lessons SET fact_lesson_id = NULL WHERE id = %s', [positions[0]])
+        cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [result['lesson_id']])
+        cur.execute('DELETE FROM lessons WHERE id = %s', [result['lesson_id']])
+
+    assert int(written) == 99, 'номер должен быть взят из позиции, а не из аргумента'
