@@ -5,13 +5,15 @@ import { resolveDirectionColor } from '../../lib/subjects';
 import { todayMsk, isoDate, dayMonth, columnIndexOfIsoDate } from '../../lib/dates';
 import { StatusPill } from '../../components/ui/StatusPill';
 import { LessonForm } from '../../components/lessons/LessonForm';
+import { ExtraLessonRecordModal } from '../../components/lessons/ExtraLessonRecordModal';
 import { LessonPopup } from '../calendar/LessonPopup';
 import type { GroupData, Occurrence } from '../../lib/types';
 
 const DAY_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 
 type Selection =
-  | { kind: 'form'; group: string; data: GroupData }
+  | { kind: 'form'; occ: Occurrence; data: GroupData }
+  | { kind: 'extra'; assignmentId: number }
   | { kind: 'popup'; lesson: Occurrence };
 
 /**
@@ -43,8 +45,18 @@ export default function MyLessonsPage() {
   }, [data]);
 
   const handleSelect = useCallback((occ: Occurrence) => {
+    // Доп.урок — своя сущность и свой путь отметки (/api/extra-lessons/:id/record).
+    // Без этой ветки форма обычного урока создала бы лишний курсовой урок с деньгами,
+    // а назначение доп.урока осталось бы невыполненным.
+    if (occ.extraLessonId != null) {
+      setSelection({ kind: 'extra', assignmentId: occ.extraLessonId });
+      return;
+    }
     const groupData = teacherData.data?.data?.[occ.group];
-    if (groupData) setSelection({ kind: 'form', group: occ.group, data: groupData });
+    // Занятие кладём целиком: серверу нужен его id (позиция курса) и реальная дата,
+    // иначе он вынужден угадывать позицию по дате — на группах с двумя занятиями
+    // в день это уводит запись на незащищённый путь.
+    if (groupData) setSelection({ kind: 'form', occ, data: groupData });
     else setSelection({ kind: 'popup', lesson: occ });
   }, [teacherData.data]);
 
@@ -95,7 +107,21 @@ export default function MyLessonsPage() {
       )}
 
       {selection?.kind === 'form' && (
-        <LessonForm group={selection.group} groupData={selection.data} onClose={() => setSelection(null)} />
+        <LessonForm
+          group={selection.occ.group}
+          groupData={selection.data}
+          initialDate={selection.occ.date}
+          plannedLessonId={selection.occ.id}
+          plannedLessonNumber={selection.occ.lessonNumber}
+          isSubstitution={!!selection.occ.teacherOverride}
+          onClose={() => setSelection(null)}
+        />
+      )}
+      {selection?.kind === 'extra' && (
+        <ExtraLessonRecordModal
+          assignmentId={selection.assignmentId}
+          onClose={() => setSelection(null)}
+        />
       )}
       {selection?.kind === 'popup' && (
         <LessonPopup lesson={selection.lesson} onClose={() => setSelection(null)} />
