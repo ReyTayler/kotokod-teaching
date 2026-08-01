@@ -70,6 +70,11 @@ class Lesson(models.Model):
     record_url = models.TextField(null=True, blank=True)
     submitted_at = models.DateTimeField()
     submitted_by_token = models.TextField()
+    # Суррогат «это та же самая отправка того же занятия» — см.
+    # apps.lessons.submission_key. NULL у исторических записей и у системных
+    # уроков (доп.урок/сгорание: их создаёт apps.extra_lessons напрямую через
+    # insert_lesson, у них своя защита — лок статуса резолюции).
+    submission_key = models.TextField(null=True, blank=True)
 
     class Meta:
         managed = True
@@ -83,6 +88,14 @@ class Lesson(models.Model):
             models.UniqueConstraint(
                 fields=['lesson_date', 'group', 'lesson_number', 'submitted_by_token'],
                 name='lessons_natural_key',
+            ),
+            # Частичный уникальный индекс: одна курсовая запись на ключ отправки
+            # в пределах группы. Условие isnull=False оставляет исторические
+            # строки и системные уроки вне ограничения.
+            models.UniqueConstraint(
+                fields=['group', 'submission_key'],
+                condition=models.Q(submission_key__isnull=False),
+                name='lessons_submission_key_unique',
             ),
         ]
 
