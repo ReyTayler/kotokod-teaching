@@ -138,3 +138,36 @@ def test_lesson_number_comes_from_locked_position(group_with_two_slots, teacher_
         cur.execute('DELETE FROM lessons WHERE id = %s', [result['lesson_id']])
 
     assert int(written) == 99, 'номер должен быть взят из позиции, а не из аргумента'
+
+
+def test_vanished_position_raises_instead_of_silent_fallback(group_with_two_slots, teacher_fixture):
+    """
+    Позицию отменили между предпроверкой и локом → явная ошибка. Молчаливое
+    продолжение записи означало бы переход на незащищённый путь.
+    """
+    from apps.lessons.exceptions import CoursePositionVanished
+    from apps.lessons.services import record_lesson
+
+    group_id, date, positions = group_with_two_slots
+    teacher_id, _ = teacher_fixture
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE planned_lessons SET status = 'cancelled' WHERE id = %s",
+            [positions[0]],
+        )
+
+    with pytest.raises(CoursePositionVanished):
+        record_lesson(
+            group_id=group_id,
+            teacher_id=teacher_id,
+            original_teacher_id=None,
+            lesson_date=date,
+            lesson_number=31,
+            lesson_duration_minutes=60,
+            lesson_type='regular',
+            record_url=None,
+            submitted_by_token='test:vanished',
+            submit_date=date,
+            attendance=[],
+            planned_lesson_id=positions[0],
+        )

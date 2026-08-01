@@ -35,7 +35,7 @@ from apps.core.permissions import IsTeacher
 from apps.core.utils.dates import msk_now
 from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import Group
-from apps.lessons.exceptions import LessonAlreadyRecorded
+from apps.lessons.exceptions import CoursePositionVanished, LessonAlreadyRecorded
 from apps.lessons.models import Lesson
 from apps.teacher_spa import repository, services
 from apps.teacher_spa.serializers import MyLessonSerializer, SubmitLessonSerializer
@@ -208,6 +208,8 @@ class SubmitLessonView(APIView):
                 {'error': str(e), 'code': LESSON_ALREADY_RECORDED},
                 status=status.HTTP_409_CONFLICT,
             )
+        except CoursePositionVanished as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if '_error' in result:
             return Response(
                 {'error': result['_error']},

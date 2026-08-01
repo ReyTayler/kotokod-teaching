@@ -18,8 +18,8 @@ from django.db import transaction
 from apps.groups.models import Group
 from apps.lessons import repository
 from apps.lessons.exceptions import (
-    AttendanceCompensatedElsewhere, LessonAlreadyRecorded, LessonHasMakeupResolutions,
-    SystemLessonProtected,
+    AttendanceCompensatedElsewhere, CoursePositionVanished, LessonAlreadyRecorded,
+    LessonHasMakeupResolutions, SystemLessonProtected,
 )
 from apps.core.utils.decimal import to_decimal
 from apps.lessons.models import SYSTEM_LESSON_TYPES, Lesson
@@ -176,10 +176,14 @@ def record_lesson(*,
         # параллельных повтора иначе оба прошли бы предварительную проверку до
         # коммита друг друга и создали два урока. Тот же приём, что в
         # apps.extra_lessons.services.burn (lock_for_record).
-        position = (
-            lock_course_position(planned_lesson_id, group_id)
-            if planned_lesson_id is not None else None
-        )
+        position = None
+        if planned_lesson_id is not None:
+            position = lock_course_position(planned_lesson_id, group_id)
+            if position is None:
+                # Позицию отменили/удалили между предпроверкой и локом. Молча
+                # продолжать нельзя: без позиции ядро уходит на расчёт номера из
+                # прогресса — незащищённый путь, на котором повтор даёт дубль.
+                raise CoursePositionVanished()
         if position is not None and position['fact_lesson_id'] is not None:
             raise LessonAlreadyRecorded(
                 position['lesson_number'], position['scheduled_date'],
