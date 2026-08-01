@@ -13,7 +13,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from apps.groups.models import Group
 from apps.lessons import repository
@@ -23,6 +23,7 @@ from apps.lessons.exceptions import (
 )
 from apps.core.utils.decimal import to_decimal
 from apps.lessons.models import SYSTEM_LESSON_TYPES, Lesson
+from apps.lessons.submission_key import build_submission_key
 from apps.memberships.repository import locked_through_map
 from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.scheduling.repository import (
@@ -197,17 +198,37 @@ def record_lesson(*,
         if position is not None:
             lesson_number = position['lesson_number']
 
-        lesson_id = repository.insert_lesson({
-            'lesson_date': lesson_date,
-            'teacher_id': teacher_id,
-            'group_id': group_id,
-            'original_teacher_id': original_teacher_id,
-            'lesson_number': lesson_number,
-            'lesson_duration_minutes': lesson_duration_minutes,
-            'lesson_type': lesson_type,
-            'record_url': record_url,
-            'submitted_by_token': submitted_by_token,
-        })
+        # Ключ отправки — последний рубеж от дубля. Работает и там, где позиции
+        # курса нет вовсе (группа без плана, дата вне плана): именно на этом
+        # пути повтор создавал второй платный урок (ПГ215).
+        submission_key = build_submission_key(
+            group_id=group_id,
+            lesson_date=lesson_date,
+            planned_lesson_id=position['id'] if position is not None else None,
+        )
+        try:
+            # Вложенный atomic = SAVEPOINT: конфликт уникального индекса не
+            # обязан рвать всю внешнюю транзакцию до отката.
+            with transaction.atomic():
+                lesson_id = repository.insert_lesson({
+                    'lesson_date': lesson_date,
+                    'teacher_id': teacher_id,
+                    'group_id': group_id,
+                    'original_teacher_id': original_teacher_id,
+                    'lesson_number': lesson_number,
+                    'lesson_duration_minutes': lesson_duration_minutes,
+                    'lesson_type': lesson_type,
+                    'record_url': record_url,
+                    'submitted_by_token': submitted_by_token,
+                    'submission_key': submission_key,
+                })
+        except IntegrityError as exc:
+            if ('lessons_submission_key_unique' not in str(exc)
+                    and 'lessons_natural_key' not in str(exc)):
+                raise
+            # Урок за это занятие уже записан — почти всегда повторная отправка
+            # после потерянного ответа. Доменное исключение → 409, а не 500.
+            raise LessonAlreadyRecorded(lesson_number, lesson_date) from exc
         # Привязать факт к плановой строке (planned_lessons.fact_lesson_id/status='done'),
         # иначе занятие остаётся «не проведено» в расписании/календаре.
         # Позиция названа явно → закрепляем за ней; иначе прежний матчинг по номеру.

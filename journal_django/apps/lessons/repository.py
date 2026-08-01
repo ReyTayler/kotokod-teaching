@@ -112,6 +112,10 @@ def insert_lesson(fields: dict) -> int:
         lesson_type=fields.get('lesson_type') or 'regular',
         record_url=fields.get('record_url') or None,
         submitted_by_token=fields.get('submitted_by_token') or 'admin-imported',
+        # Ключ отправки — только у курсовых уроков. Доп.урок и сгорание приходят
+        # сюда из apps.extra_lessons напрямую, без ключа: у них своя защита от
+        # повтора (лок статуса резолюции), и уникальный индекс их не касается.
+        submission_key=fields.get('submission_key'),
         submitted_at=Now(),
     )
     return obj.pk

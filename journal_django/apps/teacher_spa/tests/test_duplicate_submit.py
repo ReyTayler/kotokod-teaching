@@ -47,6 +47,22 @@ def fact_lesson_ids(group_with_two_slots, teacher_fixture):
         cur.execute('DELETE FROM lessons WHERE id = ANY(%s)', [ids])
 
 
+def _purge_group_lessons(group_id: int) -> None:
+    """
+    Уборка за собой: journal_test — общая БД, оставленный платный урок исказил бы
+    чужие тесты и не дал бы удалиться группе (FK). Чистим ВСЕ уроки группы, а не
+    только успешно возвращённый id: в RED-состоянии дубль как раз и создаётся, а
+    его id тест не получает (падает на pytest.raises).
+    """
+    with connection.cursor() as cur:
+        cur.execute(
+            'DELETE FROM payroll WHERE lesson_id IN '
+            '(SELECT id FROM lessons WHERE group_id = %s)',
+            [group_id],
+        )
+        cur.execute('DELETE FROM lessons WHERE group_id = %s', [group_id])
+
+
 def test_all_positions_taken_returns_position_not_none(group_with_two_slots, fact_lesson_ids):
     """
     Мультислот, обе позиции дня заняты фактами. Резолвер обязан вернуть позицию
@@ -205,3 +221,99 @@ def test_matching_position_id_is_used(group_with_two_slots):
 
     assert resolved is not None
     assert resolved['id'] == positions[1]
+
+
+# ---------------------------------------------------------------------------
+# Путь БЕЗ позиции курса: группа без плана / дата вне плана. Защита позицией
+# здесь не работает вовсе — держит только ключ отправки (submission_key).
+# ---------------------------------------------------------------------------
+
+def test_second_record_without_position_is_rejected(group_fixture, teacher_fixture):
+    """
+    Группа без плана: повторная запись того же занятия обязана отказать, а не
+    создать второй платный урок. Это путь, на котором произошёл ПГ215.
+    """
+    from apps.lessons.exceptions import LessonAlreadyRecorded
+    from apps.lessons.services import record_lesson
+
+    teacher_id, _ = teacher_fixture
+    common = dict(
+        group_id=group_fixture,
+        teacher_id=teacher_id,
+        original_teacher_id=None,
+        lesson_date='2026-08-20',
+        lesson_duration_minutes=60,
+        lesson_type='regular',
+        record_url=None,
+        submit_date='2026-08-20',
+        attendance=[],
+        planned_lesson_id=None,
+    )
+
+    try:
+        record_lesson(**common, lesson_number=1, submitted_by_token='acct:1')
+
+        # Повтор: номер другой (его считают из прогресса учеников), токен тот же —
+        # старый натуральный ключ такое не ловил, потому что номер каждый раз новый.
+        with pytest.raises(LessonAlreadyRecorded):
+            record_lesson(**common, lesson_number=2, submitted_by_token='acct:1')
+    finally:
+        _purge_group_lessons(group_fixture)
+
+
+def test_duplicate_across_different_actors_is_rejected(group_fixture, teacher_fixture):
+    """
+    Препод записал урок, следом админ записывает то же занятие. Старый ключ
+    включал submitted_by_token и такой дубль пропускал.
+    """
+    from apps.lessons.exceptions import LessonAlreadyRecorded
+    from apps.lessons.services import record_lesson
+
+    teacher_id, _ = teacher_fixture
+    common = dict(
+        group_id=group_fixture,
+        teacher_id=teacher_id,
+        original_teacher_id=None,
+        lesson_date='2026-08-21',
+        lesson_duration_minutes=60,
+        lesson_type='regular',
+        record_url=None,
+        submit_date='2026-08-21',
+        attendance=[],
+        planned_lesson_id=None,
+        lesson_number=5,
+    )
+
+    try:
+        record_lesson(**common, submitted_by_token='acct:12')
+
+        with pytest.raises(LessonAlreadyRecorded):
+            record_lesson(**common, submitted_by_token='admin-imported')
+    finally:
+        _purge_group_lessons(group_fixture)
+
+
+def test_different_dates_are_not_duplicates(group_fixture, teacher_fixture):
+    """Два занятия одной группы в РАЗНЫЕ дни — не дубль, оба должны записаться."""
+    from apps.lessons.services import record_lesson
+
+    teacher_id, _ = teacher_fixture
+    common = dict(
+        group_id=group_fixture,
+        teacher_id=teacher_id,
+        original_teacher_id=None,
+        lesson_duration_minutes=60,
+        lesson_type='regular',
+        record_url=None,
+        attendance=[],
+        planned_lesson_id=None,
+        submitted_by_token='acct:1',
+    )
+
+    try:
+        a = record_lesson(**common, lesson_date='2026-08-23', submit_date='2026-08-23', lesson_number=1)
+        b = record_lesson(**common, lesson_date='2026-08-24', submit_date='2026-08-24', lesson_number=2)
+
+        assert a['lesson_id'] != b['lesson_id']
+    finally:
+        _purge_group_lessons(group_fixture)
