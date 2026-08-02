@@ -2,7 +2,7 @@
 
 Сервер учёта посещаемости для школы KOTOKOD. Единый вход `/login` с выбором роли + 2FA; teacher SPA `/teacher` и admin SPA `/admin` (React 19 + TanStack Query v5 + React Router v7). Всё на PostgreSQL.
 
-> **⚠️ Бэкенд перенесён на Python Django+DRF (`journal_django/`). Express и Nest-каркас УДАЛЕНЫ** (2026-06-11, раздел 08 миграции). Историческое описание Express/routes/Nest ниже — для справки по доменным инвариантам, но самих файлов (`server.js`, `routes/`, `src/`) больше нет. Актуальный бэкенд — `journal_django/` (см. `docs/python-plan/`, `deploy/`). В корне остались только: admin SPA-сборка (`web/`, `public/`) и Node dev-инструменты backfill Sheets→PG (`scripts/`, `services/{db,sheets,auth,calculator,pagination,repo/accounts}.js`).
+> **⚠️ Бэкенд перенесён на Python Django+DRF (`journal_django/`). Express и Nest-каркас УДАЛЕНЫ** (2026-06-11, раздел 08 миграции). Историческое описание Express/routes/Nest ниже — для справки по доменным инвариантам, но самих файлов (`server.js`, `routes/`, `src/`) больше нет. Актуальный бэкенд — `journal_django/` (см. `docs/python-plan/`, `deploy/`). **Node-инструменты тоже удалены** (2026-08-02): `scripts/*.js`, `services/`, корневые `package.json`/`tsconfig.json` — всё это имело порты в Python и держалось мёртвым грузом. Backfill Sheets→PG живёт в `journal_django/apps/sync/` (`sheets_client.py`, `backfills/`, покрыт pytest), создание учётки — `manage.py bootstrap_admin`. Весь проект — в `journal_django/`; в корне только документация, `db/` (историческая SQL-схема эпохи Express) и `deploy/`.
 
 ## 🔒 Безопасность — ОБЯЗАТЕЛЬНО
 
@@ -78,7 +78,9 @@ JOURNAL_SPREADSHEET_ID=       # нужен для backfill-payments
 
 ## Тесты
 
-`node --test` (97+ тестов): auth, twofa, audit, accounts, admin-repo, fifo, calculator, db, teacher-repo, backfill-scripts, parse-time, sync-failures.
+`pytest` из `journal_django/` (1500+ тестов). Node-тестов больше нет — вместе с Node-кодом.
+
+⚠️ Гонять **полный** `pytest -q`, а не по приложениям: часть приложений no-op'ит `django_db_setup` (общая `journal_test`), часть пересоздаёт `test_journal_test`. Прогон по частям даёт ложный результат.
 
 ## Статус фаз
 

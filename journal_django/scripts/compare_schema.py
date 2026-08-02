@@ -5,7 +5,7 @@ CHECK/UNIQUE/PK/FK-определения (нормализованные, бе�
 Печатает только расхождения. Пустой вывод = схемы структурно совпадают.
 
 Usage:
-  python scripts/compare_schema.py "<dsn_a>" "<dsn_b>"
+  python journal_django/scripts/compare_schema.py "<dsn_a>" "<dsn_b>"
 """
 import re
 import sys

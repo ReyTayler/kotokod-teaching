@@ -237,16 +237,16 @@ python -c "import secrets; print(secrets.token_hex(64))"   # генерация 
 ### 2. База данных
 ```bash
 createdb journal
-npm install            # dev-инструменты
-npm run db:migrate     # применяет db/migrations/*.sql
 ```
+Схему создаёт Django на шаге 3. `db/migrations/*.sql` — историческая схема эпохи
+Express, для новых установок не нужна.
 
 ### 3. Backend
 ```bash
 cd journal_django
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-python manage.py migrate            # служебные таблицы Django
+python manage.py migrate            # вся схема: доменные таблицы + служебные
 python manage.py runserver 8000     # API на http://127.0.0.1:8000
 python manage.py bootstrap_admin    # создать первого администратора
 ```
