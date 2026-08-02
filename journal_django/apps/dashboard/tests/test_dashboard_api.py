@@ -83,24 +83,15 @@ def test_dashboard_shape_and_types(role):
     resp = _client(role).get(BASE)
     assert resp.status_code == 200
     body = resp.json()
+    # Карточка «Долги» удалена из дашборда (2026-08-02) вместе с расчётом:
+    # полей debts/debts_total в ответе больше нет.
     assert set(body.keys()) == {
         'month', 'from', 'to', 'revenue_month', 'worked_off_month',
-        'carryover_month', 'deferred_total', 'debts', 'debts_total',
+        'carryover_month', 'deferred_total',
     }
     # Денежные значения — JSON-числа, не строки (как Express Number()).
     for k in ('revenue_month', 'worked_off_month', 'carryover_month', 'deferred_total'):
         assert isinstance(body[k], (int, float)), f'{k} must be number, got {type(body[k])}'
-    assert isinstance(body['debts'], list)
-    assert isinstance(body['debts_total'], int)
-    # top-долги ≤ 8, balance — число, отсортированы по возрастанию.
-    assert len(body['debts']) <= 8
-    balances = [d['balance'] for d in body['debts']]
-    for b in balances:
-        assert isinstance(b, (int, float))
-    assert balances == sorted(balances)
-    # Долг — общий пул по ученику (2026-07-08), без разбивки по направлению.
-    for d in body['debts']:
-        assert set(d.keys()) == {'student_id', 'student_name', 'balance'}
 
 
 def test_dashboard_invalid_date():

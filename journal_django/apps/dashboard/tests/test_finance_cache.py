@@ -73,7 +73,7 @@ def test_monthly_is_cached_per_years():
 })
 def test_dashboard_survives_dead_cache():
     body = svc.get_dashboard_cached()
-    assert 'revenue_month' in body and 'debts' in body
+    assert 'revenue_month' in body and 'deferred_total' in body
     assert 'byYear' in svc.get_monthly_cached()
 
 

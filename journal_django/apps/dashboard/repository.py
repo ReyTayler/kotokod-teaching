@@ -16,7 +16,6 @@ from django.db.models.functions import Coalesce, ExtractMonth, ExtractYear
 
 from apps.lessons.models import Lesson
 from apps.payments.models import Payment
-from apps.students.models import Student
 
 
 _ZERO = Value(Decimal('0'), output_field=DecimalField(max_digits=20, decimal_places=2))
@@ -51,10 +50,3 @@ def distinct_source_years() -> list[int]:
     return sorted({y for y in set(y1).union(set(y2)) if y is not None})
 
 
-def students_names(student_ids: list[int]) -> dict[int, str]:
-    """id → full_name."""
-    if not student_ids:
-        return {}
-    return dict(
-        Student.objects.filter(id__in=student_ids).values_list('id', 'full_name')
-    )

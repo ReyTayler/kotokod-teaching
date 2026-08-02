@@ -5,7 +5,6 @@ import { fmtRub, fmtDate } from '../../lib/format';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { DateInput } from '../../components/form/DateInput';
 import { KpiCard } from './KpiCard';
-import { DebtsCard } from './DebtsCard';
 
 // Lazy: Recharts грузится отдельным чанком, не блокирует первый показ дашборда.
 const FinanceCharts = lazy(() =>
@@ -83,8 +82,6 @@ export default function FinanceView() {
           <Suspense fallback={<PageLoading />}>
             <FinanceCharts />
           </Suspense>
-
-          <DebtsCard debts={data.debts} total={data.debts_total} />
         </>
       )}
     </>

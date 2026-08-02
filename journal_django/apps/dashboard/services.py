@@ -21,7 +21,7 @@ from typing import Optional
 from django.core.cache import cache
 
 from apps.core.utils.dates import msk_month_range_triple
-from apps.core.utils.decimal import js_number, js_round2, to_decimal
+from apps.core.utils.decimal import js_number, js_round2
 from apps.dashboard import repository
 from apps.finances.fifo import compute_fifo
 from apps.finances.repository import fifo_inputs
@@ -53,42 +53,19 @@ def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict
     inp = fifo_inputs()
     lots_by_key = inp['lots_by_key']
     cons_by_key = inp['cons_by_key']
-    purchased_by_key = inp['purchased_by_key']
-    consumed_by_key = inp['consumed_by_key']
 
     worked_off_month = _ZERO
     deferred_total = _ZERO
-    debt_keys: list[dict] = []
     for key in inp['keys']:
         fifo = compute_fifo(
             lots_by_key.get(key, []), cons_by_key.get(key, []), period_start, period_end
         )
         worked_off_month += fifo['worked_off_month']
         deferred_total += fifo['remaining_value']
-        balance = to_decimal(purchased_by_key.get(key, 0)) - to_decimal(consumed_by_key.get(key, 0))
-        if balance < 0:
-            debt_keys.append({
-                'student_id': int(key),
-                'balance': js_round2(balance),
-            })
 
     worked_off_month = js_round2(worked_off_month)
     deferred_total = js_round2(deferred_total)
     carryover_month = js_round2(revenue_month - worked_off_month)
-
-    # Стабильная сортировка по возрастанию баланса (insertion order — тай-брейк, как в JS).
-    debt_keys.sort(key=lambda d: d['balance'])
-    debts_total = len(debt_keys)
-    top_debts = debt_keys[:8]
-
-    student_ids = list(dict.fromkeys(d['student_id'] for d in top_debts))
-    s_map = repository.students_names(student_ids)
-
-    debts = [{
-        'student_id': d['student_id'],
-        'student_name': s_map.get(d['student_id'], '—'),
-        'balance': js_number(d['balance']),
-    } for d in top_debts]
 
     return {
         'month': month,
@@ -98,8 +75,6 @@ def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict
         'worked_off_month': js_number(worked_off_month),
         'carryover_month': js_number(carryover_month),
         'deferred_total': js_number(deferred_total),
-        'debts': debts,
-        'debts_total': debts_total,
     }
 
 

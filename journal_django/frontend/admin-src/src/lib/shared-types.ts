@@ -409,12 +409,6 @@ export interface AuditEntry {
 
 // ===== Dashboard =====
 
-export interface DashboardDebt {
-  student_id: number;
-  student_name: string;
-  balance: number; // в уроках, < 0 (общий пул ученика, без направления)
-}
-
 export interface DashboardData {
   month: string;            // 'YYYY-MM' (текущий МСК-месяц, для дефолтной подписи)
   from: string | null;      // эхо периода 'YYYY-MM-DD' (null = дефолтный месяц)
@@ -423,8 +417,6 @@ export interface DashboardData {
   worked_off_month: number; // отработано за месяц (FIFO)
   carryover_month: number;  // revenue_month − worked_off_month (может быть < 0)
   deferred_total: number;   // снимок несписанных партий, ≥ 0
-  debts: DashboardDebt[];   // топ-8 худших
-  debts_total: number;      // всего пар с долгом
 }
 
 export interface MonthlyFinancePoint {
