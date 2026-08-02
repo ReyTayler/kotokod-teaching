@@ -281,6 +281,7 @@ def occurrences_on_date(target: datetime.date) -> list[dict]:
             'id', 'scheduled_time', 'status', 'teacher_id',
             group_pk=F('group_id'),
             group_name=F('group__name'),
+            duration_minutes=F('group__lesson_duration_minutes'),
         )
     )
 

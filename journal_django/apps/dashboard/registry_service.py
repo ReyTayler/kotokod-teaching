@@ -378,7 +378,12 @@ def build_summary() -> dict:
 
 
 def _build_today_stream(today: datetime.date) -> list[dict]:
-    """«Поток дня»: плановые занятия всех активных групп на сегодня."""
+    """«Поток дня»: плановые занятия всех активных групп на сегодня.
+
+    Отдаём время начала и длительность, а не готовый ярлык «идёт/не отмечен»:
+    сводка кэшируется (SUMMARY_TTL), и вычисленный здесь статус «замёрз» бы на
+    два часа. Часы тикают в браузере — там статус и считается.
+    """
     occ = sched_repo.occurrences_on_date(today)
     if not occ:
         return []
@@ -395,6 +400,7 @@ def _build_today_stream(today: datetime.date) -> list[dict]:
             'teacher_name': tnames.get(o['teacher_id']),
             'student_names': students_by_group.get(o['group_pk'], []),
             'status': o['status'],
+            'duration_minutes': o['duration_minutes'],
         })
     return stream
 

@@ -11,6 +11,30 @@ export function todayMSK(): string {
   }).format(new Date());
 }
 
+/**
+ * Текущее время по МСК в минутах от полуночи (09:30 → 570).
+ * Часовой пояс задан явно: у администратора на машине может стоять любой, а
+ * расписание школы живёт по Москве. hourCycle 'h23' — чтобы полночь пришла
+ * как '00', а не '24' (hour12: false этого не гарантирует).
+ */
+export function minutesNowMSK(): number {
+  const hm = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(new Date());
+  const [h, m] = hm.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
+  return (h % 24) * 60 + m;
+}
+
+/** 'HH:MM' → минуты от полуночи; null, если формат не тот. */
+export function parseHHMM(time: string | null | undefined): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(time ?? '').trim());
+  if (!m) return null;
+  const h = +m[1], min = +m[2];
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
 export function fmtDate(s: string | Date | null | undefined): string {
   if (!s) return '—';
   const str = String(s);

@@ -96,6 +96,10 @@
   --warning: #b45309;
   --danger:  #dc2626;
   --info:    #2f6fed;
+  /* Парные заливки к --warning/--info: должны существовать в обоих tokens.css,
+     иначе общий компонент теряет фон молча (var() к пустому токену). */
+  --warning-soft: rgba(180, 83, 9, 0.10);
+  --info-soft:    rgba(47, 111, 237, 0.10);
   --green: var(--success); --amber: var(--warning); --red: var(--danger); --blue: var(--info);
 
   /* Spacing scale — 4px grid */
@@ -191,6 +195,8 @@
   --warning: #f4b740;
   --danger:  #f87171;
   --info:    #7c9bff;
+  --warning-soft: rgba(244, 183, 64, 0.14);
+  --info-soft:    rgba(124, 155, 255, 0.14);
 
   --subject-python:     #7c9bff;
   --subject-scratch:    #50DCFE;

@@ -112,7 +112,12 @@ def test_summary_shape(role):
 
     assert isinstance(body['today_stream'], list)
     for occ in body['today_stream']:
-        assert set(occ.keys()) == {'time', 'group_id', 'group_code', 'teacher_name', 'student_names', 'status'}
+        assert set(occ.keys()) == {
+            'time', 'group_id', 'group_code', 'teacher_name', 'student_names',
+            'status', 'duration_minutes',
+        }
+        # Длительность нужна фронту, чтобы отличить «идёт урок» от «не отмечен».
+        assert isinstance(occ['duration_minutes'], int)
 
 
 def test_summary_kpi_consistency():

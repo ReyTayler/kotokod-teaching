@@ -344,6 +344,8 @@ export interface TodayStreamItem {
   teacher_name: string | null;
   student_names: string[];
   status: string;
+  /** Длительность занятия группы (45/60/90) — из неё фронт считает время конца. */
+  duration_minutes: number;
 }
 
 export interface RegistrySignal {

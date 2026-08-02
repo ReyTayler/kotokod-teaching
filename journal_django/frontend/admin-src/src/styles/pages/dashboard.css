@@ -319,20 +319,71 @@
   white-space: nowrap;
 }
 
+/* Четыре состояния строки, и внимание им нужно разное. «Ожидается» и
+   «проведено» — фон дня, их видно только когда ищешь. «Идёт урок» — живой
+   маркер: точка с пульсом. «Не отмечен» — единственный, который требует
+   действия, поэтому он один читается как чип с заливкой. */
 .reg-stream__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: 11px;
   font-weight: 600;
   color: var(--text3);
   white-space: nowrap;
   margin-left: auto;
+  /* Компенсирует padding чипов, чтобы правый край колонки не «плясал»
+     при переключении статуса. */
+  padding: 2px var(--space-2);
+  border-radius: var(--r-sm);
 }
 
-.reg-stream__status--overdue {
-  color: var(--danger);
+.reg-stream__status--pending {
+  font-weight: 500;
+  color: var(--text4);
 }
 
 .reg-stream__status--done {
+  font-weight: 500;
   color: var(--success);
+}
+
+.reg-stream__status--running {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.reg-stream__status--running::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: reg-stream-pulse 2s ease-in-out infinite;
+}
+
+.reg-stream__status--unmarked {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+@keyframes reg-stream-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reg-stream__status--running::before { animation: none; }
+}
+
+/* Боковая метка строки — чтобы незакрытые уроки находились взглядом при
+   прокрутке, не вчитываясь в правую колонку. */
+.reg-stream__row--unmarked {
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.reg-stream__row--running {
+  box-shadow: inset 3px 0 0 var(--info);
 }
 
 /* ── Сигналы менеджеру ── */
