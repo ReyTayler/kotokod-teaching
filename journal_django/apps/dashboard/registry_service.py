@@ -25,7 +25,7 @@ from decimal import Decimal
 from django.core.cache import cache
 from django.db.models import (
     Case, Count, DecimalField, Exists, ExpressionWrapper, F, FloatField,
-    IntegerField, OuterRef, QuerySet, Subquery, Sum, Value, When,
+    IntegerField, Max, Min, OuterRef, QuerySet, Subquery, Sum, Value, When,
 )
 from django.db.models.functions import Coalesce
 
@@ -226,6 +226,98 @@ def base_students_qs(today: datetime.date) -> QuerySet:
 
 
 # ---------------------------------------------------------------------------
+# Те же поля для СВОДКИ — пакетно, без коррелированных подзапросов.
+# ---------------------------------------------------------------------------
+
+def _summary_rows(today: datetime.date) -> list[dict]:
+    """
+    Поля base_students_qs (balance/attended/planned/last_lesson/next_lesson) по
+    ВСЕЙ активной популяции, но каждый источник читается ровно ОДИН раз.
+
+    Почему не переиспользуем base_students_qs: там на каждого ученика свой
+    коррелированный подзапрос. Для страницы списка (50 строк) это дёшево, а
+    сводке нужны все, и подзапрос «дата последнего занятия» вырождается в
+    перебор журнала занятий с конца — отдельно на каждого ученика. Замер
+    2026-08-02 на 236 учениках: 100 270 проб и 82% стоимости всего запроса,
+    причём стоимость растёт как «ученики × занятия», то есть квадратично.
+
+    Значения обязаны совпадать с base_students_qs до последнего знака —
+    считает это одна и та же арифметика, меняется только форма выборки.
+    """
+    memberships = GroupMembership.objects.filter(active=True, group__active=True)
+
+    # Активная популяция + суммы по членствам. Набор учеников тот же, что даёт
+    # Exists(active_membership) в base_students_qs: «есть активное членство в
+    # активной группе». direction/group — связь «к одному», fan-out нет.
+    mem_rows = list(
+        memberships
+        .values('student_id')
+        .annotate(
+            attended=Coalesce(Sum('lessons_done', output_field=_DEC), _ZERO_DEC),
+            planned=Coalesce(
+                Sum('group__direction__total_lessons', output_field=_DEC), _ZERO_DEC,
+            ),
+        )
+    )
+
+    purchased = dict(
+        Payment.objects
+        .values('student_id')
+        .annotate(s=Coalesce(Sum('lessons_count', output_field=_DEC), _ZERO_DEC))
+        .values_list('student_id', 's')
+    )
+
+    # Один проход по посещениям даёт сразу оба поля: Σ отработанных уроков
+    # (45 мин = 0.5) и дату последнего занятия.
+    attendance = {
+        r['student_id']: r
+        for r in LessonAttendance.objects
+        .filter(present=True)
+        .values('student_id')
+        .annotate(
+            units=Coalesce(Sum(Case(
+                When(lesson__lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
+                default=Value(Decimal('1')),
+                output_field=_DEC,
+            )), _ZERO_DEC),
+            last=Max('lesson__lesson_date'),
+        )
+    }
+
+    # Ближайшее занятие: JOIN к членствам даёт fan-out по группам ученика, но
+    # Min от этого не зависит — как и MIN в исходном подзапросе с LIMIT 1.
+    next_lesson = dict(
+        PlannedLesson.objects
+        .filter(
+            group__active=True,
+            group__memberships__active=True,
+            scheduled_date__gte=today,
+            status__in=(PENDING, OVERDUE),
+        )
+        .values('group__memberships__student_id')
+        .annotate(d=Min('scheduled_date'))
+        .values_list('group__memberships__student_id', 'd')
+    )
+
+    rows = []
+    for m in mem_rows:
+        sid = m['student_id']
+        att = attendance.get(sid)
+        units = att['units'] if att else Decimal('0')
+        rows.append({
+            # build_summary ключ не читает — он нужен сверке с base_students_qs
+            # (тест test_summary_batch_matches_annotated_queryset) и отладке.
+            'student_id': sid,
+            'balance': to_decimal(purchased.get(sid, 0)) - to_decimal(units),
+            'attended': m['attended'],
+            'planned': m['planned'],
+            'last_lesson': att['last'] if att else None,
+            'next_lesson': next_lesson.get(sid),
+        })
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Список: фильтр сегмента + поиск + сортировка (view пагинирует queryset).
 # ---------------------------------------------------------------------------
 
@@ -340,7 +432,7 @@ def build_summary() -> dict:
     today = _today()
     _, month_start, month_end = msk_month_range_triple()
 
-    rows = base_students_qs(today).values('balance', 'last_lesson', 'next_lesson', 'attended', 'planned')
+    rows = _summary_rows(today)
 
     active = 0
     signals = {'ending': 0, 'closed': 0, 'idle': 0, 'no_plan': 0}
