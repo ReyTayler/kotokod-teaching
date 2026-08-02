@@ -181,8 +181,8 @@ def test_post_free_outcome_pays_neither_teacher_nor_student(
     group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
 ):
     """POST с is_free=true (бесплатное занятие, один ученик) → урок создаётся, но
-    занятие бесплатно и для школы: free выпадает из headcount, других платных present
-    нет → payroll total=0/present=0/payment=0 (преподавателю не платят). Строка
+    занятие бесплатно и для школы: free остаётся в размере группы (total=1), но
+    пришедшим не считается (present=0) → payment=0, платить не за кого. Строка
     lesson_attendance.is_free=true (баланс УЧЕНИКА не спишется — это проверяет
     finances). Сквозная проверка сериализатор→сервис→БД."""
     payload = {
@@ -201,7 +201,7 @@ def test_post_free_outcome_pays_neither_teacher_nor_student(
             cur.execute('SELECT total_students, present_count, payment FROM payroll '
                         'WHERE lesson_id = %s', [lesson_id])
             total, present, payment = cur.fetchone()
-            assert total == 0 and present == 0 and float(payment) == 0.0
+            assert total == 1 and present == 0 and float(payment) == 0.0
             cur.execute('SELECT present, is_free FROM lesson_attendance '
                         'WHERE lesson_id = %s AND student_id = %s', [lesson_id, student_fixture])
             assert cur.fetchone() == (True, True)

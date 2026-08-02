@@ -583,11 +583,13 @@ def test_attendance_cell_set_free_postfactum_frees_student_not_payroll(
             lesson_id, student_fixture, present=True, is_free=True) is True
 
         full = services.get_lesson_full(lesson_id)
-        # free выпал из headcount зарплаты — остался 1 платный present (сосед s2):
-        # total=1/present=1 → 500 (малая группа, все пришли). За free не платят.
-        assert full['payroll']['total_students'] == 1
+        # Free занимает место в группе, но пришедшим не считается (решение 2026-08-02):
+        # total=2 (оба в группе), present=1 (только платный s2) → 300, «малая группа,
+        # пришли не все». Раньше free выпадал и из total — выходило 1/1 → 500, то есть
+        # бесплатный ученик не удешевлял занятие вовсе.
+        assert full['payroll']['total_students'] == 2
         assert full['payroll']['present_count'] == 1
-        assert full['payroll']['payment'] == 500
+        assert full['payroll']['payment'] == 300
         # free-ученику баланс возвращается (не списывается по флагу is_free)
         assert float(balance_for_student(student_fixture)) == 8.0
         # платный сосед — по-прежнему списан
@@ -808,12 +810,12 @@ def test_record_lesson_free_outcome_no_money_but_progress_and_renewal(
     lesson_id = result['lesson_id']
     try:
         full = services.get_lesson_full(lesson_id)
-        # free ВНЕ headcount зарплаты — остался 1 платный present (student2):
-        # total=1/present=1 → 500 (малая группа). За free преподавателю не платят.
-        assert full['payroll']['total_students'] == 1
+        # Free занимает место в группе, но пришедшим не считается (решение 2026-08-02):
+        # total=2, present=1 (только платный student2) → 300, «пришли не все».
+        assert full['payroll']['total_students'] == 2
         assert full['payroll']['present_count'] == 1
-        assert full['payroll']['payment'] == 500
-        assert result['payment'] == 500
+        assert full['payroll']['payment'] == 300
+        assert result['payment'] == 300
         # деньги УЧЕНИКА: free не списан, платный списан
         assert float(balance_for_student(student_fixture)) == 8.0
         assert float(balance_for_student(student2_id)) == 7.0
@@ -842,9 +844,9 @@ def test_record_lesson_free_outcome_no_money_but_progress_and_renewal(
 def test_record_lesson_solo_free_student_teacher_not_paid_no_charge(
     group_fixture, teacher_id_fixture, student_fixture, direction_fixture, membership_fixture, lessons_done,
 ):
-    """Один ученик в группе, бесплатное занятие → free выпадает из headcount, других
-    платных present нет → payroll total=0/present=0/payment=0 (преподавателю за
-    бесплатное занятие не платят). Баланс УЧЕНИКА не списан, прогресс +1 (present=true)."""
+    """Один ученик в группе, бесплатное занятие → он остаётся в размере группы
+    (total=1), но пришедшим не считается (present=0) → payment=0: платить не за кого.
+    Баланс УЧЕНИКА не списан, прогресс +1 (present=true)."""
     from apps.finances.repository import balance_for_student
 
     result = services.record_lesson(
@@ -857,7 +859,7 @@ def test_record_lesson_solo_free_student_teacher_not_paid_no_charge(
     lesson_id = result['lesson_id']
     try:
         full = services.get_lesson_full(lesson_id)
-        assert full['payroll']['total_students'] == 0
+        assert full['payroll']['total_students'] == 1
         assert full['payroll']['present_count'] == 0
         assert full['payroll']['payment'] == 0
         assert result['payment'] == 0

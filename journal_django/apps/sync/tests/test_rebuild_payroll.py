@@ -112,8 +112,10 @@ def test_run_excludes_free_and_skip_from_headcount():
             cur.execute("SELECT total_students, present_count, payment FROM payroll WHERE lesson_id = %s",
                         [lesson_id])
             total, present, payment = cur.fetchone()
-            assert total == 1 and present == 1  # free выпал из headcount
-            assert payment == 500               # 1 платный present → smallGroup
+            # free занимает место в группе, но пришедшим не считается (2026-08-02):
+            # total=2, present=1 → «малая группа, пришли не все» = 300.
+            assert total == 2 and present == 1
+            assert payment == 300
     finally:
         with connection.cursor() as cur:
             cur.execute("DELETE FROM payroll WHERE lesson_id = %s", [lesson_id])

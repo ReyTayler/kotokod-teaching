@@ -152,16 +152,23 @@ def record_lesson(*,
 
     is_half = lesson_duration_minutes == 45
     step = _step(lesson_duration_minutes)
-    # Зарплата: из headcount исключаются неоплачиваемые пропуски (unpaid_skip) И
-    # бесплатные занятия (is_free). За бесплатное занятие преподаватель выплаты не
-    # получает — оно бесплатно и для ученика (баланс), и для школы (зарплата).
-    # Если free — единственный присутствующий, headcount = 0 → payment=0.
-    payroll_attendance = [
-        a for a in attendance
-        if a['student_id'] not in skip_ids and a['student_id'] not in free_ids
-    ]
+    # Зарплата (правило 2026-08-02):
+    #   • unpaid_skip — ученика на этом уроке как будто нет: вне total И вне present;
+    #   • is_free — место в группе ЗАНИМАЕТ (входит в total), но пришедшим НЕ считается.
+    #
+    # Почему free остаётся в total: ставка малой группы плоская (до 2 человек и все
+    # пришли — 500). Если убрать free и оттуда, группа из двоих с одним бесплатным
+    # схлопывается в «1 из 1, все пришли» и стоит те же 500 — бесплатный ученик не
+    # удешевляет занятие вовсе. Оставляя его в total, получаем «2, пришёл 1» → 300:
+    # за бесплатного ребёнка преподаватель денег не получает.
+    #
+    # Если free — единственный присутствующий, present_count = 0 → payment = 0.
+    payroll_attendance = [a for a in attendance if a['student_id'] not in skip_ids]
     total_students = len(payroll_attendance)
-    present_count = len([a for a in payroll_attendance if a['present']])
+    present_count = len([
+        a for a in payroll_attendance
+        if a['present'] and a['student_id'] not in free_ids
+    ])
 
     payment = calculate_payment(total_students, present_count, is_half)
     penalty = calculate_penalty(lesson_date, submit_date, present_count)

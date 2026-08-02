@@ -518,11 +518,13 @@ def update_attendance_cell(
         # и последний commit тихо затёр бы вклад первого (lost update).
         payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
         if payroll is not None:
-            # Из headcount зарплаты исключены unpaid_skip (неоплачиваемый пропуск) И
-            # is_free (бесплатное занятие) — за бесплатное преподавателю не платят
-            # (решение 2026-07-24). См. lesson-outcomes-spec.
+            # Headcount (правило 2026-08-02): unpaid_skip вне total И вне present;
+            # is_free занимает место в группе (входит в total), но пришедшим не
+            # считается. Иначе группа из двоих с одним бесплатным схлопывается в
+            # «1 из 1, все пришли» и стоит те же 500 — бесплатный не удешевляет
+            # занятие. См. record_lesson и lesson-outcomes-spec.
             total_students = LessonAttendance.objects.filter(
-                lesson_id=lesson_id, unpaid_skip=False, is_free=False,
+                lesson_id=lesson_id, unpaid_skip=False,
             ).count()
             present_total = LessonAttendance.objects.filter(
                 lesson_id=lesson_id, present=True, unpaid_skip=False, is_free=False,
@@ -574,10 +576,10 @@ def set_unpaid_skip(lesson_id: int, student_id: int, value: bool) -> bool:
 
         payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
         if payroll is not None:
-            # Вне зарплаты: unpaid_skip И is_free (за бесплатное занятие препод
-            # выплаты не получает, решение 2026-07-24).
+            # Headcount как в update_attendance_cell (правило 2026-08-02): unpaid_skip
+            # вне total И вне present; is_free остаётся в total, но не в present.
             total_students = LessonAttendance.objects.filter(
-                lesson_id=lesson_id, unpaid_skip=False, is_free=False).count()
+                lesson_id=lesson_id, unpaid_skip=False).count()
             present_total = LessonAttendance.objects.filter(
                 lesson_id=lesson_id, present=True, unpaid_skip=False, is_free=False).count()
             is_half = ctx['lesson_duration_minutes'] == 45
