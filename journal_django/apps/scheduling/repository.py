@@ -646,6 +646,42 @@ def find_course_position_by_date(group_id: int, lesson_date) -> dict | None:
 _POSITION_FIELDS = ('id', 'seq', 'lesson_number', 'scheduled_date', 'fact_lesson_id')
 
 
+def find_course_position_by_date_and_number(
+    group_id: int, lesson_date, lesson_number,
+) -> dict | None:
+    """
+    Позиция курса по дате И номеру — резолв для АДМИНСКОГО пути записи.
+
+    Админ, в отличие от преподавателя, всегда указывает номер урока явно, и это
+    единственный признак, которым он различает два занятия одного дня
+    (мультислот). find_course_position_by_date для него не годится: при двух
+    свободных позициях она возвращает None, и обе записи получили бы один и тот
+    же ключ отправки slot:<group>:<date> — второе законное занятие дня упёрлось
+    бы в конфликт.
+
+    Занятая позиция возвращается наравне со свободной: занятая означает «урок за
+    это занятие уже записан», и вызывающий обязан отказать. Именно так админский
+    путь попадает в ОДНО пространство ключей с преподавательским — иначе то же
+    занятие, записанное с двух сторон, даёт два платных урока (ключи pos:<id> и
+    slot:<group>:<date> не конфликтуют по построению).
+
+    None — позиции с таким номером на эту дату нет (группа без плана, запись вне
+    плана, номер поправлен вручную): вызывающий уходит на ключ по дате.
+    """
+    return (
+        PlannedLesson.objects
+        .filter(
+            group_id=group_id,
+            scheduled_date=lesson_date,
+            lesson_number=Decimal(str(lesson_number)),
+            seq__isnull=False,
+        )
+        .exclude(status=CANCELLED)
+        .values(*_POSITION_FIELDS)
+        .first()
+    )
+
+
 def _course_position_qs(planned_lesson_id: int, group_id: int):
     """
     Позиция курса по id В ПРЕДЕЛАХ группы. group_id в фильтре — не украшение:

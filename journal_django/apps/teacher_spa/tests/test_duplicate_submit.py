@@ -344,3 +344,64 @@ def test_admin_duplicate_returns_409_not_500(admin_client, group_fixture, teache
         assert second.json()['code'] == 'lesson_already_recorded'
     finally:
         _purge_group_lessons(group_fixture)
+
+
+def test_admin_can_record_both_slots_of_multislot_day(
+    admin_client, group_with_two_slots, teacher_fixture,
+):
+    """
+    Мультислот: в плане две позиции на день — админ обязан записать ОБА занятия.
+
+    Регрессия: пока админский путь не резолвил позицию, ключ отправки у него был
+    один на всю дату (slot:<group>:<date>), и второе занятие дня упиралось в 409,
+    хотя оно законное.
+    """
+    group_id, date, _positions = group_with_two_slots
+    teacher_id, _ = teacher_fixture
+    base = {
+        'lesson_date': date,
+        'group_id': group_id,
+        'teacher_id': teacher_id,
+        'lesson_duration_minutes': 60,
+        'lesson_type': 'regular',
+    }
+    try:
+        first = admin_client.post('/api/admin/lessons', {**base, 'lesson_number': 31}, format='json')
+        assert first.status_code == 201, first.content
+
+        second = admin_client.post('/api/admin/lessons', {**base, 'lesson_number': 32}, format='json')
+        assert second.status_code == 201, second.content
+    finally:
+        _purge_group_lessons(group_id)
+
+
+def test_admin_cannot_duplicate_lesson_recorded_by_teacher(
+    admin_client, group_with_two_slots, teacher_fixture,
+):
+    """
+    Преподаватель записал занятие, ответ потерялся, и то же занятие заводит админ.
+
+    Это оставшийся сценарий ПГ215: ключи разных путей не конфликтовали, потому
+    что админский путь позицию не резолвил вовсе. Оба пути обязаны попадать в
+    одно пространство ключей.
+    """
+    from apps.lessons.services import record_lesson
+
+    group_id, date, positions = group_with_two_slots
+    teacher_id, _ = teacher_fixture
+    try:
+        record_lesson(
+            group_id=group_id, teacher_id=teacher_id, original_teacher_id=None,
+            lesson_date=date, lesson_number=31, lesson_duration_minutes=60,
+            lesson_type='regular', record_url=None, submitted_by_token='acct:7',
+            submit_date=date, attendance=[], planned_lesson_id=positions[0],
+        )
+
+        clash = admin_client.post('/api/admin/lessons', {
+            'lesson_date': date, 'group_id': group_id, 'teacher_id': teacher_id,
+            'lesson_number': 31, 'lesson_duration_minutes': 60, 'lesson_type': 'regular',
+        }, format='json')
+
+        assert clash.status_code == 409, clash.content
+    finally:
+        _purge_group_lessons(group_id)

@@ -27,7 +27,8 @@ from apps.lessons.submission_key import build_submission_key
 from apps.memberships.repository import locked_through_map
 from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.scheduling.repository import (
-    attach_fact, link_facts, lock_course_position, relink_fact,
+    attach_fact, find_course_position_by_date_and_number, link_facts,
+    lock_course_position, relink_fact,
 )
 
 # Подтипы уроков, которыми владеет apps.extra_lessons (факты доп.урока/сгорания).
@@ -294,8 +295,21 @@ def create_lesson_full(data: dict) -> dict:
     всегда (админ не штрафуется за административную запись задним числом).
     Возвращает {'lesson_id', 'payment', 'penalty'} (view делает повторный
     get_lesson_full для полного ответа, как раньше).
+
+    Позиция курса резолвится по дате И НОМЕРУ: номер — единственное, чем админ
+    различает два занятия одного дня, и без этого резолва оба получили бы один
+    ключ отправки (slot:<group>:<date>), то есть второе законное занятие
+    мультислотового дня упёрлось бы в конфликт. Заодно это ставит админский путь
+    в ОДНО пространство ключей с преподавательским: то же занятие, записанное с
+    двух сторон (препод отправил, ответ потерялся, админ завёл заново), теперь
+    даёт 409, а не второй платный урок.
     """
+    position = find_course_position_by_date_and_number(
+        data['group_id'], data['lesson_date'], data['lesson_number'],
+    )
+
     return record_lesson(
+        planned_lesson_id=position['id'] if position is not None else None,
         lesson_date=data['lesson_date'],
         teacher_id=data['teacher_id'],
         group_id=data['group_id'],
