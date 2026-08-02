@@ -78,10 +78,46 @@ def read_all_students() -> dict:
     Только активные membership/группы/преподаватели. ORDER te.name, g.name, s.full_name.
     remaining — вычисляемый общий баланс ученика (apps.finances), не хранимая колонка;
     считается одним батч-запросом на всех учеников выборки (без N+1).
+
+    Для страниц (расписание, отчёт) полная выборка по смыслу. На пути ЗАПИСИ урока
+    её быть не должно — там read_group_students (см. ниже).
     """
-    rows = list(
+    return _build_from_rows(_membership_rows())
+
+
+def read_group_students(group_name: str) -> dict:
+    """
+    То же самое, но только по ОДНОЙ группе (по имени). Формат ответа идентичен
+    read_all_students — вызывающий не различает, откуда пришли данные.
+
+    Зачем: read_all_students стояла на пути записи урока (submit_lesson) и тянула
+    все активные membership всей школы плюс баланс по каждому ученику. На странице
+    это терпимо, но запись урока — самое критичное действие, а sync-воркеров на всю
+    школу единицы: три одновременные отправки занимали сервер целиком (инцидент
+    ПГ215).
+
+    Имя, а не id: группу teacher SPA знает по имени (клиент присылает его), и
+    разрешение имени в id — отдельный шаг ниже по submit_lesson. Если имя носят
+    группы двух преподавателей, вернутся обе ветки — ровно как в полной выборке,
+    и вызывающий выбирает владельца той же логикой.
+    """
+    return _build_from_rows(_membership_rows(group_name=group_name))
+
+
+def _membership_rows(group_name: str | None = None) -> list[dict]:
+    """
+    Строки активных membership. Единственное место, где живёт этот запрос:
+    полная выборка и выборка по группе отличаются ТОЛЬКО фильтром, чтобы набор
+    полей и порядок не могли разъехаться.
+    """
+    qs = (
         GroupMembership.objects
         .filter(active=True, group__active=True, group__teacher__active=True)
+    )
+    if group_name is not None:
+        qs = qs.filter(group__name=group_name)
+    return list(
+        qs
         .order_by('group__teacher__name', 'group__name', 'student__full_name')
         .values(
             'group_id', 'student_id', 'lessons_done', 'sheet_row', 'transferred_from_id',
@@ -98,6 +134,16 @@ def read_all_students() -> dict:
         )
     )
 
+
+def _build_from_rows(rows: list[dict]) -> dict:
+    """
+    Сборка ответа из уже выбранных строк membership.
+
+    Вынесено из read_all_students, чтобы выборка по одной группе давала БАЙТ В
+    БАЙТ тот же формат: две параллельные сборки неизбежно разъехались бы, а на
+    этом формате стоит вся запись урока — владелец группы, признак замены,
+    прогресс учеников, маркеры «неоплачиваемый пропуск».
+    """
     balances = balances_for_students({r['student_id'] for r in rows})
 
     data: dict = {}
