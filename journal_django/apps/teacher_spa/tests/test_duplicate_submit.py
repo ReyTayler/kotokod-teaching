@@ -114,12 +114,20 @@ def test_two_free_positions_are_ambiguous(group_with_two_slots):
     assert find_course_position_by_date(group_id, date) is None
 
 
-def test_lesson_number_comes_from_locked_position(group_with_two_slots, teacher_fixture):
+def test_renumbered_position_refuses_instead_of_writing_mismatch(
+    group_with_two_slots, teacher_fixture,
+):
     """
-    Номер пишется из позиции, захваченной под блокировкой, а не из аргумента,
-    посчитанного до открытия транзакции. Иначе перенумерация плана между
-    предпроверкой и локом разводит номер факта и номер позиции.
+    План перенумеровали между предпроверкой и захватом позиции → отказ.
+
+    Взять новый номер и всё-таки записать нельзя: выше по record_lesson от
+    СТАРОГО номера уже посчитаны блокировка переведённых учеников
+    (locked_through_map) и слот-маркеры «неоплачиваемый пропуск»
+    (list_lesson_skips). Урок под новым номером со списком посещаемости,
+    отфильтрованным по старому, засчитал бы переведённому ученику занятие
+    дважды и списал его с баланса.
     """
+    from apps.lessons.exceptions import CoursePositionVanished
     from apps.lessons.services import record_lesson
 
     group_id, date, positions = group_with_two_slots
@@ -130,30 +138,68 @@ def test_lesson_number_comes_from_locked_position(group_with_two_slots, teacher_
             [positions[0]],
         )
 
-    result = record_lesson(
-        group_id=group_id,
-        teacher_id=teacher_id,
-        original_teacher_id=None,
-        lesson_date=date,
-        lesson_number=31,          # устаревший аргумент
-        lesson_duration_minutes=60,
-        lesson_type='regular',
-        record_url=None,
-        submitted_by_token='test:number',
-        submit_date=date,
-        attendance=[],
-        planned_lesson_id=positions[0],
-    )
+    try:
+        with pytest.raises(CoursePositionVanished):
+            record_lesson(
+                group_id=group_id,
+                teacher_id=teacher_id,
+                original_teacher_id=None,
+                lesson_date=date,
+                lesson_number=31,          # устаревший аргумент
+                lesson_duration_minutes=60,
+                lesson_type='regular',
+                record_url=None,
+                submitted_by_token='test:number',
+                submit_date=date,
+                attendance=[],
+                planned_lesson_id=positions[0],
+            )
+    finally:
+        _purge_group_lessons(group_id)
 
-    with connection.cursor() as cur:
-        cur.execute('SELECT lesson_number FROM lessons WHERE id = %s', [result['lesson_id']])
-        written = cur.fetchone()[0]
-        # Прибираем за собой: тестовая БД общая.
-        cur.execute('UPDATE planned_lessons SET fact_lesson_id = NULL WHERE id = %s', [positions[0]])
-        cur.execute('DELETE FROM payroll WHERE lesson_id = %s', [result['lesson_id']])
-        cur.execute('DELETE FROM lessons WHERE id = %s', [result['lesson_id']])
 
-    assert int(written) == 99, 'номер должен быть взят из позиции, а не из аргумента'
+def test_lesson_number_comes_from_locked_position(group_with_two_slots, teacher_fixture):
+    """
+    Согласованный номер пишется из позиции, захваченной под блокировкой, а не из
+    аргумента: позиция — источник правды, аргумент лишь дублирует её значение.
+    """
+    from apps.lessons.services import record_lesson
+
+    group_id, date, positions = group_with_two_slots
+    teacher_id, _ = teacher_fixture
+
+    try:
+        result = record_lesson(
+            group_id=group_id,
+            teacher_id=teacher_id,
+            original_teacher_id=None,
+            lesson_date=date,
+            lesson_number=31,
+            lesson_duration_minutes=60,
+            lesson_type='regular',
+            record_url=None,
+            submitted_by_token='test:number',
+            submit_date=date,
+            attendance=[],
+            planned_lesson_id=positions[0],
+        )
+
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT lesson_number, submission_key FROM lessons WHERE id = %s',
+                [result['lesson_id']],
+            )
+            written, key = cur.fetchone()
+
+        assert int(written) == 31
+        assert key == f'pos:{positions[0]}', 'ключ должен указывать на позицию курса'
+    finally:
+        with connection.cursor() as cur:
+            cur.execute(
+                'UPDATE planned_lessons SET fact_lesson_id = NULL WHERE id = %s',
+                [positions[0]],
+            )
+        _purge_group_lessons(group_id)
 
 
 def test_vanished_position_raises_instead_of_silent_fallback(group_with_two_slots, teacher_fixture):
@@ -405,3 +451,36 @@ def test_admin_cannot_duplicate_lesson_recorded_by_teacher(
         assert clash.status_code == 409, clash.content
     finally:
         _purge_group_lessons(group_id)
+
+
+def test_editing_date_moves_the_guard_with_the_lesson(group_fixture, teacher_fixture):
+    """
+    Правка даты урока переносит ключ отправки на новую дату.
+
+    Без пересчёта ключ остаётся привязан к СТАРОЙ дате: она блокируется навсегда
+    (запись законного занятия упрётся в ложный 409), а новая дата остаётся без
+    защиты — на неё ляжет второй платный урок.
+    """
+    from apps.lessons.services import record_lesson, update_lesson
+
+    teacher_id, _ = teacher_fixture
+    try:
+        created = record_lesson(
+            group_id=group_fixture, teacher_id=teacher_id, original_teacher_id=None,
+            lesson_date='2026-09-10', lesson_number=1, lesson_duration_minutes=60,
+            lesson_type='regular', record_url=None, submitted_by_token='acct:9',
+            submit_date='2026-09-10', attendance=[], planned_lesson_id=None,
+        )
+        update_lesson(created['lesson_id'], {'lesson_date': '2026-09-11'})
+
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT submission_key FROM lessons WHERE id = %s', [created['lesson_id']],
+            )
+            key = cur.fetchone()[0]
+
+        assert key == f'slot:{group_fixture}:2026-09-11', (
+            'ключ должен указывать на новую дату, иначе старая заблокирована навсегда'
+        )
+    finally:
+        _purge_group_lessons(group_fixture)

@@ -196,6 +196,15 @@ def record_lesson(*,
         # между этими моментами план могли перенумеровать (отмена другого
         # занятия группы вызывает _renumber_persist). Разъехавшиеся номер факта
         # и номер позиции ломают последующий матчинг link_facts/relink_fact.
+        #
+        # Если номер УСПЕЛ измениться — записывать нельзя вовсе, а не просто взять
+        # новый: выше по функции от старого номера уже посчитаны блокировка
+        # переведённых учеников (locked_through_map) и слот-маркеры
+        # «неоплачиваемый пропуск» (list_lesson_skips). Записать урок под новым
+        # номером со списком посещаемости, отфильтрованным по старому, значит
+        # засчитать переведённому ученику занятие дважды и списать его с баланса.
+        if position is not None and to_decimal(position['lesson_number']) != to_decimal(lesson_number):
+            raise CoursePositionVanished()
         if position is not None:
             lesson_number = position['lesson_number']
 
@@ -336,7 +345,43 @@ def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
         relink_fact(lesson_id)
         # Позиция, освободившаяся после переезда, могла ждать другой свободный факт.
         link_facts(updated['group_id'])
+    # Ключ отправки выведен из даты и позиции — при их правке он обязан
+    # пересчитаться, иначе появляются два скрытых дефекта:
+    #   • правка даты: старая дата остаётся заблокированной навсегда, а на новую
+    #     спокойно ляжет второй урок;
+    #   • правка номера: факт уезжает на другую позицию (relink_fact), а ключ
+    #     остаётся указывать на прежнюю — та выглядит свободной, но запись на неё
+    #     упирается в уникальный индекс, то есть ЛОЖНЫЙ 409 и незаполнимая позиция.
+    if fields.get('lesson_date') is not None or fields.get('lesson_number') is not None:
+        _refresh_submission_key(lesson_id)
     return updated
+
+
+def _refresh_submission_key(lesson_id: int) -> None:
+    """
+    Пересчитать ключ отправки после правки урока — тем же резолвом, что при
+    создании (позиция по дате И номеру), чтобы созданные и отредактированные
+    уроки жили в одном пространстве ключей.
+
+    Системные уроки (доп.урок/сгорание) ключа не имеют и здесь не участвуют:
+    их защита от повтора — лок статуса резолюции в apps.extra_lessons.
+    """
+    row = (
+        Lesson.objects.filter(id=lesson_id)
+        .values('group_id', 'lesson_date', 'lesson_number', 'lesson_type')
+        .first()
+    )
+    if row is None or row['lesson_type'] in SYSTEM_LESSON_TYPES:
+        return
+
+    position = find_course_position_by_date_and_number(
+        row['group_id'], row['lesson_date'], row['lesson_number'],
+    )
+    repository.set_submission_key(lesson_id, build_submission_key(
+        group_id=row['group_id'],
+        lesson_date=row['lesson_date'],
+        planned_lesson_id=position['id'] if position is not None else None,
+    ))
 
 
 def _assert_no_makeup_done_resolutions(lesson_id: int) -> None:

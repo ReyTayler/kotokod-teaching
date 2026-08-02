@@ -338,6 +338,17 @@ def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
     return dictrow(Lesson.objects.filter(id=lesson_id).values(*_LESSON_FIELDS))
 
 
+def set_submission_key(lesson_id: int, key: str) -> None:
+    """
+    Переписать ключ отправки урока. Вызывается после правки даты/номера, когда
+    прежний ключ перестал соответствовать тому, что урок теперь описывает
+    (apps.lessons.services._refresh_submission_key).
+
+    update() вместо save(): не трогаем прочие поля и не гоняем лишний SELECT.
+    """
+    Lesson.objects.filter(id=lesson_id).update(submission_key=key)
+
+
 def delete_lesson_full(lesson_id: int) -> bool:
     """
     Удаляет урок (CASCADE attendance + явный DELETE payroll),
