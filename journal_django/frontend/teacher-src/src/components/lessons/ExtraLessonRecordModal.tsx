@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Modal } from '../ui/Modal';
-import { ApiError } from '@shared/lib/api';
+import { ApiError, EXTRA_LESSON_ALREADY_RECORDED, REQUEST_TIMEOUT } from '@shared/lib/api';
 import { useToast } from '@shared/components/ui/Toast';
 import { useExtraLesson, useRecordExtraLesson } from '../../hooks/useExtraLesson';
 
@@ -51,12 +51,32 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
           onClose();
         },
         onError: (err) => {
+          // Доп.урок уже отмечен — типично после потерянного ответа: работа
+          // сделана, деньги начислены. Закрываем спокойно, а не красной ошибкой,
+          // иначе преподаватель решит, что не сохранилось, и нажмёт ещё раз.
+          if (err instanceof ApiError && err.code === EXTRA_LESSON_ALREADY_RECORDED) {
+            toast('Это занятие уже отмечено', 'ok');
+            onClose();
+            return;
+          }
+          // Ответа не было вовсе — доп.урок мог записаться. «Попробуйте ещё раз»
+          // здесь было бы приглашением к повтору вслепую.
+          if (err instanceof ApiError && err.code === REQUEST_TIMEOUT) {
+            setSubmitError(
+              'Сервер не ответил вовремя. Доп.урок мог записаться — обновите '
+              + 'страницу и проверьте, прежде чем отправлять ещё раз.',
+            );
+            return;
+          }
           if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
             setSubmitError('Сессия истекла или доп.урок принадлежит другому преподавателю.');
           } else if (err instanceof ApiError) {
             setSubmitError(err.message);
           } else {
-            setSubmitError('Не удалось сохранить доп.урок. Проверьте соединение и попробуйте ещё раз.');
+            setSubmitError(
+              'Не удалось связаться с сервером. Доп.урок мог записаться — обновите '
+              + 'страницу и проверьте, прежде чем отправлять ещё раз.',
+            );
           }
         },
       },
@@ -68,6 +88,7 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
       title={`Доп.урок за ${data.missed_lesson_date}`}
       subtitle={`${data.missed_lesson_group_name} · ${data.scheduled_date} ${data.scheduled_time.slice(0, 5)}`}
       onClose={onClose}
+      busy={record.isPending}
     >
       <div>
         <div className="lf-students-hdr">
@@ -136,7 +157,16 @@ export function ExtraLessonRecordModal({ assignmentId, onClose }: { assignmentId
       {submitError && <div className="lf-error">{submitError}</div>}
 
       <div className="lf-actions">
-        <button type="button" className="btn-cancel" onClick={onClose}>Отмена</button>
+        {/* Пока запрос в полёте, уйти из формы нельзя — иначе ответ придёт в
+            размонтированный компонент и человек не узнает результата. */}
+        <button
+          type="button"
+          className="btn-cancel"
+          onClick={onClose}
+          disabled={record.isPending}
+        >
+          Отмена
+        </button>
         <button
           type="button"
           className="btn-save"

@@ -48,6 +48,12 @@ from apps.extra_lessons.serializers import (
 )
 from apps.lessons.exceptions import UnpaidAttendanceBlocked
 
+# Машиночитаемый код конфликта: доп.урок за это назначение уже проведён.
+# Без кода фронт не отличает повтор от настоящей ошибки и показывает красное
+# сообщение там, где работа фактически сделана (деньги начислены первым
+# запросом) — тот же приём, что LESSON_ALREADY_RECORDED у обычного урока.
+EXTRA_LESSON_ALREADY_RECORDED = 'extra_lesson_already_recorded'
+
 _DEFAULT_PAGE_SIZE = 50
 _MAX_PAGE_SIZE = 500
 
@@ -221,7 +227,14 @@ class TeacherExtraLessonRecordView(APIView):
         except (AbsentStudentNotRecordable, UnpaidAttendanceBlocked) as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+            # Статус резолюции уже не «назначен» — почти всегда повторная отправка
+            # после потерянного ответа: доп.урок записан, деньги начислены. Код
+            # нужен, чтобы фронт сказал «уже отмечено» спокойно и обновил экран,
+            # а не пугал красной ошибкой на месте фактического успеха.
+            return Response(
+                {'error': str(e), 'code': EXTRA_LESSON_ALREADY_RECORDED},
+                status=status.HTTP_409_CONFLICT,
+            )
         if result is None:
             raise NotFound({'error': 'Not found'})
         return Response(result)

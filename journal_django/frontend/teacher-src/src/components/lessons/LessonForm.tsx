@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Field } from '@shared/components/form/Field';
 import { DateInput } from '@shared/components/form/DateInput';
-import { ApiError, LESSON_ALREADY_RECORDED } from '@shared/lib/api';
+import { ApiError, LESSON_ALREADY_RECORDED, REQUEST_TIMEOUT } from '@shared/lib/api';
 import { useToast } from '@shared/components/ui/Toast';
 import { useSubmitLesson } from '../../hooks/useSubmitLesson';
 import { useGroupDirections } from '../../hooks/useGroupDirections';
@@ -182,12 +182,27 @@ export function LessonForm({
           onClose();
           return;
         }
+        // Ответ не пришёл вовремя. Это НЕ значит, что урок не записался: сервер
+        // мог закоммитить и не успеть ответить — так и вышел инцидент ПГ215.
+        // Говорить «не удалось, попробуйте ещё раз» здесь нельзя, это прямое
+        // приглашение создать дубль; отправляем проверить историю.
+        if (err instanceof ApiError && err.code === REQUEST_TIMEOUT) {
+          setSubmitError(
+            'Сервер не ответил вовремя. Урок мог записаться — откройте «Мои уроки» '
+            + 'и проверьте, прежде чем отправлять ещё раз.',
+          );
+          return;
+        }
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
           setSubmitError('Сессия истекла. Обновите страницу и войдите заново.');
         } else if (err instanceof ApiError) {
           setSubmitError(err.message);
         } else {
-          setSubmitError('Не удалось сохранить урок. Проверьте соединение и попробуйте ещё раз.');
+          // Сетевой сбой без ответа сервера — та же неизвестность, что и таймаут.
+          setSubmitError(
+            'Не удалось связаться с сервером. Урок мог записаться — откройте '
+            + '«Мои уроки» и проверьте, прежде чем отправлять ещё раз.',
+          );
         }
       },
     });
@@ -198,6 +213,7 @@ export function LessonForm({
       title={group}
       subtitle={isSubstitution ? 'Запись урока · замена' : 'Запись урока'}
       onClose={onClose}
+      busy={submitLesson.isPending}
     >
       {/* Дата урока = дата занятия по расписанию, менять руками нельзя (иначе штраф за просрочку можно обойти). */}
       <Field label="Дата урока">
@@ -335,7 +351,16 @@ export function LessonForm({
       {submitError && <div className="lf-error">{submitError}</div>}
 
       <div className="lf-actions">
-        <button type="button" className="btn-cancel" onClick={onClose}>Отмена</button>
+        {/* Пока запрос в полёте, уйти из формы нельзя: ответ пришёл бы в
+            размонтированный компонент и человек не узнал бы, записался урок или нет. */}
+        <button
+          type="button"
+          className="btn-cancel"
+          onClick={onClose}
+          disabled={submitLesson.isPending}
+        >
+          Отмена
+        </button>
         <button
           type="button"
           className="btn-save"

@@ -41,6 +41,11 @@ export const MEMBERSHIP_HAS_SCHEDULED_MAKEUPS = 'membership_has_scheduled_makeup
 // «уже записано» и обновляет данные, а не красную ошибку.
 export const LESSON_ALREADY_RECORDED = 'lesson_already_recorded';
 
+// Код конфликта доп.урока (apps.extra_lessons.views): занятие уже проведено.
+// Отдельный код, а не переиспользование верхнего: это другая сущность и другой
+// путь отметки, а тексты и реакция экрана у них разные.
+export const EXTRA_LESSON_ALREADY_RECORDED = 'extra_lesson_already_recorded';
+
 /** Если ошибка — именно блок «есть назначенные доп.уроки», вернуть её текст для
  *  модалки, иначе null (обрабатывать как обычную ошибку через useApiError). */
 export function scheduledMakeupsBlockMessage(err: unknown): string | null {
@@ -52,6 +57,27 @@ export function scheduledMakeupsBlockMessage(err: unknown): string | null {
 
 // Методы, не требующие CSRF-токена (RFC 7231 safe methods).
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+
+/**
+ * Потолок ожидания ответа. Взят меньше, чем timeout gunicorn (30 с): к этому
+ * моменту сервер либо уже ответил, либо его воркер снят по собственному таймауту.
+ *
+ * Без ограничения fetch может ждать бесконечно — при потерянном ответе на живом
+ * TCP-соединении (переключение соты, NAT-таймаут) браузер ошибку не форсирует.
+ * Для человека «долго» и «уже никогда» тогда неразличимы, и он жмёт «Сохранить»
+ * ещё раз — так и вышел инцидент ПГ215.
+ */
+const REQUEST_TIMEOUT_MS = 25_000;
+
+/**
+ * Код ошибки «ответ не пришёл вовремя».
+ *
+ * ВАЖНО: это НЕ значит, что запрос не выполнился — сервер мог закоммитить и не
+ * успеть ответить. UI обязан формулировать это как неизвестность («урок мог
+ * записаться, проверьте»), а не как неудачу: «не удалось, попробуйте ещё раз»
+ * здесь — прямое приглашение создать дубль.
+ */
+export const REQUEST_TIMEOUT = 'request_timeout';
 
 // Эндпоинт обновления access-токена. refresh-cookie шлётся браузером только сюда
 // (AUTH_REFRESH_COOKIE_PATH). Сам refresh-запрос не реврайтим при 401 — иначе цикл.
@@ -118,12 +144,26 @@ async function rawFetch(method: string, path: string, body?: unknown): Promise<R
     if (token) headers['X-CSRFToken'] = token;
   }
 
-  return fetch(path, {
-    method,
-    credentials: 'include',
-    headers: Object.keys(headers).length ? headers : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(path, {
+      method,
+      credentials: 'include',
+      headers: Object.keys(headers).length ? headers : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      // status=0 — ответа не было вовсе. Отличать от «сервер ответил ошибкой»
+      // обязательно: мутация могла успеть выполниться на сервере.
+      throw new ApiError(0, 'Сервер не ответил вовремя', undefined, REQUEST_TIMEOUT);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {

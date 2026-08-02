@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@shared/lib/api';
+import { ApiError, EXTRA_LESSON_ALREADY_RECORDED, api } from '@shared/lib/api';
 
 /**
  * GET /api/extra-lessons/:id и POST /api/extra-lessons/:id/record (role=teacher,
@@ -32,6 +32,12 @@ export function useExtraLesson(id: number | null) {
 
 export function useRecordExtraLesson() {
   const qc = useQueryClient();
+
+  const invalidate = (id: number) => {
+    qc.invalidateQueries({ queryKey: ['calendar'] });
+    qc.invalidateQueries({ queryKey: ['extra-lesson', id] });
+  };
+
   return useMutation({
     mutationFn: ({ id, body }: {
       id: number;
@@ -39,9 +45,18 @@ export function useRecordExtraLesson() {
     }) => api<{ lesson_id: number; payment: number; penalty: number }>(
       'POST', `/api/extra-lessons/${id}/record`, body,
     ),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['calendar'] });
-      qc.invalidateQueries({ queryKey: ['extra-lesson', vars.id] });
+    // retry:0 — авто-повтор запрещён: доп.урок начисляет зарплату и списывает
+    // занятие, повтор инициирует только человек.
+    retry: 0,
+    onSuccess: (_data, vars) => invalidate(vars.id),
+    onError: (err, vars) => {
+      // «Уже проведён» → данные на сервере есть (предыдущая отправка дошла,
+      // ответ потерялся). Экран устарел: обновляем так же, как при успехе,
+      // иначе календарь продолжит показывать назначение невыполненным и
+      // преподаватель нажмёт ещё раз.
+      if (err instanceof ApiError && err.code === EXTRA_LESSON_ALREADY_RECORDED) {
+        invalidate(vars.id);
+      }
     },
   });
 }
