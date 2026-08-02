@@ -23,6 +23,17 @@ function useIsNarrow(bp = 768): boolean {
 /** Спец-значение directionFilter для «уроков без направления» (null / группа не найдена в карте). */
 const NO_DIRECTION_KEY = '__no-direction__';
 
+export type CalendarViewMode = 'week' | 'month' | 'list';
+
+/** Модульная константа, а не литерал в дефолте пропса — стабильная ссылка для useState/deps. */
+const ALL_VIEWS: CalendarViewMode[] = ['week', 'month', 'list'];
+
+const VIEW_LABEL: Record<CalendarViewMode, string> = {
+  week: 'Неделя',
+  month: 'Месяц',
+  list: 'Список',
+};
+
 /** Человекочитаемые причины отсутствия плана (тултип бейджа unscheduled). */
 const UNSCHEDULED_REASON_LABEL: Record<UnscheduledReason, string> = {
   no_start_date: 'нет даты старта',
@@ -96,6 +107,16 @@ export interface CalendarViewProps {
    * неделя/месяц/список.
    */
   showKpi?: boolean;
+  /**
+   * Какие виды доступны на широком экране; первый — стартовый. По умолчанию
+   * все три (разделы «Календарь» в teacher/admin — их обёртки сидируют
+   * начальный запрос под недельное окно, менять дефолт нельзя).
+   *
+   * Календарь плана группы передаёт ['month']: там неделя избыточна, а список
+   * не выбирают руками — он включается адаптивом на узком экране. При одном
+   * виде переключатель не рисуется вовсе.
+   */
+  views?: CalendarViewMode[];
 }
 
 /**
@@ -118,10 +139,11 @@ export function CalendarView({
   onOccurrenceMenu,
   onOpenGroup,
   showKpi = true,
+  views = ALL_VIEWS,
 }: CalendarViewProps) {
   const [monday, setMonday] = useState(() => currentMondayMsk());
   const [monthAnchor, setMonthAnchor] = useState(() => firstOfMonthMsk());
-  const [view, setView] = useState<'week' | 'month' | 'list'>('week');
+  const [view, setView] = useState<CalendarViewMode>(() => views[0] ?? 'week');
   const [directionFilter, setDirectionFilter] = useState<string | null>(null);
   const [selected, setSelected] = useState<Occurrence | null>(null);
 
@@ -213,7 +235,7 @@ export function CalendarView({
   }, [lessons, effectiveView]);
 
   /** Переключение вида: month↔week/list синхронизирует «якорь» второго вида. */
-  const changeView = useCallback((v: 'week' | 'month' | 'list') => {
+  const changeView = useCallback((v: CalendarViewMode) => {
     if (v === view) return;
     if (v === 'month') {
       setMonthAnchor(monthOf(monday));
@@ -303,11 +325,18 @@ export function CalendarView({
         </div>
 
         <div className="cal-toolbar">
-          {!narrow && (
+          {/* Переключатель бессмыслен, когда выбирать не из чего (views={['month']}). */}
+          {!narrow && views.length > 1 && (
             <div className="seg">
-              <button className={`seg-btn${view === 'week' ? ' active' : ''}`} onClick={() => changeView('week')}>Неделя</button>
-              <button className={`seg-btn${view === 'month' ? ' active' : ''}`} onClick={() => changeView('month')}>Месяц</button>
-              <button className={`seg-btn${view === 'list' ? ' active' : ''}`} onClick={() => changeView('list')}>Список</button>
+              {views.map((v) => (
+                <button
+                  key={v}
+                  className={`seg-btn${view === v ? ' active' : ''}`}
+                  onClick={() => changeView(v)}
+                >
+                  {VIEW_LABEL[v]}
+                </button>
+              ))}
             </div>
           )}
         </div>

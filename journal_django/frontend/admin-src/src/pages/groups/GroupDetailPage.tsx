@@ -20,7 +20,7 @@ import { formatSlot } from '../../lib/slots';
 import { useToast } from '../../components/ui/Toast';
 import { useApiError } from '../../hooks/useApiError';
 import { useGroupPlanCalendar } from '../../hooks/useGroupPlanCalendar';
-import { CalendarView } from '../../shared/calendar/CalendarView';
+import { CalendarView, type CalendarViewMode } from '../../shared/calendar/CalendarView';
 import { useAuth } from '../../hooks/useAuth';
 import { canSeeChangelog, canArchiveEntities, canSeeGroupLessonsTab, type Role } from '../../lib/permissions';
 import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
@@ -32,6 +32,14 @@ import GroupPlanActions, { type GroupPlanActionsHandle } from './GroupPlanAction
 import GroupPlanTable from './GroupPlanTable';
 import GroupProgressBlock from './GroupProgressBlock';
 import GroupKpiRow from './GroupKpiRow';
+
+/**
+ * План группы показываем только помесячно: недельная сетка здесь избыточна, а
+ * «Список» не выбирают руками — он включается адаптивом на узком экране.
+ * Константа вне компонента: стабильная ссылка, иначе новый массив на каждый
+ * рендер. Разделы «Календарь» (admin/teacher) виды не ограничивают.
+ */
+const GROUP_PLAN_VIEWS: CalendarViewMode[] = ['month'];
 
 const GROUP_TABS = ['overview', 'students', 'lessons', 'progress', 'schedule', 'history'] as const;
 type GroupTab = (typeof GROUP_TABS)[number];
@@ -265,6 +273,7 @@ export default function GroupDetailPage() {
             isFetching={planCalendar.isFetching}
             onVisibleRangeChange={() => {}}
             showKpi={false}
+            views={GROUP_PLAN_VIEWS}
             role="admin"
             onAction={(kind, occ) => planActionsRef.current?.quickAction(kind, occ)}
           />
