@@ -317,3 +317,30 @@ def test_different_dates_are_not_duplicates(group_fixture, teacher_fixture):
         assert a['lesson_id'] != b['lesson_id']
     finally:
         _purge_group_lessons(group_fixture)
+
+
+def test_admin_duplicate_returns_409_not_500(admin_client, group_fixture, teacher_fixture):
+    """
+    Повторное создание урока админом — понятный 409, а не «сломался сервер».
+
+    Раньше конфликт уникального индекса уходил наверх необработанным
+    IntegrityError: обработчик исключений DRF такое не знает и отдаёт голый 500.
+    """
+    teacher_id, _ = teacher_fixture
+    payload = {
+        'lesson_date': '2026-08-27',
+        'group_id': group_fixture,
+        'teacher_id': teacher_id,
+        'lesson_number': 3,
+        'lesson_duration_minutes': 60,
+        'lesson_type': 'regular',
+    }
+    try:
+        first = admin_client.post('/api/admin/lessons', payload, format='json')
+        assert first.status_code == 201, first.content
+
+        second = admin_client.post('/api/admin/lessons', payload, format='json')
+        assert second.status_code == 409, second.content
+        assert second.json()['code'] == 'lesson_already_recorded'
+    finally:
+        _purge_group_lessons(group_fixture)

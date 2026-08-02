@@ -30,8 +30,9 @@ from rest_framework.views import APIView
 from apps.core.permissions import ReadStaffWriteAdmin
 from apps.lessons import services
 from apps.lessons.exceptions import (
-    AttendanceCompensatedElsewhere, AttendanceLockedByTransfer, LessonHasMakeupResolutions,
-    SystemLessonProtected, UnpaidAttendanceBlocked,
+    AttendanceCompensatedElsewhere, AttendanceLockedByTransfer, CoursePositionVanished,
+    LessonAlreadyRecorded, LessonHasMakeupResolutions, SystemLessonProtected,
+    UnpaidAttendanceBlocked,
 )
 from apps.lessons.serializers import (
     AttendanceUpdateSerializer,
@@ -44,6 +45,10 @@ _DEFAULT_SORT_BY = 'lesson_date'
 _DEFAULT_SORT_DIR = 'desc'
 _DEFAULT_PAGE_SIZE = 50
 _MAX_PAGE_SIZE = 500
+
+# Машиночитаемый код конфликта — тот же, что у teacher SPA
+# (apps.teacher_spa.views.LESSON_ALREADY_RECORDED): урок за это занятие уже записан.
+LESSON_ALREADY_RECORDED = 'lesson_already_recorded'
 
 
 def _parse_list_params(request: Request) -> dict:
@@ -137,6 +142,17 @@ class LessonListCreateView(APIView):
             result = services.create_lesson_full(serializer.validated_data)
         except UnpaidAttendanceBlocked as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except LessonAlreadyRecorded as e:
+            # Тот же конфликт, что у преподавателя: занятие уже записано. Без этой
+            # ветки исключение уходило наверх необработанным и админ видел голый
+            # 500 вместо «урок уже записан». code — чтобы фронт мог показать это
+            # спокойным сообщением, а не красной ошибкой (как в teacher SPA).
+            return Response(
+                {'error': str(e), 'code': LESSON_ALREADY_RECORDED},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CoursePositionVanished as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
 
         full = services.get_lesson_full(result['lesson_id'])
         return Response(
