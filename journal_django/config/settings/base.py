@@ -146,8 +146,19 @@ ASGI_APPLICATION = 'config.asgi.application'
 DATABASES = {
     'default': env.db('DATABASE_URL'),
 }
-# Disable connection pooling at Django level — let the existing pg pool handle it
-DATABASES['default']['CONN_MAX_AGE'] = 0
+# Переиспользуем соединение между запросами: открывать новое к PostgreSQL на
+# каждый запрос — лишняя задержка (TCP + аутентификация) и лишняя нагрузка на
+# сервер БД, а запросов у нас много и они короткие.
+#
+# Прежнее значение 0 стояло под комментарий «пусть существующий pg-пул
+# разруливает» — тот пул жил в Node-бэкенде (services/db.js), а он удалён вместе
+# с Express. Комментарий пережил свою причину.
+#
+# CONN_HEALTH_CHECKS обязателен в паре: без него переиспользованное соединение,
+# оборванное со стороны БД (рестарт PostgreSQL, таймаут), даст ошибку на первом
+# же запросе вместо переподключения.
+DATABASES['default']['CONN_MAX_AGE'] = 60
+DATABASES['default']['CONN_HEALTH_CHECKS'] = True
 
 # ---------------------------------------------------------------------------
 # Cache — Redis (django-redis) при заданном REDIS_URL, иначе локальный in-memory.
