@@ -135,8 +135,6 @@ export function LessonForm({
     return `${prefix} Заполнение заблокировано.`;
   }, [limit, done, step, isHalf]);
 
-  const penaltyWarning = date !== todayIso;
-
   const toggleAll = () => {
     const nextVal = !allPresent;
     setPresent(Object.fromEntries(
@@ -219,12 +217,6 @@ export function LessonForm({
       <Field label="Дата урока">
         <DateInput value={date} onChange={(e) => setDate(e.target.value)} disabled />
       </Field>
-
-      {penaltyWarning && (
-        <div className="lf-warn">
-          Внимание, заполнение отчёта за урок просрочено.
-        </div>
-      )}
 
       <div>
         <div className="lf-students-hdr">
