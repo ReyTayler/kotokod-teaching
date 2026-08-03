@@ -248,6 +248,29 @@ def unfilled_extra_lessons(today, teacher_id=None) -> list[dict]:
     return rows
 
 
+def scheduled_on(target_date) -> list[dict]:
+    """
+    Назначенные доп.уроки на конкретную дату — по всей школе, одним запросом.
+
+    Источник утреннего дайджеста (100 преподавателей → запрос на каждого
+    недопустим на VPS 2 CPU/2 ГБ). Фильтр по статусу: только назначенные и ещё
+    не проведённые (makeup_scheduled); проведённые в списке дня уже не нужны.
+    group_pk — Coalesce(group_id, missed_lesson.group_id): у makeup группа
+    берётся из пропущенного урока, у extra (сверх курса) — из своего поля.
+    Имена группы/направления батчем подтягивает вызывающий (см. scheduling/services.py).
+    """
+    return list(
+        AbsenceResolution.objects
+        .filter(status=MAKEUP_SCHEDULED, scheduled_date=target_date)
+        .values(
+            'id', 'assigned_teacher_id', 'scheduled_date', 'scheduled_time',
+            'student_id', 'kind',
+            student_name=F('student__full_name'),
+            group_pk=Coalesce('group_id', 'missed_lesson__group_id'),
+        )
+    )
+
+
 def assignments_in_window(teacher_id, window_from, window_to) -> list[dict]:
     """Резолюции за окно — источник календаря доп.уроков. teacher_id=None → ВСЕ
     преподаватели (admin-календарь без фильтра); иначе — один. Каждая резолюция =
