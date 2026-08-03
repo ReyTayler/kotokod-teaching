@@ -116,6 +116,7 @@ INSTALLED_APPS = [
     'apps.changelog',
     'apps.sync',
     'apps.reports',
+    'apps.notifications',
 ]
 
 # SessionMiddleware и AuthenticationMiddleware убраны:
