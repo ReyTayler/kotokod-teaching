@@ -174,7 +174,7 @@ def unfilled_planned_lessons(
         )
     return list(
         qs.order_by('scheduled_date', 'scheduled_time').values(
-            'id', 'scheduled_date', 'scheduled_time', 'lesson_number',
+            'id', 'seq', 'scheduled_date', 'scheduled_time', 'lesson_number',
             'teacher_id', 'substitute_teacher_id',
             group_pk=F('group_id'),
             group_name=F('group__name'),

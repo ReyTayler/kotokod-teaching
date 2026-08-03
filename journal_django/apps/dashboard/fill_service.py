@@ -54,6 +54,10 @@ def unfilled_lessons(
             'direction_name': r['direction_name'],
             'direction_color': r['direction_color'],
             'lesson_number': float(r['lesson_number']) if r['lesson_number'] is not None else None,
+            # Порядковый номер занятия (не вес для денег) — нужен уведомлениям:
+            # на 45-мин курсах lesson_number = seq * 0.5, а преподавателю
+            # показывается seq (см. apps.notifications.digests).
+            'seq': r['seq'],
             'date': r['scheduled_date'].isoformat(),
             'time': _fmt_time(r['scheduled_time']),
         })
@@ -71,6 +75,7 @@ def unfilled_lessons(
             'direction_name': None,
             'direction_color': None,
             'lesson_number': None,
+            'seq': None,
             'date': r['scheduled_date'].isoformat(),
             'time': _fmt_time(r['scheduled_time']),
         })
