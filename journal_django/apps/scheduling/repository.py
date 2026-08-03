@@ -884,6 +884,29 @@ def get_plan_lesson(group_id: int, lesson_id: int) -> dict | None:
     )
 
 
+def notification_context(lesson_id: int) -> dict | None:
+    """Данные одной плановой строки для ТЕКСТА уведомления преподавателю.
+
+    Отдельная выборка, а не переиспользование _plan_row_dict: последний отдаёт
+    уже сериализованную строку (даты — ISO-строки, названий группы и направления
+    в ней нет вовсе), а тексту сообщений нужны объекты date/time и человеческие
+    названия. Один запрос по первичному ключу с join группы/направления — без
+    N+1; вызывается только на разовых admin-операциях над одной строкой.
+
+    Преподаватели отдаются оба (контента и замена на дату) — кого именно
+    уведомлять, решает вызывающий: у переноса и отмены это эффективный
+    преподаватель, у замены — обе стороны.
+    """
+    return (
+        PlannedLesson.objects.filter(id=lesson_id).values(
+            'id', 'seq', 'scheduled_date', 'scheduled_time',
+            'teacher_id', 'substitute_teacher_id',
+            group_name=F('group__name'),
+            direction_name=F('group__direction__name'),
+        ).first()
+    )
+
+
 def reschedule_lesson(
     group_id: int,
     lesson_id: int,

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime
 
+from django.db import transaction
+
 from apps.core.utils.dates import MSK, msk_now
 from apps.extra_lessons import repository as extra_lessons_repository
 from apps.extra_lessons.models import MAKEUP_DONE as EXTRA_DONE
@@ -245,6 +247,111 @@ def _to_time(value) -> datetime.time | None:
     return datetime.time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
 
 
+def _effective_teacher_id(row: dict) -> int | None:
+    """Кто реально ведёт занятие: замена на дату, иначе преподаватель контента."""
+    return row['substitute_teacher_id'] or row['teacher_id']
+
+
+def _notify_planned(row: dict, kind: str, *, teacher_ids: list[int],
+                    substitute_name: str = '', from_day=None) -> None:
+    """
+    Поставить уведомление об изменении расписания.
+
+    row — словарь плановой строки из repository.notification_context (date/time —
+    объекты, названия группы и направления уже подтянуты одним запросом).
+    teacher_ids — кому сообщить: при замене их двое (кто выходит и кого сняли),
+    порядок значим, см. ниже.
+
+    Вызывается ВНУТРИ транзакции самой операции (transactional outbox): либо
+    перенос и сообщение, либо ни того, ни другого.
+
+    Импорт локальный: apps.scheduling не зависит от apps.notifications на уровне
+    модуля — раздел расписания про Telegram не знает, он лишь сообщает факт.
+    """
+    from apps.notifications import messages as notif_messages
+    from apps.notifications import services as notif_services
+    from apps.notifications.constants import (
+        KIND_LESSON_CANCELLED, KIND_LESSON_MOVED,
+        KIND_SUBSTITUTE_ASSIGNED, KIND_SUBSTITUTE_REMOVED,
+    )
+
+    day = row['scheduled_date']
+    time_str = row['scheduled_time'].strftime('%H:%M') if row['scheduled_time'] else '—'
+    base = {'group': row['group_name'], 'direction': row['direction_name']}
+
+    # dict.fromkeys — порядок сохраняется, дубли схлопываются: замена «сам на
+    # себя» не должна давать два одинаковых сообщения одному человеку.
+    for index, teacher_id in enumerate(dict.fromkeys(tid for tid in teacher_ids if tid)):
+        if kind == KIND_LESSON_MOVED:
+            text = notif_messages.lesson_moved(
+                **base, seq=row.get('seq'), from_day=from_day, to_day=day, time=time_str)
+        elif kind == KIND_LESSON_CANCELLED:
+            text = notif_messages.lesson_cancelled(
+                **base, seq=row.get('seq'), day=day, time=time_str)
+        elif kind == KIND_SUBSTITUTE_ASSIGNED:
+            # index == 0 — тот, кого назначили заменой; остальные — кого сняли.
+            text = notif_messages.substitute_assigned(
+                **base, day=day, time=time_str, substitute_name=substitute_name,
+                for_substitute=(index == 0))
+        elif kind == KIND_SUBSTITUTE_REMOVED:
+            # index == 0 — бывшая замена; остальные — основной преподаватель.
+            text = notif_messages.substitute_removed(
+                **base, day=day, time=time_str, for_substitute=(index == 0))
+        else:  # pragma: no cover — защита от опечатки в вызове
+            raise ValueError(f'Неизвестный тип уведомления о расписании: {kind}')
+
+        notif_services.notify_teacher(
+            kind=kind, teacher_id=teacher_id, text=text,
+            dedup_prefix=f'{kind}:{row["id"]}:{day.isoformat()}:{teacher_id}',
+            source_kind='planned_lesson', source_id=row['id'],
+            # Дубль в общий чат ставится ОДИН раз на событие, а не по разу на
+            # каждого адресата: иначе при замене чат получил бы два одинаковых.
+            also_to_group_chat=(index == 0),
+        )
+
+
+def _notify_moved(row: dict, from_day) -> None:
+    from apps.notifications.constants import KIND_LESSON_MOVED
+
+    _notify_planned(row, KIND_LESSON_MOVED,
+                    teacher_ids=[_effective_teacher_id(row)], from_day=from_day)
+
+
+def _notify_cancelled(row: dict) -> None:
+    from apps.notifications.constants import KIND_LESSON_CANCELLED
+
+    _notify_planned(row, KIND_LESSON_CANCELLED,
+                    teacher_ids=[_effective_teacher_id(row)])
+
+
+def _notify_teacher_changed(row: dict, *, new_teacher_id: int,
+                            substitute_name: str) -> None:
+    """Уведомить ОБЕ стороны разовой замены: и кто выходит, и кого сняли.
+
+    row — состояние строки ДО смены (дату/время замена не двигает, а прежний
+    расклад преподавателей нужен, чтобы понять смысл операции):
+      - вернули занятие преподавателю контента → замена снята;
+      - иначе → назначена (в т.ч. когда одну замену меняют на другую).
+    Порядок teacher_ids значим: ПЕРВЫЙ — тот, кто теперь ведёт занятие
+    (for_substitute=True в текстах), второй — кого сняли.
+    """
+    from apps.notifications.constants import (
+        KIND_SUBSTITUTE_ASSIGNED, KIND_SUBSTITUTE_REMOVED,
+    )
+
+    previous_id = _effective_teacher_id(row)
+    if new_teacher_id == previous_id:
+        return  # ничего не изменилось — молчим, а не шлём «замена на самого себя»
+
+    if new_teacher_id == row['teacher_id']:
+        _notify_planned(row, KIND_SUBSTITUTE_REMOVED,
+                        teacher_ids=[previous_id, row['teacher_id']])
+    else:
+        _notify_planned(row, KIND_SUBSTITUTE_ASSIGNED,
+                        teacher_ids=[new_teacher_id, previous_id],
+                        substitute_name=substitute_name)
+
+
 def get_plan(group_id: int) -> list[dict] | None:
     """Плановые строки группы (или None, если группы нет)."""
     return repository.get_plan(group_id)
@@ -288,17 +395,27 @@ def resize_plan(group_id: int) -> int:
 
 
 def reschedule(group_id: int, lesson_id: int, data: dict, request) -> dict | None:
-    """Разовый перенос. None → строки нет; ValueError → перенос 'done'."""
+    """Разовый перенос. None → строки нет; ValueError → перенос 'done'.
+
+    Транзакция здесь, а не только внутри repository: уведомление обязано
+    коммититься вместе с переносом (outbox), а не отдельным шагом после него.
+    """
     new_teacher_id = data.get('new_teacher_id')
-    row = repository.reschedule_lesson(
-        group_id,
-        lesson_id,
-        _to_date(data['new_date']),
-        _to_time(data.get('new_time')),
-        new_teacher_id,
-    )
-    if row is None:
-        return None
+    with transaction.atomic():
+        # Состояние ДО мутации: строка сейчас переедет, и старой даты («было»)
+        # в ней уже не останется — moved_from_date перетирается своим же.
+        before = repository.notification_context(lesson_id)
+        row = repository.reschedule_lesson(
+            group_id,
+            lesson_id,
+            _to_date(data['new_date']),
+            _to_time(data.get('new_time')),
+            new_teacher_id,
+        )
+        if row is None:
+            return None
+        after = repository.notification_context(lesson_id)
+        _notify_moved(after, before['scheduled_date'])
     return row
 
 
@@ -306,9 +423,17 @@ def change_teacher(group_id: int, lesson_id: int, data: dict, request) -> dict |
     """Разовая смена преподавателя одной строки. None → строки нет (404);
     ValueError → строка проведена (view → 409). Дату/время не трогает."""
     new_teacher_id = data['new_teacher_id']
-    row = repository.change_teacher(group_id, lesson_id, new_teacher_id)
-    if row is None:
-        return None
+    with transaction.atomic():
+        # Расклад преподавателей ДО смены: только он говорит, назначили замену
+        # или сняли, и кого именно сняли.
+        before = repository.notification_context(lesson_id)
+        row = repository.change_teacher(group_id, lesson_id, new_teacher_id)
+        if row is None:
+            return None
+        # row['teacher_name'] — имя ЭФФЕКТИВНОГО преподавателя после смены,
+        # то есть новой замены: отдельного запроса за именем не нужно.
+        _notify_teacher_changed(before, new_teacher_id=new_teacher_id,
+                                substitute_name=row['teacher_name'] or '')
     return row
 
 
@@ -387,10 +512,17 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
     # если была) — чтобы зачёркнутое занятие попало в календарь того, кто реально
     # должен был вести D, а не преподавателя контента.
     marker_teacher_id = anchor['substitute_teacher_id'] or anchor['teacher_id']
-    plan = repository.cancel_lesson(
-        group_id, from_date,
-        marker_time=anchor['scheduled_time'],
-        marker_teacher_id=marker_teacher_id,
-        lesson_id=lesson_id,
-    )
+    with transaction.atomic():
+        # Контекст для текста берём ДО отмены: строка переедет в конец курса, а
+        # хвост перенумеруется — после операции и дата, и номер были бы уже
+        # другими. Отдельный запрос от anchor: тому нужен статус, этому —
+        # названия группы и направления.
+        notify_row = repository.notification_context(lesson_id)
+        plan = repository.cancel_lesson(
+            group_id, from_date,
+            marker_time=anchor['scheduled_time'],
+            marker_teacher_id=marker_teacher_id,
+            lesson_id=lesson_id,
+        )
+        _notify_cancelled(notify_row)
     return plan
