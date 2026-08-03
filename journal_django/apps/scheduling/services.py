@@ -253,7 +253,8 @@ def _effective_teacher_id(row: dict) -> int | None:
 
 
 def _notify_planned(row: dict, kind: str, *, teacher_ids: list[int],
-                    substitute_name: str = '', from_day=None) -> None:
+                    substitute_name: str = '', from_day=None,
+                    course_end=None) -> None:
     """
     Поставить уведомление об изменении расписания.
 
@@ -287,7 +288,8 @@ def _notify_planned(row: dict, kind: str, *, teacher_ids: list[int],
                 **base, seq=row.get('seq'), from_day=from_day, to_day=day, time=time_str)
         elif kind == KIND_LESSON_CANCELLED:
             text = notif_messages.lesson_cancelled(
-                **base, seq=row.get('seq'), day=day, time=time_str)
+                **base, seq=row.get('seq'), day=day, time=time_str,
+                course_end=course_end)
         elif kind == KIND_SUBSTITUTE_ASSIGNED:
             # index == 0 — тот, кого назначили заменой; остальные — кого сняли.
             text = notif_messages.substitute_assigned(
@@ -317,11 +319,25 @@ def _notify_moved(row: dict, from_day) -> None:
                     teacher_ids=[_effective_teacher_id(row)], from_day=from_day)
 
 
-def _notify_cancelled(row: dict) -> None:
+def _course_end_date(plan: list[dict]):
+    """
+    Новая дата последнего занятия курса — уже посчитанный план, без доп.запроса.
+
+    Отмена не выбрасывает урок: он переезжает в конец курса, а хвост
+    перенумеровывается. Маркеры отмены (status=cancelled) и доп.занятия
+    (seq IS NULL) в длину курса не входят.
+    """
+    dates = [r['scheduled_date'] for r in plan
+             if r['seq'] is not None and r['status'] != CANCELLED and r['scheduled_date']]
+    return datetime.date.fromisoformat(max(dates)) if dates else None
+
+
+def _notify_cancelled(row: dict, course_end=None) -> None:
     from apps.notifications.constants import KIND_LESSON_CANCELLED
 
     _notify_planned(row, KIND_LESSON_CANCELLED,
-                    teacher_ids=[_effective_teacher_id(row)])
+                    teacher_ids=[_effective_teacher_id(row)],
+                    course_end=course_end)
 
 
 def _notify_teacher_changed(row: dict, *, new_teacher_id: int,
@@ -524,5 +540,5 @@ def cancel(group_id: int, lesson_id: int, request) -> list[dict] | None:
             marker_teacher_id=marker_teacher_id,
             lesson_id=lesson_id,
         )
-        _notify_cancelled(notify_row)
+        _notify_cancelled(notify_row, course_end=_course_end_date(plan))
     return plan

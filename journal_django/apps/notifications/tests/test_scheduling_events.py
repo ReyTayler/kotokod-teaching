@@ -13,6 +13,8 @@ _request_dispatch патчим: очередь нас интересует, по
 """
 from __future__ import annotations
 
+import datetime
+
 import pytest
 from django.test import override_settings
 
@@ -123,6 +125,14 @@ def test_cancel_enqueues_cancelled(no_dispatch, planned_group):
     assert '__sched_group_A__' in text
     assert '01.06' in text and '10:00' in text
     assert 'None' not in text
+
+    # Отмена не выбрасывает урок: он уезжает в конец курса, и у группы
+    # появляется новое занятие. Без этой строки преподаватель видит только
+    # половину последствия.
+    course_dates = [r['scheduled_date'] for r in plan
+                    if r['seq'] is not None and r['status'] != 'cancelled']
+    expected_end = datetime.date.fromisoformat(max(course_dates))
+    assert f'Курс продлён до {expected_end.strftime("%d.%m")}' in text
 
 
 @pytest.mark.django_db

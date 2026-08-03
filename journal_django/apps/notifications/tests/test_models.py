@@ -40,3 +40,16 @@ def test_dedup_key_is_unique():
                 kind=KIND_MORNING_DIGEST, channel=CHANNEL_DM, chat_id=111,
                 text='второе', dedup_key='morning:1:2026-08-03', status=STATUS_QUEUED,
             )
+
+
+@pytest.mark.django_db
+def test_one_telegram_account_cannot_serve_two_teachers():
+    """Две привязки на один аккаунт — всегда ошибка ввода: человек начал бы
+    получать чужие уведомления. Запрет на уровне БД, а не только пометкой в UI."""
+    first = Teacher.objects.create(name='Первый', created_at='2026-08-01T00:00:00Z')
+    second = Teacher.objects.create(name='Второй', created_at='2026-08-01T00:00:00Z')
+    tg = TelegramUser.objects.create(chat_id=301, username='shared', full_name='Общий')
+    TelegramRecipient.objects.create(teacher=first, telegram_user=tg)
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            TelegramRecipient.objects.create(teacher=second, telegram_user=tg)

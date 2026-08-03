@@ -66,6 +66,18 @@ class TelegramRecipient(models.Model):
     class Meta:
         managed = True
         db_table = 'telegram_recipients'
+        constraints = [
+            # Один Telegram-аккаунт — не более чем у одного преподавателя.
+            # Две привязки на один аккаунт всегда ошибка ввода: человек начал бы
+            # получать чужие уведомления. Ограничение на уровне БД, а не только
+            # пометкой в интерфейсе. Отдельным UniqueConstraint, а НЕ заменой FK
+            # на OneToOneField: AlterField на FK умеет тихо затирать db-level
+            # ON DELETE из прежних миграций (см. память проекта).
+            models.UniqueConstraint(
+                fields=['telegram_user'],
+                name='telegram_recipients_user_key',
+            ),
+        ]
 
 
 class NotificationMessage(models.Model):

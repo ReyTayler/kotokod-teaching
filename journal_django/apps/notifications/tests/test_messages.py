@@ -59,3 +59,25 @@ def test_lesson_moved_shows_both_dates():
     assert '05.08' in text
     assert '12.08' in text
     assert 'СИ1027' in text
+
+
+def test_lesson_cancelled_reports_course_extension():
+    """Отмена не выбрасывает урок — он уезжает в конец курса.
+
+    Без этой строки преподаватель видит только половину последствия: занятие
+    отменили, а то, что у группы появилось новое занятие в конце, — нет.
+    """
+    text = messages.lesson_cancelled(
+        group='СИ1027', direction='Scratch', seq=3,
+        day=datetime.date(2026, 7, 21), time='12:00',
+        course_end=datetime.date(2026, 8, 4),
+    )
+    assert 'Курс продлён до 04.08' in text
+
+
+def test_lesson_cancelled_without_course_end_says_nothing_extra():
+    text = messages.lesson_cancelled(
+        group='СИ1027', direction='Scratch', seq=3,
+        day=datetime.date(2026, 7, 21), time='12:00',
+    )
+    assert 'Курс продлён' not in text

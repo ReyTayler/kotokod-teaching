@@ -110,12 +110,22 @@ def lesson_moved(*, group: str, direction: str, seq: int | None,
 
 
 def lesson_cancelled(*, group: str, direction: str, seq: int | None,
-                      day: datetime.date, time: str) -> str:
+                      day: datetime.date, time: str,
+                      course_end: datetime.date | None = None) -> str:
+    """
+    Отмена занятия.
+
+    course_end — новая дата последнего занятия курса. Отмена не выбрасывает урок,
+    а переносит его в конец: у группы появляется новое занятие, и без этой строки
+    преподаватель видит только половину последствия.
+    """
     number = f' — урок №{seq}' if seq is not None else ''
+    tail = f'\nКурс продлён до {_d(course_end)}' if course_end else ''
     return (
         'Занятие отменено.\n\n'
         f'{escape(group)} ({escape(direction)}){number}\n'
         f'Было: {_d(day)} в {time}'
+        f'{tail}'
     )
 
 
