@@ -33,6 +33,11 @@ env = environ.Env(
     SMTP_USER=(str, ''),
     SMTP_PASS=(str, ''),
     SMTP_FROM=(str, ''),
+    # Telegram-уведомления (спека 2026-08-03)
+    TELEGRAM_BOT_TOKEN=(str, ''),
+    TELEGRAM_GENERAL_CHAT_ID=(int, 0),
+    BOT_SERVICE_TOKEN=(str, ''),
+    NOTIFICATIONS_HISTORY_LIMIT=(int, 200),
 )
 
 # Read .env from the repo root (shared with Express)
@@ -238,6 +243,20 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': 60.0,  # < TTL(120с) → финансовая сводка всегда тёплая
     },
 }
+
+# ---------------------------------------------------------------------------
+# Telegram-уведомления (спека 2026-08-03)
+# ---------------------------------------------------------------------------
+# Токен того же бота, что крутится в kotocode-bot. Отправлять с одним токеном
+# может несколько процессов — ограничение Telegram касается только getUpdates.
+TELEGRAM_BOT_TOKEN: str = env('TELEGRAM_BOT_TOKEN')
+# Общий чат сотрудников: сюда дублируются точечные уведомления об изменениях.
+# Дайджесты сюда НЕ идут (см. спеку, п. 2.5).
+TELEGRAM_GENERAL_CHAT_ID: int = env('TELEGRAM_GENERAL_CHAT_ID')
+# Общий секрет журнал ↔ бот для служебных эндпоинтов /api/integrations/telegram.
+BOT_SERVICE_TOKEN: str = env('BOT_SERVICE_TOKEN')
+# Сколько ЗАВЕРШЁННЫХ записей очереди храним. Строки в очереди не удаляются никогда.
+NOTIFICATIONS_HISTORY_LIMIT: int = env('NOTIFICATIONS_HISTORY_LIMIT')
 
 # ---------------------------------------------------------------------------
 # Internationalisation
