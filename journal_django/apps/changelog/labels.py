@@ -32,6 +32,10 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/teachers$'), 'teacher.create'),
     ('PATCH', re.compile(r'^/api/admin/teachers/\d+$'), 'teacher.update'),
     ('DELETE', re.compile(r'^/api/admin/teachers/\d+$'), 'teacher.delete'),
+    # Telegram-уведомления: привязка/отвязка аккаунта преподавателя. Эндпоинты
+    # появятся позже (см. план фичи), правила заводятся заранее.
+    ('POST', re.compile(r'^/api/admin/teachers/\d+/telegram$'), 'teacher.telegram_link'),
+    ('DELETE', re.compile(r'^/api/admin/teachers/\d+/telegram$'), 'teacher.telegram_unlink'),
     ('POST', re.compile(r'^/api/admin/students$'), 'student.create'),
     ('PATCH', re.compile(r'^/api/admin/students/\d+/manager$'), 'student.manager_update'),
     ('PATCH', re.compile(r'^/api/admin/students/\d+$'), 'student.update'),

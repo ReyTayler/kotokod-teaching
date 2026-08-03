@@ -34,6 +34,10 @@ TRACKED: dict[str, TrackedModel] = {
     'discounts.Discount':             TrackedModel('discount', True, 10),
     'settings_app.AdminUserSettings': TrackedModel('settings', True, 10, identity=('username',)),
     'accounts.Account':               TrackedModel('account', False, 15),
+    # Привязка «преподаватель ↔ Telegram-аккаунт» — не доменные данные, а канал
+    # связи. Откат смысла не имеет: восстановление удалённой строки не вернёт
+    # согласие человека получать сообщения, поэтому revertable=False.
+    'notifications.TelegramRecipient': TrackedModel('telegram_recipient', False, 15),
     'groups.Group':                   TrackedModel('group', True, 20),
     'groups.GroupScheduleSlot':       TrackedModel('schedule_slot', True, 30),
     'memberships.GroupMembership':    TrackedModel('membership', True, 30),
