@@ -48,6 +48,10 @@ urlpatterns = [
     path('api/admin/sync', include('apps.sync.urls')),
     # Отчёты — генерация Excel-отчётов в Celery (role=manager/admin)
     path('api/admin/reports', include('apps.reports.urls')),
+    # Telegram-уведомления: справочник аккаунтов (manager/admin) и раздел
+    # «Уведомления» — журнал доставки + расписание (только admin/superadmin).
+    path('api/admin/telegram-users', include('apps.notifications.telegram_users_urls')),
+    path('api/admin/notifications', include('apps.notifications.urls')),
     # Служебный API Telegram-бота (закрыт секретом + nginx allow 127.0.0.1).
     # ОБЯЗАН стоять ДО общего path('api', ...) ниже — иначе перехватится им.
     path('api/integrations/telegram', include('apps.notifications.integration_urls')),

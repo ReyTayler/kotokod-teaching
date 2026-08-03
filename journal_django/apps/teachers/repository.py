@@ -11,6 +11,7 @@ from typing import Optional
 from django.db.models.functions import Now
 
 from apps.core.utils.orm import dictrow, dictrows
+from apps.notifications.models import TelegramRecipient
 
 from .models import Teacher
 
@@ -19,17 +20,49 @@ from .models import Teacher
 # Repository functions (ORM-порт services/repo/teachers.js)
 # ---------------------------------------------------------------------------
 
+def _telegram_by_teacher_id(teacher_ids: list[int]) -> dict[int, dict]:
+    """
+    Привязки Telegram одним запросом (без N+1), keyed by teacher_id.
+
+    Карточка преподавателя отдельного эндпоинта не имеет — привязка
+    подмешивается прямо в list/get teachers.
+    """
+    rows = (
+        TelegramRecipient.objects
+        .filter(teacher_id__in=teacher_ids)
+        .select_related('telegram_user')
+    )
+    return {
+        recipient.teacher_id: {
+            'chat_id': recipient.telegram_user.chat_id,
+            'username': recipient.telegram_user.username,
+            'full_name': recipient.telegram_user.full_name,
+            'is_active': recipient.is_active,
+            'blocked_reason': recipient.blocked_reason,
+        }
+        for recipient in rows
+    }
+
+
 def list_teachers(include_inactive: bool = False) -> list[dict]:
     """SELECT * FROM teachers [WHERE active=true] ORDER BY name."""
     qs = Teacher.objects.all()
     if not include_inactive:
         qs = qs.filter(active=True)
-    return dictrows(qs.order_by('name').values())
+    rows = dictrows(qs.order_by('name').values())
+    telegram_by_id = _telegram_by_teacher_id([row['id'] for row in rows])
+    for row in rows:
+        row['telegram'] = telegram_by_id.get(row['id'])
+    return rows
 
 
 def get_teacher(teacher_id: int) -> Optional[dict]:
     """SELECT * FROM teachers WHERE id=%s."""
-    return dictrow(Teacher.objects.filter(id=teacher_id).values())
+    row = dictrow(Teacher.objects.filter(id=teacher_id).values())
+    if row is None:
+        return None
+    row['telegram'] = _telegram_by_teacher_id([teacher_id]).get(teacher_id)
+    return row
 
 
 def create_teacher(data: dict) -> dict:
