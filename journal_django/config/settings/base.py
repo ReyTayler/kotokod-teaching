@@ -9,6 +9,14 @@ from pathlib import Path
 
 import environ
 
+try:
+    from celery.schedules import crontab
+except ImportError:
+    # celery не установлен (напр. локальная разработка на Windows) — см. тот же
+    # приём в config/__init__.py. Расписания на базе crontab ниже просто не
+    # добавляются в CELERY_BEAT_SCHEDULE; beat всё равно не запускают без Celery.
+    crontab = None
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -242,7 +250,22 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.dashboard.tasks.refresh_finance_dashboard',
         'schedule': 60.0,  # < TTL(120с) → финансовая сводка всегда тёплая
     },
+    'notifications-dispatch-outbox': {
+        'task': 'apps.notifications.tasks.dispatch_outbox',
+        'schedule': 60.0,  # страховка: точечные уведомления уходят раньше, по on_commit
+    },
 }
+if crontab is not None:
+    CELERY_BEAT_SCHEDULE.update({
+        'notifications-morning-digest': {
+            'task': 'apps.notifications.tasks.send_morning_digest',
+            'schedule': crontab(hour=8, minute=0),   # CELERY_TIMEZONE='Europe/Moscow'
+        },
+        'notifications-fill-digest': {
+            'task': 'apps.notifications.tasks.send_fill_digest',
+            'schedule': crontab(hour=21, minute=0),
+        },
+    })
 
 # ---------------------------------------------------------------------------
 # Telegram-уведомления (спека 2026-08-03)
