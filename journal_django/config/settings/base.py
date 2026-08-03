@@ -312,6 +312,12 @@ REST_FRAMEWORK = {
     # Оставляем 'UNAUTHENTICATED_USER': None чтобы DRF не использовал AnonymousUser
     # в контексте запросов без аутентификации — views сами выставляют permission_classes.
     'UNAUTHENTICATED_USER': None,
+    # Точечные лимиты по throttle_scope на конкретных вьюхах (DEFAULT_THROTTLE_CLASSES
+    # НЕ включаем — иначе лимит применился бы ко всем вьюхам проекта разом).
+    'DEFAULT_THROTTLE_RATES': {
+        # Служебный API Telegram-бота (apps/notifications/integration_views.py).
+        'bot_service': '120/min',
+    },
 }
 
 # ---------------------------------------------------------------------------

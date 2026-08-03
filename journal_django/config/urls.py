@@ -48,6 +48,9 @@ urlpatterns = [
     path('api/admin/sync', include('apps.sync.urls')),
     # Отчёты — генерация Excel-отчётов в Celery (role=manager/admin)
     path('api/admin/reports', include('apps.reports.urls')),
+    # Служебный API Telegram-бота (закрыт секретом + nginx allow 127.0.0.1).
+    # ОБЯЗАН стоять ДО общего path('api', ...) ниже — иначе перехватится им.
+    path('api/integrations/telegram', include('apps.notifications.integration_urls')),
     # Phase 10 — teacher SPA (/api, после /api/admin — admin стоит выше, как в Express)
     path('api', include('apps.teacher_spa.urls')),
     # Планирование занятий — календарь плановых occurrences (/api/calendar, role=teacher)
