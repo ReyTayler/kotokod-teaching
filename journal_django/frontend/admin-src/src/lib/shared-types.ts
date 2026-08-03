@@ -4,6 +4,17 @@
 export type ID = number;
 
 // ===== Teachers =====
+
+/** Привязанный Telegram-аккаунт преподавателя (TelegramRecipient + TelegramUser). */
+export interface TeacherTelegram {
+  chat_id: number;
+  username: string | null;
+  full_name: string;
+  is_active: boolean;
+  /** Почему бот больше не может писать: «заблокировал бота» и т.п. */
+  blocked_reason: string | null;
+}
+
 export interface Teacher {
   id: ID;
   name: string;
@@ -11,6 +22,8 @@ export interface Teacher {
   phone: string | null;
   active: boolean;
   created_at: string;
+  /** null — аккаунт не привязан. */
+  telegram?: TeacherTelegram | null;
   // joined-only поля (когда запрашиваются с дополнительной информацией):
   groups_count?: number;
 }

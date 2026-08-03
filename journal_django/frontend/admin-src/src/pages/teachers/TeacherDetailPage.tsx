@@ -11,6 +11,7 @@ import { PageLoading } from '../../components/ui/Skeleton';
 import { fmtDate } from '../../lib/format';
 import type { Teacher } from '../../lib/types';
 import TeacherFormModal from './TeacherFormModal';
+import { TeacherTelegramBlock } from './TeacherTelegramBlock';
 import { useAuth } from '../../hooks/useAuth';
 import { canWriteTeachers, type Role } from '../../lib/permissions';
 
@@ -71,6 +72,10 @@ export default function TeacherDetailPage() {
         backTo="/admin/teachers"
         parentLabel="Преподаватели"
       >
+        {/* Привязка Telegram — отдельным блоком, а не полем формы: она живёт на
+            своём эндпоинте (POST/DELETE …/telegram), а не в PATCH преподавателя. */}
+        <TeacherTelegramBlock teacher={teacher} />
+
         <div className="sub-header">Группы <span className="count-badge">{myGroups.length}</span></div>
         {myGroups.length === 0 ? (
           <div className="memberships__empty">Нет групп</div>

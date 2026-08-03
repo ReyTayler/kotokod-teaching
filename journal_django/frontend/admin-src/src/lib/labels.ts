@@ -88,6 +88,8 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'account.invite_accept':         'Активация учётки',
   'account.twofa_enable':          'Включение 2FA',
   'account.twofa_disable':         'Выключение 2FA',
+  'teacher.telegram_link':         'Привязка Telegram',
+  'teacher.telegram_unlink':       'Отвязка Telegram',
   'changelog.revert':              'Откат',
   other:                           'Другое действие',
 };
@@ -118,6 +120,41 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
 
 export const CHANGELOG_ENTITY_OPTIONS: { value: string; label: string }[] =
   Object.entries(CHANGELOG_ENTITY_LABELS).map(([value, label]) => ({ value, label }));
+
+// ===== Уведомления: типы, каналы, статусы =====
+// Ключи — из apps/notifications/constants.py (KIND_/CHANNEL_/STATUS_CHOICES).
+
+export const NOTIFICATION_KIND_LABELS: Record<string, string> = {
+  morning_digest:      'Утренний дайджест',
+  fill_digest:         'Не заполнены отчёты',
+  makeup_assigned:     'Назначен доп.урок',
+  makeup_changed:      'Изменён доп.урок',
+  makeup_cancelled:    'Отменён доп.урок',
+  lesson_moved:        'Перенос занятия',
+  lesson_cancelled:    'Отмена занятия',
+  substitute_assigned: 'Назначена замена',
+  substitute_removed:  'Снята замена',
+};
+
+export const NOTIFICATION_KIND_OPTIONS: { value: string; label: string }[] =
+  Object.entries(NOTIFICATION_KIND_LABELS).map(([value, label]) => ({ value, label }));
+
+export const NOTIFICATION_CHANNEL_LABELS: Record<string, string> = {
+  dm:         'Личка',
+  group_chat: 'Общий чат',
+};
+
+export const NOTIFICATION_CHANNEL_OPTIONS: { value: string; label: string }[] =
+  Object.entries(NOTIFICATION_CHANNEL_LABELS).map(([value, label]) => ({ value, label }));
+
+export const NOTIFICATION_STATUS_LABELS: Record<string, string> = {
+  queued: 'В очереди',
+  sent:   'Отправлено',
+  failed: 'Не доставлено',
+};
+
+export const NOTIFICATION_STATUS_OPTIONS: { value: string; label: string }[] =
+  Object.entries(NOTIFICATION_STATUS_LABELS).map(([value, label]) => ({ value, label }));
 
 // ===== Продления: стадии воронки (fallback, если под рукой только key —
 // основной источник истины — stage_label/label с бэка) =====

@@ -39,3 +39,7 @@ export const canDeleteStudentComments = isAdminUp; // удаление комм�
 // шумит (решение 2026-07-28). Набор группы («Ученики») менеджеру доступен.
 export const canSeeGroupLessonsTab = isAdminUp;
 export const canWriteStudentManager = isAdminUp; // назначение ответственного менеджера ученику
+// Привязка Telegram-аккаунта преподавателю. Менеджер поле видит (чтобы понимать,
+// дойдут ли до преподавателя напоминания), но не меняет. Бэк:
+// ReadStaffWriteAdmin на POST/DELETE /api/admin/teachers/:id/telegram.
+export const canWriteTeacherTelegram = isAdminUp;

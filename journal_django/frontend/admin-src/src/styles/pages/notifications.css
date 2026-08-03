@@ -1,0 +1,201 @@
+/* journal_django/frontend/admin-src/src/styles/pages/notifications.css */
+/* Раздел «Уведомления»: лента доставки + расписание регулярных задач. */
+
+/* ── Колонка «Текст»: зачин сообщения одной строкой ──────────────────────────
+   Тексты многострочные; без ограничения ширины одна строка дайджеста растянет
+   таблицу горизонтально. max-width в ch, а не в px: держится за кегль, а не за
+   случайное число. */
+.notifications-text {
+  display: block;
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text2);
+}
+
+/* ── Модалка сообщения ─────────────────────────────────────────────────────── */
+
+.notification-detail {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.notification-detail__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.notification-detail__row {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.notification-detail__label {
+  font-size: var(--fs-xs);
+  color: var(--text3);
+}
+
+.notification-detail__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.notification-detail__chat {
+  font-size: var(--fs-2xs);
+  color: var(--text3);
+}
+
+.notification-detail__error {
+  padding: var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--danger) 24%, transparent);
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
+  border-radius: var(--r-sm);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Текст целиком: сообщения бота свёрстаны переносами строк, поэтому <pre>. */
+.notification-detail__text {
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--bg3);
+  border-radius: var(--r-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Вкладка «Расписание» ──────────────────────────────────────────────────── */
+
+.schedule-panel {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.schedule-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.schedule-count {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.schedule-count__value {
+  font-size: var(--fs-5xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.schedule-count__label {
+  font-size: var(--fs-sm);
+  color: var(--text3);
+}
+
+.schedule-count--sent .schedule-count__value { color: var(--success); }
+.schedule-count--failed .schedule-count__value { color: var(--danger); }
+
+.schedule-cards {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.schedule-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+/* Молчащая задача — единственный отказ, который не виден по данным: подсвечиваем. */
+.schedule-card--stale {
+  border-color: color-mix(in oklab, var(--warning) 40%, transparent);
+  background: color-mix(in oklab, var(--warning) 6%, var(--bg2));
+}
+
+.schedule-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.schedule-card__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.schedule-card__when {
+  font-size: var(--fs-sm);
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-card__last {
+  font-size: var(--fs-sm);
+  color: var(--text2);
+}
+
+.schedule-card__warn {
+  font-size: var(--fs-sm);
+  color: var(--warning);
+}
+
+/* ── Поле Telegram в карточке преподавателя ────────────────────────────────── */
+
+.teacher-telegram {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 420px;
+  margin-bottom: var(--space-4);
+}
+
+.teacher-telegram__controls {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.teacher-telegram__combobox {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+/* Подпись поля в режиме чтения (менеджер): у Field её рисует <label>, здесь
+   поля нет — повторяем его типографику, а не изобретаем свою. */
+.teacher-telegram__label-ro {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text2);
+}
+
+.teacher-telegram__status {
+  font-size: var(--fs-sm);
+  color: var(--text3);
+}
+
+.teacher-telegram__status--error {
+  color: var(--danger);
+}
