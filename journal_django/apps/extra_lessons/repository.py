@@ -50,6 +50,29 @@ def get_resolution_full(resolution_id) -> Optional[dict]:
     return _full_values(AbsenceResolution.objects.filter(id=resolution_id)).first()
 
 
+def notification_context(resolution_id) -> Optional[dict]:
+    """Данные одной резолюции для ТЕКСТА уведомления преподавателю.
+
+    Отдельная выборка, а не расширение _full_values: последний обслуживает и
+    постраничный список раздела (list_resolutions), где лишний JOIN к directions
+    на каждую строку не нужен, а лишний ключ уезжал бы в ответ API.
+
+    Имя группы и направления — Coalesce: у makeup они берутся из пропущенного
+    урока, у extra (сверх курса, missed_lesson=NULL) — из собственной группы
+    резолюции.
+    """
+    return (
+        AbsenceResolution.objects.filter(id=resolution_id).values(
+            'id', 'kind', 'status', 'assigned_teacher_id', 'scheduled_date', 'scheduled_time',
+            student_name=F('student__full_name'),
+            teacher_name=F('assigned_teacher__name'),
+            group_name=Coalesce(F('group__name'), F('missed_lesson__group__name')),
+            direction_name=Coalesce(
+                F('group__direction__name'), F('missed_lesson__group__direction__name')),
+        ).first()
+    )
+
+
 def lock_for_record(resolution_id) -> Optional[dict]:
     """SELECT ... FOR UPDATE внутри atomic() — авторитетная проверка статуса перед записью.
 

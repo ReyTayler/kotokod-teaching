@@ -55,6 +55,78 @@ def _step(duration_minutes) -> Decimal:
     return Decimal('0.5') if duration_minutes == 45 else Decimal('1')
 
 
+def _notify_makeup(resolution_id: int, kind: str) -> None:
+    """
+    Поставить преподавателю уведомление о доп.уроке.
+
+    Вызывается ВНУТРИ транзакции самой операции (transactional outbox): либо
+    назначение и сообщение, либо ни того, ни другого. Состояния «назначили, а
+    сказать забыли» не существует.
+
+    Импорт локальный: apps.extra_lessons не зависит от apps.notifications на
+    уровне модуля — доменное приложение про Telegram не знает, оно лишь сообщает
+    факт.
+
+    Молчим, если нечего сказать: нет преподавателя или не проставлены дата/время
+    (резолюция в pending). Уведомление — побочный эффект, оно не имеет права
+    ронять доменную операцию.
+    """
+    from apps.notifications import messages as notif_messages
+    from apps.notifications import services as notif_services
+    from apps.notifications.constants import KIND_MAKEUP_ASSIGNED, KIND_MAKEUP_CANCELLED
+
+    row = repository.notification_context(resolution_id)
+    if row is None or row['assigned_teacher_id'] is None:
+        return
+    if row['scheduled_date'] is None or row['scheduled_time'] is None:
+        return
+
+    when = row['scheduled_time'].strftime('%H:%M')
+    common = {
+        'teacher_name': row['teacher_name'],
+        'group': row['group_name'],
+        'direction': row['direction_name'],
+        'day': row['scheduled_date'],
+        'time': when,
+        'student_name': row['student_name'],
+    }
+    if kind == KIND_MAKEUP_ASSIGNED:
+        text = notif_messages.makeup_assigned(
+            **common, is_beyond_course=(row['kind'] == EXTRA))
+    elif kind == KIND_MAKEUP_CANCELLED:
+        text = notif_messages.makeup_cancelled(**common)
+    else:  # pragma: no cover — защита от опечатки в вызове
+        raise ValueError(f'Неизвестный тип уведомления о доп.уроке: {kind}')
+    # KIND_MAKEUP_CHANGED здесь не строится сознательно: переносить уже
+    # назначенный доп.урок раздел пока не умеет (эндпоинта нет — см. urls.py),
+    # отмена и новое назначение дают два честных сообщения.
+
+    notif_services.notify_teacher(
+        kind=kind,
+        teacher_id=row['assigned_teacher_id'],
+        text=text,
+        # Дата и время в ключе: другое время доп.урока = другой текст = новое
+        # сообщение, повторный вызов той же операции — нет. Ключ намеренно
+        # повторяет содержимое сообщения, а не просто id резолюции.
+        dedup_prefix=f'{kind}:{resolution_id}:{row["scheduled_date"].isoformat()}:{when}',
+        source_kind='absence_resolution',
+        source_id=resolution_id,
+        also_to_group_chat=True,
+    )
+
+
+def _notify_assigned(resolution_id: int) -> None:
+    from apps.notifications.constants import KIND_MAKEUP_ASSIGNED
+
+    _notify_makeup(resolution_id, KIND_MAKEUP_ASSIGNED)
+
+
+def _notify_cancelled(resolution_id: int) -> None:
+    from apps.notifications.constants import KIND_MAKEUP_CANCELLED
+
+    _notify_makeup(resolution_id, KIND_MAKEUP_CANCELLED)
+
+
 def create_assignment(data: dict, request) -> dict:
     """Назначить доп.урок по multi-select. Для каждого ученика: найти его
     pending-резолюцию (авто-создана при записи урока) и перевести в
@@ -130,6 +202,9 @@ def create_assignment(data: dict, request) -> dict:
                     duration_minutes=duration_minutes)
                 rid = locked['id']
             resolution_ids.append(rid)
+            # Одно сообщение на ученика: резолюция пер-ученик, у каждого свои
+            # данные. Постановка — здесь же, в транзакции назначения.
+            _notify_assigned(rid)
     return {'created': len(resolution_ids), 'resolution_ids': resolution_ids}
 
 
@@ -229,6 +304,7 @@ def _assign_makeup_for_lesson(missed_lesson_id, student_ids, teacher_id, schedul
                     scheduled_time=scheduled_time, duration_minutes=duration_minutes)
                 rid = locked['id']
             resolution_ids.append(rid)
+            _notify_assigned(rid)
     return {'created': len(resolution_ids), 'resolution_ids': resolution_ids, 'kind': 'makeup'}
 
 
@@ -246,6 +322,7 @@ def _assign_extra_beyond_course(group_id, student_ids, teacher_id, scheduled_dat
                 scheduled_date=scheduled_date, scheduled_time=scheduled_time,
                 duration_minutes=duration_minutes, target_lesson_number=target_lesson_number)
             resolution_ids.append(rid)
+            _notify_assigned(rid)
     return {'created': len(resolution_ids), 'resolution_ids': resolution_ids, 'kind': 'extra'}
 
 
@@ -258,11 +335,17 @@ def cancel_assignment(resolution_id: int, request) -> Optional[dict]:
         return None
     if full['status'] != MAKEUP_SCHEDULED:
         raise ValueError('Отменить можно только назначенный (ещё не проведённый) доп.урок.')
-    if full['kind'] == EXTRA:
-        # Доп.урок сверх курса не имеет pending-пропуска — отмена = удаление назначения.
-        repository.delete_resolution(resolution_id)
-        return {'id': resolution_id, 'deleted': True}
-    repository.back_to_pending(resolution_id)
+    # Транзакция — ради уведомления: отмена и сообщение о ней либо происходят
+    # вместе, либо не происходят вовсе (transactional outbox). Уведомление
+    # ставится ДО изменения статуса: back_to_pending/delete_resolution стирают
+    # преподавателя, дату и время, из которых собирается текст.
+    with transaction.atomic():
+        _notify_cancelled(resolution_id)
+        if full['kind'] == EXTRA:
+            # Доп.урок сверх курса не имеет pending-пропуска — отмена = удаление назначения.
+            repository.delete_resolution(resolution_id)
+            return {'id': resolution_id, 'deleted': True}
+        repository.back_to_pending(resolution_id)
     return repository.get_resolution_full(resolution_id)
 
 
