@@ -71,10 +71,17 @@ SMTP_HOST/PORT/USER/PASS/FROM # Beget SMTP для email-OTP
 PORT=3000
 NODE_ENV=production           # включает Secure cookie
 PG_POOL_MAX=20                # опц.
+# Telegram-уведомления:
+TELEGRAM_BOT_TOKEN=           # токен того же бота, что крутится в kotocode-bot
+TELEGRAM_GENERAL_CHAT_ID=     # общий чат сотрудников (-100...); пусто → дубли в чат не идут
+BOT_SERVICE_TOKEN=            # общий секрет журнал ↔ бот для /api/integrations/telegram
+NOTIFICATIONS_HISTORY_LIMIT=200  # сколько ЗАВЕРШЁННЫХ записей очереди хранить
 # Legacy (Phase 5):
 STUDENTS_SPREADSHEET_ID=
 JOURNAL_SPREADSHEET_ID=       # нужен для backfill-payments
 ```
+
+**Telegram-уведомления** — `apps/notifications/`, единственное место в журнале, знающее про Telegram. Очередь исходящих (`notification_messages`) лежит в PostgreSQL: доменные сервисы (`scheduling`, `extra_lessons`) вызывают `notifications.services.notify_teacher()` **внутри своей транзакции** (transactional outbox — либо операция и сообщение, либо ничего), а Celery-beat раз в минуту разгребает очередь и шлёт через Telegram Bot API. Бот в доставке не участвует. Идемпотентность — уникальный `dedup_key` на уровне БД. Дайджесты: расписание 8:00, незаполненные отчёты 21:00 (оба только в личку); точечные уведомления об изменениях — личка + дубль в общий чат. Импорт `apps.notifications` из доменных приложений — **только локальный, внутри функции**. Спека: `docs/superpowers/specs/2026-08-03-telegram-notifications-design.md`.
 
 ## Тесты
 

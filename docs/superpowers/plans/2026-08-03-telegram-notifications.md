@@ -815,16 +815,20 @@ def enqueue(*, kind: str, channel: str, chat_id: int, text: str, dedup_key: str,
     двойного клика, повторного запуска задачи и гонки воркеров — на уровне БД,
     а не на уровне «мы аккуратно написали код».
     """
-    created = NotificationMessage.objects.bulk_create(
-        [NotificationMessage(
-            kind=kind, channel=channel, chat_id=chat_id, text=text,
-            dedup_key=dedup_key, recipient_teacher_id=recipient_teacher_id,
-            source_kind=source_kind, source_id=source_id,
-        )],
-        ignore_conflicts=True,
+    # get_or_create, а НЕ bulk_create(ignore_conflicts=True): на PostgreSQL второй
+    # не проставляет pk в возвращаемый объект даже при успешной вставке, поэтому
+    # по нему нельзя понять, была ли строка создана. get_or_create честно отдаёт
+    # флаг created и сам оборачивает вставку в savepoint — безопасно внутри
+    # внешней транзакции доменной операции.
+    _row, created = NotificationMessage.objects.get_or_create(
+        dedup_key=dedup_key,
+        defaults={
+            'kind': kind, 'channel': channel, 'chat_id': chat_id, 'text': text,
+            'recipient_teacher_id': recipient_teacher_id,
+            'source_kind': source_kind, 'source_id': source_id,
+        },
     )
-    # bulk_create с ignore_conflicts возвращает объекты без pk, если вставки не было.
-    return bool(created and created[0].pk)
+    return created
 
 
 def active_chat_id(teacher_id: int) -> int | None:
@@ -3002,6 +3006,13 @@ export const NOTIFICATION_STATUS_LABELS: Record<string, string> = {
   sent:   'Отправлено',
   failed: 'Не доставлено',
 };
+```
+
+Там же в существующий словарь `CHANGELOG_OPERATION_LABELS` добавить подписи для операций, чьи правила заведены в Task 2 (без них журнал изменений покажет машинные ключи):
+
+```ts
+  'teacher.telegram_link':   'Привязка Telegram',
+  'teacher.telegram_unlink': 'Отвязка Telegram',
 ```
 
 - [ ] **Step 2: Написать хуки**

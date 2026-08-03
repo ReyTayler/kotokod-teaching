@@ -108,7 +108,22 @@ ALLOWED_HOSTS=example.kotokod.ru
 CORS_ORIGINS=                       # пусто = same-origin only (SPA с того же домена)
 SMTP_HOST=... SMTP_PORT=465 SMTP_USER=... SMTP_PASS=... SMTP_FROM=...
 NODE_ENV=production                 # Express: Secure-cookie + строгий CORS
+TELEGRAM_BOT_TOKEN=                 # тот же токен, что в .env бота kotocode-bot
+TELEGRAM_GENERAL_CHAT_ID=           # общий чат сотрудников (-100...)
+BOT_SERVICE_TOKEN=                  # общий секрет журнал ↔ бот
 ```
+
+**Telegram-уведомления.** `journal-celery-beat` несёт три дополнительных
+расписания: разгребание очереди (раз в минуту), утренний дайджест расписания
+(8:00 МСК) и вечерний дайджест незаполненных отчётов (21:00 МСК). После
+изменения `.env` перезапустить `journal-django`, `journal-celery-worker` **и**
+`journal-celery-beat` — иначе beat продолжит работать со старыми настройками.
+
+Первый прогон делать осторожно: сообщения уходят только преподавателям с
+привязкой Telegram, поэтому админ сначала привязывает **себя одного**
+(`/admin/teachers` → карточка → поле «Telegram»), смотрит оба дайджеста живьём
+и лишь потом привязывает остальных. Отдельного «тестового режима» нет — эта
+последовательность его заменяет.
 `.env` несёт секреты (DB-пароль, `ADMIN_COOKIE_SECRET`, `SMTP_PASS`) — закрыть права:
 ```bash
 chmod 600 .env && chown kotokod:kotokod .env      # systemd читает от root до сброса прав
