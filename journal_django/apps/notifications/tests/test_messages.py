@@ -1,0 +1,61 @@
+"""Тесты форматирования текстов. Без БД: функции чистые."""
+from __future__ import annotations
+
+import datetime
+
+from apps.notifications import messages
+
+
+def test_morning_digest_marks_substitute_and_extra():
+    text = messages.morning_digest(
+        teacher_name='Анна Петрова',
+        day=datetime.date(2026, 8, 3),
+        items=[
+            {'time': '12:00', 'group': 'СИ1027', 'direction': 'Scratch',
+             'seq': 1, 'is_substitute': False, 'is_extra': False},
+            {'time': '13:00', 'group': 'ПИ1062', 'direction': 'Python',
+             'seq': 9, 'is_substitute': True, 'is_extra': False},
+            {'time': '14:30', 'group': 'ПИ1062', 'direction': 'Python',
+             'seq': None, 'is_substitute': False, 'is_extra': True},
+        ],
+    )
+    assert 'Доброе утро, Анна Петрова!' in text
+    assert 'Ваши уроки на сегодня (03.08):' in text
+    assert '• 12:00 — СИ1027 (Scratch) — урок №1' in text
+    assert '• 13:00 — ПИ1062 (Python) — урок №9 (замена)' in text
+    assert '• 14:30 — ПИ1062 (Python) — доп.урок' in text
+    assert 'Хорошего дня! 🚀' in text
+
+
+def test_fill_digest_always_has_the_required_footer():
+    text = messages.fill_digest(items=[
+        {'date': datetime.date(2026, 8, 2), 'time': '16:00', 'group': 'ПИ1054',
+         'direction': 'Python', 'seq': 11},
+    ])
+    assert '• 02.08, 16:00 — ПИ1054 (Python) — урок №11' in text
+    assert 'Если уроков не было, сообщите менеджеру или администратору.' in text
+
+
+def test_makeup_assigned_states_who_what_when():
+    text = messages.makeup_assigned(
+        teacher_name='Анна Петрова',
+        group='ПИ1062', direction='Python',
+        day=datetime.date(2026, 8, 10), time='14:30',
+        student_name='Пётр Иванов', is_beyond_course=False,
+    )
+    assert 'доп.урок' in text.lower()
+    assert '10.08' in text
+    assert '14:30' in text
+    assert 'ПИ1062' in text
+    assert 'Пётр Иванов' in text
+
+
+def test_lesson_moved_shows_both_dates():
+    text = messages.lesson_moved(
+        group='СИ1027', direction='Scratch', seq=4,
+        from_day=datetime.date(2026, 8, 5), to_day=datetime.date(2026, 8, 12),
+        time='12:00',
+    )
+    assert '05.08' in text
+    assert '12.08' in text
+    assert 'СИ1027' in text
