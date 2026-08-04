@@ -51,6 +51,7 @@ export default function TeacherStatsRow({ month, onMonthChange, stats, groups }:
 
   const total = stats?.total;
   const att = stats?.attendance;
+  const ren = stats?.renewals;
 
   const tiles: StatTile[] = [
     {
@@ -88,6 +89,16 @@ export default function TeacherStatsRow({ month, onMonthChange, stats, groups }:
       label: 'Групп',
       value: `${active.length}${archived ? ` / ${archived}` : ''}`,
       sub: archived ? 'сейчас: активных / в архиве' : 'сейчас, активных',
+    },
+    {
+      label: 'Продлений',
+      value: ren?.pct != null ? `${ren.pct}%` : '—',
+      // «За всё время» обязательно: плитка стоит рядом с переключателем месяца
+      // и без оговорки читалась бы как показатель периода.
+      sub: ren && ren.won + ren.lost > 0
+        ? `за всё время: ${ren.won} из ${ren.won + ren.lost}`
+        : 'закрытых сделок нет',
+      tone: ren?.pct != null && ren.pct < 70 ? 'warn' : 'default',
     },
   ];
 

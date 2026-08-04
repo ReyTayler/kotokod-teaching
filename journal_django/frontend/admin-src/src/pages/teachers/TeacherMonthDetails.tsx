@@ -1,3 +1,4 @@
+import { plural } from '../../lib/labels';
 import { DOW } from '../../lib/slots';
 import type { TeacherStats } from '../../hooks/useTeacherStats';
 
@@ -21,9 +22,10 @@ export default function TeacherMonthDetails({ stats }: Props) {
   const byDay = new Map(load.map((r) => [r.day, r.sessions]));
   const max = load.reduce((acc, r) => Math.max(acc, r.sessions), 0);
   const abs = stats?.absences;
+  const ren = stats?.renewals;
 
   return (
-    <div className="tbreak">
+    <div className="tbreak tbreak--three">
       <section className="tbreak__col">
         <h3 className="sub-header">Дни недели</h3>
         {max === 0 ? (
@@ -74,6 +76,38 @@ export default function TeacherMonthDetails({ stats }: Props) {
               <dd>{abs.burned}</dd>
             </div>
           </dl>
+        )}
+      </section>
+
+      <section className="tbreak__col">
+        <h3 className="sub-header">Продления за всё время</h3>
+        {!ren || ren.won + ren.lost === 0 ? (
+          <p className="tmd__empty">Закрытых сделок продления пока нет.</p>
+        ) : (
+          <>
+            <dl className="tmd">
+              <div className="tmd__row">
+                <dt>Продлились</dt>
+                <dd>{ren.won}</dd>
+              </div>
+              <div className="tmd__row">
+                <dt>Ушли</dt>
+                <dd>{ren.lost}</dd>
+              </div>
+              <div className="tmd__row">
+                <dt>В работе сейчас</dt>
+                <dd>{ren.open}</dd>
+              </div>
+            </dl>
+            {/* Оговорка обязана быть на виду, а не только в коде: иначе долю
+                прочтут как эксклюзивную заслугу преподавателя. */}
+            <p className="tmd__note">
+              Считаются все {ren.students}{' '}
+              {plural(ren.students, 'ученик', 'ученика', 'учеников')}, кто когда-либо
+              занимался в его группах. Сделка привязана к ученику, а не к направлению,
+              поэтому занимающийся у двух преподавателей учитывается обоим.
+            </p>
+          </>
         )}
       </section>
     </div>
