@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Floating } from './Floating';
 
-interface Option {
+export interface Option {
   value: string;
   label: string;
+  /**
+   * Вторая строка пункта: ник, пометка «занят такой-то». Участвует в поиске —
+   * ник человек помнит чаще, чем полное имя из профиля Telegram.
+   */
+  hint?: string;
+  /**
+   * Пункт приглушён, но выбираем. Именно приглушён, а не disabled: занятый
+   * аккаунт законно перепривязать (человек сменил преподавателя), конфликт
+   * разрешает бэкенд, а не форма.
+   */
+  muted?: boolean;
 }
 
 interface Props {
@@ -13,11 +24,17 @@ interface Props {
   placeholder?: string;
   /** Сколько строк помещается в выпадашке. Остальное прокручивается. По умолчанию 10. */
   maxVisible?: number;
+  /**
+   * Высота строки в пикселях — из неё считается maxHeight выпадашки.
+   * Двухстрочные пункты (с `hint`) выше: передавать 52, иначе список
+   * обрезается на середине пункта.
+   */
+  itemHeight?: number;
 }
 
-const ITEM_HEIGHT = 36;
-
-export function Combobox({ value, onChange, options, placeholder, maxVisible = 10 }: Props) {
+export function Combobox({
+  value, onChange, options, placeholder, maxVisible = 10, itemHeight = 36,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
@@ -31,7 +48,9 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
   const filtered = useMemo(() => {
     if (!open || !query.trim()) return options;
     const q = query.toLowerCase();
-    return options.filter((o) => o.label.toLowerCase().includes(q));
+    return options.filter(
+      (o) => o.label.toLowerCase().includes(q) || (o.hint || '').toLowerCase().includes(q),
+    );
   }, [options, query, open]);
 
   // Click outside → close.
@@ -104,7 +123,7 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
         floatingRef={popoverRef}
         open={open}
         className="floating-popover"
-        maxHeight={maxVisible * ITEM_HEIGHT + 8}
+        maxHeight={maxVisible * itemHeight + 8}
       >
         <ul ref={listRef} className="combobox__list" role="listbox">
           {filtered.length === 0 ? (
@@ -117,12 +136,14 @@ export function Combobox({ value, onChange, options, placeholder, maxVisible = 1
                 aria-selected={opt.value === value}
                 className={
                   `combobox__item${i === highlight ? ' is-highlighted' : ''}` +
-                  `${opt.value === value ? ' is-selected' : ''}`
+                  `${opt.value === value ? ' is-selected' : ''}` +
+                  `${opt.muted ? ' is-muted' : ''}`
                 }
                 onMouseEnter={() => setHighlight(i)}
                 onMouseDown={(e) => { e.preventDefault(); choose(opt); }}
               >
-                {opt.label}
+                <span className="combobox__item-label">{opt.label}</span>
+                {opt.hint && <span className="combobox__item-hint">{opt.hint}</span>}
               </li>
             ))
           )}
