@@ -18,9 +18,15 @@ GET /api/admin/teachers/<id>/stats.
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 
-from django.db.models import Count, F, Q
+from django.db.models import (
+    Case, Count, DecimalField, F, Max, OuterRef, Q, Subquery, Sum, Value, When,
+)
+from django.db.models.functions import Coalesce, TruncMonth
 
+from apps.groups.course_length import effective_total_lessons_expr
+from apps.groups.models import Group
 from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
 
 
@@ -101,3 +107,120 @@ def month_breakdown(teacher_id: int, month: str) -> dict:
             key=lambda r: -r['minutes'],
         ),
     }
+
+
+# Глубина спарклайна. Год — минимум, на котором видна сезонность учебного года
+# (спад летом, набор в сентябре); меньше — график ни о чём не говорит.
+MONTHS_BACK = 12
+
+
+def _month_keys(month: str, count: int) -> list[str]:
+    """['YYYY-MM', …] длиной `count`, заканчивая на `month` включительно."""
+    year, mon = int(month[:4]), int(month[5:7])
+    keys: list[str] = []
+    for _ in range(count):
+        keys.append(f'{year}-{mon:02d}')
+        mon -= 1
+        if mon == 0:
+            mon, year = 12, year - 1
+    keys.reverse()
+    return keys
+
+
+def monthly_series(teacher_id: int, month: str) -> list[dict]:
+    """
+    Занятий по месяцам за последние MONTHS_BACK месяцев, включая выбранный.
+
+    Месяцы без занятий возвращаются с нулём: пропуск точки заставил бы
+    спарклайн соединить соседние месяцы прямой и показать рост, которого не было.
+    """
+    keys = _month_keys(month, MONTHS_BACK)
+    date_from = f'{keys[0]}-01'
+    _, date_to = month_bounds(keys[-1])
+
+    rows = (
+        Lesson.objects
+        .filter(
+            teacher_id=teacher_id,
+            lesson_type__in=COURSE_LESSON_TYPES,
+            lesson_date__gte=date_from,
+            lesson_date__lte=date_to,
+        )
+        .annotate(bucket=TruncMonth('lesson_date'))
+        .values('bucket')
+        .annotate(lessons=Count('id'))
+    )
+    counts = {row['bucket'].strftime('%Y-%m'): row['lessons'] for row in rows}
+
+    return [{'month': key, 'lessons': counts.get(key, 0)} for key in keys]
+
+
+def last_lesson_date(teacher_id: int) -> str | None:
+    """
+    Дата последнего проведённого занятия — БЕЗ ограничения месяцем.
+
+    Отвечает на вопрос «преподаватель ещё работает», а не «сколько провёл
+    в июле», поэтому выбранный период здесь не при чём.
+    """
+    value = (
+        Lesson.objects
+        .filter(teacher_id=teacher_id, lesson_type__in=COURSE_LESSON_TYPES)
+        .aggregate(last=Max('lesson_date'))['last']
+    )
+    return value.isoformat() if value else None
+
+
+# Вес занятия в уроках курса: 45 мин = 0.5, иначе 1. Та же формула, что в
+# apps.lessons.services._step и apps.scheduling.occurrences._step_for, но
+# выраженная как SQL-выражение — суммировать надо на стороне БД.
+_LESSON_WEIGHT = Case(
+    When(lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
+    default=Value(Decimal('1')),
+    output_field=DecimalField(max_digits=6, decimal_places=1),
+)
+
+_PROGRESS_FIELD = DecimalField(max_digits=6, decimal_places=1)
+
+
+def group_progress(teacher_id: int) -> list[dict]:
+    """
+    Пройдено курса по каждой группе преподавателя, в УРОКАХ (45 мин = 0.5 урока).
+
+    Считается по группе целиком, а не по этому преподавателю: прогресс курса —
+    свойство группы, замена коллеги его не обнуляет и не удваивает.
+
+    Архивные группы включены: карточка показывает их отдельной секцией.
+
+    `lessons_done` — скалярный подзапрос, а НЕ второй Count в общем annotate.
+    `groups` уже соединяется с `directions` ради длины курса; агрегат по второй
+    связи в том же запросе перемножился бы на строки первой (классическая
+    ловушка Django ORM — см. тест test_group_progress_not_inflated_by_members).
+    """
+    done = Subquery(
+        Lesson.objects
+        .filter(group=OuterRef('pk'), lesson_type__in=COURSE_LESSON_TYPES)
+        .values('group')
+        .annotate(done=Sum(_LESSON_WEIGHT))
+        .values('done')[:1],
+        output_field=_PROGRESS_FIELD,
+    )
+
+    rows = (
+        Group.objects
+        .filter(teacher_id=teacher_id)
+        .annotate(
+            lessons_done=Coalesce(done, Value(Decimal('0')), output_field=_PROGRESS_FIELD),
+            course_total=effective_total_lessons_expr(),
+        )
+        .values('id', 'lessons_done', 'course_total')
+        .order_by('name')
+    )
+
+    return [
+        {
+            'group_id': row['id'],
+            'lessons_done': row['lessons_done'],
+            'lessons_total': row['course_total'],
+        }
+        for row in rows
+    ]

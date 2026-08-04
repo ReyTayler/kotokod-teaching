@@ -189,3 +189,200 @@ def test_empty_month_returns_zeros(stats_teacher):
     assert result['total'] == {'lessons': 0, 'minutes': 0, 'substitutions': 0}
     assert result['by_direction'] == []
     assert result['by_duration'] == []
+
+
+# ---------------------------------------------------------------------------
+# monthly_series / last_lesson_date
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_monthly_series_has_exactly_12_points(stats_teacher):
+    """Пустые месяцы присутствуют нулями: без них спарклайн склеит соседние
+    месяцы и покажет несуществующий рост."""
+    series = stats.monthly_series(stats_teacher, '2026-07')
+
+    assert len(series) == 12
+    assert series[0]['month'] == '2025-08'
+    assert series[-1]['month'] == '2026-07'
+    assert all(point['lessons'] == 0 for point in series)
+
+
+@pytest.mark.django_db
+def test_monthly_series_counts_per_month(stats_teacher, make_group, make_lesson):
+    group = make_group('__stats_g_series__')
+    make_lesson(group, '2026-06-10')
+    make_lesson(group, '2026-07-10')
+    make_lesson(group, '2026-07-17')
+
+    series = {p['month']: p['lessons'] for p in stats.monthly_series(stats_teacher, '2026-07')}
+
+    assert series['2026-06'] == 1
+    assert series['2026-07'] == 2
+    assert series['2026-05'] == 0
+
+
+@pytest.mark.django_db
+def test_monthly_series_excludes_system_lessons(stats_teacher, make_group, make_lesson):
+    group = make_group('__stats_g_series_sys__')
+    make_lesson(group, '2026-07-10', lesson_type='regular')
+    make_lesson(group, '2026-07-11', lesson_type='extra')
+
+    series = {p['month']: p['lessons'] for p in stats.monthly_series(stats_teacher, '2026-07')}
+
+    assert series['2026-07'] == 1
+
+
+@pytest.mark.django_db
+def test_monthly_series_crosses_year_boundary(stats_teacher, make_group, make_lesson):
+    """Окно на 12 месяцев назад от января обязано уйти в прошлый год."""
+    group = make_group('__stats_g_series_ny__')
+    make_lesson(group, '2025-03-10')
+
+    series = stats.monthly_series(stats_teacher, '2026-02')
+
+    assert series[0]['month'] == '2025-03'
+    assert series[0]['lessons'] == 1
+    assert series[-1]['month'] == '2026-02'
+
+
+@pytest.mark.django_db
+def test_last_lesson_date_ignores_selected_month(stats_teacher, make_group, make_lesson):
+    """Отвечает на вопрос «преподаватель ещё работает», поэтому месяцем не ограничен."""
+    group = make_group('__stats_g_last__')
+    make_lesson(group, '2026-07-10')
+    make_lesson(group, '2026-08-02')
+
+    assert stats.last_lesson_date(stats_teacher) == '2026-08-02'
+
+
+@pytest.mark.django_db
+def test_last_lesson_date_none_when_never_taught(stats_teacher):
+    assert stats.last_lesson_date(stats_teacher) is None
+
+
+@pytest.mark.django_db
+def test_last_lesson_date_ignores_system_lessons(stats_teacher, make_group, make_lesson):
+    """Сгорание — не проведённое занятие, «работает ли он» по нему судить нельзя."""
+    group = make_group('__stats_g_last_sys__')
+    make_lesson(group, '2026-07-10', lesson_type='regular')
+    make_lesson(group, '2026-09-01', lesson_type='burned')
+
+    assert stats.last_lesson_date(stats_teacher) == '2026-07-10'
+
+
+# ---------------------------------------------------------------------------
+# group_progress
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_group_progress_counts_course_lessons(stats_teacher, make_group, make_lesson):
+    group = make_group('__stats_g_prog__', duration=90)
+    make_lesson(group, '2026-07-06')
+    make_lesson(group, '2026-07-13')
+    make_lesson(group, '2026-07-20', lesson_type='extra')  # сверх курса
+
+    rows = {r['group_id']: r for r in stats.group_progress(stats_teacher)}
+
+    assert float(rows[group]['lessons_done']) == 2.0
+    assert rows[group]['lessons_total'] == 36  # из направления
+
+
+@pytest.mark.django_db
+def test_group_progress_applies_half_lesson_weight(stats_teacher, make_group, make_lesson):
+    """Прогресс курса меряется в УРОКАХ: 45-мин занятие = 0.5 урока."""
+    group = make_group('__stats_g_half__', duration=45)
+    make_lesson(group, '2026-07-06', duration=45)
+    make_lesson(group, '2026-07-08', duration=45)
+    make_lesson(group, '2026-07-10', duration=45)
+
+    rows = {r['group_id']: r for r in stats.group_progress(stats_teacher)}
+
+    assert float(rows[group]['lessons_done']) == 1.5
+
+
+@pytest.mark.django_db
+def test_group_progress_prefers_manual_lessons_total(stats_teacher, make_group):
+    """groups.lessons_total перекрывает directions.total_lessons."""
+    manual = make_group('__stats_g_manual__', lessons_total=12)
+    inherited = make_group('__stats_g_inherit__')
+
+    rows = {r['group_id']: r for r in stats.group_progress(stats_teacher)}
+
+    assert rows[manual]['lessons_total'] == 12
+    assert rows[inherited]['lessons_total'] == 36
+
+
+@pytest.mark.django_db
+def test_group_progress_zero_for_group_without_lessons(stats_teacher, make_group):
+    group = make_group('__stats_g_empty__')
+
+    rows = {r['group_id']: r for r in stats.group_progress(stats_teacher)}
+
+    assert float(rows[group]['lessons_done']) == 0.0
+
+
+@pytest.mark.django_db
+def test_group_progress_includes_archived_groups(stats_teacher, make_group):
+    archived = make_group('__stats_g_arch__', active=False)
+
+    rows = {r['group_id']: r for r in stats.group_progress(stats_teacher)}
+
+    assert archived in rows
+
+
+@pytest.mark.django_db
+def test_group_progress_counts_lessons_of_other_teachers_in_group(
+        stats_teacher, make_group, make_lesson):
+    """Прогресс — свойство ГРУППЫ: занятие, которое провёл коллега на замене,
+    из прогресса курса не выпадает."""
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO teachers (name) VALUES ('__stats_sub_teacher__') RETURNING id")
+        other_id = cur.fetchone()[0]
+    group = make_group('__stats_g_shared__')
+    make_lesson(group, '2026-07-06')
+    make_lesson(group, '2026-07-13', teacher_id=other_id)
+    try:
+        rows = {r['group_id']: r for r in stats.group_progress(stats_teacher)}
+        assert float(rows[group]['lessons_done']) == 2.0
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lessons WHERE teacher_id = %s', [other_id])
+            cur.execute('DELETE FROM teachers WHERE id = %s', [other_id])
+
+
+@pytest.mark.django_db
+def test_group_progress_not_inflated_by_members(stats_teacher, stats_direction,
+                                                make_group, make_lesson):
+    """
+    Регрессия на классическую ловушку Django ORM: два Count по разным связям
+    в одном annotate дают декартово произведение. Группа с 3 учениками и
+    2 уроками обязана отдать 2 урока, а не 6.
+    """
+    from django.db import connection
+    group = make_group('__stats_g_cartesian__')
+    make_lesson(group, '2026-07-06')
+    make_lesson(group, '2026-07-13')
+
+    student_ids = []
+    with connection.cursor() as cur:
+        for i in range(3):
+            cur.execute(
+                "INSERT INTO students (full_name) VALUES (%s) RETURNING id",
+                [f'__stats_student_{i}__'],
+            )
+            student_id = cur.fetchone()[0]
+            student_ids.append(student_id)
+            cur.execute(
+                'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+                'VALUES (%s, %s, 0, true)',
+                [group, student_id],
+            )
+    try:
+        rows = {r['group_id']: r for r in stats.group_progress(stats_teacher)}
+        assert float(rows[group]['lessons_done']) == 2.0
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [group])
+            for student_id in student_ids:
+                cur.execute('DELETE FROM students WHERE id = %s', [student_id])
