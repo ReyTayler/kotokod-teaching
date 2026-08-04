@@ -13,6 +13,20 @@
 .restore-btn:hover { background: color-mix(in oklab, var(--success) 18%, transparent); }
 .sub-header { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 
+/* Счётчик рядом с заголовком раздела. Класс использовался на карточках
+   преподавателя и направления с самого начала, но правила под него не было
+   нигде — число рисовалось голым текстом тем же кеглем, что заголовок, и
+   читалось как часть названия. */
+.count-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg3);
+  color: var(--text3);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 11px; font-weight: 600; line-height: 1;
+}
+
 /* ============================================================
  *  ENTITY HERO — общая шапка карточек ученика и группы
  *  Одна карточка-якорь: личность слева, короткие факты справа,
@@ -1440,3 +1454,114 @@
   font-size: 13px; font-weight: 600; color: var(--text2);
   min-width: 130px;
 }
+
+/* ── ОБЗОР: расшифровка по направлениям + спарклайн нагрузки ── */
+.tbreak {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-6);
+}
+.tbreak__col { min-width: 0; }
+
+.tdir-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.tdir {
+  display: grid;
+  grid-template-columns: minmax(0, 140px) minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: var(--space-3);
+}
+.tdir__name {
+  font-size: 13px; color: var(--text2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tdir__bar {
+  height: 8px; border-radius: 999px;
+  background: var(--bg4); overflow: hidden;
+}
+.tdir__fill {
+  height: 100%; border-radius: 999px;
+  background: var(--entity-c);
+  transition: width .4s var(--ease);
+}
+.tdir__count {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 14px; font-weight: 600; color: var(--text); text-align: right;
+}
+
+.tspark { width: 100%; }
+
+@media (max-width: 900px) {
+  .tbreak { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── ГРУППЫ ПРЕПОДАВАТЕЛЯ: активные + свёрнутый архив ── */
+.tgroups { display: flex; flex-direction: column; gap: var(--space-3); }
+.tgroups__head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3); flex-wrap: wrap;
+}
+.tgroups__head .sub-header { margin-bottom: 0; }
+.tgroups__search { min-width: 220px; }
+.tgroups__list { display: flex; flex-direction: column; }
+
+.tgroup {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border2);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.tgroup:hover { background: var(--bg2); }
+.tgroup:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tgroup.is-archived { opacity: .62; }
+
+.tgroup__head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.tgroup__name { font-size: 14px; font-weight: 600; color: var(--text); }
+.tgroup__dir {
+  font-size: 12px; color: var(--entity-c);
+  padding: 1px 7px; border-radius: 999px;
+  background: color-mix(in oklab, var(--entity-c) 12%, transparent);
+}
+.tgroup__id {
+  margin-left: auto;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text4);
+}
+
+.tgroup__meta {
+  display: flex; gap: var(--space-3); flex-wrap: wrap;
+  font-size: 12px; color: var(--text3);
+}
+.tgroup__mono {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 12px; color: var(--text3); white-space: nowrap;
+}
+
+.tgroup__stats {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  font-size: 12px; color: var(--text3);
+}
+.tgroup__students b { font-size: 14px; font-weight: 600; color: var(--text2); }
+.tgroup__nocourse { color: var(--text4); }
+.tgroup__bar {
+  flex: 1; min-width: 80px; max-width: 200px; height: 6px;
+  border-radius: 999px; background: var(--bg4); overflow: hidden;
+}
+.tgroup__fill {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--entity-c); transition: width .4s var(--ease);
+}
+.tgroup__pct {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 13px; font-weight: 600; color: var(--text2);
+}
+
+.tgroups__toggle {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  align-self: flex-start;
+  padding: 6px 0;
+  background: none; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 600; color: var(--text2);
+}
+.tgroups__toggle:hover { color: var(--text); }
+.tgroups__toggle svg { transition: transform var(--t-fast) var(--ease); }
+.tgroups__toggle svg.is-open { transform: rotate(90deg); }

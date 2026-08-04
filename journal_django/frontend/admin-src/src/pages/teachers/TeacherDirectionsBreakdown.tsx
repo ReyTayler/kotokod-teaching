@@ -1,0 +1,101 @@
+import type { CSSProperties } from 'react';
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { directionColor } from '../../lib/direction-color';
+import { MONTHS_RU } from '../../lib/slots';
+import type { TeacherStats } from '../../hooks/useTeacherStats';
+
+interface Props {
+  stats: TeacherStats | undefined;
+}
+
+/** 'YYYY-MM' → 'июл'. */
+function shortMonth(month: string): string {
+  const m = Number(month.split('-')[1]);
+  return MONTHS_RU[m - 1].slice(0, 3).toLowerCase();
+}
+
+/**
+ * Вкладка «Обзор»: чем именно преподаватель занят и как менялась его нагрузка.
+ *
+ * Полоса красится цветом направления — тем же, что в DirTag и на карточке
+ * группы: направление обязано выглядеть одинаково во всех разделах.
+ */
+export default function TeacherDirectionsBreakdown({ stats }: Props) {
+  const rows = stats?.by_direction ?? [];
+  const max = rows.reduce((acc, r) => Math.max(acc, r.sessions), 0);
+  const series = (stats?.monthly ?? []).map((p) => ({ ...p, label: shortMonth(p.month) }));
+
+  return (
+    <div className="tbreak">
+      <section className="tbreak__col">
+        <h3 className="sub-header">Направления за месяц</h3>
+        {rows.length === 0 ? (
+          <EmptyState hint="Выберите другой месяц стрелками над плитками.">
+            Занятий за этот месяц нет
+          </EmptyState>
+        ) : (
+          <div className="tdir-list">
+            {rows.map((r) => (
+              <div
+                key={r.direction_id}
+                className="tdir"
+                style={{ '--entity-c': directionColor(r.color || r.name) } as CSSProperties}
+              >
+                <div className="tdir__name">{r.name}</div>
+                <div className="tdir__bar">
+                  <div
+                    className="tdir__fill"
+                    style={{ width: max ? `${(r.sessions / max) * 100}%` : '0%' }}
+                  />
+                </div>
+                <div className="tdir__count">{r.sessions}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="tbreak__col">
+        <h3 className="sub-header">Занятий по месяцам</h3>
+        <div className="tspark">
+          <ResponsiveContainer width="100%" height={140}>
+            <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+              <defs>
+                <linearGradient id="teacher-load" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                interval="preserveStartEnd"
+                tick={{ fontSize: 11, fill: 'var(--text4)' }}
+              />
+              <Tooltip
+                cursor={{ stroke: 'var(--border)' }}
+                contentStyle={{
+                  background: 'var(--bg2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r-sm)',
+                  fontSize: 12,
+                }}
+                labelFormatter={(label) => String(label)}
+                formatter={(value: number) => [value, 'занятий']}
+              />
+              <Area
+                type="monotone"
+                dataKey="sessions"
+                stroke="var(--accent)"
+                strokeWidth={2}
+                fill="url(#teacher-load)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+    </div>
+  );
+}
