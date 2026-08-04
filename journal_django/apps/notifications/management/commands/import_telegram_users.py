@@ -17,7 +17,9 @@
 """
 from __future__ import annotations
 
+import shutil
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
@@ -83,20 +85,43 @@ class Command(BaseCommand):
 
     @staticmethod
     def _read_bot_users(db_path: Path) -> list[tuple]:
-        """Читает таблицу users бота. Открываем только на чтение — боевой файл не трогаем."""
-        uri = f'file:{db_path.as_posix()}?mode=ro'
-        try:
-            conn = sqlite3.connect(uri, uri=True)
-        except sqlite3.Error as exc:
-            raise CommandError(f'Не удалось открыть базу бота: {exc}') from exc
-        try:
-            return conn.execute(
-                'SELECT telegram_id, username, full_name FROM users'
-            ).fetchall()
-        except sqlite3.Error as exc:
-            raise CommandError(
-                f'Не удалось прочитать таблицу users: {exc}. '
-                'Это точно база бота kotocode-bot?'
-            ) from exc
-        finally:
-            conn.close()
+        """
+        Читает таблицу users бота, не трогая исходный файл.
+
+        База бота работает в режиме WAL (`PRAGMA journal_mode=WAL`). Открыть её
+        флагом mode=ro нельзя: для чтения WAL движку нужно создать вспомогательный
+        файл -shm, и он падает с «attempt to write a readonly database» на обычном
+        SELECT. Поэтому копируем базу вместе с -wal/-shm во временный каталог и
+        читаем копию — оригинал остаётся байт в байт прежним, а незакоммиченный
+        хвост WAL корректно доигрывается.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            copy_path = Path(tmp) / db_path.name
+            try:
+                shutil.copy2(db_path, copy_path)
+                # -wal и -shm существуют, только если база открыта или закрыта
+                # некорректно; без них копия тоже валидна.
+                for suffix in ('-wal', '-shm'):
+                    sidecar = db_path.with_name(db_path.name + suffix)
+                    if sidecar.is_file():
+                        shutil.copy2(sidecar, copy_path.with_name(copy_path.name + suffix))
+            except OSError as exc:
+                raise CommandError(f'Не удалось прочитать файл базы: {exc}') from exc
+
+            try:
+                conn = sqlite3.connect(copy_path)
+            except sqlite3.Error as exc:
+                raise CommandError(f'Не удалось открыть базу бота: {exc}') from exc
+            try:
+                return conn.execute(
+                    'SELECT telegram_id, username, full_name FROM users'
+                ).fetchall()
+            except sqlite3.OperationalError as exc:
+                raise CommandError(
+                    f'В базе нет таблицы users ({exc}). '
+                    'Это точно база бота kotocode-bot?'
+                ) from exc
+            except sqlite3.Error as exc:
+                raise CommandError(f'Не удалось прочитать базу бота: {exc}') from exc
+            finally:
+                conn.close()

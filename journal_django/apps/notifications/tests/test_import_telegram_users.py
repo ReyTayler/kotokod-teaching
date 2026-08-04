@@ -99,5 +99,46 @@ def test_wrong_database_is_a_clear_error(tmp_path):
     conn.commit()
     conn.close()
 
-    with pytest.raises(CommandError, match='таблицу users'):
+    with pytest.raises(CommandError, match='таблицы users'):
         call_command('import_telegram_users', str(path))
+
+
+@pytest.fixture
+def bot_db_wal(tmp_path):
+    """База в режиме WAL — ровно как боевая у бота.
+
+    Это тот случай, что сломал первую версию команды: открытая флагом mode=ro
+    WAL-база падает с «attempt to write a readonly database» на обычном SELECT,
+    потому что движку нужно создать вспомогательный файл -shm.
+    """
+    path = tmp_path / 'wal.db'
+    conn = sqlite3.connect(path)
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.executescript("""
+        CREATE TABLE users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE NOT NULL,
+            username    TEXT,
+            full_name   TEXT,
+            created_at  TEXT NOT NULL
+        );
+        INSERT INTO users (telegram_id, username, full_name, created_at)
+        VALUES (444, 'wal_user', 'Из WAL-базы', '2026-01-01');
+    """)
+    conn.commit()
+    conn.close()
+    return path
+
+
+@pytest.mark.django_db
+def test_reads_wal_database(bot_db_wal):
+    call_command('import_telegram_users', str(bot_db_wal))
+    assert TelegramUser.objects.get(chat_id=444).username == 'wal_user'
+
+
+@pytest.mark.django_db
+def test_original_file_is_not_modified(bot_db_wal):
+    """Читаем копию: боевой файл обязан остаться байт в байт прежним."""
+    before = bot_db_wal.read_bytes()
+    call_command('import_telegram_users', str(bot_db_wal))
+    assert bot_db_wal.read_bytes() == before
