@@ -5,6 +5,8 @@ journal_test общая для всех worktree — каждая фикстур
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from apps.teachers import stats
@@ -219,29 +221,29 @@ def test_empty_month_returns_zeros(stats_teacher):
 
 
 # ---------------------------------------------------------------------------
-# monthly_series / last_lesson_date
+# year_series / last_lesson_date
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-def test_monthly_series_has_exactly_12_points(stats_teacher):
-    """Пустые месяцы присутствуют нулями: без них спарклайн склеит соседние
-    месяцы и покажет несуществующий рост."""
-    series = stats.monthly_series(stats_teacher, '2026-07')
+def test_year_series_is_january_to_december(stats_teacher):
+    """Календарный год, а не скользящее окно: ось неподвижна, иначе при
+    переключении месяца уезжают и данные, и подписи, и сравнить нечего."""
+    series = stats.year_series(stats_teacher, 2026)
 
     assert len(series) == 12
-    assert series[0]['month'] == '2025-08'
-    assert series[-1]['month'] == '2026-07'
+    assert series[0]['month'] == '2026-01'
+    assert series[-1]['month'] == '2026-12'
     assert all(point['sessions'] == 0 for point in series)
 
 
 @pytest.mark.django_db
-def test_monthly_series_counts_per_month(stats_teacher, make_group, make_lesson):
+def test_year_series_counts_per_month(stats_teacher, make_group, make_lesson):
     group = make_group('__stats_g_series__')
     make_lesson(group, '2026-06-10')
     make_lesson(group, '2026-07-10')
     make_lesson(group, '2026-07-17')
 
-    series = {p['month']: p['sessions'] for p in stats.monthly_series(stats_teacher, '2026-07')}
+    series = {p['month']: p['sessions'] for p in stats.year_series(stats_teacher, 2026)}
 
     assert series['2026-06'] == 1
     assert series['2026-07'] == 2
@@ -249,27 +251,30 @@ def test_monthly_series_counts_per_month(stats_teacher, make_group, make_lesson)
 
 
 @pytest.mark.django_db
-def test_monthly_series_excludes_system_lessons(stats_teacher, make_group, make_lesson):
+def test_year_series_excludes_system_lessons(stats_teacher, make_group, make_lesson):
     group = make_group('__stats_g_series_sys__')
     make_lesson(group, '2026-07-10', lesson_type='regular')
     make_lesson(group, '2026-07-11', lesson_type='extra')
 
-    series = {p['month']: p['sessions'] for p in stats.monthly_series(stats_teacher, '2026-07')}
+    series = {p['month']: p['sessions'] for p in stats.year_series(stats_teacher, 2026)}
 
     assert series['2026-07'] == 1
 
 
 @pytest.mark.django_db
-def test_monthly_series_crosses_year_boundary(stats_teacher, make_group, make_lesson):
-    """Окно на 12 месяцев назад от января обязано уйти в прошлый год."""
+def test_year_series_ignores_neighbouring_years(stats_teacher, make_group, make_lesson):
+    """Ровно этот год: декабрь прошлого и январь следующего в ряд не попадают —
+    иначе «год» перестаёт быть годом."""
     group = make_group('__stats_g_series_ny__')
-    make_lesson(group, '2025-03-10')
+    make_lesson(group, '2025-12-31')
+    make_lesson(group, '2026-01-01')
+    make_lesson(group, '2027-01-01')
 
-    series = stats.monthly_series(stats_teacher, '2026-02')
+    series = stats.year_series(stats_teacher, 2026)
 
-    assert series[0]['month'] == '2025-03'
+    assert sum(p['sessions'] for p in series) == 1
+    assert series[0]['month'] == '2026-01'
     assert series[0]['sessions'] == 1
-    assert series[-1]['month'] == '2026-02'
 
 
 @pytest.mark.django_db
@@ -475,11 +480,15 @@ def test_group_progress_lessons_total_may_be_null_or_zero(stats_teacher, make_gr
 def test_stats_uses_fixed_number_of_queries(django_assert_num_queries, stats_teacher,
                                             make_group, make_lesson):
     """
-    Четыре агрегата — четыре запроса, независимо от числа групп и уроков.
+    Число запросов постоянно и НЕ зависит от числа групп и уроков.
 
-    Проверяется на СЕРВИСЕ, а не через API: в замер вьюхи попали бы ещё запросы
-    аутентификации, и тест ломался бы от любой правки в auth. Здесь же любой
-    N+1 (например, дозапрос направления на каждую группу) виден сразу.
+    Само значение (11 без зарплаты, +1 с ней) не догма — агрегатов может
+    стать больше. Догма — постоянство: тест ниже гоняет ту же выборку на
+    3 и на 6 группах и требует одинакового числа запросов. Именно это ловит
+    N+1 (дозапрос направления/слотов на каждую группу), а не конкретная цифра.
+
+    Проверяется на СЕРВИСЕ, а не через API: в замер вьюхи попали бы ещё
+    запросы аутентификации, и тест ломался бы от любой правки в auth.
     """
     from apps.teachers import services
 
@@ -488,5 +497,151 @@ def test_stats_uses_fixed_number_of_queries(django_assert_num_queries, stats_tea
         make_lesson(group, '2026-07-06')
         make_lesson(group, '2026-07-13')
 
-    with django_assert_num_queries(4):
+    with django_assert_num_queries(11):
         services.get_teacher_stats(stats_teacher, '2026-07')
+
+    # Зарплата — ровно один дополнительный запрос.
+    with django_assert_num_queries(12):
+        services.get_teacher_stats(stats_teacher, '2026-07', with_payroll=True)
+
+
+@pytest.mark.django_db
+def test_stats_query_count_does_not_grow_with_groups(django_assert_num_queries,
+                                                     stats_teacher, make_group,
+                                                     make_lesson):
+    """Удвоение числа групп не добавляет ни одного запроса — это и есть
+    отсутствие N+1, в отличие от конкретного значения счётчика."""
+    from apps.teachers import services
+
+    for i in range(6):
+        group = make_group(f'__stats_g_scale_{i}__')
+        make_lesson(group, '2026-07-06')
+        make_lesson(group, '2026-07-13')
+
+    with django_assert_num_queries(11):
+        services.get_teacher_stats(stats_teacher, '2026-07')
+
+
+# ---------------------------------------------------------------------------
+# attendance / weekday_load / absences / payroll
+# ---------------------------------------------------------------------------
+
+def _mark(lesson_id: int, student_id: int, *, present: bool,
+          is_free: bool = False, unpaid_skip: bool = False) -> None:
+    from django.db import connection
+    with connection.cursor() as cur:
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present, is_free, unpaid_skip) '
+            'VALUES (%s, %s, %s, %s, %s)',
+            [lesson_id, student_id, present, is_free, unpaid_skip],
+        )
+
+
+@pytest.fixture
+def make_student():
+    """Ученик под тесты посещаемости. Чистится DELETE — journal_test общая."""
+    from django.db import connection
+    created = []
+
+    def _make(name: str):
+        with connection.cursor() as cur:
+            cur.execute('INSERT INTO students (full_name) VALUES (%s) RETURNING id', [name])
+            student_id = cur.fetchone()[0]
+        created.append(student_id)
+        return student_id
+
+    yield _make
+    with connection.cursor() as cur:
+        for student_id in created:
+            cur.execute('DELETE FROM lesson_attendance WHERE student_id = %s', [student_id])
+            cur.execute('DELETE FROM students WHERE id = %s', [student_id])
+
+
+@pytest.mark.django_db
+def test_attendance_counts_present_share(stats_teacher, make_group, make_lesson, make_student):
+    group = make_group('__stats_g_att__')
+    lesson = make_lesson(group, '2026-07-06')
+    _mark(lesson, make_student('__att_a__'), present=True)
+    _mark(lesson, make_student('__att_b__'), present=True)
+    _mark(lesson, make_student('__att_c__'), present=False)
+
+    assert stats.attendance(stats_teacher, '2026-07') == {
+        'present': 2, 'counted': 3, 'pct': 67,
+    }
+
+
+@pytest.mark.django_db
+def test_attendance_excludes_unpaid_skip_from_denominator(
+        stats_teacher, make_group, make_lesson, make_student):
+    """unpaid_skip — ученик этот слот не посещает по устройству курса. Он не
+    «отсутствовал у преподавателя», и в знаменатель попадать не должен."""
+    group = make_group('__stats_g_att_skip__')
+    lesson = make_lesson(group, '2026-07-06')
+    _mark(lesson, make_student('__att_present__'), present=True)
+    _mark(lesson, make_student('__att_skip__'), present=False, unpaid_skip=True)
+
+    assert stats.attendance(stats_teacher, '2026-07') == {
+        'present': 1, 'counted': 1, 'pct': 100,
+    }
+
+
+@pytest.mark.django_db
+def test_attendance_keeps_free_lessons_in_denominator(
+        stats_teacher, make_group, make_lesson, make_student):
+    """is_free — про деньги, а не про посещаемость: ученик на занятии был."""
+    group = make_group('__stats_g_att_free__')
+    lesson = make_lesson(group, '2026-07-06')
+    _mark(lesson, make_student('__att_free__'), present=True, is_free=True)
+
+    assert stats.attendance(stats_teacher, '2026-07')['counted'] == 1
+
+
+@pytest.mark.django_db
+def test_attendance_pct_is_none_without_data(stats_teacher):
+    """None, а не 0: «занятий не было» и «никто не пришёл» — разные вещи."""
+    assert stats.attendance(stats_teacher, '2026-07')['pct'] is None
+
+
+@pytest.mark.django_db
+def test_weekday_load_uses_sunday_zero_convention(stats_teacher, make_group, make_lesson):
+    """Вс=0, как в group_schedule_slots.day_of_week и во фронтовом DOW."""
+    group = make_group('__stats_g_dow__')
+    make_lesson(group, '2026-07-05')   # воскресенье
+    make_lesson(group, '2026-07-06')   # понедельник
+    make_lesson(group, '2026-07-13')   # понедельник
+
+    load = {row['day']: row['sessions'] for row in stats.weekday_load(stats_teacher, '2026-07')}
+
+    assert load[0] == 1   # Вс
+    assert load[1] == 2   # Пн
+    assert load[6] == 0   # Сб
+
+
+@pytest.mark.django_db
+def test_weekday_load_always_has_seven_days(stats_teacher):
+    load = stats.weekday_load(stats_teacher, '2026-07')
+
+    assert [row['day'] for row in load] == list(range(7))
+    assert all(row['sessions'] == 0 for row in load)
+
+
+@pytest.mark.django_db
+def test_payroll_for_month_sums_payment_and_penalty(
+        stats_teacher, make_group, make_lesson):
+    from django.db import connection
+    group = make_group('__stats_g_pay__')
+    lesson = make_lesson(group, '2026-07-06')
+    other = make_lesson(group, '2026-08-06')
+    with connection.cursor() as cur:
+        cur.execute(
+            'INSERT INTO payroll (lesson_id, teacher_id, total_students, present_count, '
+            'payment, penalty) VALUES (%s, %s, 3, 3, 600, 40), (%s, %s, 3, 3, 900, 0)',
+            [lesson, stats_teacher, other, stats_teacher],
+        )
+    try:
+        result = stats.payroll_for_month(stats_teacher, '2026-07')
+        # Августовский урок в июльскую сумму не попадает.
+        assert result == {'payment': Decimal('600'), 'penalty': Decimal('40')}
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM payroll WHERE teacher_id = %s', [stats_teacher])

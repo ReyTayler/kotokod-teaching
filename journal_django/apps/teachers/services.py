@@ -35,21 +35,39 @@ def soft_delete_teacher(teacher_id: int) -> bool:
     return repository.soft_delete_teacher(teacher_id)
 
 
-def get_teacher_stats(teacher_id: int, month: str) -> dict:
+def get_teacher_stats(teacher_id: int, month: str, *, with_payroll: bool = False) -> dict:
     """
     Полный набор чисел карточки преподавателя за месяц.
 
-    Четыре агрегата (месяц, ряд по месяцам, дата последнего занятия, прогресс
-    групп) склеиваются здесь, а не на фронте: иначе карточка делала бы четыре
-    запроса вместо одного, а VPS у нас 2 CPU.
+    Агрегаты склеиваются здесь, а не на фронте: иначе карточка делала бы
+    десяток запросов вместо одного, а VPS у нас 2 CPU.
+
+    `with_payroll` решает вьюха по роли запрашивающего, не этот слой: раздел
+    «Зарплата» закрыт `IsSuperAdmin`, а карточку преподавателя видит и менеджер.
+    Ключ `payroll` при False отсутствует вовсе, а не приходит нулями — иначе
+    менеджер увидел бы «0 ₽» и решил, что преподавателю не заплатили.
     """
+    year = int(month[:4])
     breakdown = stats.month_breakdown(teacher_id, month)
-    return {
+    result = {
         'month': month,
+        'year': year,
         'last_lesson_date': stats.last_lesson_date(teacher_id),
         'total': breakdown['total'],
         'by_direction': breakdown['by_direction'],
         'by_duration': breakdown['by_duration'],
-        'monthly': stats.monthly_series(teacher_id, month),
+        # Год берётся из выбранного месяца, отдельного переключателя года нет:
+        # шагая месяцами через январь, человек и так попадает в соседний год,
+        # а второй переключатель рядом с первым только запутал бы.
+        'monthly': stats.year_series(teacher_id, year),
         'group_progress': stats.group_progress(teacher_id),
+        'attendance': stats.attendance(teacher_id, month),
+        'weekday_load': stats.weekday_load(teacher_id, month),
+        # unfilled и absences.pending_now — СЕЙЧАС, не за месяц: это очереди,
+        # требующие действия, и они не обнуляются от переключения периода.
+        'unfilled': stats.unfilled(teacher_id),
+        'absences': stats.absences(teacher_id, month),
     }
+    if with_payroll:
+        result['payroll'] = stats.payroll_for_month(teacher_id, month)
+    return result

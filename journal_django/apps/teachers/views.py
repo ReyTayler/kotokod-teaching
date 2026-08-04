@@ -120,7 +120,11 @@ class TeacherStatsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        return Response(services.get_teacher_stats(pk, month))
+        # Зарплата — только суперадмину: раздел «Зарплата» закрыт IsSuperAdmin
+        # (apps/payroll/views.py), а эту карточку видит и менеджер. Роль берём
+        # из JWT, не из параметра запроса.
+        with_payroll = getattr(request.user, 'role', None) == 'superadmin'
+        return Response(services.get_teacher_stats(pk, month, with_payroll=with_payroll))
 
 
 # ---------------------------------------------------------------------------

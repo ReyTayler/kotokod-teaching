@@ -29,11 +29,11 @@ from decimal import Decimal
 from django.db.models import (
     Case, Count, DecimalField, F, Max, OuterRef, Q, Subquery, Sum, Value, When,
 )
-from django.db.models.functions import Cast, Coalesce, TruncMonth
+from django.db.models.functions import Cast, Coalesce, ExtractWeekDay, TruncMonth
 
 from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import Group
-from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
+from apps.lessons.models import COURSE_LESSON_TYPES, Lesson, LessonAttendance
 
 
 def month_bounds(month: str) -> tuple[str, str]:
@@ -127,50 +127,40 @@ def month_breakdown(teacher_id: int, month: str) -> dict:
     }
 
 
-# Глубина спарклайна. Год — минимум, на котором видна сезонность учебного года
-# (спад летом, набор в сентябре); меньше — график ни о чём не говорит.
-MONTHS_BACK = 12
-
-
-def _month_keys(month: str, count: int) -> list[str]:
-    """['YYYY-MM', …] длиной `count`, заканчивая на `month` включительно."""
-    year, mon = int(month[:4]), int(month[5:7])
-    keys: list[str] = []
-    for _ in range(count):
-        keys.append(f'{year}-{mon:02d}')
-        mon -= 1
-        if mon == 0:
-            mon, year = 12, year - 1
-    keys.reverse()
-    return keys
-
-
-def monthly_series(teacher_id: int, month: str) -> list[dict]:
+def year_series(teacher_id: int, year: int) -> list[dict]:
     """
-    Занятий по месяцам за последние MONTHS_BACK месяцев, включая выбранный.
+    Занятий по месяцам КАЛЕНДАРНОГО года: январь–декабрь, всегда 12 точек.
 
-    Месяцы без занятий возвращаются с нулём: пропуск точки заставил бы
-    спарклайн соединить соседние месяцы прямой и показать рост, которого не было.
+    Именно календарный год, а не скользящее окно «12 месяцев назад от
+    выбранного»: у скользящего окна при переключении месяца ◀ ▶ уезжают обе
+    оси сразу — и данные, и подписи, — поэтому сравнить «стало ли больше»
+    невозможно, картинка меняется целиком на каждый клик. У года ось
+    неподвижна: переключение месяцев внутри года не двигает график вообще,
+    а смена года заменяет его целиком и осознанно.
+
+    Месяцы без занятий возвращаются с нулём: пропуск точки заставил бы график
+    соединить соседние месяцы прямой и показать рост, которого не было. По той
+    же причине возвращаются и будущие месяцы года — нулевой хвост честно
+    показывает, что год не кончился, а не обрывает линию на месте.
     """
-    keys = _month_keys(month, MONTHS_BACK)
-    date_from = f'{keys[0]}-01'
-    _, date_to = month_bounds(keys[-1])
-
     rows = (
         Lesson.objects
         .filter(
             teacher_id=teacher_id,
             lesson_type__in=COURSE_LESSON_TYPES,
-            lesson_date__gte=date_from,
-            lesson_date__lte=date_to,
+            lesson_date__gte=f'{year}-01-01',
+            lesson_date__lte=f'{year}-12-31',
         )
         .annotate(bucket=TruncMonth('lesson_date'))
         .values('bucket')
         .annotate(sessions=Count('id'))
     )
-    counts = {row['bucket'].strftime('%Y-%m'): row['sessions'] for row in rows}
+    counts = {row['bucket'].month: row['sessions'] for row in rows}
 
-    return [{'month': key, 'sessions': counts.get(key, 0)} for key in keys]
+    return [
+        {'month': f'{year}-{mon:02d}', 'sessions': counts.get(mon, 0)}
+        for mon in range(1, 13)
+    ]
 
 
 def last_lesson_date(teacher_id: int) -> str | None:
@@ -282,3 +272,173 @@ def group_progress(teacher_id: int) -> list[dict]:
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Качество работы и то, что требует действия
+# ---------------------------------------------------------------------------
+
+def attendance(teacher_id: int, month: str) -> dict:
+    """
+    Доля присутствовавших на занятиях преподавателя за месяц.
+
+    Знаменатель НЕ включает `unpaid_skip`: это ученики, которые этот слот не
+    посещают по устройству курса (перевели, начал не с первого урока). Они
+    отсутствуют не «у преподавателя», и их включение занижало бы показатель по
+    причине, к работе преподавателя отношения не имеющей.
+
+    `is_free` в знаменателе ОСТАЁТСЯ: ученик на занятии был, просто оно ему
+    бесплатно — это про деньги, а не про посещаемость.
+
+    `pct` — None, когда считать не из чего: 0% и «занятий не было» на экране
+    выглядят одинаково, а значат противоположное.
+    """
+    date_from, date_to = month_bounds(month)
+
+    row = (
+        LessonAttendance.objects
+        .filter(
+            lesson__teacher_id=teacher_id,
+            lesson__lesson_type__in=COURSE_LESSON_TYPES,
+            lesson__lesson_date__gte=date_from,
+            lesson__lesson_date__lte=date_to,
+            unpaid_skip=False,
+        )
+        .aggregate(
+            counted=Count('lesson_id'),
+            present=Count('lesson_id', filter=Q(present=True)),
+        )
+    )
+    counted, present = row['counted'] or 0, row['present'] or 0
+
+    return {
+        'present': present,
+        'counted': counted,
+        'pct': round(present * 100 / counted) if counted else None,
+    }
+
+
+def weekday_load(teacher_id: int, month: str) -> list[dict]:
+    """
+    Занятий по дням недели за месяц — все 7 дней, пустые нулями.
+
+    Считается по ФАКТУ (`lessons.lesson_date`), а не по шаблону расписания
+    (`group_schedule_slots`): шаблон версионируется по датам действия и говорит,
+    когда занятия ДОЛЖНЫ быть, а вопрос «когда преподаватель занят» — про то,
+    как вышло. Переносы и замены шаблон не показывает вовсе.
+
+    Нумерация дней — Вс=0, как в `frontend/lib/slots.ts::DOW` и в
+    `group_schedule_slots.day_of_week` (конвенция JS getDay). Postgres
+    `EXTRACT(DOW)` даёт ровно её, Django `ExtractWeekDay` — сдвинутую на 1
+    (1=воскресенье), поэтому вычитаем единицу.
+    """
+    date_from, date_to = month_bounds(month)
+
+    rows = (
+        Lesson.objects
+        .filter(
+            teacher_id=teacher_id,
+            lesson_type__in=COURSE_LESSON_TYPES,
+            lesson_date__gte=date_from,
+            lesson_date__lte=date_to,
+        )
+        .annotate(dow=ExtractWeekDay('lesson_date'))
+        .values('dow')
+        .annotate(sessions=Count('id'))
+    )
+    counts = {(row['dow'] - 1): row['sessions'] for row in rows}
+
+    return [{'day': day, 'sessions': counts.get(day, 0)} for day in range(7)]
+
+
+def unfilled(teacher_id: int) -> dict:
+    """
+    Просроченные незаполненные занятия преподавателя — СЕЙЧАС, не за месяц.
+
+    Это единственная метрика карточки, требующая действия, поэтому месяцем не
+    ограничена: просрочка мая не перестаёт быть просрочкой оттого, что открыт
+    июль.
+
+    Переиспользует `dashboard.fill_service`, а не считает заново: там уже учтены
+    порог overdue по московскому времени, доп.уроки и — важное — подмена
+    преподавателя (занятие числится за тем, кто его реально ведёт).
+    """
+    # Локальный импорт: apps.dashboard тянет за собой Celery-задачи и кэш,
+    # а карточке преподавателя нужен один список.
+    from apps.dashboard import fill_service
+
+    rows = fill_service.unfilled_lessons(teacher_id=teacher_id, sort_dir='asc')
+
+    return {
+        'count': len(rows),
+        # Самая старая просрочка: одно число «3» не говорит, вчера это или в мае.
+        'oldest_date': rows[0]['date'] if rows else None,
+    }
+
+
+def absences(teacher_id: int, month: str) -> dict:
+    """
+    Пропуски в группах преподавателя: сколько зарегистрировано за месяц и чем
+    закончились, плюс сколько всего ждёт решения ПРЯМО СЕЙЧАС.
+
+    Месяц считается по `created_at` — когда пропуск зарегистрировали. Не по
+    `scheduled_date`: у сгоревшего пропуска отработка не назначалась, и даты
+    там нет вовсе.
+
+    `pending_now` намеренно без месяца: это очередь, требующая действия,
+    и она не обнуляется при переключении периода.
+
+    Привязка к преподавателю — через группу пропуска. Отработку может провести
+    другой преподаватель (`assigned_teacher_id`), но пропуск случился на
+    занятии этой группы, и разбирается с ним тот, кто её ведёт.
+    """
+    from apps.extra_lessons.models import (
+        BURNED, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution,
+    )
+
+    date_from, date_to = month_bounds(month)
+    in_groups = AbsenceResolution.objects.filter(group__teacher_id=teacher_id)
+
+    month_rows = (
+        in_groups
+        .filter(created_at__date__gte=date_from, created_at__date__lte=date_to)
+        .values('status')
+        .annotate(n=Count('id'))
+    )
+    by_status = {row['status']: row['n'] for row in month_rows}
+
+    return {
+        'registered': sum(by_status.values()),
+        'makeup_done': by_status.get(MAKEUP_DONE, 0),
+        'makeup_scheduled': by_status.get(MAKEUP_SCHEDULED, 0),
+        'burned': by_status.get(BURNED, 0),
+        'pending_now': in_groups.filter(status=PENDING).count(),
+    }
+
+
+def payroll_for_month(teacher_id: int, month: str) -> dict:
+    """
+    Начислено и удержано за месяц.
+
+    Отдаётся ТОЛЬКО суперадмину — раздел «Зарплата» закрыт `IsSuperAdmin`
+    (`apps/payroll/views.py`), а карточку преподавателя видит и менеджер.
+    Решение о том, звать ли эту функцию, принимает вьюха; здесь только счёт.
+    """
+    from apps.payroll.models import Payroll
+
+    date_from, date_to = month_bounds(month)
+    row = (
+        Payroll.objects
+        .filter(
+            teacher_id=teacher_id,
+            lesson__lesson_date__gte=date_from,
+            lesson__lesson_date__lte=date_to,
+        )
+        .aggregate(
+            payment=Coalesce(Sum('payment'), Value(Decimal('0')),
+                             output_field=DecimalField(max_digits=20, decimal_places=2)),
+            penalty=Coalesce(Sum('penalty'), Value(Decimal('0')),
+                             output_field=DecimalField(max_digits=20, decimal_places=2)),
+        )
+    )
+    return {'payment': row['payment'], 'penalty': row['penalty']}
