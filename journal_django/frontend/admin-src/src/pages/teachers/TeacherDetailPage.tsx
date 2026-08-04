@@ -18,6 +18,8 @@ import TeacherFormModal from './TeacherFormModal';
 import { TeacherTelegramBlock } from './TeacherTelegramBlock';
 import TeacherStatsRow from './TeacherStatsRow';
 import TeacherDirectionsBreakdown from './TeacherDirectionsBreakdown';
+import TeacherMonthDetails from './TeacherMonthDetails';
+import TeacherAttentionBar from './TeacherAttentionBar';
 import TeacherGroupsBlock from './TeacherGroupsBlock';
 import { useAuth } from '../../hooks/useAuth';
 import { canSeeChangelog, canWriteTeachers, type Role } from '../../lib/permissions';
@@ -145,7 +147,12 @@ export default function TeacherDetailPage() {
     {
       value: 'overview',
       label: 'Обзор',
-      content: <TeacherDirectionsBreakdown stats={stats} />,
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          <TeacherDirectionsBreakdown stats={stats} />
+          <TeacherMonthDetails stats={stats} />
+        </div>
+      ),
     },
     {
       value: 'groups',
@@ -187,6 +194,7 @@ export default function TeacherDetailPage() {
           stats={stats}
           groups={groups}
         />
+        <TeacherAttentionBar stats={stats} />
         <Tabs items={tabs} value={activeTab} onChange={setActiveTab} />
       </DetailShell>
       {editing && (

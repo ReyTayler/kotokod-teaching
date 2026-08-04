@@ -1565,3 +1565,68 @@
 .tgroups__toggle:hover { color: var(--text); }
 .tgroups__toggle svg { transition: transform var(--t-fast) var(--ease); }
 .tgroups__toggle svg.is-open { transform: rotate(90deg); }
+
+/* Полоса «требует действия» на карточке преподавателя. Не плитка в общем ряду:
+   это единственные числа, которые зовут что-то сделать, и среди нейтральных
+   «занятий»/«часов» они бы потерялись. Плюс они не за выбранный месяц. */
+.tattention {
+  display: flex; flex-wrap: wrap; gap: var(--space-2);
+}
+.tattention__item {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 7px var(--space-3);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warning) 28%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+  transition: background var(--t-fast) var(--ease);
+}
+.tattention__item:hover {
+  background: color-mix(in oklab, var(--warning) 20%, transparent);
+}
+.tattention__item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tattention__count {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 15px; font-weight: 700; color: var(--warning);
+}
+.tattention__since { color: var(--text3); }
+
+/* Столбики нагрузки по дням недели. */
+.tweek {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2); align-items: end;
+}
+.tweek__day { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tweek__track {
+  width: 100%; height: 72px;
+  display: flex; align-items: flex-end;
+  background: var(--bg4); border-radius: var(--r-sm); overflow: hidden;
+}
+.tweek__fill {
+  width: 100%; background: var(--accent);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  transition: height .4s var(--ease);
+}
+.tweek__n {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 12px; font-weight: 600; color: var(--text2); min-height: 15px;
+}
+.tweek__label { font-size: 11px; color: var(--text3); }
+
+/* Исходы пропусков за месяц. */
+.tmd { display: flex; flex-direction: column; }
+.tmd__row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--space-3);
+  padding: 7px 0;
+  border-top: 1px solid var(--border2);
+  font-size: 13px; color: var(--text2);
+}
+.tmd__row:first-child { border-top: none; }
+.tmd__row dd {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 14px; font-weight: 600; color: var(--text);
+}
+.tmd__empty { font-size: 13px; color: var(--text4); }

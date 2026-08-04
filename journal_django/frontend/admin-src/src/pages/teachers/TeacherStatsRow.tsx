@@ -1,4 +1,5 @@
 import { StatTiles, type StatTile } from '../../components/detail/StatTiles';
+import { fmtRub } from '../../lib/format';
 import { plural } from '../../lib/labels';
 import { MONTHS_RU } from '../../lib/slots';
 import type { Group } from '../../lib/types';
@@ -49,6 +50,7 @@ export default function TeacherStatsRow({ month, onMonthChange, stats, groups }:
   const avgSize = active.length ? (students / active.length).toFixed(1).replace('.', ',') : '0';
 
   const total = stats?.total;
+  const att = stats?.attendance;
 
   const tiles: StatTile[] = [
     {
@@ -62,6 +64,17 @@ export default function TeacherStatsRow({ month, onMonthChange, stats, groups }:
       label: 'Часов',
       value: total ? hours(total.minutes) : '—',
       sub: stats ? durationsLabel(stats.by_duration) : '',
+    },
+    {
+      label: 'Посещаемость',
+      // pct === null — «занятий не было», а не «никто не пришёл». Ноль здесь
+      // читался бы как провал, поэтому прочерк.
+      value: att?.pct != null ? `${att.pct}%` : '—',
+      sub: att && att.counted > 0
+        ? `${att.present} из ${att.counted} отметок`
+        : 'отметок не было',
+      // Цвет только когда он что-то значит: ниже 80% — повод посмотреть.
+      tone: att?.pct != null && att.pct < 80 ? 'warn' : 'default',
     },
     // Две плитки ниже — СЕЙЧАС, а не за выбранный месяц. Подписи обязаны это
     // проговорить: они стоят вплотную к переключателю месяца, и без оговорки
@@ -77,6 +90,18 @@ export default function TeacherStatsRow({ month, onMonthChange, stats, groups }:
       sub: archived ? 'сейчас: активных / в архиве' : 'сейчас, активных',
     },
   ];
+
+  // Зарплата приходит только суперадмину — у остальных ключа нет вовсе, и
+  // плитки просто не будет (а не будет «0 ₽», которое читается как «не заплатили»).
+  if (stats?.payroll) {
+    const penalty = Number(stats.payroll.penalty);
+    tiles.push({
+      label: 'Начислено',
+      value: fmtRub(stats.payroll.payment),
+      sub: penalty > 0 ? `удержано ${fmtRub(penalty)}` : 'без удержаний',
+      subTone: penalty > 0 ? 'warn' : 'default',
+    });
+  }
 
   return (
     <div className="tstats">

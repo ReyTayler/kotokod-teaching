@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import { Area, AreaChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { directionColor } from '../../lib/direction-color';
 import { MONTHS_RU } from '../../lib/slots';
@@ -25,6 +25,10 @@ export default function TeacherDirectionsBreakdown({ stats }: Props) {
   const rows = stats?.by_direction ?? [];
   const max = rows.reduce((acc, r) => Math.max(acc, r.sessions), 0);
   const series = (stats?.monthly ?? []).map((p) => ({ ...p, label: shortMonth(p.month) }));
+  // График неподвижен внутри года, поэтому выбранный месяц надо чем-то
+  // пометить — иначе непонятно, к какой точке относятся плитки выше.
+  const selectedLabel = stats ? shortMonth(stats.month) : null;
+  const yearTotal = series.reduce((sum, p) => sum + p.sessions, 0);
 
   return (
     <div className="tbreak">
@@ -57,7 +61,10 @@ export default function TeacherDirectionsBreakdown({ stats }: Props) {
       </section>
 
       <section className="tbreak__col">
-        <h3 className="sub-header">Занятий по месяцам</h3>
+        <h3 className="sub-header">
+          Занятий за {stats?.year ?? '—'} год
+          {yearTotal > 0 && <span className="count-badge">{yearTotal}</span>}
+        </h3>
         <div className="tspark">
           <ResponsiveContainer width="100%" height={140}>
             <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
@@ -67,13 +74,23 @@ export default function TeacherDirectionsBreakdown({ stats }: Props) {
                   <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
                 </linearGradient>
               </defs>
+              {/* Все 12 подписей, а не preserveStartEnd: ось теперь неподвижна,
+                  и месяц под точкой — единственный ориентир, где ты находишься. */}
               <XAxis
                 dataKey="label"
                 tickLine={false}
                 axisLine={false}
-                interval="preserveStartEnd"
-                tick={{ fontSize: 11, fill: 'var(--text4)' }}
+                interval={0}
+                tick={{ fontSize: 10, fill: 'var(--text4)' }}
               />
+              {selectedLabel && (
+                <ReferenceLine
+                  x={selectedLabel}
+                  stroke="var(--accent)"
+                  strokeDasharray="3 3"
+                  strokeOpacity={0.7}
+                />
+              )}
               <Tooltip
                 cursor={{ stroke: 'var(--border)' }}
                 contentStyle={{

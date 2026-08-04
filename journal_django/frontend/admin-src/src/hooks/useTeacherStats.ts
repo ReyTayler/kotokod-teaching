@@ -33,12 +33,36 @@ export interface TeacherGroupProgress {
 
 export interface TeacherStats {
   month: string;
+  /** Год выбранного месяца — им подписан график и по нему построен `monthly`. */
+  year: number;
   last_lesson_date: string | null;
   total: { sessions: number; minutes: number; substitutions: number };
   by_direction: TeacherDirectionStat[];
   by_duration: { minutes: number; sessions: number }[];
+  /** Январь–декабрь года `year`, всегда 12 точек, пустые месяцы нулями. */
   monthly: { month: string; sessions: number }[];
   group_progress: TeacherGroupProgress[];
+  /** `pct` — null, когда считать не из чего: 0% и «занятий не было» на экране
+   *  выглядят одинаково, а значат противоположное. */
+  attendance: { present: number; counted: number; pct: number | null };
+  /** Все 7 дней, Вс=0 — как в `DOW` из lib/slots. */
+  weekday_load: { day: number; sessions: number }[];
+  /** СЕЙЧАС, не за месяц: просрочка не перестаёт быть просрочкой от смены периода. */
+  unfilled: { count: number; oldest_date: string | null };
+  absences: {
+    registered: number;
+    makeup_done: number;
+    makeup_scheduled: number;
+    burned: number;
+    /** Очередь «ждут решения» — тоже сейчас, а не за месяц. */
+    pending_now: number;
+  };
+  /**
+   * Приходит ТОЛЬКО суперадмину: раздел «Зарплата» закрыт `IsSuperAdmin`, а
+   * карточку видит и менеджер. Ключ отсутствует, а не приходит нулями —
+   * «0 ₽» читалось бы как «не заплатили».
+   */
+  payroll?: { payment: string; penalty: string };
 }
 
 /**
