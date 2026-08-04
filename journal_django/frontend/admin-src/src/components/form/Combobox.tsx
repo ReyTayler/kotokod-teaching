@@ -30,10 +30,18 @@ interface Props {
    * обрезается на середине пункта.
    */
   itemHeight?: number;
+  /**
+   * Доступное имя поля. Нужно, когда Combobox стоит БЕЗ обёртки `<Field>`
+   * (та даёт `<label>`): иначе у input[role=combobox] нет имени вовсе, и
+   * скринридер читает пустое поле — только placeholder, который исчезает
+   * при вводе.
+   */
+  'aria-label'?: string;
 }
 
 export function Combobox({
   value, onChange, options, placeholder, maxVisible = 10, itemHeight = 36,
+  'aria-label': ariaLabel,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -115,6 +123,7 @@ export function Combobox({
         placeholder={placeholder}
         autoComplete="off"
         role="combobox"
+        aria-label={ariaLabel}
         aria-expanded={open}
         aria-autocomplete="list"
       />

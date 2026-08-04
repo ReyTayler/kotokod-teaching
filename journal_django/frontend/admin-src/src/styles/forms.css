@@ -149,7 +149,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.combobox__item.is-muted .combobox__item-label { color: var(--text3); }
+/* :not(.is-selected) обязателен: без него приглушение (специфичность 0,3,0)
+   перебивает .is-selected (0,2,0), и выбранный занятый аккаунт красится как
+   невыбранный — ровно в том сценарии, ради которого muted и заводили вместо
+   disabled (перепривязка занятого аккаунта). */
+.combobox__item.is-muted:not(.is-selected) .combobox__item-label { color: var(--text3); }
 .combobox__item.is-highlighted {
   background: var(--bg3);
   color: var(--text);

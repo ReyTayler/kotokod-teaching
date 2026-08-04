@@ -85,6 +85,11 @@ export function useGroupMutations() {
     // lessons_total дописывает или урезает хвост), поэтому инвалидируем явно,
     // иначе вкладка «Расписание» показывает прежние занятия до перезагрузки.
     qc.invalidateQueries({ queryKey: ['group-plan'] });
+    // Карточка преподавателя держит свой срез групп под ключом ['teacher-groups']
+    // со staleTime 60 c. Без явной инвалидации смена преподавателя у группы не
+    // видна на его карточке целую минуту — группа остаётся в списке прежнего.
+    qc.invalidateQueries({ queryKey: ['teacher-groups'] });
+    qc.invalidateQueries({ queryKey: ['teacher-stats'] });
   };
   return {
     create: useMutation({

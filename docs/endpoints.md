@@ -104,6 +104,9 @@ students/0016). «Статус» — стадия последней сделк�
 
 ```
 GET/POST/PATCH/DELETE /api/admin/teachers[/:id]         include_inactive=1
+GET /api/admin/teachers/:id/stats?month=YYYY-MM         # нагрузка за месяц, направления,
+                                                        # 12-мес ряд, прогресс групп
+POST/DELETE /api/admin/teachers/:id/telegram            # привязка Telegram-аккаунта
 GET/POST/PATCH/DELETE /api/admin/directions[/:id]
 GET /api/admin/tokens?include_inactive=1
 POST /api/admin/tokens/generate                         # случайный XXX-XXX-XXX

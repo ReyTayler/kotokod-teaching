@@ -116,6 +116,7 @@ export function TeacherTelegramBlock({ teacher }: { teacher: Teacher }) {
             options={options}
             placeholder={isLoading ? 'Загрузка…' : 'Выберите аккаунт'}
             itemHeight={52}
+            aria-label="Telegram-аккаунт преподавателя"
           />
           <div className="tg-card__actions">
             <button

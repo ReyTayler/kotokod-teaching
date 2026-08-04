@@ -21,6 +21,7 @@ import TeacherDirectionsBreakdown from './TeacherDirectionsBreakdown';
 import TeacherGroupsBlock from './TeacherGroupsBlock';
 import { useAuth } from '../../hooks/useAuth';
 import { canSeeChangelog, canWriteTeachers, type Role } from '../../lib/permissions';
+import { plural } from '../../lib/labels';
 
 const TEACHER_TABS = ['overview', 'groups', 'data', 'history'] as const;
 type TeacherTab = (typeof TEACHER_TABS)[number];
@@ -103,7 +104,9 @@ export default function TeacherDetailPage() {
         <>
           <HeroChip mono>#{teacher.id}</HeroChip>
           {directionsCount > 0 && <HeroChip>{directionsCount} напр.</HeroChip>}
-          <HeroChip mono>{activeGroups.length} групп</HeroChip>
+          <HeroChip mono>
+            {activeGroups.length} {plural(activeGroups.length, 'группа', 'группы', 'групп')}
+          </HeroChip>
           {contacts && <HeroChip>{contacts}</HeroChip>}
         </>
       }

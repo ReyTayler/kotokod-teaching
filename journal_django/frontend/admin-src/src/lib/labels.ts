@@ -173,3 +173,22 @@ export const RENEWAL_LOST_REASON_LABELS: Record<string, string> = {
   relocation: 'Переезд',
   other: 'Другое',
 };
+
+// ===== Русские числительные =====
+
+/**
+ * Согласование существительного с числом: `plural(2, 'ученик', 'ученика', 'учеников')`
+ * → 'ученика'.
+ *
+ * Первое место в SPA, где число стоит вплотную к склоняемому слову (карточка
+ * преподавателя: «2 ученика», «1 замена», «5 групп»). Без этого выходило
+ * «2 учеников» и «1 замен» — мелочь, которую замечают все.
+ */
+export function plural(n: number, one: string, few: string, many: string): string {
+  const abs = Math.abs(n) % 100;
+  if (abs > 10 && abs < 20) return many;
+  const last = abs % 10;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}

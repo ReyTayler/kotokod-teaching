@@ -1,4 +1,5 @@
 import { StatTiles, type StatTile } from '../../components/detail/StatTiles';
+import { plural } from '../../lib/labels';
 import { MONTHS_RU } from '../../lib/slots';
 import type { Group } from '../../lib/types';
 import type { TeacherStats } from '../../hooks/useTeacherStats';
@@ -54,7 +55,7 @@ export default function TeacherStatsRow({ month, onMonthChange, stats, groups }:
       label: 'Занятий',
       value: total?.sessions ?? '—',
       sub: total && total.substitutions > 0
-        ? `из них ${total.substitutions} замен`
+        ? `из них ${total.substitutions} ${plural(total.substitutions, 'замена', 'замены', 'замен')}`
         : 'курсовых, без доп.уроков',
     },
     {
@@ -62,15 +63,18 @@ export default function TeacherStatsRow({ month, onMonthChange, stats, groups }:
       value: total ? hours(total.minutes) : '—',
       sub: stats ? durationsLabel(stats.by_duration) : '',
     },
+    // Две плитки ниже — СЕЙЧАС, а не за выбранный месяц. Подписи обязаны это
+    // проговорить: они стоят вплотную к переключателю месяца, и без оговорки
+    // читаются как часть периода.
     {
       label: 'Учеников',
       value: students,
-      sub: active.length ? `в среднем ${avgSize} на группу` : 'активных групп нет',
+      sub: active.length ? `сейчас, в среднем ${avgSize} на группу` : 'активных групп нет',
     },
     {
       label: 'Групп',
       value: `${active.length}${archived ? ` / ${archived}` : ''}`,
-      sub: archived ? 'активных / в архиве' : 'активных',
+      sub: archived ? 'сейчас: активных / в архиве' : 'сейчас, активных',
     },
   ];
 

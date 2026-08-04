@@ -87,7 +87,12 @@ def test_month_defaults_to_current(admin_client, stats_teacher):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize('bad', ['2026-13', '2026', 'июль', '2026-7', '2026-00'])
+@pytest.mark.parametrize('bad', [
+    '2026-13', '2026', 'июль', '2026-7', '2026-00',
+    # Крайние годы: на них month_bounds считает date(10000,1,1) / date(0,...)
+    # и падает ValueError — 400 обязан отсечь их до этого, а не отдать 500.
+    '9999-12', '0001-01',
+])
 def test_invalid_month_returns_400(admin_client, stats_teacher, bad):
     resp = admin_client.get(_url(stats_teacher, bad))
 

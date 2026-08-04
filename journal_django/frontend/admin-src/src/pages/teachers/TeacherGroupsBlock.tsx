@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { TextInput } from '../../components/form/TextInput';
 import { directionColor } from '../../lib/direction-color';
+import { plural } from '../../lib/labels';
 import { formatSlot } from '../../lib/slots';
 import type { Group } from '../../lib/types';
 import type { TeacherGroupProgress } from '../../hooks/useTeacherStats';
@@ -38,10 +39,17 @@ function buildRows(groups: Group[], progress: TeacherGroupProgress[]): Row[] {
   });
 }
 
+/** 1.5 → '1,5', 18 → '18'. Разделитель как в плитках выше — на одной странице
+ *  он обязан быть один. */
+function fmtDone(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(value).replace('.', ',');
+}
+
 /** Одна строка группы: имя, направление, формат, расписание, состав, прогресс. */
 function GroupRow({ row }: { row: Row }) {
   const navigate = useNavigate();
   const { group, done, total, pct } = row;
+  const members = group.members_count ?? 0;
   const open = () => navigate(`/admin/groups/${group.id}`);
   const slots = (group.slots || []).map(formatSlot).join(' · ');
 
@@ -68,13 +76,13 @@ function GroupRow({ row }: { row: Row }) {
       </div>
       <div className="tgroup__stats">
         <span className="tgroup__students">
-          <b>{group.members_count ?? 0}</b> {group.is_individual ? 'ученик' : 'учеников'}
+          <b>{members}</b> {plural(members, 'ученик', 'ученика', 'учеников')}
         </span>
         {pct == null ? (
           <span className="tgroup__nocourse">длина курса не задана</span>
         ) : (
           <>
-            <span className="tgroup__mono">курс {done} / {total}</span>
+            <span className="tgroup__mono">курс {fmtDone(done)} / {total}</span>
             <span className="tgroup__bar">
               <span className="tgroup__fill" style={{ width: `${pct}%` }} />
             </span>
@@ -125,7 +133,11 @@ export default function TeacherGroupsBlock({ groups, progress }: Props) {
           Активные <span className="count-badge">{active.length}</span>
         </h3>
         <div className="tgroups__search">
+          {/* className обязателен: TextInput — голый <input>, а токены приходят
+              из .field input (только внутри <Field>) либо из .search-input.
+              Без класса поле рендерится нативным и в тёмной теме белеет. */}
           <TextInput
+            className="search-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Группа или направление"
