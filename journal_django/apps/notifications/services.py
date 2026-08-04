@@ -16,8 +16,10 @@ import logging
 from django.conf import settings
 from django.db import transaction
 
+from apps.notifications import messages
 from apps.notifications.constants import CHANNEL_DM, CHANNEL_GROUP
 from apps.notifications.models import NotificationMessage, TelegramRecipient
+from apps.teachers.models import Teacher
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,27 @@ def active_chat_id(teacher_id: int) -> int | None:
             .first())
 
 
+def _recipient_card(teacher_id: int) -> dict:
+    """
+    Всё, что нужно знать о получателе, одним запросом: куда слать и как упомянуть.
+
+    Возвращает {'chat_id', 'username', 'name'}; chat_id/username = None, если
+    привязки нет или она деактивирована. name берём из журнала — он есть всегда,
+    в отличие от телеграм-ника.
+    """
+    row = (TelegramRecipient.objects
+           .filter(teacher_id=teacher_id, is_active=True)
+           .values_list('telegram_user__chat_id', 'telegram_user__username')
+           .first())
+    name = (Teacher.objects
+            .filter(id=teacher_id)
+            .values_list('name', flat=True)
+            .first()) or 'преподаватель'
+    if row is None:
+        return {'chat_id': None, 'username': None, 'name': name}
+    return {'chat_id': row[0], 'username': row[1], 'name': name}
+
+
 def notify_teacher(*, kind: str, teacher_id: int, text: str, dedup_prefix: str,
                     source_kind: str, source_id: int,
                     also_to_group_chat: bool) -> None:
@@ -68,16 +91,22 @@ def notify_teacher(*, kind: str, teacher_id: int, text: str, dedup_prefix: str,
     Нет привязки → личка не создаётся, но общий чат сообщение получает: молчать
     нельзя, иначе изменение (например, назначенный доп.урок) потеряется.
     """
-    chat_id = active_chat_id(teacher_id)
-    if chat_id is not None:
-        enqueue(kind=kind, channel=CHANNEL_DM, chat_id=chat_id, text=text,
+    card = _recipient_card(teacher_id)
+    if card['chat_id'] is not None:
+        enqueue(kind=kind, channel=CHANNEL_DM, chat_id=card['chat_id'], text=text,
                 dedup_key=f'{dedup_prefix}:dm', recipient_teacher_id=teacher_id,
                 source_kind=source_kind, source_id=source_id)
 
     general = getattr(settings, 'TELEGRAM_GENERAL_CHAT_ID', 0)
     if also_to_group_chat and general:
-        enqueue(kind=kind, channel=CHANNEL_GROUP, chat_id=general, text=text,
-                dedup_key=f'{dedup_prefix}:group', recipient_teacher_id=None,
+        # В общем чате сообщение начинается с упоминания адресата: иначе в потоке
+        # сообщений человек не поймёт, что это про него, и уведомления чат не даст.
+        # В личке упоминание не нужно — там и так понятно, кому пишут.
+        mention = messages.mention(
+            name=card['name'], username=card['username'], chat_id=card['chat_id'])
+        enqueue(kind=kind, channel=CHANNEL_GROUP, chat_id=general,
+                text=f'{mention}\n\n{text}',
+                dedup_key=f'{dedup_prefix}:group', recipient_teacher_id=teacher_id,
                 source_kind=source_kind, source_id=source_id)
 
     _request_dispatch()

@@ -116,3 +116,47 @@ def test_group_chat_not_configured_is_not_an_error(linked_teacher):
     )
     assert NotificationMessage.objects.filter(channel=CHANNEL_GROUP).count() == 0
     assert NotificationMessage.objects.filter(channel=CHANNEL_DM).count() == 1
+
+
+@pytest.mark.django_db
+@override_settings(TELEGRAM_GENERAL_CHAT_ID=-100500)
+def test_group_copy_starts_with_mention(linked_teacher):
+    """В общем чате адресат должен быть упомянут — иначе он пролистает
+    сообщение про себя, и уведомления Telegram не даст."""
+    services.notify_teacher(
+        kind=KIND_MAKEUP_ASSIGNED, teacher_id=linked_teacher.id,
+        text='Доп.урок назначен.', dedup_prefix='makeup_assigned:70',
+        source_kind='absence_resolution', source_id=70,
+        also_to_group_chat=True,
+    )
+    group = NotificationMessage.objects.get(channel=CHANNEL_GROUP)
+    assert group.text.startswith('@anna')
+    assert 'Доп.урок назначен.' in group.text
+
+
+@pytest.mark.django_db
+@override_settings(TELEGRAM_GENERAL_CHAT_ID=-100500)
+def test_dm_has_no_mention(linked_teacher):
+    """В личке упоминание избыточно — и так понятно, кому пишут."""
+    services.notify_teacher(
+        kind=KIND_MAKEUP_ASSIGNED, teacher_id=linked_teacher.id,
+        text='Доп.урок назначен.', dedup_prefix='makeup_assigned:71',
+        source_kind='absence_resolution', source_id=71,
+        also_to_group_chat=True,
+    )
+    dm = NotificationMessage.objects.get(channel=CHANNEL_DM)
+    assert dm.text == 'Доп.урок назначен.'
+
+
+@pytest.mark.django_db
+@override_settings(TELEGRAM_GENERAL_CHAT_ID=-100500)
+def test_group_copy_names_unbound_teacher(teacher):
+    """Привязки нет — пинга не будет, но имя адресата в чате обязано быть."""
+    services.notify_teacher(
+        kind=KIND_MAKEUP_ASSIGNED, teacher_id=teacher.id,
+        text='Доп.урок назначен.', dedup_prefix='makeup_assigned:72',
+        source_kind='absence_resolution', source_id=72,
+        also_to_group_chat=True,
+    )
+    group = NotificationMessage.objects.get(channel=CHANNEL_GROUP)
+    assert group.text.startswith('Анна Петрова')

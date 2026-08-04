@@ -81,3 +81,24 @@ def test_lesson_cancelled_without_course_end_says_nothing_extra():
         day=datetime.date(2026, 7, 21), time='12:00',
     )
     assert 'Курс продлён' not in text
+
+
+def test_mention_prefers_username():
+    assert messages.mention(name='Анна Петрова', username='anna', chat_id=555) == '@anna'
+
+
+def test_mention_falls_back_to_inline_link_without_username():
+    """Ник в Telegram необязателен, а пингануть человека всё равно нужно."""
+    text = messages.mention(name='Анна Петрова', username=None, chat_id=555)
+    assert text == '<a href="tg://user?id=555">Анна Петрова</a>'
+
+
+def test_mention_without_binding_is_plain_name():
+    text = messages.mention(name='Анна Петрова', username=None, chat_id=None)
+    assert text == 'Анна Петрова'
+
+
+def test_mention_escapes_name():
+    """Имя с амперсандом иначе сломает разбор HTML и сообщение не доставится."""
+    text = messages.mention(name='Иванов & Ко', username=None, chat_id=1)
+    assert '&amp;' in text

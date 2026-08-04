@@ -42,6 +42,23 @@ def _fill_line(item: dict) -> str:
     return f"{head} — урок №{item['seq']}"
 
 
+def mention(*, name: str, username: str | None, chat_id: int | None) -> str:
+    """
+    Упоминание преподавателя для общего чата — чтобы человек получил уведомление,
+    а не пролистал сообщение про себя в общем потоке.
+
+    По @нику — если он есть. Ник в Telegram необязателен и может меняться,
+    поэтому запасной вариант — инлайн-упоминание по числовому id: оно тоже
+    пингует и не зависит от ника. Если привязки нет вовсе, остаётся простое имя
+    без пинга: сообщение всё равно должно быть понятным.
+    """
+    if username:
+        return f'@{escape(username)}'
+    if chat_id:
+        return f'<a href="tg://user?id={chat_id}">{escape(name)}</a>'
+    return escape(name)
+
+
 def morning_digest(*, teacher_name: str, day: datetime.date, items: list[dict]) -> str:
     """Утренний список занятий. Вызывается только когда items непуст."""
     lines = '\n'.join(_lesson_line(i) for i in items)
