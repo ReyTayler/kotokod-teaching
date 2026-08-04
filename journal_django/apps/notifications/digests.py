@@ -86,34 +86,69 @@ def _collect_day(day: datetime.date) -> dict[int, list[dict]]:
     return result
 
 
-def send_morning_digest(day: datetime.date | None = None) -> int:
-    """Разослать утренний список занятий. Возвращает число поставленных сообщений."""
+def send_morning_digest(day: datetime.date | None = None, *,
+                        only_teacher_id: int | None = None,
+                        dedup_suffix: str = '') -> int:
+    """
+    Разослать утренний список занятий. Возвращает число поставленных сообщений.
+
+    only_teacher_id и dedup_suffix нужны только ручной проверке
+    (manage.py send_digest): первый ограничивает рассылку одним человеком,
+    второй позволяет отправить повторно в тот же день, обойдя идемпотентность.
+    Beat вызывает функцию без них.
+    """
     day = day or msk_now().date()
-    recipients = _active_recipients()
-    if not recipients:
-        return 0
 
     queued = 0
-    for teacher_id, items in _collect_day(day).items():
-        if not items:
-            continue
-        target = recipients.get(teacher_id)
-        if target is None:
-            continue
-        chat_id, teacher_name = target
-        text = messages.morning_digest(teacher_name=teacher_name, day=day, items=items)
+    for payload in morning_payloads(day, only_teacher_id=only_teacher_id):
         created = services.enqueue(
-            kind=KIND_MORNING_DIGEST, channel=CHANNEL_DM, chat_id=chat_id, text=text,
-            dedup_key=f'morning:{teacher_id}:{day.isoformat()}',
-            recipient_teacher_id=teacher_id,
+            kind=KIND_MORNING_DIGEST, channel=CHANNEL_DM,
+            chat_id=payload['chat_id'], text=payload['text'],
+            dedup_key=f'morning:{payload["teacher_id"]}:{day.isoformat()}{dedup_suffix}',
+            recipient_teacher_id=payload['teacher_id'],
         )
         queued += int(created)
     return queued
 
 
-def send_fill_digest(day: datetime.date | None = None) -> int:
+def morning_payloads(day: datetime.date,
+                     only_teacher_id: int | None = None) -> list[dict]:
+    """
+    Готовые сообщения утреннего дайджеста, ещё не поставленные в очередь.
+
+    Отделено от рассылки, чтобы можно было посмотреть текст глазами, ничего не
+    отправляя (manage.py send_digest --dry-run). Возвращает
+    [{'teacher_id', 'teacher_name', 'chat_id', 'text'}].
+    """
+    recipients = _active_recipients()
+    out: list[dict] = []
+    for teacher_id, items in _collect_day(day).items():
+        if not items:
+            continue
+        if only_teacher_id is not None and teacher_id != only_teacher_id:
+            continue
+        target = recipients.get(teacher_id)
+        if target is None:
+            continue
+        chat_id, teacher_name = target
+        out.append({
+            'teacher_id': teacher_id,
+            'teacher_name': teacher_name,
+            'chat_id': chat_id,
+            'text': messages.morning_digest(
+                teacher_name=teacher_name, day=day, items=items),
+        })
+    return out
+
+
+def send_fill_digest(day: datetime.date | None = None, *,
+                     only_teacher_id: int | None = None,
+                     dedup_suffix: str = '') -> int:
     """
     Разослать список незаполненных отчётов.
+
+    only_teacher_id и dedup_suffix — только для ручной проверки
+    (manage.py send_digest), beat вызывает функцию без них.
 
     Логика «что считается незаполненным» НЕ переписывается: берём тот же расчёт,
     что питает вкладку «Заполнить» дашборда, иначе через полгода два места разъедутся.
@@ -125,14 +160,34 @@ def send_fill_digest(day: datetime.date | None = None) -> int:
     сюда больше не годится и не используется.
     """
     day = day or msk_now().date()
-    recipients = _active_recipients()
-    if not recipients:
-        return 0
 
+    queued = 0
+    for payload in fill_payloads(day, only_teacher_id=only_teacher_id):
+        created = services.enqueue(
+            kind=KIND_FILL_DIGEST, channel=CHANNEL_DM,
+            chat_id=payload['chat_id'], text=payload['text'],
+            dedup_key=f'fill:{payload["teacher_id"]}:{day.isoformat()}{dedup_suffix}',
+            recipient_teacher_id=payload['teacher_id'],
+        )
+        queued += int(created)
+    return queued
+
+
+def fill_payloads(day: datetime.date,
+                  only_teacher_id: int | None = None) -> list[dict]:
+    """
+    Готовые сообщения вечернего дайджеста, ещё не поставленные в очередь.
+
+    Отделено от рассылки ради предпросмотра (manage.py send_digest --dry-run).
+    Возвращает [{'teacher_id', 'teacher_name', 'chat_id', 'text'}].
+    """
+    recipients = _active_recipients()
     by_teacher: dict[int, list[dict]] = {}
     for row in fill_service.unfilled_lessons(sort_dir='asc'):
         teacher_id = row.get('teacher_id')
         if teacher_id is None:
+            continue
+        if only_teacher_id is not None and teacher_id != only_teacher_id:
             continue
         by_teacher.setdefault(teacher_id, []).append({
             'date': datetime.date.fromisoformat(row['date']),
@@ -142,17 +197,16 @@ def send_fill_digest(day: datetime.date | None = None) -> int:
             'seq': row.get('seq'),
         })
 
-    queued = 0
+    out: list[dict] = []
     for teacher_id, items in by_teacher.items():
         target = recipients.get(teacher_id)
         if target is None:
             continue
-        chat_id, _name = target
-        text = messages.fill_digest(items=items)
-        created = services.enqueue(
-            kind=KIND_FILL_DIGEST, channel=CHANNEL_DM, chat_id=chat_id, text=text,
-            dedup_key=f'fill:{teacher_id}:{day.isoformat()}',
-            recipient_teacher_id=teacher_id,
-        )
-        queued += int(created)
-    return queued
+        chat_id, teacher_name = target
+        out.append({
+            'teacher_id': teacher_id,
+            'teacher_name': teacher_name,
+            'chat_id': chat_id,
+            'text': messages.fill_digest(items=items),
+        })
+    return out
