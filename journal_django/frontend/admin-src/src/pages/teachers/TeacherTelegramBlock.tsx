@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Combobox } from '../../components/form/Combobox';
-import { Field } from '../../components/form/Field';
+import { useMemo, useState } from 'react';
+import { Combobox, type Option } from '../../components/form/Combobox';
+import { TelegramIcon } from '../../components/ui/icons';
 import { useToast } from '../../components/ui/Toast';
 import { useApiError } from '../../hooks/useApiError';
 import { useAuth } from '../../hooks/useAuth';
@@ -8,33 +8,35 @@ import { useTeacherTelegramMutations, useTelegramAccounts } from '../../hooks/us
 import { canWriteTeacherTelegram, type Role } from '../../lib/permissions';
 import type { Teacher } from '../../lib/types';
 
-/** Подпись аккаунта в списке: «Имя (@ник)», занятые — с пометкой владельца. */
-function optionLabel(fullName: string, username: string | null, boundTo: string | null): string {
-  const base = username ? `${fullName} (@${username})` : fullName;
-  return boundTo ? `${base} — уже привязан: ${boundTo}` : base;
+/**
+ * Вторая строка пункта: ник и — если аккаунт занят — чей он.
+ * Раньше всё это склеивалось в label одной строкой, из-за чего подпись
+ * не влезала и налезала на соседний пункт.
+ */
+function optionHint(username: string | null, boundTo: string | null): string | undefined {
+  const parts: string[] = [];
+  if (username) parts.push(`@${username}`);
+  if (boundTo) parts.push(`занят: ${boundTo}`);
+  return parts.length ? parts.join(' · ') : undefined;
 }
 
 /** Текущее состояние привязки словами — то, ради чего человек сюда смотрит. */
 function TelegramStatus({ telegram }: { telegram: Teacher['telegram'] }) {
   if (!telegram) {
-    return <div className="teacher-telegram__status">не привязан</div>;
+    return <span className="tg-card__status">не привязан</span>;
   }
   if (!telegram.is_active) {
     return (
-      <div className="teacher-telegram__status teacher-telegram__status--error">
+      <span className="tg-card__status tg-card__status--error">
         заблокировал бота{telegram.blocked_reason ? `: ${telegram.blocked_reason}` : ''}
-      </div>
+      </span>
     );
   }
-  return (
-    <div className="teacher-telegram__status">
-      привязан{telegram.username ? `, @${telegram.username}` : `, ${telegram.full_name}`}
-    </div>
-  );
+  return <span className="tg-card__status tg-card__status--ok">привязан</span>;
 }
 
 /**
- * Поле «Telegram» карточки преподавателя.
+ * Блок «Telegram» в шапке карточки преподавателя.
  *
  * Выбор из списка аккаунтов, а не ввод ника: Bot API умеет писать только по
  * числовому chat_id, которого человек не видит, а набор руками даёт опечатки.
@@ -54,11 +56,21 @@ export function TeacherTelegramBlock({ teacher }: { teacher: Teacher }) {
   const current = teacher.telegram?.chat_id != null ? String(teacher.telegram.chat_id) : '';
   const [selected, setSelected] = useState(current);
 
-  const options = (data?.rows ?? []).map((a) => ({
-    value: String(a.chat_id),
-    // Свою же привязку не помечаем «уже привязан»: это не конфликт.
-    label: optionLabel(a.full_name, a.username, a.bound_to === teacher.name ? null : a.bound_to),
-  }));
+  // Свободные аккаунты — наверх: занятый выбирают редко, а листать до своего
+  // через полтора десятка чужих привязок приходилось каждый раз.
+  const options: Option[] = useMemo(() => {
+    const rows = (data?.rows ?? []).map((a) => {
+      // Свою же привязку «занятой» не считаем: это не конфликт.
+      const boundTo = a.bound_to === teacher.name ? null : a.bound_to;
+      return {
+        value: String(a.chat_id),
+        label: a.full_name,
+        hint: optionHint(a.username, boundTo),
+        muted: Boolean(boundTo),
+      };
+    });
+    return [...rows.filter((o) => !o.muted), ...rows.filter((o) => o.muted)];
+  }, [data, teacher.name]);
 
   const dirty = selected !== current;
   const busy = muts.link.isPending || muts.unlink.isPending;
@@ -78,52 +90,59 @@ export function TeacherTelegramBlock({ teacher }: { teacher: Teacher }) {
     } catch (err) { showError(err, 'Не удалось отвязать Telegram'); }
   };
 
-  if (!canWrite) {
-    return (
-      <div className="teacher-telegram">
-        <div className="teacher-telegram__label-ro">Telegram</div>
+  return (
+    <div className="tg-card">
+      <div className="tg-card__head">
+        <span className="tg-card__title">
+          <TelegramIcon size={14} />
+          Telegram
+        </span>
         <TelegramStatus telegram={teacher.telegram} />
       </div>
-    );
-  }
 
-  return (
-    <div className="teacher-telegram">
-      <Field label="Telegram">
-        <div className="teacher-telegram__controls">
-          <div className="teacher-telegram__combobox">
-            <Combobox
-              value={selected}
-              onChange={setSelected}
-              options={options}
-              placeholder={isLoading ? 'Загрузка…' : 'Выберите аккаунт'}
-            />
-          </div>
-          <button
-            type="button"
-            className="btn-save"
-            onClick={() => { void handleSave(); }}
-            disabled={busy || !selected || !dirty}
-          >
-            Сохранить
-          </button>
-          {teacher.telegram && (
+      {teacher.telegram && (
+        <div className="tg-card__account">
+          {teacher.telegram.username
+            ? `@${teacher.telegram.username}`
+            : teacher.telegram.full_name}
+        </div>
+      )}
+
+      {canWrite && (
+        <>
+          <Combobox
+            value={selected}
+            onChange={setSelected}
+            options={options}
+            placeholder={isLoading ? 'Загрузка…' : 'Выберите аккаунт'}
+            itemHeight={52}
+          />
+          <div className="tg-card__actions">
             <button
               type="button"
-              className="btn-cancel"
-              onClick={() => { void handleUnlink(); }}
-              disabled={busy}
+              className="btn-save"
+              onClick={() => { void handleSave(); }}
+              disabled={busy || !selected || !dirty}
             >
-              Отвязать
+              {teacher.telegram ? 'Сменить' : 'Привязать'}
             </button>
+            {teacher.telegram && (
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => { void handleUnlink(); }}
+                disabled={busy}
+              >
+                Отвязать
+              </button>
+            )}
+          </div>
+          {!isLoading && options.length === 0 && (
+            <div className="tg-card__hint">
+              Боту ещё никто не писал: аккаунт появится в списке после команды /start.
+            </div>
           )}
-        </div>
-      </Field>
-      <TelegramStatus telegram={teacher.telegram} />
-      {!isLoading && options.length === 0 && (
-        <div className="teacher-telegram__status">
-          Боту ещё никто не писал: аккаунт появится в списке после команды /start.
-        </div>
+        </>
       )}
     </div>
   );

@@ -1,38 +1,64 @@
 import { useState } from 'react';
-import { useParams, Navigate, useNavigate } from 'react-router-dom';
+import { useParams, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTeacher, useTeacherMutations } from '../../hooks/useTeachers';
-import { useGroupsAll } from '../../hooks/useGroups';
-import { useDirections } from '../../hooks/useDirections';
+import { useTeacherGroups, useTeacherStats } from '../../hooks/useTeacherStats';
 import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
-import { DetailShell, type DetailField } from '../../components/detail/DetailShell';
-import { DirTag } from '../../components/ui/DirTag';
+import { DetailShell, EntityCard, type DetailField } from '../../components/detail/DetailShell';
+import { EntityHero, HeroChip, monogramOf } from '../../components/detail/EntityHero';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 import { PageLoading } from '../../components/ui/Skeleton';
-import { fmtDate } from '../../lib/format';
+import { Tabs, type TabItem } from '../../components/ui/Tabs';
+import { Dialog } from '../../components/ui/Dialog';
+import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
+import { nameColor } from '../../lib/direction-color';
+import { fmtDate, todayMSK } from '../../lib/format';
 import type { Teacher } from '../../lib/types';
 import TeacherFormModal from './TeacherFormModal';
 import { TeacherTelegramBlock } from './TeacherTelegramBlock';
+import TeacherStatsRow from './TeacherStatsRow';
+import TeacherDirectionsBreakdown from './TeacherDirectionsBreakdown';
+import TeacherGroupsBlock from './TeacherGroupsBlock';
 import { useAuth } from '../../hooks/useAuth';
-import { canWriteTeachers, type Role } from '../../lib/permissions';
+import { canSeeChangelog, canWriteTeachers, type Role } from '../../lib/permissions';
+
+const TEACHER_TABS = ['overview', 'groups', 'data', 'history'] as const;
+type TeacherTab = (typeof TEACHER_TABS)[number];
+const DEFAULT_TAB: TeacherTab = 'overview';
+
+function isTeacherTab(value: string | null): value is TeacherTab {
+  return !!value && (TEACHER_TABS as readonly string[]).includes(value);
+}
 
 export default function TeacherDetailPage() {
   const params = useParams();
   const id = Number(params.id);
   const navigate = useNavigate();
   const { data: teacher, isLoading } = useTeacher(id);
-  const { data: groups = [] } = useGroupsAll(true);
-  const { data: directions = [] } = useDirections(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [month, setMonth] = useState(() => todayMSK().slice(0, 7));
+  const { data: groups = [] } = useTeacherGroups(id);
+  const { data: stats } = useTeacherStats(id, month);
   const muts = useTeacherMutations();
   const { toast } = useToast();
   const showError = useApiError();
   const [editing, setEditing] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const { me } = useAuth();
   const canWrite = canWriteTeachers(me?.role as Role);
 
+  const rawTab = searchParams.get('tab');
+  const activeTab: TeacherTab = isTeacherTab(rawTab) ? rawTab : DEFAULT_TAB;
+  const setActiveTab = (tab: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === DEFAULT_TAB) next.delete('tab'); else next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  };
+
   if (isLoading) return <PageLoading />;
   if (!teacher) return <Navigate to="/admin/teachers" replace />;
-
-  const myGroups = groups.filter((g) => g.teacher_id === teacher.id);
 
   const fields: DetailField<Teacher>[] = [
     { key: 'id', label: 'ID' },
@@ -57,56 +83,136 @@ export default function TeacherDetailPage() {
     } catch (err) { showError(err); }
   };
 
+  const activeGroups = groups.filter((g) => g.active);
+  const directionsCount = new Set(activeGroups.map((g) => g.direction_id)).size;
+  const contacts = [teacher.email, teacher.phone].filter(Boolean).join(' · ');
+
+  // У преподавателя нет направления, откуда EntityHero берёт цвет у группы, —
+  // берём детерминированный тон из имени (та же формула, что у Avatar).
+  const customHero = (
+    <EntityHero
+      monogram={monogramOf(teacher.name)}
+      color={nameColor(teacher.name)}
+      title={teacher.name}
+      badge={
+        teacher.active
+          ? <span className="status-badge status-badge--positive">Активен</span>
+          : <span className="status-badge status-badge--muted">Архив</span>
+      }
+      meta={
+        <>
+          <HeroChip mono>#{teacher.id}</HeroChip>
+          {directionsCount > 0 && <HeroChip>{directionsCount} напр.</HeroChip>}
+          <HeroChip mono>{activeGroups.length} групп</HeroChip>
+          {contacts && <HeroChip>{contacts}</HeroChip>}
+        </>
+      }
+      actions={
+        canWrite ? (
+          <>
+            <button type="button" className="edit-btn" onClick={() => setEditing(true)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              Редактировать
+            </button>
+            <ActionMenu
+              items={teacher.active
+                // Архивация необратима одним кликом — подтверждаем диалогом
+                // (в DetailShell эту роль играло состояние «Точно?» у кнопки).
+                ? [{ label: 'Архивировать преподавателя', onSelect: () => setConfirmArchive(true), danger: true }]
+                : [{ label: 'Разархивировать преподавателя', onSelect: () => { void handleRestore(); } }]}
+            />
+          </>
+        ) : undefined
+      }
+      facts={[
+        { label: 'В школе с', value: fmtDate(teacher.created_at) },
+        {
+          label: 'Последнее занятие',
+          value: stats?.last_lesson_date ? fmtDate(stats.last_lesson_date) : '—',
+        },
+      ]}
+      aside={<TeacherTelegramBlock teacher={teacher} />}
+    />
+  );
+
+  const tabs: TabItem[] = [
+    {
+      value: 'overview',
+      label: 'Обзор',
+      content: <TeacherDirectionsBreakdown stats={stats} />,
+    },
+    {
+      value: 'groups',
+      label: 'Группы',
+      content: (
+        <TeacherGroupsBlock groups={groups} progress={stats?.group_progress ?? []} />
+      ),
+    },
+    {
+      value: 'data',
+      label: 'Данные',
+      content: <EntityCard title="Данные преподавателя" row={teacher} fields={fields} />,
+    },
+  ];
+
+  if (canSeeChangelog(me?.role as Role)) {
+    tabs.push({
+      value: 'history',
+      label: 'История',
+      content: <EntityChangelogPanel entity="teacher" entityId={teacher.id} />,
+    });
+  }
+
   return (
     <>
       <DetailShell<Teacher>
         title={teacher.name}
-        subtitle={`${teacher.email || ''}${teacher.email && teacher.phone ? ' · ' : ''}${teacher.phone || ''}`}
         row={teacher}
         fields={fields}
         cardTitle="Данные преподавателя"
-        onEdit={canWrite ? () => setEditing(true) : undefined}
-        onDelete={canWrite ? handleDelete : undefined}
-        archived={!teacher.active}
-        onRestore={canWrite ? handleRestore : undefined}
+        customHero={customHero}
         backTo="/admin/teachers"
         parentLabel="Преподаватели"
+        hideCard
       >
-        {/* Привязка Telegram — отдельным блоком, а не полем формы: она живёт на
-            своём эндпоинте (POST/DELETE …/telegram), а не в PATCH преподавателя. */}
-        <TeacherTelegramBlock teacher={teacher} />
-
-        <div className="sub-header">Группы <span className="count-badge">{myGroups.length}</span></div>
-        {myGroups.length === 0 ? (
-          <div className="memberships__empty">Нет групп</div>
-        ) : myGroups.map((g) => {
-          const dir = directions.find((d) => d.id === g.direction_id);
-          return (
-            <div
-              key={g.id}
-              className="link-card"
-              tabIndex={0}
-              role="button"
-              onClick={() => navigate(`/admin/groups/${g.id}`)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/admin/groups/${g.id}`); } }}
-            >
-              <div className="link-card-head">
-                <div>
-                  <div className="link-card-title">{g.name}</div>
-                  <div className="link-card-meta">
-                    {dir && <DirTag direction={dir} />}
-                    {!g.active && <span className="archive-tag">Архив</span>}
-                  </div>
-                </div>
-                <span style={{ fontSize: 13, color: 'var(--text3)' }}>#{g.id}</span>
-              </div>
-            </div>
-          );
-        })}
+        <TeacherStatsRow
+          month={month}
+          onMonthChange={setMonth}
+          stats={stats}
+          groups={groups}
+        />
+        <Tabs items={tabs} value={activeTab} onChange={setActiveTab} />
       </DetailShell>
       {editing && (
         <TeacherFormModal initial={teacher} onClose={() => setEditing(false)} />
       )}
+      <Dialog
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        title="Архивировать преподавателя?"
+        footer={
+          <>
+            <button type="button" className="btn-cancel" onClick={() => setConfirmArchive(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn-delete is-confirming"
+              onClick={() => { setConfirmArchive(false); void handleDelete(); }}
+            >
+              Архивировать
+            </button>
+          </>
+        }
+      >
+        <p className="status-form__hint">
+          Преподаватель «{teacher.name}» уйдёт в архив: пропадёт из списков и подборов, но
+          данные и история занятий сохранятся. Разархивировать можно здесь же.
+        </p>
+      </Dialog>
     </>
   );
 }

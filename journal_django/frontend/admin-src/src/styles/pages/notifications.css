@@ -162,40 +162,34 @@
   color: var(--warning);
 }
 
-/* ── Поле Telegram в карточке преподавателя ────────────────────────────────── */
-
-.teacher-telegram {
-  display: grid;
-  gap: var(--space-2);
-  max-width: 420px;
-  margin-bottom: var(--space-4);
-}
-
-.teacher-telegram__controls {
+/* Карточка привязки Telegram в шапке преподавателя. Раньше это было голое поле
+   формы между карточкой данных и списком групп — без контейнера и с кнопками
+   разной высоты. */
+.tg-card {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  padding: var(--space-3);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
 }
-
-.teacher-telegram__combobox {
-  flex: 1 1 240px;
-  min-width: 200px;
+.tg-card__head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-2);
 }
-
-/* Подпись поля в режиме чтения (менеджер): у Field её рисует <label>, здесь
-   поля нет — повторяем его типографику, а не изобретаем свою. */
-.teacher-telegram__label-ro {
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--text2);
+.tg-card__title {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text3);
 }
-
-.teacher-telegram__status {
-  font-size: var(--fs-sm);
-  color: var(--text3);
+.tg-card__status { font-size: 12px; color: var(--text3); }
+.tg-card__status--ok { color: var(--success); }
+.tg-card__status--error { color: var(--danger); }
+.tg-card__account {
+  font-family: var(--font-mono); font-size: 13px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-.teacher-telegram__status--error {
-  color: var(--danger);
-}
+.tg-card__actions { display: flex; gap: var(--space-2); }
+.tg-card__actions button { flex: 1; }
+.tg-card__hint { font-size: 11px; color: var(--text4); }
