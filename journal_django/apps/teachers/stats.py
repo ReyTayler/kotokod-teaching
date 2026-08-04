@@ -14,6 +14,12 @@ GET /api/admin/teachers/<id>/stats.
 НЕ применяется: это мера программы курса, а не труда преподавателя. Слово
 «уроков» в этом модуле относится только к прогрессу курса группы
 (`group_progress`), где вес как раз применяется.
+
+На проводе (JSON-ответ API) это разделение проведено явно: `sessions` —
+занятия, штуки, без веса (нагрузка преподавателя); `lessons_*` —
+уроки курса, с весом half-lesson (программа курса). Не смешивать: это два
+разных числа для одних и тех же занятий, и одинаковое английское слово для
+обоих уже приводило к путанице на проде.
 """
 from __future__ import annotations
 
@@ -23,7 +29,7 @@ from decimal import Decimal
 from django.db.models import (
     Case, Count, DecimalField, F, Max, OuterRef, Q, Subquery, Sum, Value, When,
 )
-from django.db.models.functions import Coalesce, TruncMonth
+from django.db.models.functions import Cast, Coalesce, TruncMonth
 
 from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import Group
@@ -31,7 +37,15 @@ from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
 
 
 def month_bounds(month: str) -> tuple[str, str]:
-    """'YYYY-MM' → ('YYYY-MM-01', 'YYYY-MM-<последний день>'), обе границы включительно."""
+    """'YYYY-MM' → ('YYYY-MM-01', 'YYYY-MM-<последний день>'), обе границы включительно.
+
+    Формат `month` здесь НЕ валидируется — вызывающий обязан проверить его
+    заранее. Сейчас единственный вызывающий — вьюха (`_MONTH_RE`), которая
+    отдаёт 400 на плохой ввод; но `stats.py` — публичный модуль, и следующий
+    вызывающий (Celery-таска, management-команда) может забыть про этот
+    контракт. Невалидный `month` роняет `ValueError` из `int()`/`datetime.date`,
+    а это 500, а не 400.
+    """
     year, mon = int(month[:4]), int(month[5:7])
     first = datetime.date(year, mon, 1)
     next_first = datetime.date(year + (1 if mon == 12 else 0), (mon % 12) + 1, 1)
@@ -63,21 +77,21 @@ def month_breakdown(teacher_id: int, month: str) -> dict:
             direction_color=F('group__direction__color'),
         )
         .annotate(
-            lessons=Count('id'),
+            sessions=Count('id'),
             substitutions=Count('id', filter=Q(original_teacher__isnull=False)),
         )
     )
 
     by_direction: dict[int, dict] = {}
     by_duration: dict[int, int] = {}
-    total_lessons = total_minutes = total_subs = 0
+    total_sessions = total_minutes = total_subs = 0
 
     for row in rows:
-        count = row['lessons']
+        count = row['sessions']
         duration = row['lesson_duration_minutes']
         minutes = count * duration
 
-        total_lessons += count
+        total_sessions += count
         total_minutes += minutes
         total_subs += row['substitutions']
 
@@ -85,25 +99,29 @@ def month_breakdown(teacher_id: int, month: str) -> dict:
             'direction_id': row['direction_id'],
             'name': row['direction_name'],
             'color': row['direction_color'],
-            'lessons': 0,
+            'sessions': 0,
             'minutes': 0,
         })
-        bucket['lessons'] += count
+        bucket['sessions'] += count
         bucket['minutes'] += minutes
 
         by_duration[duration] = by_duration.get(duration, 0) + count
 
     return {
         'total': {
-            'lessons': total_lessons,
+            'sessions': total_sessions,
             'minutes': total_minutes,
             'substitutions': total_subs,
         },
         # Сортировка по убыванию: первым идёт направление, где он работает больше
-        # всего — это ответ на вопрос «кто он по профилю».
-        'by_direction': sorted(by_direction.values(), key=lambda r: -r['lessons']),
+        # всего — это ответ на вопрос «кто он по профилю». Вторичный ключ по
+        # `name` — БД не гарантирует порядок строк без ORDER BY, и при равном
+        # числе занятий два направления могли бы менять места между
+        # одинаковыми запросами (стабильная сортировка Python здесь не спасает:
+        # сама последовательность на входе не детерминирована).
+        'by_direction': sorted(by_direction.values(), key=lambda r: (-r['sessions'], r['name'])),
         'by_duration': sorted(
-            [{'minutes': m, 'lessons': c} for m, c in by_duration.items()],
+            [{'minutes': m, 'sessions': c} for m, c in by_duration.items()],
             key=lambda r: -r['minutes'],
         ),
     }
@@ -148,11 +166,11 @@ def monthly_series(teacher_id: int, month: str) -> list[dict]:
         )
         .annotate(bucket=TruncMonth('lesson_date'))
         .values('bucket')
-        .annotate(lessons=Count('id'))
+        .annotate(sessions=Count('id'))
     )
-    counts = {row['bucket'].strftime('%Y-%m'): row['lessons'] for row in rows}
+    counts = {row['bucket'].strftime('%Y-%m'): row['sessions'] for row in rows}
 
-    return [{'month': key, 'lessons': counts.get(key, 0)} for key in keys]
+    return [{'month': key, 'sessions': counts.get(key, 0)} for key in keys]
 
 
 def last_lesson_date(teacher_id: int) -> str | None:
@@ -170,9 +188,25 @@ def last_lesson_date(teacher_id: int) -> str | None:
     return value.isoformat() if value else None
 
 
-# Вес занятия в уроках курса: 45 мин = 0.5, иначе 1. Та же формула, что в
-# apps.lessons.services._step и apps.scheduling.occurrences._step_for, но
-# выраженная как SQL-выражение — суммировать надо на стороне БД.
+# Вес занятия в уроках курса: 45 мин = 0.5, иначе 1.
+#
+# Эта формула продублирована по всему проекту, а не только здесь — это
+# известный долг, не тайна этого модуля. Python-копии: apps.lessons.services
+# ._step, apps.lessons.repository._step, apps.extra_lessons.services._step,
+# apps.scheduling.occurrences._step_for (и ещё несколько мест, где условие
+# `duration_minutes == 45` инлайнится без функции — apps.teacher_spa.services/
+# .repository, apps.scheduling.services, apps.groups.repository). SQL-копии
+# как CASE-выражение ORM: apps.finances.repository._attended_units_case,
+# apps.dashboard.registry_service (два инлайн-Case). SQL-копии как сырой CASE
+# в RunSQL/raw-запросах: apps.students.repository, apps.renewals.rebuild,
+# apps.renewals.management.commands.backfill_renewal_history,
+# apps.sync.backfills.rebuild_counters/rebuild_payroll.
+#
+# Консолидация в одно место — отдельная задача, сюда не входит: она заденет
+# как минимум finances и dashboard, а те лежат по разные стороны разбиения
+# django_db_setup между приложениями (часть no-op'ит и работает на общей
+# journal_test, часть пересоздаёт свежую test_journal_test) — после такой
+# правки обязателен полный `pytest -q`, а не прогон по отдельным apps.
 _LESSON_WEIGHT = Case(
     When(lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
     default=Value(Decimal('1')),
@@ -195,6 +229,13 @@ def group_progress(teacher_id: int) -> list[dict]:
     `groups` уже соединяется с `directions` ради длины курса; агрегат по второй
     связи в том же запросе перемножился бы на строки первой (классическая
     ловушка Django ORM — см. тест test_group_progress_not_inflated_by_members).
+
+    `lessons_total` в ответе — `None` (длина курса не задана нигде: ни в группе,
+    ни в направлении) ИЛИ `0` (`directions.total_lessons` явно выставлен в 0 —
+    CHECK на этом поле допускает `>= 0`, в отличие от `groups.lessons_total`,
+    где CHECK `> 0`). Оба случая долетают до потребителя как есть и оба
+    означают одно и то же: «длины курса нет». Наивное `done / total` на клиенте
+    без проверки на этих значениях даст `NaN` (0/0) или `Infinity` (N/0).
     """
     done = Subquery(
         Lesson.objects
@@ -209,7 +250,24 @@ def group_progress(teacher_id: int) -> list[dict]:
         Group.objects
         .filter(teacher_id=teacher_id)
         .annotate(
-            lessons_done=Coalesce(done, Value(Decimal('0')), output_field=_PROGRESS_FIELD),
+            # Cast — не косметика: DecimalField как output_field только
+            # ПОДПИСЫВАЕТ Python-значение, конвертер scale навешивается лишь
+            # для sqlite/mysql/oracle. На PostgreSQL без явного ::numeric(6,1)
+            # SQL отдаёт scale операндов «как есть» — 2 занятия по 90 минут
+            # дают Decimal('2') ("2" на проводе), а не Decimal('2.0') ("2.0"),
+            # хотя оба идут через один и тот же output_field. Cast заставляет
+            # компилятор ORM реально добавить ::numeric(6,1) в SQL и
+            # зафиксировать scale, а не только тип Python-объекта.
+            lessons_done=Cast(
+                Coalesce(done, Value(Decimal('0')), output_field=_PROGRESS_FIELD),
+                output_field=_PROGRESS_FIELD,
+            ),
+            # Алиас, а не `lessons_total=...`: `lessons_total` уже занято
+            # ПОЛЕМ модели Group (ручной override длины курса). Django не
+            # даёт annotate() перекрыть имя существующего поля — упадёт
+            # ValueError при попытке. Аннотация хранит ЭФФЕКТИВНУЮ длину курса
+            # (override группы ИЛИ длина направления), поле — только сырой
+            # override; это разные вещи, и не стоит "упрощать" до одного имени.
             course_total=effective_total_lessons_expr(),
         )
         .values('id', 'lessons_done', 'course_total')

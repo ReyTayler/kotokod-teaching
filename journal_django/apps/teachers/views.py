@@ -13,6 +13,8 @@ TeachersView — тонкий ViewSet для /api/admin/teachers.
 """
 from __future__ import annotations
 
+import re
+
 from django.db import IntegrityError
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -20,7 +22,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import ReadStaffWriteSuperAdmin
+from apps.core.permissions import IsManagerOrAdmin, ReadStaffWriteSuperAdmin
+from apps.core.utils.dates import msk_now
 from apps.teachers import services
 from apps.teachers.serializers import TeacherUpdateSerializer, TeacherWriteSerializer
 
@@ -85,6 +88,36 @@ class TeacherDetailView(APIView):
         if not ok:
             raise NotFound({'error': 'Not found'})
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# Строгий формат месяца. Год без ограничений (архив уходит вглубь), месяц 01–12:
+# '2026-7' и '2026-13' обязаны отваливаться на входе, а не превращаться в пустой
+# период молча.
+_MONTH_RE = re.compile(r'^\d{4}-(0[1-9]|1[0-2])$')
+
+
+class TeacherStatsView(APIView):
+    """
+    GET /api/admin/teachers/:id/stats?month=YYYY-MM — показатели преподавателя.
+
+    Read-only, поэтому IsManagerOrAdmin, а не ReadStaffWriteSuperAdmin:
+    менеджеру статистика нужна, а писать здесь нечего.
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        if services.get_teacher(pk) is None:
+            raise NotFound({'error': 'Not found'})
+
+        month = request.query_params.get('month') or msk_now().strftime('%Y-%m')
+        if not _MONTH_RE.match(month):
+            return Response(
+                {'error': f"Invalid month '{month}', expected YYYY-MM"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(services.get_teacher_stats(pk, month))
 
 
 # ---------------------------------------------------------------------------
