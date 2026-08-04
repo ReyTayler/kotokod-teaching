@@ -304,7 +304,15 @@ def _notify_planned(row: dict, kind: str, *, teacher_ids: list[int],
 
         notif_services.notify_teacher(
             kind=kind, teacher_id=teacher_id, text=text,
-            dedup_prefix=f'{kind}:{row["id"]}:{day.isoformat()}:{teacher_id}',
+            # updated_at в ключе, а не только дата: занятие можно вернуть на
+            # дату, где оно уже было (A→B→A), и по одной дате такая операция
+            # неотличима от повтора первой — сообщение бы не ушло. Штамп меняется
+            # при каждой мутации строки, а внутри одной транзакции неизменен,
+            # поэтому настоящие дубли по-прежнему схлопываются.
+            dedup_prefix=(
+                f'{kind}:{row["id"]}:{day.isoformat()}:{teacher_id}'
+                f':{row["updated_at"].isoformat() if row.get("updated_at") else ""}'
+            ),
             source_kind='planned_lesson', source_id=row['id'],
             # Дубль в общий чат ставится ОДИН раз на событие, а не по разу на
             # каждого адресата: иначе при замене чат получил бы два одинаковых.

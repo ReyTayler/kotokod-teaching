@@ -901,6 +901,10 @@ def notification_context(lesson_id: int) -> dict | None:
         PlannedLesson.objects.filter(id=lesson_id).values(
             'id', 'seq', 'scheduled_date', 'scheduled_time',
             'teacher_id', 'substitute_teacher_id',
+            # updated_at входит в ключ идемпотентности уведомления: без него
+            # возврат занятия на дату, где оно уже было (A→B→A), дал бы тот же
+            # ключ, что и первая операция, и сообщение молча не ушло бы.
+            'updated_at',
             group_name=F('group__name'),
             direction_name=F('group__direction__name'),
         ).first()

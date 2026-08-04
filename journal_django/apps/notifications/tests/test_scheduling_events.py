@@ -195,3 +195,32 @@ def test_change_teacher_to_same_teacher_is_silent(no_dispatch, planned_group):
 
     assert not NotificationMessage.objects.filter(
         kind__in=[KIND_SUBSTITUTE_ASSIGNED, KIND_SUBSTITUTE_REMOVED]).exists()
+
+
+@pytest.mark.django_db
+@override_settings(TELEGRAM_GENERAL_CHAT_ID=_GENERAL_CHAT_ID)
+def test_repeated_reschedule_sends_every_time(no_dispatch, planned_group):
+    """Перенос туда и обратно — два разных события, оба должны дойти.
+
+    Ключ идемпотентности содержал только новую дату, поэтому возврат занятия
+    на дату, где оно уже было, выглядел повтором первой операции, и второе
+    сообщение молча не уходило.
+    """
+    setup, first = planned_group
+
+    sched_services.reschedule(
+        setup['group_a'], first.id, {'new_date': '2026-06-03', 'new_time': '11:00'}, None)
+    sched_services.reschedule(
+        setup['group_a'], first.id, {'new_date': '2026-06-01', 'new_time': '10:00'}, None)
+    sched_services.reschedule(
+        setup['group_a'], first.id, {'new_date': '2026-06-03', 'new_time': '11:00'}, None)
+
+    dms = list(NotificationMessage.objects
+               .filter(kind=KIND_LESSON_MOVED, channel=CHANNEL_DM)
+               .order_by('id'))
+    assert len(dms) == 3, 'каждый перенос — отдельное событие для преподавателя'
+
+    # Тексты честно отражают каждый шаг: было → стало.
+    assert '01.06' in dms[0].text and '03.06' in dms[0].text
+    assert '03.06' in dms[1].text and '01.06' in dms[1].text
+    assert '01.06' in dms[2].text and '03.06' in dms[2].text
