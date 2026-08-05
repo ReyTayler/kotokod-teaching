@@ -1,6 +1,5 @@
 // journal_django/frontend/admin-src/src/pages/notifications/NotificationToggleBar.tsx
 import { useState } from 'react';
-import { Checkbox } from '../../components/form/Checkbox';
 import { Dialog } from '../../components/ui/Dialog';
 import { useApiError } from '../../hooks/useApiError';
 import { fmtDateTime } from '../../lib/format';
@@ -18,6 +17,34 @@ import { useNotificationToggle, useSetNotificationToggle } from '../../hooks/use
  * происходит сразу, а выключение требует подтверждения: случайный клик
  * заставит замолчать сотню людей.
  */
+/**
+ * Колокольчик — включено. Тот же контур, что у пункта меню «Уведомления»
+ * (Sidebar NAV_ICONS): раздел и его выключатель должны читаться как одно.
+ */
+function BellIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  );
+}
+
+/** Перечёркнутый колокольчик — выключено. */
+function BellOffIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
+      <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
+      <path d="M18 8a6 6 0 0 0-9.33-5" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
 export function NotificationToggleBar() {
   const { data } = useNotificationToggle();
   const setToggle = useSetNotificationToggle();
@@ -35,20 +62,26 @@ export function NotificationToggleBar() {
   return (
     <div className="notif-toggle">
       <div className="notif-toggle__row">
-        <Checkbox
-          label={data.is_enabled ? 'Рассылка включена' : 'Рассылка выключена'}
-          checked={data.is_enabled}
+        <button
+          type="button"
+          className={`notif-switch${data.is_enabled ? '' : ' notif-switch--off'}`}
+          // aria-pressed вместо роли переключателя: для скринридера это кнопка
+          // с состоянием, а перечёркнутый колокольчик остаётся чисто визуальным.
+          aria-pressed={data.is_enabled}
           disabled={setToggle.isPending}
-          onChange={(e) => {
-            if (e.target.checked) {
-              apply(true);
-            } else {
-              // Выключение — с подтверждением; сам чекбокс не переключаем,
-              // пока не подтвердят (иначе он мигнёт и вернётся обратно).
-              setConfirmOpen(true);
-            }
+          title={data.is_enabled
+            ? 'Выключить рассылку уведомлений'
+            : 'Включить рассылку уведомлений'}
+          onClick={() => {
+            // Включение — сразу. Выключение — только после подтверждения:
+            // случайный клик заставит замолчать сотню человек.
+            if (data.is_enabled) setConfirmOpen(true);
+            else apply(true);
           }}
-        />
+        >
+          {data.is_enabled ? <BellIcon /> : <BellOffIcon />}
+          <span>{data.is_enabled ? 'Уведомления включены' : 'Уведомления выключены'}</span>
+        </button>
         {data.updated_by && (
           <span className="notif-toggle__meta">
             изменил(а) {data.updated_by} · {fmtDateTime(data.updated_at)}
