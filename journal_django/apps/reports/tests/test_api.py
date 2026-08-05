@@ -173,7 +173,8 @@ def test_retention_downloads_xlsx(manager_client):
     resp = manager_client.get(f'{BASE}/download/{task_id}')
 
     assert resp.status_code == 200
-    wb = load_workbook(io.BytesIO(b''.join(resp.streaming_content)
-                                 if resp.streaming else resp.content))
-    assert 'Свод — преподаватели' in wb.sheetnames
-    assert 'Свод — направления' in wb.sheetnames
+    assert 'spreadsheetml' in resp['Content-Type']
+    wb = load_workbook(io.BytesIO(resp.getvalue()))
+    assert wb.sheetnames[0] == 'Воронка по циклам'
+    assert 'Циклы × преподаватели' in wb.sheetnames
+    assert 'Зависшие сделки' in wb.sheetnames

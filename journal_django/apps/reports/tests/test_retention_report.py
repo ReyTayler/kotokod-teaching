@@ -18,8 +18,8 @@ from apps.reports.builders import retention
 def world(renewals_fixture):
     """Мир отчёта: направления, преподаватели, группы, ученики, членства.
 
-    Возвращает фабрики поверх renewals_fixture — сделки создаём его методами,
-    а обвязку (кто у кого учится) своими: она отчёту и нужна.
+    Сделки создаём методами renewals_fixture, обвязку «кто у кого учится» —
+    своими: именно она связывает сделку с преподавателем и направлением.
     """
     created = {'membership': [], 'group': [], 'teacher': [], 'direction': []}
 
@@ -70,8 +70,15 @@ def world(renewals_fixture):
 
         @staticmethod
         def days_ago(days: int) -> datetime.date:
-            """Опорная дата открытой сделки в прошлом — так проверяется «застряло»."""
             return datetime.date.today() - datetime.timedelta(days=days)
+
+        def stuck_date(self):
+            """Опорная дата зависшей сделки — заведомо за порогом."""
+            return self.days_ago(retention.STUCK_AFTER_DAYS + 10)
+
+        def fresh_date(self):
+            """Опорная дата сделки «в работе» — заведомо внутри порога."""
+            return self.days_ago(1)
 
     yield W(renewals_fixture)
 
@@ -86,26 +93,111 @@ def world(renewals_fixture):
             cur.execute('DELETE FROM directions WHERE id = %s', [did])
 
 
+@pytest.fixture
+def enrolled(world, renewals_fixture):
+    """Один преподаватель, одно направление, фабрика «ученик в группе»."""
+    teacher = world.teacher('__ret_teacher__')
+    direction = world.direction('__ret_dir__')
+    group = world.group('__ret_group__', teacher, direction)
+
+    def _student(name):
+        sid = renewals_fixture.student(name)
+        world.enrol(group, sid)
+        return sid
+
+    return _student
+
+
+def _cycle(rows: list[dict], cycle: int) -> dict:
+    return next(r for r in rows if r['cycle'] == cycle)
+
+
 def _row(rows: list[dict], name: str) -> dict:
     return next(r for r in rows if r['name'] == name)
 
 
+# ---------------------------------------------------------------------------
+# Воронка по циклам
+# ---------------------------------------------------------------------------
+
 @pytest.mark.django_db
-def test_deal_counted_for_teacher_of_students_group(world, renewals_fixture):
-    teacher = world.teacher('__ret_teacher__')
-    direction = world.direction('__ret_dir__')
-    group = world.group('__ret_group__', teacher, direction)
-    student = renewals_fixture.student('__ret_student__')
-    world.enrol(group, student)
-    renewals_fixture.deal(student, world.pipeline, world.won, 1, closed_at='2026-07-15')
+def test_funnel_splits_cycle_outcomes(world, renewals_fixture, enrolled):
+    """Четыре исхода на цикле: перешёл дальше, ушёл, завис, в работе."""
+    a, b, c, d = (enrolled(f'__ret_f_{x}__') for x in 'abcd')
+    renewals_fixture.deal(a, world.pipeline, world.won, 3, closed_at='2026-07-15')
+    renewals_fixture.deal(b, world.pipeline, world.lost, 3, closed_at='2026-07-15')
+    renewals_fixture.deal(c, world.pipeline, world.open, 3, due_at=world.stuck_date())
+    renewals_fixture.deal(d, world.pipeline, world.open, 3, due_at=world.fresh_date())
 
-    data = retention.collect()
-    row = _row(data['teachers'], '__ret_teacher__')
+    row = _cycle(retention.collect()['funnel'], 3)
 
-    assert row['students'] == 1
-    assert row['won'] == 1
-    assert row['lost'] == 0
-    assert row['pct'] == 100
+    assert row['reached'] == 4
+    assert row['advanced'] == 1
+    assert row['lost'] == 1
+    assert row['stuck'] == 1
+    assert row['active'] == 1
+
+
+@pytest.mark.django_db
+def test_rate_counts_stuck_as_loss_and_excludes_active(world, renewals_fixture, enrolled):
+    """
+    Знаменатель — только РЕШЁННЫЕ сделки.
+
+    Зависшая идёт в потери (ушедшего обычно просто перестают вести, отметки нет),
+    а «в работе» не считается вовсе — иначе переход занижался бы тем сильнее,
+    чем больше у преподавателя активных учеников.
+
+    Здесь: 2 перешли, 1 завис, 3 в работе → 2/3, а НЕ 2/6 и не 2/2.
+    """
+    students = [enrolled(f'__ret_r_{i}__') for i in range(6)]
+    for sid in students[:2]:
+        renewals_fixture.deal(sid, world.pipeline, world.won, 5, closed_at='2026-07-15')
+    renewals_fixture.deal(students[2], world.pipeline, world.open, 5, due_at=world.stuck_date())
+    for sid in students[3:]:
+        renewals_fixture.deal(sid, world.pipeline, world.open, 5, due_at=world.fresh_date())
+
+    row = _cycle(retention.collect()['funnel'], 5)
+
+    assert row['rate'] == pytest.approx(2 / 3)
+
+
+@pytest.mark.django_db
+def test_rate_is_none_when_nothing_decided(world, renewals_fixture, enrolled):
+    """None, а не 0 %: «ещё никто не дошёл до решения» и «все ушли» —
+    противоположные вещи, а на экране 0 % выглядит одинаково."""
+    student = enrolled('__ret_none__')
+    renewals_fixture.deal(student, world.pipeline, world.open, 7, due_at=world.fresh_date())
+
+    assert _cycle(retention.collect()['funnel'], 7)['rate'] is None
+
+
+@pytest.mark.django_db
+def test_lessons_column_maps_cycle_to_course_position(world, renewals_fixture, enrolled):
+    """Цикл × 4 урока: девятый цикл — это 36 уроков, конец стандартного курса.
+    Без этой колонки провал на 9-м цикле не связать с завершением курса."""
+    student = enrolled('__ret_lessons__')
+    renewals_fixture.deal(student, world.pipeline, world.won, 9, closed_at='2026-07-15')
+
+    assert _cycle(retention.collect()['funnel'], 9)['lessons_to'] == 36
+
+
+# ---------------------------------------------------------------------------
+# Разрезы по преподавателям и направлениям
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_bands_group_cycles_by_meaning(world, renewals_fixture, enrolled):
+    """Цикл 3 → диапазон 1–4, цикл 9 → 5–9 (граница конца курса)."""
+    student = enrolled('__ret_bands__')
+    renewals_fixture.deal(student, world.pipeline, world.won, 3, closed_at='2026-07-15')
+    renewals_fixture.deal(student, world.pipeline, world.lost, 9, closed_at='2026-07-15')
+
+    bands = _row(retention.collect()['teachers'], '__ret_teacher__')['bands']
+
+    assert bands['1–4 (1–16 уроков)']['advanced'] == 1
+    assert bands['5–9 (17–36, до конца курса)']['lost'] == 1
+    assert bands['1–4 (1–16 уроков)']['rate'] == 1.0
+    assert bands['5–9 (17–36, до конца курса)']['rate'] == 0.0
 
 
 @pytest.mark.django_db
@@ -120,10 +212,29 @@ def test_student_of_two_teachers_counts_for_both(world, renewals_fixture):
     world.enrol(world.group('__ret_g2__', t2, direction), student)
     renewals_fixture.deal(student, world.pipeline, world.won, 1, closed_at='2026-07-15')
 
-    data = retention.collect()
+    rows = retention.collect()['teachers']
 
-    assert _row(data['teachers'], '__ret_t1__')['won'] == 1
-    assert _row(data['teachers'], '__ret_t2__')['won'] == 1
+    assert _row(rows, '__ret_t1__')['bands']['1–4 (1–16 уроков)']['advanced'] == 1
+    assert _row(rows, '__ret_t2__')['bands']['1–4 (1–16 уроков)']['advanced'] == 1
+
+
+@pytest.mark.django_db
+def test_directions_grouped_through_groups(world, renewals_fixture):
+    """Направление берётся через группы ученика — тем же путём, что преподаватель,
+    иначе листы разошлись бы между собой."""
+    teacher = world.teacher('__ret_t_dir__')
+    d1 = world.direction('__ret_dir_a__')
+    d2 = world.direction('__ret_dir_b__')
+    student = renewals_fixture.student('__ret_student_dir__')
+    world.enrol(world.group('__ret_g_a__', teacher, d1), student)
+    world.enrol(world.group('__ret_g_b__', teacher, d2), student)
+    renewals_fixture.deal(student, world.pipeline, world.won, 2, closed_at='2026-07-15')
+
+    rows = retention.collect()['directions']
+    band = '1–4 (1–16 уроков)'
+
+    assert _row(rows, '__ret_dir_a__')['bands'][band]['advanced'] == 1
+    assert _row(rows, '__ret_dir_b__')['bands'][band]['advanced'] == 1
 
 
 @pytest.mark.django_db
@@ -140,109 +251,122 @@ def test_former_student_still_counted(world, renewals_fixture):
     row = _row(retention.collect()['teachers'], '__ret_t_former__')
 
     assert row['students'] == 1
-    assert row['lost'] == 1
-    assert row['pct'] == 0
+    assert row['bands']['1–4 (1–16 уроков)']['lost'] == 1
 
 
 @pytest.mark.django_db
-def test_open_deals_not_in_pct_but_stuck_counted(world, renewals_fixture):
-    """Открытая сделка не «не продлилась» — она в работе. Но если висит дольше
-    порога, попадает в «застряло»: именно эта колонка честнее доли."""
-    teacher = world.teacher('__ret_t_stuck__')
-    direction = world.direction('__ret_dir_stuck__')
-    group = world.group('__ret_g_stuck__', teacher, direction)
-    student = renewals_fixture.student('__ret_student_stuck__')
-    world.enrol(group, student)
-    renewals_fixture.deal(student, world.pipeline, world.open, 1,
-                          due_at=world.days_ago(1))
-    renewals_fixture.deal(student, world.pipeline, world.open, 2,
-                          due_at=world.days_ago(retention.STUCK_AFTER_DAYS + 10))
-
-    row = _row(retention.collect()['teachers'], '__ret_t_stuck__')
-
-    assert row['open'] == 2
-    assert row['stuck'] == 1
-    assert row['closed'] == 0
-    assert row['pct'] is None
-
-
-@pytest.mark.django_db
-def test_directions_grouped_through_groups(world, renewals_fixture):
-    """Направление берётся через группы ученика — тем же путём, что преподаватель,
-    иначе листы разошлись бы между собой."""
-    teacher = world.teacher('__ret_t_dir__')
-    d1 = world.direction('__ret_dir_a__')
-    d2 = world.direction('__ret_dir_b__')
-    student = renewals_fixture.student('__ret_student_dir__')
-    world.enrol(world.group('__ret_g_a__', teacher, d1), student)
-    world.enrol(world.group('__ret_g_b__', teacher, d2), student)
-    renewals_fixture.deal(student, world.pipeline, world.won, 1, closed_at='2026-07-15')
-
-    data = retention.collect()
-
-    assert _row(data['directions'], '__ret_dir_a__')['won'] == 1
-    assert _row(data['directions'], '__ret_dir_b__')['won'] == 1
-
-
-@pytest.mark.django_db
-def test_monthly_breakdown_uses_outcome_month(world, renewals_fixture):
-    teacher = world.teacher('__ret_t_month__')
-    direction = world.direction('__ret_dir_month__')
-    group = world.group('__ret_g_month__', teacher, direction)
-    student = renewals_fixture.student('__ret_student_month__')
-    world.enrol(group, student)
-    renewals_fixture.deal(student, world.pipeline, world.won, 1, closed_at='2026-06-10')
-    renewals_fixture.deal(student, world.pipeline, world.lost, 2, closed_at='2026-07-10')
-
-    row = _row(retention.collect()['teachers'], '__ret_t_month__')
-
-    assert row['by_month']['2026-06'] == {'won': 1, 'lost': 0}
-    assert row['by_month']['2026-07'] == {'won': 0, 'lost': 1}
-
-
-@pytest.mark.django_db
-def test_service_teacher_flagged_and_sorted_last(world, renewals_fixture):
-    """Служебная запись «Архив (импорт истории)» несёт ~80 % сделок школы —
-    в общем зачёте она забивает живых, поэтому помечена и уходит вниз."""
+def test_service_teacher_sorted_last(world, renewals_fixture):
+    """Служебная запись несёт ~80 % сделок школы — в общем зачёте она забивает
+    живых, поэтому уходит вниз независимо от объёма."""
     service = world.teacher('__ret_service__', is_service=True)
     live = world.teacher('__ret_live__')
     direction = world.direction('__ret_dir_service__')
-    s1 = renewals_fixture.student('__ret_s_service__')
-    s2 = renewals_fixture.student('__ret_s_live__')
-    world.enrol(world.group('__ret_g_service__', service, direction), s1)
-    world.enrol(world.group('__ret_g_live__', live, direction), s2)
-    # У служебной записи сделок БОЛЬШЕ — иначе тест прошёл бы и при сортировке
-    # просто по объёму, не различая флаг.
-    for cycle in (1, 2, 3):
-        renewals_fixture.deal(s1, world.pipeline, world.won, cycle, closed_at='2026-07-15')
-    renewals_fixture.deal(s2, world.pipeline, world.won, 1, closed_at='2026-07-15')
+    # У служебной записи учеников БОЛЬШЕ — иначе тест прошёл бы и при обычной
+    # сортировке по объёму, не различая флаг.
+    for i in range(3):
+        sid = renewals_fixture.student(f'__ret_s_service_{i}__')
+        world.enrol(world.group(f'__ret_g_service_{i}__', service, direction), sid)
+        renewals_fixture.deal(sid, world.pipeline, world.won, 1, closed_at='2026-07-15')
+    sid = renewals_fixture.student('__ret_s_live__')
+    world.enrol(world.group('__ret_g_live__', live, direction), sid)
+    renewals_fixture.deal(sid, world.pipeline, world.won, 1, closed_at='2026-07-15')
 
-    rows = retention.collect()['teachers']
-    names = [r['name'] for r in rows]
+    names = [r['name'] for r in retention.collect()['teachers']]
 
     assert names.index('__ret_service__') > names.index('__ret_live__')
-    assert _row(rows, '__ret_service__')['is_service'] is True
-    assert _row(rows, '__ret_live__')['is_service'] is False
+
+
+# ---------------------------------------------------------------------------
+# Зависшие сделки — рабочий список
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_stuck_list_puts_live_teachers_before_import_traces(world, renewals_fixture):
+    """
+    Ученики живых преподавателей сверху, следы импорта — вниз.
+
+    У импортных сделок возраст 1300+ дней; сортируй мы только по нему, они заняли
+    бы весь верх и список стал бы нерабочим, хотя разбираться там не с кем.
+    Поэтому свежая живая сделка обязана стоять выше древней служебной.
+    """
+    service = world.teacher('__ret_stuck_service__', is_service=True)
+    live = world.teacher('__ret_stuck_live__')
+    direction = world.direction('__ret_dir_stuck__')
+
+    old = renewals_fixture.student('__ret_stuck_old__')
+    world.enrol(world.group('__ret_g_stuck_service__', service, direction), old)
+    renewals_fixture.deal(old, world.pipeline, world.open, 4, due_at=world.days_ago(1300))
+
+    recent = renewals_fixture.student('__ret_stuck_recent__')
+    world.enrol(world.group('__ret_g_stuck_live__', live, direction), recent)
+    renewals_fixture.deal(recent, world.pipeline, world.open, 4, due_at=world.stuck_date())
+
+    rows = retention.collect()['stuck']
+    names = [r['student_name'] for r in rows]
+
+    assert names.index('__ret_stuck_recent__') < names.index('__ret_stuck_old__')
+    assert _row_by_student(rows, '__ret_stuck_recent__')['service_only'] is False
+    assert _row_by_student(rows, '__ret_stuck_old__')['service_only'] is True
+
+
+def _row_by_student(rows: list[dict], name: str) -> dict:
+    return next(r for r in rows if r['student_name'] == name)
 
 
 @pytest.mark.django_db
-def test_build_produces_workbook_with_five_sheets(world, renewals_fixture):
+def test_fresh_open_deal_is_not_stuck(world, renewals_fixture, enrolled):
+    """Сделка внутри порога — «в работе», в рабочий список не попадает."""
+    student = enrolled('__ret_fresh__')
+    renewals_fixture.deal(student, world.pipeline, world.open, 2, due_at=world.fresh_date())
+
+    assert all(r['student_name'] != '__ret_fresh__' for r in retention.collect()['stuck'])
+
+
+# ---------------------------------------------------------------------------
+# Книга целиком
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_build_produces_workbook_with_charts(world, renewals_fixture, enrolled):
     import io
 
     from openpyxl import load_workbook
 
-    teacher = world.teacher('__ret_t_wb__')
-    direction = world.direction('__ret_dir_wb__')
-    student = renewals_fixture.student('__ret_student_wb__')
-    world.enrol(world.group('__ret_g_wb__', teacher, direction), student)
-    renewals_fixture.deal(student, world.pipeline, world.won, 1, closed_at='2026-07-15')
+    # Два цикла — иначе график строить не по чему (одна точка).
+    student = enrolled('__ret_wb__')
+    renewals_fixture.deal(student, world.pipeline, world.won, 1, closed_at='2026-06-15')
+    renewals_fixture.deal(student, world.pipeline, world.won, 2, closed_at='2026-07-15')
 
     content, rows, filename = retention.build()
 
     assert filename.startswith('retention_') and filename.endswith('.xlsx')
-    assert rows >= 1
+    assert rows >= 2
     wb = load_workbook(io.BytesIO(content))
     assert wb.sheetnames == [
-        'Свод — преподаватели', 'Свод — направления',
-        'Помесячно — преподаватели', 'Помесячно — направления', 'Детализация',
+        'Воронка по циклам', 'Циклы × преподаватели', 'Циклы × направления',
+        'Зависшие сделки', 'Детализация',
     ]
+    # Оба графика на главном листе: кривая дожития и доля перехода — отдельными
+    # диаграммами, а не двумя осями одной (см. докстринг модуля).
+    assert len(wb['Воронка по циклам']._charts) == 2
+
+
+@pytest.mark.django_db
+def test_rate_column_is_a_formula(world, renewals_fixture, enrolled):
+    """Переход считается формулой, а не записанным числом: лист обязан
+    пересчитаться, если данные под ним отфильтруют или поправят."""
+    import io
+
+    from openpyxl import load_workbook
+
+    student = enrolled('__ret_formula__')
+    renewals_fixture.deal(student, world.pipeline, world.won, 1, closed_at='2026-07-15')
+
+    content, _rows, _name = retention.build()
+    ws = load_workbook(io.BytesIO(content))['Воронка по циклам']
+
+    formulas = [
+        cell.value for row in ws.iter_rows(min_col=8, max_col=8)
+        for cell in row if isinstance(cell.value, str) and cell.value.startswith('=')
+    ]
+    assert formulas and all('IFERROR' in f for f in formulas)
