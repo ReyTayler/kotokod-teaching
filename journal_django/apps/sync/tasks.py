@@ -10,7 +10,7 @@ from __future__ import annotations
 from celery import shared_task
 
 from apps.sync.backfills import (
-    groups, lessons, payments, payroll, rebuild_absence_resolutions,
+    check_plan_health, groups, lessons, payments, payroll, rebuild_absence_resolutions,
     rebuild_counters, rebuild_payroll, rebuild_planned_lessons, rebuild_renewal_dates,
     rebuild_renewals, run_all, students, teachers,
 )
@@ -79,3 +79,8 @@ def rebuild_renewal_dates_task(dry_run: bool = False) -> dict:
 @shared_task(name='apps.sync.tasks.run_all_task', time_limit=600)
 def run_all_task(dry_run: bool = False) -> dict:
     return run_all.run(dry_run=dry_run)
+
+
+@shared_task(name='apps.sync.tasks.check_plan_health_task', time_limit=120)
+def check_plan_health_task(dry_run: bool = False) -> dict:
+    return check_plan_health.run(dry_run=dry_run)

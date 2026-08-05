@@ -27,6 +27,7 @@ ACTIONS = {
     'rebuild-renewals': tasks.rebuild_renewals_task,
     'rebuild-renewal-dates': tasks.rebuild_renewal_dates_task,
     'run-all': tasks.run_all_task,
+    'check-plan-health': tasks.check_plan_health_task,
 }
 
 
