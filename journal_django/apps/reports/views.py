@@ -28,6 +28,7 @@ from apps.reports.serializers import (
     AccountingReportParamsSerializer,
     AttendanceReportParamsSerializer,
     RenewalsReportParamsSerializer,
+    RetentionReportParamsSerializer,
     RevenueForecastParamsSerializer,
 )
 from apps.reports.tasks import generate_report_task
@@ -42,6 +43,7 @@ _PARAM_SERIALIZERS = {
     ReportType.ACCOUNTING_MONTH: AccountingReportParamsSerializer,
     ReportType.ATTENDANCE_MONTH: AttendanceReportParamsSerializer,
     ReportType.REVENUE_FORECAST: RevenueForecastParamsSerializer,
+    ReportType.RETENTION: RetentionReportParamsSerializer,
 }
 
 

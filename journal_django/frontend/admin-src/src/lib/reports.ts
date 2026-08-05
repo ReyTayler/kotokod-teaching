@@ -19,6 +19,7 @@ export const RENEWALS_MONTH = 'renewals_month';
 export const ACCOUNTING_MONTH = 'accounting_month';
 export const ATTENDANCE_MONTH = 'attendance_month';
 export const REVENUE_FORECAST = 'revenue_forecast';
+export const RETENTION = 'retention';
 
 // Месяцы для селекта.
 export const MONTHS_RU = [
@@ -44,6 +45,13 @@ export interface ReportTypeDef {
   toggles?: ReportToggleDef[];
   /** Подпись к селектору месяца, если «за месяц» неточно (у прогноза это старт раскладки). */
   monthLabel?: string;
+  /**
+   * Отчёт строится по всей истории — селекторы месяца и года не показываются.
+   * Не «период по умолчанию», а осознанное отсутствие периода: у отчёта по
+   * переходимости интерес в тренде, и урезать историю окном значило бы
+   * спрятать месяцы, когда уходы ещё не отмечали.
+   */
+  noPeriod?: boolean;
   buildParams: (
     year: number,
     month: number,
@@ -88,5 +96,13 @@ export const REPORT_TYPES: ReportTypeDef[] = [
       month: ym(year, month),
       full_history: Boolean(toggles.full_history),
     }),
+  },
+  {
+    reportType: RETENTION,
+    title: 'Отчёт по переходимости',
+    desc: 'Как дети переходят из цикла в цикл — по преподавателям и по направлениям, '
+      + 'сводно и помесячно, плюс детализация по каждой сделке. Вся история, без выбора периода.',
+    noPeriod: true,
+    buildParams: () => ({}),
   },
 ];

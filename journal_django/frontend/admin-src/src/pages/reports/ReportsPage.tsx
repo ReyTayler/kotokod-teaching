@@ -51,19 +51,26 @@ function ReportCard({ def }: { def: ReportTypeDef }) {
         </span>
       </div>
       <div className="report-card__controls">
-        {def.monthLabel && <span className="report-card__control-label">{def.monthLabel}</span>}
-        <SelectInput
-          value={month}
-          onChange={(e) => { setMonth(Number(e.target.value)); setDownloaded(false); }}
-          options={MONTHS_RU.map((label, i) => ({ value: i + 1, label }))}
-          disabled={isBusy}
-        />
-        <SelectInput
-          value={year}
-          onChange={(e) => { setYear(Number(e.target.value)); setDownloaded(false); }}
-          options={YEARS.map((y) => ({ value: y, label: String(y) }))}
-          disabled={isBusy}
-        />
+        {/* Отчёт по всей истории периода не имеет — селекторы прячем целиком,
+            а не показываем неактивными: неактивный контрол читается как «пока
+            нельзя выбрать», хотя выбирать тут нечего в принципе. */}
+        {!def.noPeriod && (
+          <>
+            {def.monthLabel && <span className="report-card__control-label">{def.monthLabel}</span>}
+            <SelectInput
+              value={month}
+              onChange={(e) => { setMonth(Number(e.target.value)); setDownloaded(false); }}
+              options={MONTHS_RU.map((label, i) => ({ value: i + 1, label }))}
+              disabled={isBusy}
+            />
+            <SelectInput
+              value={year}
+              onChange={(e) => { setYear(Number(e.target.value)); setDownloaded(false); }}
+              options={YEARS.map((y) => ({ value: y, label: String(y) }))}
+              disabled={isBusy}
+            />
+          </>
+        )}
         {def.toggles?.map((t) => (
           <Checkbox
             key={t.key}
@@ -78,7 +85,7 @@ function ReportCard({ def }: { def: ReportTypeDef }) {
             disabled={isBusy}
           />
         ))}
-        <button type="button" className="btn-add" disabled={isBusy || isFuture} onClick={start}>
+        <button type="button" className="btn-add" disabled={isBusy || (!def.noPeriod && isFuture)} onClick={start}>
           {isBusy ? 'Формируется…' : 'Сформировать'}
         </button>
       </div>

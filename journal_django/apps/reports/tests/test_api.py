@@ -149,3 +149,31 @@ def test_new_reports_respect_rbac(teacher_client, anon_client):
                                format='json').status_code == 403
     assert anon_client.post(FORECAST_RUN, {'month': '2026-05'},
                             format='json').status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# «Отчёт по переходимости» — без параметров, по всей истории
+# ---------------------------------------------------------------------------
+
+RETENTION_RUN = f'{BASE}/retention/run'
+
+
+def test_retention_runs_without_params(manager_client):
+    """Период не передаётся: отчёт общий. Пустое тело обязано приниматься."""
+    resp = manager_client.post(RETENTION_RUN, {}, format='json')
+
+    assert resp.status_code == 202
+    assert resp.json()['task_id']
+
+
+def test_retention_downloads_xlsx(manager_client):
+    from openpyxl import load_workbook
+
+    task_id = manager_client.post(RETENTION_RUN, {}, format='json').json()['task_id']
+    resp = manager_client.get(f'{BASE}/download/{task_id}')
+
+    assert resp.status_code == 200
+    wb = load_workbook(io.BytesIO(b''.join(resp.streaming_content)
+                                 if resp.streaming else resp.content))
+    assert 'Свод — преподаватели' in wb.sheetnames
+    assert 'Свод — направления' in wb.sheetnames
