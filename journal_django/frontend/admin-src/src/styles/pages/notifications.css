@@ -75,6 +75,40 @@
   word-break: break-word;
 }
 
+/* ── Общешкольный выключатель рассылки ───────────────────────────────────────
+   Виден на обеих вкладках раздела — это состояние всей отправки, а не одной
+   из них. Плашка предупреждения при выключении сделана заметной намеренно:
+   это состояние, в котором систему легко забыть, а цена ошибки — молчание
+   для сотни преподавателей. */
+.notif-toggle {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.notif-toggle__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.notif-toggle__meta {
+  font-size: var(--fs-xs);
+  color: var(--text3);
+}
+
+.notif-toggle__banner {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in oklab, var(--warning) 40%, transparent);
+  background: color-mix(in oklab, var(--warning) 10%, var(--bg2));
+  border-radius: var(--r-lg);
+  box-shadow: inset 3px 0 0 var(--warning);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
 /* ── Вкладка «Расписание» ──────────────────────────────────────────────────── */
 
 .schedule-panel {

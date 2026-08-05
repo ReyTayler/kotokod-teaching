@@ -12,7 +12,9 @@ from apps.core.permissions import (
 )
 from apps.notifications import repository
 from apps.notifications.constants import KIND_FILL_DIGEST, KIND_MORNING_DIGEST
-from apps.notifications.models import TelegramRecipient, TelegramUser
+from apps.notifications.models import (
+    NotificationSettings, TelegramRecipient, TelegramUser,
+)
 from apps.notifications.serializers import NotificationMessageSerializer
 from apps.teachers.models import Teacher
 
@@ -119,3 +121,38 @@ class NotificationScheduleView(APIView):
             ],
             'counts': repository.counts_by_status(),
         })
+
+
+class NotificationToggleView(APIView):
+    """
+    GET/POST /api/admin/notifications/toggle — общешкольный выключатель рассылки.
+
+    Выключено = сообщения не создаются вовсе (ни точечные, ни дайджесты) и уже
+    стоящие в очереди не отправляются. При включении ничего не хлынет пачкой.
+    """
+
+    permission_classes = [IsAdminOrSuperAdmin]
+
+    def get(self, request: Request) -> Response:
+        return Response(self._state())
+
+    def post(self, request: Request) -> Response:
+        value = request.data.get('is_enabled')
+        if not isinstance(value, bool):
+            raise ValidationError('is_enabled должен быть true или false.')
+
+        row = NotificationSettings.load()
+        row.is_enabled = value
+        user = request.user if request.user.is_authenticated else None
+        row.updated_by = (user.full_name or user.email) if user else None
+        row.save(update_fields=['is_enabled', 'updated_by', 'updated_at'])
+        return Response(self._state())
+
+    @staticmethod
+    def _state() -> dict:
+        row = NotificationSettings.load()
+        return {
+            'is_enabled': row.is_enabled,
+            'updated_at': row.updated_at,
+            'updated_by': row.updated_by,
+        }

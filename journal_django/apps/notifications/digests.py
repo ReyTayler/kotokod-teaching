@@ -99,6 +99,10 @@ def send_morning_digest(day: datetime.date | None = None, *,
     """
     day = day or msk_now().date()
 
+    if not services.notifications_enabled():
+        logger.info('Рассылка выключена — дайджест не отправляется.')
+        return 0
+
     queued = 0
     for payload in morning_payloads(day, only_teacher_id=only_teacher_id):
         created = services.enqueue(
@@ -160,6 +164,10 @@ def send_fill_digest(day: datetime.date | None = None, *,
     сюда больше не годится и не используется.
     """
     day = day or msk_now().date()
+
+    if not services.notifications_enabled():
+        logger.info('Рассылка выключена — дайджест не отправляется.')
+        return 0
 
     queued = 0
     for payload in fill_payloads(day, only_teacher_id=only_teacher_id):

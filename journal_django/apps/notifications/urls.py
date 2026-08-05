@@ -6,9 +6,12 @@
 """
 from django.urls import path
 
-from apps.notifications.views import NotificationListView, NotificationScheduleView
+from apps.notifications.views import (
+    NotificationListView, NotificationScheduleView, NotificationToggleView,
+)
 
 urlpatterns = [
     path('', NotificationListView.as_view(), name='notifications-list'),
     path('/schedule', NotificationScheduleView.as_view(), name='notifications-schedule'),
+    path('/toggle', NotificationToggleView.as_view(), name='notifications-toggle'),
 ]

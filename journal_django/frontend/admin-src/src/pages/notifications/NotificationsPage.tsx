@@ -15,6 +15,7 @@ import {
   NOTIFICATION_STATUS_OPTIONS,
 } from '../../lib/labels';
 import { NotificationDetailModal, NotificationStatusBadge } from './NotificationDetailModal';
+import { NotificationToggleBar } from './NotificationToggleBar';
 import { SchedulePanel } from './SchedulePanel';
 
 const TABS = ['log', 'schedule'] as const;
@@ -162,6 +163,7 @@ export default function NotificationsPage() {
         title="Уведомления и напоминания"
         sub="Что бот отправил преподавателям и когда в последний раз отрабатывали регулярные задачи."
       />
+      <NotificationToggleBar />
       <Tabs
         items={tabs}
         value={activeTab}

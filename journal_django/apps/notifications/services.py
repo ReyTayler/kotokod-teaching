@@ -18,10 +18,23 @@ from django.db import transaction
 
 from apps.notifications import messages
 from apps.notifications.constants import CHANNEL_DM, CHANNEL_GROUP
-from apps.notifications.models import NotificationMessage, TelegramRecipient
+from apps.notifications.models import (
+    NotificationMessage, NotificationSettings, TelegramRecipient,
+)
 from apps.teachers.models import Teacher
 
 logger = logging.getLogger(__name__)
+
+
+def notifications_enabled() -> bool:
+    """
+    Включена ли рассылка (общешкольный выключатель из раздела «Уведомления»).
+
+    Проверяется НЕ в enqueue, а в трёх точках выше по стеку: notify_teacher,
+    обе рассылки дайджестов и диспетчер. Иначе дайджест на сотню
+    преподавателей сделал бы сотню лишних запросов к базе вместо одного.
+    """
+    return NotificationSettings.load().is_enabled
 
 
 def enqueue(*, kind: str, channel: str, chat_id: int, text: str, dedup_key: str,
@@ -91,6 +104,11 @@ def notify_teacher(*, kind: str, teacher_id: int, text: str, dedup_prefix: str,
     Нет привязки → личка не создаётся, но общий чат сообщение получает: молчать
     нельзя, иначе изменение (например, назначенный доп.урок) потеряется.
     """
+    # Выключатель: пока рассылка выключена, сообщения не создаются вовсе —
+    # чтобы при включении не хлынула пачка устаревших.
+    if not notifications_enabled():
+        return
+
     card = _recipient_card(teacher_id)
     if card['chat_id'] is not None:
         enqueue(kind=kind, channel=CHANNEL_DM, chat_id=card['chat_id'], text=text,

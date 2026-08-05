@@ -73,6 +73,35 @@ export function useNotificationSchedule() {
   });
 }
 
+// ─── Общешкольный выключатель рассылки ────────────────────────────────────────
+// apps/notifications/views.py NotificationToggleView. Выключено = сообщения не
+// создаются вовсе (ни точечные, ни дайджесты), уже стоящие в очереди не
+// отправляются; при включении обратно накопившееся задним числом не досылается.
+
+export type NotificationToggle = {
+  is_enabled: boolean;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export function useNotificationToggle() {
+  return useQuery({
+    queryKey: ['notifications', 'toggle'],
+    queryFn: () => api<NotificationToggle>('GET', '/api/admin/notifications/toggle'),
+  });
+}
+
+export function useSetNotificationToggle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (isEnabled: boolean) =>
+      api<NotificationToggle>('POST', '/api/admin/notifications/toggle', { is_enabled: isEnabled }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['notifications', 'toggle'] });
+    },
+  });
+}
+
 // ─── Telegram-аккаунты и привязка к преподавателю ─────────────────────────────
 
 export type TelegramAccount = {

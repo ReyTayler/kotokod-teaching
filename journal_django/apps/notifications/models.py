@@ -137,3 +137,41 @@ class NotificationMessage(models.Model):
                 condition=models.Q(status__in=STATUS_CHOICES),
             ),
         ]
+
+
+@pghistory.track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.DeleteEvent(),
+)
+class NotificationSettings(models.Model):
+    """
+    Общешкольный выключатель рассылки. Ровно одна строка (singleton).
+
+    Выключено = сообщения НЕ создаются вовсе: ни точечные, ни дайджесты. Это
+    сознательный выбор — при включении ничего не хлынет пачкой устаревших
+    сообщений. Обратная сторона: о событиях за время паузы преподаватели не
+    узнают, поэтому кто и когда выключил рассылку, видно в журнале изменений.
+
+    Хранится отдельной таблицей, а не в admin_user_settings: те настройки
+    пер-админские, а этот флаг — общий для всей школы.
+    """
+
+    id = models.AutoField(primary_key=True)
+    is_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Подпись «кто переключил» — простым текстом, без связи с учёткой.
+    # Настоящий аудит и так ведёт журнал изменений (pghistory); жёсткий ключ
+    # сюда только добавил бы хрупкости: учётку могут удалить, и строка настроек
+    # не должна от этого страдать.
+    updated_by = models.TextField(null=True, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = 'notification_settings'
+
+    @classmethod
+    def load(cls) -> 'NotificationSettings':
+        """Единственная строка; создаётся при первом обращении, рассылка включена."""
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj

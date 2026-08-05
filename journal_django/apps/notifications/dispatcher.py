@@ -21,7 +21,9 @@ from apps.notifications import telegram
 from apps.notifications.constants import (
     MAX_ATTEMPTS, STATUS_FAILED, STATUS_QUEUED, STATUS_SENT, TERMINAL_STATUSES,
 )
-from apps.notifications.models import NotificationMessage, TelegramRecipient
+from apps.notifications.models import (
+    NotificationMessage, NotificationSettings, TelegramRecipient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,12 @@ def dispatch() -> int:
     один вызов dispatch(), вместо того чтобы отправлять по одной попытке на
     прогон и растягивать ретраи по времени.
     """
+    # Выключатель гасит и уже стоящее в очереди: щёлкнув тумблер, человек
+    # ожидает тишины немедленно, а не «кроме того, что успело накопиться».
+    # Сообщения не теряются — остаются в очереди до включения.
+    if not NotificationSettings.load().is_enabled:
+        return 0
+
     sent = 0
     excluded_ids: set[int] = set()
     for _ in range(BATCH_SIZE):

@@ -37,6 +37,9 @@ TRACKED: dict[str, TrackedModel] = {
     # Привязка «преподаватель ↔ Telegram-аккаунт» — не доменные данные, а канал
     # связи. Откат смысла не имеет: восстановление удалённой строки не вернёт
     # согласие человека получать сообщения, поэтому revertable=False.
+    # Общешкольный выключатель рассылки: откат бессмысленен (это не данные,
+    # а состояние сервиса), но кто и когда выключил — знать нужно.
+    'notifications.NotificationSettings': TrackedModel('notification_settings', False, 15),
     'notifications.TelegramRecipient': TrackedModel('telegram_recipient', False, 15),
     'groups.Group':                   TrackedModel('group', True, 20),
     'groups.GroupScheduleSlot':       TrackedModel('schedule_slot', True, 30),
