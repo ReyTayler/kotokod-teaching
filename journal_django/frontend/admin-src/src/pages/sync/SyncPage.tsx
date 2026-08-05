@@ -7,12 +7,16 @@ export default function SyncPage() {
   const runAll = SYNC_ACTIONS.filter((a) => a.group === 'run-all');
   const sheets = SYNC_ACTIONS.filter((a) => a.group === 'sheets');
   const rebuild = SYNC_ACTIONS.filter((a) => a.group === 'rebuild');
+  const checks = SYNC_ACTIONS.filter((a) => a.group === 'checks');
 
   return (
     <section className="page sync-page">
       <PageHeader title="Синхро" />
 
       {runAll.map((def) => <SyncActionCard key={def.action} def={def} />)}
+
+      <div className="sync-page__group-title">Проверки (только чтение)</div>
+      {checks.map((def) => <SyncActionCard key={def.action} def={def} />)}
 
       <div className="sync-page__group-title">Из Google Sheets</div>
       {sheets.map((def) => <SyncActionCard key={def.action} def={def} />)}

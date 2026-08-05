@@ -16,13 +16,20 @@ export function SyncActionCard({ def }: { def: SyncActionDef }) {
     <div className="sync-card">
       <div className="sync-card__row">
         <span className="sync-card__label">{def.label}</span>
-        <Checkbox
-          label="только предпросмотр"
-          checked={dryRun}
-          onChange={(e) => setDryRun(e.target.checked)}
+        {!def.readOnly && (
+          <Checkbox
+            label="только предпросмотр"
+            checked={dryRun}
+            onChange={(e) => setDryRun(e.target.checked)}
+            disabled={busy}
+          />
+        )}
+        <button
+          type="button"
+          className="btn-add"
           disabled={busy}
-        />
-        <button type="button" className="btn-add" disabled={busy} onClick={() => run(dryRun)}>
+          onClick={() => run(def.readOnly ? false : dryRun)}
+        >
           Запустить
         </button>
       </div>

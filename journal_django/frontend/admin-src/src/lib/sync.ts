@@ -3,12 +3,15 @@ export type SyncAction =
   | 'teachers' | 'groups' | 'students' | 'lessons' | 'payments' | 'payroll'
   | 'rebuild-payroll' | 'rebuild-counters' | 'rebuild-planned-lessons'
   | 'rebuild-absence-resolutions' | 'rebuild-renewals' | 'rebuild-renewal-dates'
+  | 'check-plan-health'
   | 'run-all';
 
 export interface SyncActionDef {
   action: SyncAction;
   label: string;
-  group: 'run-all' | 'sheets' | 'rebuild';
+  group: 'run-all' | 'sheets' | 'rebuild' | 'checks';
+  /** Действие только читает: чекбокс «только предпросмотр» не показываем. */
+  readOnly?: boolean;
 }
 
 export const SYNC_ACTIONS: SyncActionDef[] = [
@@ -40,6 +43,12 @@ export const SYNC_ACTIONS: SyncActionDef[] = [
     action: 'rebuild-renewal-dates',
     label: 'Продления — восстановить реальные даты стадий открытых сделок (недеструктивно: стадии, ответственных, комментарии НЕ трогает)',
     group: 'rebuild',
+  },
+  {
+    action: 'check-plan-health',
+    label: 'Планы групп — проверка (ничего не меняет: покажет, где план разъехался с занятиями)',
+    group: 'checks',
+    readOnly: true,
   },
 ];
 

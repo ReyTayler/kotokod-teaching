@@ -7,44 +7,61 @@ import { BlockLoading } from '../../components/ui/Skeleton';
 
 const WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
-/** ISO 'YYYY-MM-DD' → 'Вс 05.07' (день недели + дд.мм) или '—'. */
+/**
+ * ISO 'YYYY-MM-DD' → 'Вс 05.07.2026' (день недели + дд.мм.гггг) или '—'.
+ *
+ * Не lib/format.fmtDate: там нет дня недели, а в таблице расписания он нужен —
+ * по нему видно, что занятие стоит в свой слот. Год обязателен: план курса
+ * тянется через новогодний рубеж, и без него январь не отличить от января
+ * следующего года.
+ */
 function fmtDayDate(iso: string | null): string {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-').map(Number);
   const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return `${WD[wd]} ${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}`;
+  return `${WD[wd]} ${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
 }
 
-/** Подписи статусов в терминах «урока» (Проведён/Запланирован), а не заполнения. */
+/**
+ * Подписи статусов. `overdue` — «Не заполнен»: занятие по расписанию уже прошло,
+ * а отчёта по нему нет. Это то же состояние, что «не отмечен» в «Потоке дня»
+ * и «Надо заполнить» в кабинете преподавателя — говорим о заполнении отчёта,
+ * а не о том, состоялся ли урок: этого журнал не знает.
+ */
 const STATUS_LABEL: Record<OccStatus, string> = {
   done: 'Проведён',
   pending: 'Запланирован',
-  overdue: 'Не проведён',
+  overdue: 'Не заполнен',
   cancelled: 'Отменён',
   moved: 'Перенесён',
 };
 
 /**
- * Таблица ВСЕХ плановых уроков группы (вкладка «Обзор»): номер урока, плановая
- * дата, фактическая дата проведения, время, статус, ссылка на запись. Источник —
- * GET /api/admin/groups/<id>/plan (весь план разом). Плановая дата (scheduled_date)
- * и фактическая (fact_date из связанного факта) хранятся раздельно.
+ * Таблица ВСЕХ плановых уроков группы (вкладка «Обзор»): номер урока, дата,
+ * время, статус, ссылка на запись. Источник — GET /api/admin/groups/<id>/plan
+ * (весь план разом).
+ *
+ * ОДНА колонка даты. У проведённого занятия плановая дата равна фактической —
+ * это инвариант, который держит scheduling.repository.sync_position_date
+ * (спека 2026-08-05 §2), поэтому две колонки только путали.
+ *
+ * Показываем fact_date, если он есть, иначе scheduled_date. Порядок именно
+ * такой из-за легаси: в базе ещё остались строки, привязанные к факту до
+ * введения инварианта, где даты разошлись. Для них фактическая — единственная
+ * правда, а плановая соврала бы. Найти такие строки можно проверкой
+ * «Планы групп» в разделе «Синхро» (ключ date_mismatch).
  */
 export default function GroupPlanTable({ groupId }: { groupId: number }) {
   const { data: rows = [], isLoading } = useGroupPlan(groupId);
 
   const columns: Column<PlanRow>[] = useMemo(() => [
     {
-      key: 'lesson_number', label: '№', width: 64, sortable: false,
-      cell: (r) => (r.is_extra ? 'доп.' : (r.lesson_number ?? '—')),
+      key: 'lesson_number', label: 'Урок', width: 110, sortable: false,
+      cell: (r) => (r.is_extra ? 'доп.' : (r.lesson_number != null ? `Урок №${r.lesson_number}` : '—')),
     },
     {
-      key: 'scheduled_date', label: 'Плановая дата', sortable: false,
-      cell: (r) => fmtDayDate(r.scheduled_date),
-    },
-    {
-      key: 'fact_date', label: 'Факт. дата', sortable: false,
-      cell: (r) => fmtDayDate(r.fact_date),
+      key: 'scheduled_date', label: 'Дата', sortable: false,
+      cell: (r) => fmtDayDate(r.fact_date ?? r.scheduled_date),
     },
     {
       key: 'scheduled_time', label: 'Время', width: 90, sortable: false,
