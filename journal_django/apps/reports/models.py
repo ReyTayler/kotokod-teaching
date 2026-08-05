@@ -16,4 +16,4 @@ class ReportType(models.TextChoices):
     ACCOUNTING_MONTH = 'accounting_month', 'Бухгалтерский отчёт (за месяц)'
     ATTENDANCE_MONTH = 'attendance_month', 'Отчёт по посещаемости (за месяц)'
     REVENUE_FORECAST = 'revenue_forecast', 'Прогноз отработки денег по месяцам'
-    RETENTION = 'retention', 'Отчёт по переходимости (вся история)'
+    RETENTION = 'retention', 'Отчёт по переходимости (за месяц)'

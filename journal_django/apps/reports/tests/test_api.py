@@ -158,23 +158,26 @@ def test_new_reports_respect_rbac(teacher_client, anon_client):
 RETENTION_RUN = f'{BASE}/retention/run'
 
 
-def test_retention_runs_without_params(manager_client):
-    """Период не передаётся: отчёт общий. Пустое тело обязано приниматься."""
-    resp = manager_client.post(RETENTION_RUN, {}, format='json')
+def test_retention_runs_for_month(manager_client):
+    resp = manager_client.post(RETENTION_RUN, {'month': '2026-06'}, format='json')
 
     assert resp.status_code == 202
     assert resp.json()['task_id']
 
 
+def test_retention_rejects_future_month(manager_client):
+    assert manager_client.post(
+        RETENTION_RUN, {'month': '2099-01'}, format='json').status_code == 400
+
+
 def test_retention_downloads_xlsx(manager_client):
     from openpyxl import load_workbook
 
-    task_id = manager_client.post(RETENTION_RUN, {}, format='json').json()['task_id']
+    task_id = manager_client.post(
+        RETENTION_RUN, {'month': '2026-06'}, format='json').json()['task_id']
     resp = manager_client.get(f'{BASE}/download/{task_id}')
 
     assert resp.status_code == 200
     assert 'spreadsheetml' in resp['Content-Type']
     wb = load_workbook(io.BytesIO(resp.getvalue()))
-    assert wb.sheetnames[0] == 'Воронка по циклам'
-    assert 'Циклы × преподаватели' in wb.sheetnames
-    assert 'Зависшие сделки' in wb.sheetnames
+    assert wb.sheetnames == ['Направления', 'Преподаватели']

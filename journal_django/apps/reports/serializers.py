@@ -55,12 +55,5 @@ class RevenueForecastParamsSerializer(_MonthStringSerializer):
     full_history = serializers.BooleanField(required=False, default=False)
 
 
-class RetentionReportParamsSerializer(serializers.Serializer):
-    """
-    Параметров нет: «Отчёт по переходимости» строится по всей истории.
-
-    Период не выбирается сознательно — интерес в тренде, а тренд обязан
-    включать месяцы, когда уходы ещё не отмечали. Сериализатор существует
-    только чтобы вьюха отвергла посторонние поля единым путём со всеми
-    остальными отчётами.
-    """
+class RetentionReportParamsSerializer(_MonthStringSerializer):
+    """Параметры «Отчёта по переходимости»: месяц строкой YYYY-MM."""
