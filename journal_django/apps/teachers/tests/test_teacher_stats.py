@@ -482,7 +482,7 @@ def test_stats_uses_fixed_number_of_queries(django_assert_num_queries, stats_tea
     """
     Число запросов постоянно и НЕ зависит от числа групп и уроков.
 
-    Само значение (13 без зарплаты, +1 с ней) не догма — агрегатов может
+    Само значение (11 без зарплаты, +1 с ней) не догма — агрегатов может
     стать больше. Догма — постоянство: тест ниже гоняет ту же выборку на
     3 и на 6 группах и требует одинакового числа запросов. Именно это ловит
     N+1 (дозапрос направления/слотов на каждую группу), а не конкретная цифра.
@@ -497,11 +497,11 @@ def test_stats_uses_fixed_number_of_queries(django_assert_num_queries, stats_tea
         make_lesson(group, '2026-07-06')
         make_lesson(group, '2026-07-13')
 
-    with django_assert_num_queries(13):
+    with django_assert_num_queries(11):
         services.get_teacher_stats(stats_teacher, '2026-07')
 
     # Зарплата — ровно один дополнительный запрос.
-    with django_assert_num_queries(14):
+    with django_assert_num_queries(12):
         services.get_teacher_stats(stats_teacher, '2026-07', with_payroll=True)
 
 
@@ -518,7 +518,7 @@ def test_stats_query_count_does_not_grow_with_groups(django_assert_num_queries,
         make_lesson(group, '2026-07-06')
         make_lesson(group, '2026-07-13')
 
-    with django_assert_num_queries(13):
+    with django_assert_num_queries(11):
         services.get_teacher_stats(stats_teacher, '2026-07')
 
 
@@ -649,194 +649,3 @@ def test_payroll_for_month_sums_payment_and_penalty(
     finally:
         with connection.cursor() as cur:
             cur.execute('DELETE FROM payroll WHERE teacher_id = %s', [stats_teacher])
-
-
-# ---------------------------------------------------------------------------
-# renewals
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def make_deal():
-    """
-    Сделка продления на ученика, со своей воронкой.
-
-    Воронку и стадии заводим здесь, а не берём из справочника: боевые стадии
-    создаёт data-миграция, а тесты `teachers` работают с `journal_test`, где
-    `django_db_setup` — no-op и данные миграций отсутствуют (см. раскол
-    django_db_setup в CLAUDE.md). Для `renewals()` важен только `kind`
-    стадии — won/lost/остальное, — а не её ключ, поэтому минимальной воронки
-    достаточно и она ничего не подменяет по смыслу.
-
-    Ключи взяты боевые (`renewed`/`churned`/`awaiting_renewal`/`lesson_1`),
-    чтобы тест читался как реальный сценарий.
-    """
-    from django.db import connection
-
-    stage_kinds = {
-        'renewed': 'won',
-        'churned': 'lost',
-        'awaiting_renewal': 'decision',
-        'lesson_1': 'progress',
-    }
-    created_deals: list[int] = []
-    pipeline_id = None
-    stage_ids: dict[str, int] = {}
-
-    with connection.cursor() as cur:
-        cur.execute(
-            "INSERT INTO renewal_pipeline (name, is_default, created_at) "
-            "VALUES ('__stats_pipeline__', false, NOW()) RETURNING id"
-        )
-        pipeline_id = cur.fetchone()[0]
-        for order, (key, kind) in enumerate(stage_kinds.items(), start=1):
-            cur.execute(
-                'INSERT INTO renewal_stage (pipeline_id, key, label, sort_order, kind, is_auto) '
-                'VALUES (%s, %s, %s, %s, %s, false) RETURNING id',
-                [pipeline_id, key, key, order, kind],
-            )
-            stage_ids[key] = cur.fetchone()[0]
-
-    def _make(student_id: int, stage_key: str, cycle_no: int = 1):
-        with connection.cursor() as cur:
-            # outcome_at NOT NULL ⇒ сделка закрыта (см. RenewalDeal). Терминальные
-            # стадии закрываем, остальные оставляем открытыми.
-            outcome_at = '2026-07-01' if stage_kinds[stage_key] in ('won', 'lost') else None
-            cur.execute(
-                'INSERT INTO renewal_deal (student_id, cycle_no, pipeline_id, stage_id, '
-                'stage_entered_at, outcome_at, created_at, updated_at) '
-                'VALUES (%s, %s, %s, %s, NOW(), %s, NOW(), NOW()) RETURNING id',
-                [student_id, cycle_no, pipeline_id, stage_ids[stage_key], outcome_at],
-            )
-            deal_id = cur.fetchone()[0]
-        created_deals.append(deal_id)
-        return deal_id
-
-    yield _make
-    with connection.cursor() as cur:
-        # renewal_activity → renewal_deal FK объявлен DEFERRABLE INITIALLY
-        # DEFERRED, из-за чего ON DELETE CASCADE откладывается и валит FK на
-        # teardown — чистим activity явно (тот же приём, что в
-        # apps/renewals/tests/conftest.py).
-        for deal_id in created_deals:
-            cur.execute('DELETE FROM renewal_activity WHERE deal_id = %s', [deal_id])
-            cur.execute('DELETE FROM renewal_deal WHERE id = %s', [deal_id])
-        cur.execute('DELETE FROM renewal_stage WHERE pipeline_id = %s', [pipeline_id])
-        cur.execute('DELETE FROM renewal_pipeline WHERE id = %s', [pipeline_id])
-
-
-def _enrol(group_id: int, student_id: int, *, active: bool = True) -> None:
-    from django.db import connection
-    with connection.cursor() as cur:
-        cur.execute(
-            'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
-            'VALUES (%s, %s, 0, %s)',
-            [group_id, student_id, active],
-        )
-
-
-@pytest.mark.django_db
-def test_renewals_counts_won_and_lost(stats_teacher, make_group, make_student, make_deal):
-    group = make_group('__stats_g_ren__')
-    a, b, c = (make_student(f'__ren_{x}__') for x in 'abc')
-    for sid in (a, b, c):
-        _enrol(group, sid)
-    make_deal(a, 'renewed')
-    make_deal(b, 'renewed')
-    make_deal(c, 'churned')
-
-    result = stats.renewals(stats_teacher)
-
-    assert result['students'] == 3
-    assert result['won'] == 2
-    assert result['lost'] == 1
-    assert result['pct'] == 67
-
-
-@pytest.mark.django_db
-def test_renewals_open_deals_not_in_denominator(stats_teacher, make_group,
-                                                make_student, make_deal):
-    """Ученик, по которому решение ещё не принято, не «не продлился» — он в
-    работе. Иначе доля падала бы просто оттого, что цикл идёт."""
-    group = make_group('__stats_g_ren_open__')
-    a, b = make_student('__ren_open_a__'), make_student('__ren_open_b__')
-    _enrol(group, a)
-    _enrol(group, b)
-    make_deal(a, 'renewed')
-    make_deal(b, 'awaiting_renewal')
-
-    result = stats.renewals(stats_teacher)
-
-    assert result['won'] == 1
-    assert result['lost'] == 0
-    assert result['open'] == 1
-    assert result['pct'] == 100
-
-
-@pytest.mark.django_db
-def test_renewals_includes_former_students(stats_teacher, make_group,
-                                           make_student, make_deal):
-    """Членство неактивно — ученик всё равно считается: ушедший ученик часть
-    истории продлений, иначе показываем только выживших."""
-    group = make_group('__stats_g_ren_former__')
-    former = make_student('__ren_former__')
-    _enrol(group, former, active=False)
-    make_deal(former, 'churned')
-
-    result = stats.renewals(stats_teacher)
-
-    assert result['students'] == 1
-    assert result['lost'] == 1
-    assert result['pct'] == 0
-
-
-@pytest.mark.django_db
-def test_renewals_pct_is_none_without_closed_deals(stats_teacher, make_group,
-                                                   make_student, make_deal):
-    """None, а не 0: «сделок ещё нет» и «все ушли» — противоположные вещи."""
-    group = make_group('__stats_g_ren_none__')
-    student = make_student('__ren_none__')
-    _enrol(group, student)
-    make_deal(student, 'lesson_1')
-
-    result = stats.renewals(stats_teacher)
-
-    assert result['pct'] is None
-    assert result['open'] == 1
-
-
-@pytest.mark.django_db
-def test_renewals_ignores_other_teachers_students(stats_teacher, stats_direction,
-                                                  make_group, make_student, make_deal):
-    """Ученик чужой группы в статистику не попадает."""
-    from django.db import connection
-
-    mine = make_group('__stats_g_ren_mine__')
-    my_student = make_student('__ren_mine__')
-    _enrol(mine, my_student)
-    make_deal(my_student, 'renewed')
-
-    with connection.cursor() as cur:
-        cur.execute("INSERT INTO teachers (name) VALUES ('__ren_other_teacher__') RETURNING id")
-        other_teacher = cur.fetchone()[0]
-        cur.execute(
-            'INSERT INTO groups (name, direction_id, teacher_id, is_individual, '
-            'lesson_duration_minutes, active, lesson_number_offset) '
-            "VALUES ('__ren_other_group__', %s, %s, false, 90, true, 0) RETURNING id",
-            [stats_direction, other_teacher],
-        )
-        other_group = cur.fetchone()[0]
-
-    other_student = make_student('__ren_theirs__')
-    _enrol(other_group, other_student)
-    make_deal(other_student, 'churned')
-
-    try:
-        result = stats.renewals(stats_teacher)
-        assert result['students'] == 1
-        assert result['won'] == 1
-        assert result['lost'] == 0
-    finally:
-        with connection.cursor() as cur:
-            cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [other_group])
-            cur.execute('DELETE FROM groups WHERE id = %s', [other_group])
-            cur.execute('DELETE FROM teachers WHERE id = %s', [other_teacher])

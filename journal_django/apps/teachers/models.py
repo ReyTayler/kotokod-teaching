@@ -29,6 +29,15 @@ class Teacher(models.Model):
     email = models.TextField(null=True, blank=True)
     phone = models.TextField(null=True, blank=True)
     active = models.BooleanField(default=True)
+    # Служебная запись, а не живой человек. Такая одна — «Архив (импорт
+    # истории)»: на неё повешены архивные группы вида «Python — архив», куда
+    # свалили доSheets-историю. На ней висит ~80 % всех продлений школы, поэтому
+    # в сравнениях преподавателей между собой она забивает всех живых.
+    #
+    # Отдельный флаг, а не active=false: запись должна остаться в списках и
+    # ссылках (её группы и уроки настоящие), скрывать её нельзя — она лишь не
+    # участвует в итогах отчётов как «преподаватель».
+    is_service = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField()
 
     class Meta:

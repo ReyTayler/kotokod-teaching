@@ -165,4 +165,3 @@ def test_new_metrics_present_in_response(admin_client, stats_teacher):
     assert set(body['absences']) == {
         'registered', 'makeup_done', 'makeup_scheduled', 'burned', 'pending_now',
     }
-    assert set(body['renewals']) == {'students', 'won', 'lost', 'open', 'pct'}

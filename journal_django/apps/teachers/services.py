@@ -67,9 +67,6 @@ def get_teacher_stats(teacher_id: int, month: str, *, with_payroll: bool = False
         # требующие действия, и они не обнуляются от переключения периода.
         'unfilled': stats.unfilled(teacher_id),
         'absences': stats.absences(teacher_id, month),
-        # Продления — за ВСЁ время: закрытых сделок у одного преподавателя
-        # единицы в месяц, помесячная доля скакала бы от 0 до 100 на одной.
-        'renewals': stats.renewals(teacher_id),
     }
     if with_payroll:
         result['payroll'] = stats.payroll_for_month(teacher_id, month)
