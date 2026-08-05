@@ -7,9 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.pagination import StandardPagination
-from apps.core.permissions import (
-    IsAdminOrSuperAdmin, IsManagerOrAdmin, ReadStaffWriteAdmin,
-)
+from apps.core.permissions import IsAdminOrSuperAdmin, ReadStaffWriteAdmin
 from apps.notifications import repository
 from apps.notifications.constants import KIND_FILL_DIGEST, KIND_MORNING_DIGEST
 from apps.notifications.models import (
@@ -20,9 +18,18 @@ from apps.teachers.models import Teacher
 
 
 class TelegramUsersView(APIView):
-    """GET /api/admin/telegram-users — аккаунты, известные боту (для выбора при привязке)."""
+    """
+    GET /api/admin/telegram-users — аккаунты, известные боту (для выбора при привязке).
 
-    permission_classes = [IsManagerOrAdmin]
+    Права те же, что у самой привязки (`TeacherTelegramView` — admin/superadmin),
+    а не `IsManagerOrAdmin`: список существует ТОЛЬКО чтобы выбрать аккаунт при
+    привязке, а привязывать менеджер не может. Пока стояло IsManagerOrAdmin,
+    менеджер, открывая любую карточку преподавателя, выкачивал имена, ники и
+    chat_id всех, кто когда-либо писал боту, вместе с тем, к кому они привязаны —
+    выпадашки он не видел, но данные получал.
+    """
+
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def get(self, request: Request) -> Response:
         rows = list(

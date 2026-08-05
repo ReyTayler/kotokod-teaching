@@ -48,7 +48,10 @@ function TelegramStatus({ telegram }: { telegram: Teacher['telegram'] }) {
 export function TeacherTelegramBlock({ teacher }: { teacher: Teacher }) {
   const { me } = useAuth();
   const canWrite = canWriteTeacherTelegram(me?.role as Role);
-  const { data, isLoading } = useTelegramAccounts();
+  // Список аккаунтов тянем только тому, кто может привязывать: эндпоинт
+  // закрыт для менеджера, и без этого условия его карточка преподавателя
+  // ловила бы 403 на каждом открытии.
+  const { data, isLoading } = useTelegramAccounts(canWrite);
   const muts = useTeacherTelegramMutations(teacher.id);
   const { toast } = useToast();
   const showError = useApiError();

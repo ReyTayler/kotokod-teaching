@@ -112,10 +112,19 @@ export type TelegramAccount = {
   bound_to: string | null;
 };
 
-export function useTelegramAccounts() {
+/**
+ * Аккаунты, известные боту — для выбора при привязке.
+ *
+ * `enabled` обязателен к передаче осознанно: эндпоинт закрыт для менеджера
+ * (admin/superadmin, как и сама привязка), и запрос из-под менеджера вернёт
+ * 403. Раньше хук вызывался безусловно, и менеджер, открывая карточку
+ * преподавателя, тянул список впустую — выпадашку он всё равно не видит.
+ */
+export function useTelegramAccounts(enabled = true) {
   return useQuery({
     queryKey: ['telegram-users'],
     queryFn: () => api<{ rows: TelegramAccount[]; total: number }>('GET', '/api/admin/telegram-users'),
+    enabled,
   });
 }
 

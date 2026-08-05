@@ -18,8 +18,22 @@ def tg_user(db):
 
 
 @pytest.mark.django_db
-def test_manager_can_list_known_telegram_accounts(manager_client, tg_user):
-    response = manager_client.get('/api/admin/telegram-users')
+def test_manager_cannot_list_known_telegram_accounts(manager_client, tg_user):
+    """
+    Список аккаунтов бота закрыт от менеджера.
+
+    Он существует только чтобы выбрать аккаунт при привязке, а привязывать
+    менеджер не может (`test_manager_cannot_bind` ниже). Пока список был
+    открыт, менеджер, открывая любую карточку преподавателя, выкачивал имена,
+    ники и chat_id всех, кто писал боту, и то, к кому они привязаны —
+    выпадашки в интерфейсе не видел, но данные получал.
+    """
+    assert manager_client.get('/api/admin/telegram-users').status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_can_list_known_telegram_accounts(admin_client, tg_user):
+    response = admin_client.get('/api/admin/telegram-users')
     assert response.status_code == 200
     assert any(row['chat_id'] == 777 for row in response.data['rows'])
 
