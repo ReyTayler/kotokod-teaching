@@ -186,11 +186,12 @@ class TestRepositoryWrite:
         seq2 = PlannedLesson.objects.get(group_id=gid, seq=2)
         assert seq2.status == DONE
 
-    def test_link_facts_by_lesson_number_keeps_planned_date(self, backfill_setup):
+    def test_link_facts_by_lesson_number_moves_planned_date(self, backfill_setup):
         """Регресс синхронизации: факт прошёл на СДВИНУТОЙ дате (не по recurrence).
         Линкуем по lesson_number → status=done, факт привязан. Плановая дата
-        (scheduled_date) НЕ перезаписывается — фактическая берётся из fact_lesson,
-        так во «Обзоре» видны обе даты.
+        (scheduled_date) ПЕРЕЗАПИСЫВАЕТСЯ датой факта — инвариант спеки
+        2026-08-05 §2 (см. test_sync_position_date.py): проведённая позиция
+        обязана стоять в календаре на дне, когда занятие реально прошло.
         """
         gid = backfill_setup['group_a']
         rows = [replace(r, teacher_id=backfill_setup['teacher_a']) for r in self._rows()]
@@ -203,12 +204,12 @@ class TestRepositoryWrite:
         seq1 = PlannedLesson.objects.get(group_id=gid, seq=1)
         assert seq1.status == DONE
         assert seq1.fact_lesson_id is not None
-        assert seq1.scheduled_date == datetime.date(2026, 6, 1)  # плановая дата сохранена
+        assert seq1.scheduled_date == datetime.date(2026, 6, 3)  # переехала на факт
 
-        # get_plan отдаёт фактическую дату отдельно (из связанного факта).
+        # get_plan отдаёт совпавшие плановую и фактическую даты.
         row = next(r for r in repository.get_plan(gid) if r['seq'] == 1)
-        assert row['scheduled_date'] == '2026-06-01'   # плановая
-        assert row['fact_date'] == '2026-06-03'        # фактическая
+        assert row['scheduled_date'] == '2026-06-03'
+        assert row['fact_date'] == '2026-06-03'
 
     def test_link_facts_date_fallback_without_lesson_number(self, backfill_setup):
         """Факт без совпадения по номеру, но с совпадающей датой — линкуется

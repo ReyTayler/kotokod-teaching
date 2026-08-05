@@ -28,7 +28,7 @@ from apps.memberships.repository import locked_through_map
 from apps.payroll.calculator import calculate_payment, calculate_penalty
 from apps.scheduling.repository import (
     attach_fact, find_course_position_by_date_and_number, link_facts,
-    lock_course_position, relink_fact,
+    lock_course_position, relink_fact, sync_position_date,
 )
 
 # Подтипы уроков, которыми владеет apps.extra_lessons (факты доп.урока/сгорания).
@@ -347,11 +347,19 @@ def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
         return None
     # Правка номера/типа могла увести факт с его позиции курса — пересчитываем
     # привязку (link_facts существующие привязки не переносит, см. relink_fact).
-    # Дата на привязку не влияет: плановая и фактическая законно расходятся.
+    # На саму привязку (relink_fact) дата по-прежнему не влияет: матчинг там
+    # идёт только по lesson_number, потому что цель — найти позицию своего
+    # порядкового номера, а не позицию с подходящей датой.
     if fields.get('lesson_number') is not None or fields.get('lesson_type') is not None:
         relink_fact(lesson_id)
         # Позиция, освободившаяся после переезда, могла ждать другой свободный факт.
         link_facts(updated['group_id'])
+    # Плановая дата проведённого занятия следует за фактической (инвариант спеки
+    # 2026-08-05 §2). Прежде дата НЕ синхронизировалась, и правка дат уроков
+    # оставляла плановые строки на старых датах: занятие висело в календаре не в
+    # свой день, а «перенос навсегда» клал хвост курса поверх него (ПИ337).
+    if fields.get('lesson_date') is not None:
+        sync_position_date(lesson_id)
     # Ключ отправки выведен из даты и позиции — при их правке он обязан
     # пересчитаться, иначе появляются два скрытых дефекта:
     #   • правка даты: старая дата остаётся заблокированной навсегда, а на новую

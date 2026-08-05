@@ -14,7 +14,9 @@ from apps.core.utils.dates import MSK, msk_now
 from apps.extra_lessons import repository as extra_lessons_repository
 from apps.extra_lessons.models import MAKEUP_DONE as EXTRA_DONE
 from apps.scheduling import repository
-from apps.scheduling.occurrences import CANCELLED, DONE, OVERDUE, PENDING
+from apps.scheduling.occurrences import (
+    CANCELLED, DONE, OVERDUE, PENDING, planned_status,
+)
 
 _LABELS = {
     DONE: 'Заполнено',
@@ -38,25 +40,10 @@ def _report_day(d: datetime.date) -> int:
 
 
 def _planned_status(r: dict, now_msk: datetime.datetime) -> str:
-    """
-    Статус планового занятия НА ЧТЕНИИ из строки planned_lessons.
-
-      done      — status=='done' или есть fact_lesson (связь план→факт);
-      cancelled — как хранится (маркер отмены);
-      иначе     — overdue, если datetime(дата, время, МСК) уже наступил, иначе pending.
-
-    (Бэкфилл оставил прошлые незаполненные строки как pending → overdue считаем здесь,
-    на чтении, по времени занятия в МСК. Перенос показывается через moved_from_date —
-    отдельного статуса 'moved' нет.)
-    """
-    if r['status'] == DONE or r['fact_lesson_id'] is not None:
-        return DONE
-    if r['status'] == CANCELLED:
-        return CANCELLED
-    occ_dt = datetime.datetime.combine(
-        r['scheduled_date'], r['scheduled_time'] or datetime.time(0, 0), tzinfo=MSK,
-    )
-    return OVERDUE if now_msk >= occ_dt else PENDING
+    """Историческое имя, которым пользуется build_calendar. Логика — в
+    occurrences.planned_status: она общая для календаря и для плана группы
+    (repository.get_plan), поэтому живёт в чистом модуле, а не здесь."""
+    return planned_status(r, now_msk)
 
 
 def _planned_label(status: str) -> str:

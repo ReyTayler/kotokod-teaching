@@ -177,7 +177,12 @@ class TestGetPlan:
         assert first['scheduled_time'] == '10:00'
         assert first['lesson_number'] == 1
         assert first['is_extra'] is False
-        assert first['status'] == 'pending'
+        # Статус ВЫЧИСЛЯЕТСЯ на чтении (occurrences.planned_status), а не берётся
+        # сырым из БД: в базе строка лежит как pending, но занятие 01.06.2026 давно
+        # прошло и не заполнено — значит overdue. Раньше /plan отдавал сырое
+        # значение и расходился с /api/calendar, из-за чего «Обзор» писал
+        # «Запланирован» на просроченном занятии.
+        assert first['status'] == 'overdue'
         assert first['teacher_id'] == plan_group['teacher_a']
 
         # GET plan возвращает тот же список.

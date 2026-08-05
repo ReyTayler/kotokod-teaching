@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
+from apps.core.utils.dates import MSK
+
 # Статусы плановых занятий (хранятся в planned_lessons; читаются в services).
 PENDING = 'pending'      # факта нет, время ещё не наступило
 OVERDUE = 'overdue'      # факта нет, время прошло (надо заполнить)
@@ -53,6 +55,34 @@ class Occurrence:
     time: Optional[datetime.time]
     seq: int                                  # порядковый номер в курсе
     lesson_number: Optional[Decimal]          # seq*step
+
+
+def planned_status(row: dict, now_msk: datetime.datetime) -> str:
+    """
+    Статус планового занятия НА ЧТЕНИИ из строки `planned_lessons`.
+
+      done      — status=='done' или есть fact_lesson (связь план→факт);
+      cancelled — как хранится (маркер отмены);
+      иначе     — overdue, если момент занятия по МСК уже наступил, иначе pending.
+
+    В БД хранится только «записан или нет»: прошлые незаполненные строки лежат
+    как pending, а overdue считается здесь, по времени занятия. Перенос
+    показывается через moved_from_date — отдельного статуса 'moved' нет.
+
+    Живёт в этом модуле, а не в services, потому что нужна ОБОИМ читателям плана:
+    календарю (services.build_calendar) и плану группы (repository.get_plan).
+    Репозиторий импортировать services не может — services уже импортирует
+    repository. Разъезд этих двух читателей и давал «Запланирован» в «Обзоре» на
+    занятии, которое давно пора было заполнить.
+    """
+    if row['status'] == DONE or row['fact_lesson_id'] is not None:
+        return DONE
+    if row['status'] == CANCELLED:
+        return CANCELLED
+    occ_dt = datetime.datetime.combine(
+        row['scheduled_date'], row['scheduled_time'] or datetime.time(0, 0), tzinfo=MSK,
+    )
+    return OVERDUE if now_msk >= occ_dt else PENDING
 
 
 def _offset_from_monday(dow_sun0: int) -> int:

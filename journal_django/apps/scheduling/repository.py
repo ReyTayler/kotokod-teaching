@@ -26,6 +26,7 @@ from apps.scheduling.exceptions import PlanHasRecordedLessons
 from apps.scheduling.models import PlannedLesson
 from apps.scheduling.occurrences import (
     CANCELLED, DONE, MOVED, OVERDUE, PENDING, Slot, _step_for, _walk,
+    planned_status,
 )
 from apps.scheduling.planner import Fact, PlannedRow
 
@@ -435,9 +436,9 @@ def persist_plan(group_id: int, rows: list[PlannedRow], *, create_only: bool = F
 def link_facts(group_id: int) -> int:
     """
     Слинковать плановые строки группы с проведёнными уроками (факт) и проставить
-    status='done'. Плановая дата (scheduled_date) НЕ перезаписывается — она хранит
-    дату планового проведения; фактическая дата берётся из fact_lesson.lesson_date
-    (см. get_plan → fact_date). Так во «Обзоре» видны обе даты: плановая и факт.
+    status='done'. Плановая дата позиции ставится равной дате факта — инвариант
+    спеки 2026-08-05 §2 (прежде дата НЕ перезаписывалась, из-за чего проведённые
+    занятия оставались в календаре не в свой день; так сломались ПИ337/ПИ314/РИ283).
 
     Порядок матчинга (по надёжности):
       1. по `lesson_number` — позиция урока в курсе, записанная при проведении:
@@ -494,7 +495,7 @@ def link_facts(group_id: int) -> int:
                     return f
             return None
 
-        # Проход 1: по lesson_number (плановую дату НЕ трогаем — факт-дата в fact_lesson).
+        # Проход 1: по lesson_number.
         for p in rows:
             if p.lesson_number is None:
                 continue
@@ -504,6 +505,8 @@ def link_facts(group_id: int) -> int:
             used_fact_ids.add(chosen['id'])
             p.fact_lesson_id = chosen['id']
             p.status = DONE
+            p.scheduled_date = chosen['lesson_date']
+            p.moved_from_date = None
             p.updated_at = now
             to_update.append(p)
 
@@ -519,12 +522,16 @@ def link_facts(group_id: int) -> int:
             used_fact_ids.add(chosen['id'])
             p.fact_lesson_id = chosen['id']
             p.status = DONE
+            p.scheduled_date = chosen['lesson_date']
+            p.moved_from_date = None
             p.updated_at = now
             to_update.append(p)
 
         if to_update:
             PlannedLesson.objects.bulk_update(
-                to_update, ['fact_lesson', 'status', 'updated_at'],
+                to_update,
+                ['fact_lesson', 'status', 'scheduled_date', 'moved_from_date',
+                 'updated_at'],
             )
 
     return len(to_update)
@@ -539,9 +546,11 @@ def relink_fact(lesson_id: int) -> bool:
     (PATCH /api/admin/lessons/:id) факт мог остаться на чужой позиции, и позиция с
     его номером висела «не проведена» при проведённом занятии (случай ВДГ18).
 
-    Матчинг ТОЛЬКО по lesson_number: плановая дата и фактическая законно расходятся
-    (разовый перенос — link_facts специально не перезаписывает scheduled_date), так
-    что дата признаком «своей» позиции быть не может.
+    Матчинг ТОЛЬКО по lesson_number: цель — найти позицию своего порядкового номера
+    в курсе, а не позицию с подходящей датой (факт мог быть записан на дату,
+    отличную от любой плановой — например задним числом). После переноса привязки
+    целевая позиция встаёт на дату факта (sync_position_date-инвариант, спека §2) —
+    это уже не «законное расхождение», как раньше, а обязательная синхронизация.
 
     Консервативно — ничего не ломаем:
       • не-курсовые факты (extra/burned) игнорируем (позиций они не занимают);
@@ -554,7 +563,7 @@ def relink_fact(lesson_id: int) -> bool:
     """
     lesson = (
         Lesson.objects.filter(id=lesson_id)
-        .values('id', 'group_id', 'lesson_number', 'lesson_type')
+        .values('id', 'group_id', 'lesson_number', 'lesson_type', 'lesson_date')
         .first()
     )
     if lesson is None or lesson['lesson_type'] not in COURSE_LESSON_TYPES:
@@ -590,8 +599,13 @@ def relink_fact(lesson_id: int) -> bool:
 
         target.fact_lesson_id = lesson_id
         target.status = DONE
+        target.scheduled_date = lesson['lesson_date']
+        target.moved_from_date = None
         target.updated_at = now
-        target.save(update_fields=['fact_lesson', 'status', 'updated_at'])
+        target.save(update_fields=[
+            'fact_lesson', 'status', 'scheduled_date', 'moved_from_date',
+            'updated_at',
+        ])
         return True
 
 
@@ -732,16 +746,76 @@ def lock_course_position(planned_lesson_id: int, group_id: int) -> dict | None:
 
 def attach_fact(planned_lesson_id: int, lesson_id: int) -> None:
     """
-    Закрепить факт за позицией курса: fact_lesson_id + status='done'.
+    Закрепить факт за позицией курса: fact_lesson_id + status='done' + плановая
+    дата позиции = дата урока (инвариант спеки 2026-08-05 §2).
 
     Вызывается из record_lesson внутри той же транзакции, СРАЗУ после вставки
     урока и только по позиции, уже залоченной lock_course_position. Заменяет для
     этого факта «угадывающий» link_facts: позиция названа явно, номер урока взят
     из неё, поэтому сопоставлять по номеру нечего.
+
+    Дата урока читается отдельным запросом: record_lesson её знает, но передавать
+    через сигнатуру — лишняя связность, а запрос по первичному ключу тривиален.
     """
-    PlannedLesson.objects.filter(id=planned_lesson_id).update(
-        fact_lesson_id=lesson_id, status=DONE, updated_at=msk_now(),
+    fields = {
+        'fact_lesson_id': lesson_id,
+        'status': DONE,
+        'updated_at': msk_now(),
+    }
+    lesson_date = (
+        Lesson.objects.filter(id=lesson_id)
+        .values_list('lesson_date', flat=True)
+        .first()
     )
+    if lesson_date is not None:
+        # moved_from_date гасим по той же причине, что в sync_position_date:
+        # метка описывала плановое движение, дата приходит от факта.
+        fields['scheduled_date'] = lesson_date
+        fields['moved_from_date'] = None
+
+    PlannedLesson.objects.filter(id=planned_lesson_id).update(**fields)
+
+
+def sync_position_date(lesson_id: int) -> bool:
+    """
+    Привести плановую дату курсовой позиции к дате её факта.
+
+    Инвариант (спека 2026-08-05 §2): позиция, за которой закреплён проведённый
+    урок, стоит на дате этого урока. Иначе «проведённое» занятие висит в
+    календаре не в свой день, а операции планирования (permanent_change,
+    cancel) кладут хвост поверх него — так сломались ПИ337, ПИ314, РИ283.
+
+    Разовый перенос (moved_from_date) гасится: он описывал плановое движение
+    занятия, а новая дата приходит от факта и к тому переносу отношения не
+    имеет. Время позиции не трогаем — у факта времени нет.
+
+    Не-курсовые занятия (доп.урок, сгорание) позиций не занимают → no-op.
+    Идемпотентна: даты уже совпадают → ничего не пишет, возвращает False.
+    True — позиция сдвинута.
+    """
+    lesson = (
+        Lesson.objects.filter(id=lesson_id)
+        .values('lesson_date', 'lesson_type')
+        .first()
+    )
+    if lesson is None or lesson['lesson_type'] not in COURSE_LESSON_TYPES:
+        return False
+
+    with transaction.atomic():
+        position = (
+            PlannedLesson.objects.select_for_update()
+            .filter(fact_lesson_id=lesson_id, seq__isnull=False)
+            .first()
+        )
+        if position is None or position.scheduled_date == lesson['lesson_date']:
+            return False
+        position.scheduled_date = lesson['lesson_date']
+        position.moved_from_date = None
+        position.updated_at = msk_now()
+        position.save(update_fields=[
+            'scheduled_date', 'moved_from_date', 'updated_at',
+        ])
+        return True
 
 
 def unlink_fact(lesson_id: int) -> None:
@@ -779,10 +853,15 @@ def _hhmm(t: datetime.time | None) -> str | None:
     return t.strftime('%H:%M') if t else None
 
 
-def _plan_row_dict(r: dict, tnames: dict[int, str]) -> dict:
+def _plan_row_dict(r: dict, tnames: dict[int, str], now_msk: datetime.datetime) -> dict:
     """Сериализуемая плановая строка из .values()-словаря. is_extra = seq IS NULL.
     teacher_id/teacher_name — ЭФФЕКТИВНЫЙ преподаватель (замена на дату, если есть,
-    иначе преподаватель контента) — чтобы admin-план показывал того, кто реально ведёт."""
+    иначе преподаватель контента) — чтобы admin-план показывал того, кто реально ведёт.
+
+    Статус — ВЫЧИСЛЕННЫЙ (occurrences.planned_status), а не сырой из БД: в базе
+    прошлое незаполненное занятие лежит как pending, и отдача сырого значения
+    расходилась с /api/calendar — «Обзор» писал «Запланирован», а календарь
+    группы не подсвечивал ячейку оранжевым."""
     ln = r['lesson_number']
     effective_teacher_id = r.get('substitute_teacher_id') or r['teacher_id']
     return {
@@ -793,7 +872,7 @@ def _plan_row_dict(r: dict, tnames: dict[int, str]) -> dict:
         'scheduled_time': _hhmm(r['scheduled_time']),
         'teacher_id': effective_teacher_id,
         'teacher_name': tnames.get(effective_teacher_id),
-        'status': r['status'],
+        'status': planned_status(r, now_msk),
         'fact_lesson_id': r['fact_lesson_id'],
         # Фактическая дата проведения (из связанного факта) — отдельно от плановой
         # scheduled_date; None если урок ещё не проведён.
@@ -804,7 +883,9 @@ def _plan_row_dict(r: dict, tnames: dict[int, str]) -> dict:
     }
 
 
-def _plan_row_dict_obj(p: PlannedLesson, tnames: dict[int, str]) -> dict:
+def _plan_row_dict_obj(
+    p: PlannedLesson, tnames: dict[int, str], now_msk: datetime.datetime,
+) -> dict:
     """Сериализуемая плановая строка из ORM-объекта (после save/create)."""
     return _plan_row_dict({
         'id': p.id,
@@ -817,7 +898,7 @@ def _plan_row_dict_obj(p: PlannedLesson, tnames: dict[int, str]) -> dict:
         'status': p.status,
         'fact_lesson_id': p.fact_lesson_id,
         'moved_from_date': p.moved_from_date,
-    }, tnames)
+    }, tnames, now_msk)
 
 
 def _row_from_model(p: PlannedLesson) -> PlannedRow:
@@ -867,7 +948,8 @@ def get_plan(group_id: int) -> list[dict] | None:
         )
     )
     tnames = teacher_names()
-    return [_plan_row_dict(r, tnames) for r in rows]
+    now = msk_now()   # один момент на всю выдачу — иначе строки судят по разным «сейчас»
+    return [_plan_row_dict(r, tnames, now) for r in rows]
 
 
 def get_plan_lesson(group_id: int, lesson_id: int) -> dict | None:
@@ -956,7 +1038,7 @@ def reschedule_lesson(
             'substitute_teacher', 'updated_at',
         ])
 
-    return _plan_row_dict_obj(p, teacher_names())
+    return _plan_row_dict_obj(p, teacher_names(), msk_now())
 
 
 def change_teacher(
@@ -984,7 +1066,7 @@ def change_teacher(
         p.updated_at = now
         p.save(update_fields=['substitute_teacher', 'updated_at'])
 
-    return _plan_row_dict_obj(p, teacher_names())
+    return _plan_row_dict_obj(p, teacher_names(), msk_now())
 
 
 def change_teacher_permanent(
