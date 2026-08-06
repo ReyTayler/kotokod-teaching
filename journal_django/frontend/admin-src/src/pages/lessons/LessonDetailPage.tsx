@@ -127,24 +127,28 @@ export default function LessonDetailPage() {
           {!lesson.payroll ? (
             <div className="memberships__empty">Зарплата для этого урока не создана</div>
           ) : (
-            <>
-              <div className="memberships__row">
-                <div>Всего</div>
-                <input type="number" defaultValue={lesson.payroll.total_students}
+            <div className="payroll-edit">
+              <div className="field">
+                <label htmlFor="payroll-total-students">Всего учеников</label>
+                <input id="payroll-total-students" type="number" defaultValue={lesson.payroll.total_students}
                   onBlur={(e) => { void updatePayrollField('total_students', Number(e.target.value)); }} />
-                <div>Было</div>
-                <input type="number" defaultValue={lesson.payroll.present_count}
+              </div>
+              <div className="field">
+                <label htmlFor="payroll-present-count">Было на уроке</label>
+                <input id="payroll-present-count" type="number" defaultValue={lesson.payroll.present_count}
                   onBlur={(e) => { void updatePayrollField('present_count', Number(e.target.value)); }} />
               </div>
-              <div className="memberships__row">
-                <div>Оплата ₽</div>
-                <input type="number" step={0.01} defaultValue={String(lesson.payroll.payment)}
+              <div className="field">
+                <label htmlFor="payroll-payment">Оплата, ₽</label>
+                <input id="payroll-payment" type="number" step={0.01} defaultValue={String(lesson.payroll.payment)}
                   onBlur={(e) => { void updatePayrollField('payment', Number(e.target.value)); }} />
-                <div>Штраф ₽</div>
-                <input type="number" step={0.01} defaultValue={String(lesson.payroll.penalty)}
+              </div>
+              <div className="field">
+                <label htmlFor="payroll-penalty">Штраф, ₽</label>
+                <input id="payroll-penalty" type="number" step={0.01} defaultValue={String(lesson.payroll.penalty)}
                   onBlur={(e) => { void updatePayrollField('penalty', Number(e.target.value)); }} />
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
