@@ -20,9 +20,24 @@ def _d(day: datetime.date) -> str:
     return day.strftime('%d.%m')
 
 
+def _place(item: dict) -> str:
+    """
+    «Группа (направление)» — с направлением, только если оно известно.
+
+    У доп.урока направления нет: fill_service отдаёт direction_name=None (так же
+    рисует прочерк и вкладка «Заполнить»). Подставлять None в escape() нельзя —
+    падало всё формирование дайджеста, а значит рассылка по ВСЕЙ школе
+    (прод, 06.08.2026: одна незаполненная отработка — и вечернего письма не
+    получил никто).
+    """
+    group = escape(item['group'] or '—')
+    direction = item.get('direction')
+    return f'{group} ({escape(direction)})' if direction else group
+
+
 def _lesson_line(item: dict) -> str:
     """Одна строка утреннего списка занятий."""
-    head = f"• {item['time']} — {escape(item['group'])} ({escape(item['direction'])})"
+    head = f"• {item['time']} — {_place(item)}"
     if item.get('is_extra'):
         return f'{head} — доп.урок'
     line = f"{head} — урок №{item['seq']}"
@@ -33,10 +48,7 @@ def _lesson_line(item: dict) -> str:
 
 def _fill_line(item: dict) -> str:
     """Одна строка вечернего списка незаполненных отчётов."""
-    head = (
-        f"• {_d(item['date'])}, {item['time']} — "
-        f"{escape(item['group'])} ({escape(item['direction'])})"
-    )
+    head = f"• {_d(item['date'])}, {item['time']} — {_place(item)}"
     if item.get('seq') is None:
         return f'{head} — доп.урок'
     return f"{head} — урок №{item['seq']}"

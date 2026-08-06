@@ -80,6 +80,29 @@ def test_fill_digest_repeats_next_day(linked):
 
 
 @pytest.mark.django_db
+def test_fill_digest_survives_extra_lesson_without_direction(linked):
+    """Незаполненный доп.урок не должен гасить рассылку.
+
+    fill_service отдаёт у доп.уроков direction_name=None (у отработки нет
+    направления — так же рисует и вкладка «Заполнить»). Дайджест собирает
+    payload'ы всей школы одним списком, поэтому исключение на одной строке
+    оставляло без письма ВСЕХ преподавателей (прод, 06.08.2026).
+    """
+    rows = _unfilled(linked.id) + [{
+        'kind': 'extra', 'id': 104, 'group_id': 7, 'group_name': 'БГ16',
+        'teacher_id': linked.id, 'teacher_name': 'Анна Петрова',
+        'direction_name': None, 'direction_color': None,
+        'lesson_number': None, 'seq': None, 'date': '2026-08-06', 'time': '14:00',
+    }]
+    with patch('apps.notifications.digests.fill_service.unfilled_lessons',
+               return_value=rows):
+        digests.send_fill_digest(day=TODAY)
+
+    text = NotificationMessage.objects.get(kind=KIND_FILL_DIGEST).text
+    assert 'БГ16 — доп.урок' in text
+
+
+@pytest.mark.django_db
 def test_unlinked_teacher_is_skipped(db):
     teacher = Teacher.objects.create(name='Без телеги', created_at='2026-08-01T00:00:00Z')
     with patch('apps.notifications.digests.fill_service.unfilled_lessons',

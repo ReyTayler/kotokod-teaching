@@ -36,6 +36,33 @@ def test_fill_digest_always_has_the_required_footer():
     assert 'Если уроков не было, сообщите менеджеру или администратору.' in text
 
 
+def test_fill_digest_line_without_direction_does_not_break():
+    """У доп.урока направления нет — fill_service отдаёт direction_name=None.
+
+    Раньше строка падала на html.escape(None), и вместе с ней — вся вечерняя
+    рассылка по школе: одна отработка без направления гасила дайджест всем.
+    """
+    text = messages.fill_digest(items=[
+        {'date': datetime.date(2026, 8, 6), 'time': '14:00', 'group': 'БГ16',
+         'direction': None, 'seq': None},
+    ])
+    assert '• 06.08, 14:00 — БГ16 — доп.урок' in text
+    assert 'None' not in text
+
+
+def test_morning_digest_line_without_direction_does_not_break():
+    text = messages.morning_digest(
+        teacher_name='Анна Петрова',
+        day=datetime.date(2026, 8, 6),
+        items=[
+            {'time': '14:00', 'group': 'БГ16', 'direction': None,
+             'seq': None, 'is_substitute': False, 'is_extra': True},
+        ],
+    )
+    assert '• 14:00 — БГ16 — доп.урок' in text
+    assert 'None' not in text
+
+
 def test_makeup_assigned_states_who_what_when():
     text = messages.makeup_assigned(
         teacher_name='Анна Петрова',
