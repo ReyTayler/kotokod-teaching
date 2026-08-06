@@ -129,7 +129,7 @@ def test_forecast_full_history_flag_changes_file_and_columns(manager_client):
     resp = manager_client.get(f'{BASE}/download/{task_id}')
     from openpyxl import load_workbook
     header = [c.value for c in load_workbook(io.BytesIO(resp.getvalue()))['Сводка'][1]]
-    assert 'Признано выручки, ₽' in header
+    assert 'Признано выручки на курсе, ₽' in header
 
 
 def test_forecast_full_history_defaults_to_false(manager_client):
@@ -139,7 +139,7 @@ def test_forecast_full_history_defaults_to_false(manager_client):
     resp = manager_client.get(f'{BASE}/download/{task_id}')
     from openpyxl import load_workbook
     header = [c.value for c in load_workbook(io.BytesIO(resp.getvalue()))['Сводка'][1]]
-    assert 'Признано выручки, ₽' not in header
+    assert 'Признано выручки на курсе, ₽' not in header
 
 
 def test_new_reports_respect_rbac(teacher_client, anon_client):

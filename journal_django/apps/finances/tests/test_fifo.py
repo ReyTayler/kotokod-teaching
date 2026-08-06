@@ -153,6 +153,45 @@ def test_worked_off_by_direction_absent_key_is_ignored():
     assert r['worked_off_by_direction'] == {}
 
 
+def test_month_direction_cuts_diverge_when_lesson_pays_from_other_direction():
+    # Урок направления 1 гасит партию направления 2 (общий пул на ученика):
+    # разрез «по направлению УРОКА» и «по направлению ОПЛАТЫ» расходятся.
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500), 'direction_id': 2}]
+    cons = [
+        {'units': 1, 'date': '2026-06-10', 'direction_id': 1},
+        {'units': 1, 'date': '2026-06-11', 'direction_id': 1},
+        {'units': 1, 'date': '2026-07-05', 'direction_id': 1},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+
+    by_lesson = r['worked_off_by_month_lesson_direction']
+    assert by_lesson[('2026-06', 1)] == {'value': _D('1000.00'), 'lessons': _D(2)}
+    assert by_lesson[('2026-07', 1)] == {'value': _D('500.00'), 'lessons': _D(1)}
+
+    by_lot = r['worked_off_by_month_lot_direction']
+    assert by_lot[('2026-06', 2)] == {'value': _D('1000.00'), 'lessons': _D(2)}
+    assert by_lot[('2026-07', 2)] == {'value': _D('500.00'), 'lessons': _D(1)}
+
+
+def test_worked_off_by_month_lesson_direction_without_direction_key():
+    # Направление урока может отсутствовать — ключ None, как у разреза по оплате.
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    r = compute_fifo(lots, _lessons(2, '2026-06-10'), MS, ME)
+    assert r['worked_off_by_month_lesson_direction'] == {
+        ('2026-06', None): {'value': _D('1000.00'), 'lessons': _D(2)},
+    }
+
+
+def test_refund_does_not_enter_lesson_direction_cut():
+    # Возврат гасит партию, но выручкой не признаётся — ни в одном из разрезов.
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500), 'direction_id': 2}]
+    cons = [{'units': 4, 'date': '2026-06-10', 'direction_id': 1, 'refund': True}]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_month_lesson_direction'] == {}
+    assert r['worked_off_by_month_lot_direction'] == {}
+    assert r['remaining_value'] == _D('0.00')
+
+
 def test_worked_off_unit_prices_month_single_lot():
     lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
     cons = _lessons(2, '2026-06-10')

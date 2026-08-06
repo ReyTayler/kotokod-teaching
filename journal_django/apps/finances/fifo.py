@@ -41,6 +41,11 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
   — тот же хвост, но по партиям и в порядке очереди. Нужен прогнозу выручки
   (apps/finances/revenue_forecast.py): месяц режется по 4 урока и может попасть
   на партии с РАЗНОЙ ценой, поэтому свёрнутой суммы по направлению не хватает.
+  worked_off_by_month_lot_direction / worked_off_by_month_lesson_direction:
+  { (ym, direction_id): {'value': Decimal, 'lessons': Decimal} } — один и тот же
+  факт отработки в двух разрезах: по направлению ОПЛАТЫ (чьи деньги списаны) и по
+  направлению УРОКА (где занимались). Пул оплат общий на ученика, поэтому разрезы
+  расходятся, когда урок направления A гасит партию направления B.
 """
 from __future__ import annotations
 
@@ -76,10 +81,16 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     # выше: тот считает по направлению УРОКА (кто отработал), а этот — по
     # направлению оплаты (чьи деньги), как remaining_lots. Пул общий на ученика,
     # поэтому эти два разреза расходятся, когда урок направления A гасит партию
-    # направления B. Нужен полной истории прогноза (revenue_forecast): строка
-    # «ученик × направление оплаты» обязана сходиться как
-    # оплачено = отработано + остаток по партиям ЭТОГО направления.
+    # направления B. Нужен прогнозу выручки (revenue_forecast) там, где счёт идёт
+    # именно ДЕНЬГАМ направления: сколько денег этой партии уже потрачено в
+    # стартовом месяце — на столько меньше плановый добор этого месяца.
     by_month_lot_direction: dict = {}
+    # Отработано по (месяц, направление УРОКА) — «где реально занимались». Тот же
+    # ключ-месяц, что у разреза выше, но направление берётся из consumption, а не
+    # из партии. Нужен прогнозу выручки: бухгалтерии важно видеть признанную
+    # выручку на том курсе, который её заработал, даже если деньги пришли с
+    # партии другого направления (пул оплат общий на ученика).
+    by_month_lesson_direction: dict = {}
     unit_prices_month: list[Decimal] = []
     unit_qtys_month: list[Decimal] = []  # уроков (units, half-lesson=0.5) на каждую цену
 
@@ -110,6 +121,11 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                 )
                 lot_bucket['value'] += value
                 lot_bucket['lessons'] += take
+                lesson_bucket = by_month_lesson_direction.setdefault(
+                    (ym, direction_id), {'value': _ZERO, 'lessons': _ZERO},
+                )
+                lesson_bucket['value'] += value
+                lesson_bucket['lessons'] += take
                 if in_month:
                     worked_off_month += value
                     price = to_decimal(lots[lot_idx]['price_per_lesson'])
@@ -185,5 +201,14 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         'worked_off_by_month_lot_direction': {
             k: {'value': round_kopecks(v['value']), 'lessons': v['lessons']}
             for k, v in by_month_lot_direction.items()
+        },
+        # { (ym, direction_id УРОКА): {'value': Decimal, 'lessons': Decimal} } —
+        # факт отработки в разрезе направления УРОКА (см. комментарий у
+        # by_month_lesson_direction выше). Формат тот же, что у разреза по оплате:
+        # value округлён до копеек, lessons — нет (half-lesson=0.5). Направление
+        # урока может быть None — тогда и ключ None.
+        'worked_off_by_month_lesson_direction': {
+            k: {'value': round_kopecks(v['value']), 'lessons': v['lessons']}
+            for k, v in by_month_lesson_direction.items()
         },
     }

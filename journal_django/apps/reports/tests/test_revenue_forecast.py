@@ -355,6 +355,58 @@ def test_fully_worked_off_student_appears_only_in_full_history(data):
     assert row.worked_off_value == _D('4000.00')
 
 
+def test_fact_goes_to_lesson_direction_not_payment_direction(data):
+    """Заплатил за один курс, занимался на другом: факт — на листе курса УРОКА."""
+    paid_dir = data.direction('__ld_paid__')
+    lesson_dir = data.direction('__ld_lesson__')
+    g = data.group('__ld_g__', lesson_dir)
+    s = data.student('__ld_s1__')
+    # 2 абонемента = 8 уроков за 8000; 4 из них отработаны на ЧУЖОМ направлении.
+    data.payment(s, paid_dir, subscriptions=2, total='8000.00', paid_at='2026-05-01')
+    for i in range(1, 5):
+        data.attend(s, g, f'2026-05-{10 + i:02d}', i)
+
+    forecast = collect_forecast(MONTH, full_history=True)
+
+    # Лист курса, на котором реально занимались: только факт, аванса тут нет.
+    fact_row = _row(forecast, '__ld_s1__', '__ld_lesson__')
+    assert fact_row.by_month == {'2026-05': _D('4000.00')}
+    assert fact_row.worked_off_value == _D('4000.00')
+    assert fact_row.remaining_value == _D('0')
+
+    # Лист курса, за который платили: остаток аванса, но факта нет.
+    plan_row = _row(forecast, '__ld_s1__', '__ld_paid__')
+    assert plan_row.worked_off_value == _D('0')
+    assert plan_row.by_month == {'2026-07': _D('4000.00')}
+    assert plan_row.remaining_value == _D('4000.00')
+
+
+def test_start_month_top_up_still_uses_payment_direction(data):
+    """Добор стартового месяца считает ДЕНЬГИ, поэтому остаётся на разрезе оплаты."""
+    paid_dir = data.direction('__ld_paid2__')
+    lesson_dir = data.direction('__ld_lesson2__')
+    g = data.group('__ld_g2__', lesson_dir)
+    s = data.student('__ld_s2__')
+    # 2 абонемента = 8 уроков за 8000; 2 урока чужого курса отработаны в СТАРТОВОМ месяце.
+    data.payment(s, paid_dir, subscriptions=2, total='8000.00', paid_at='2026-07-01')
+    data.attend(s, g, '2026-07-05', 1)
+    data.attend(s, g, '2026-07-12', 2)
+
+    forecast = collect_forecast(MONTH, full_history=True)
+
+    # Деньги направления оплаты в июле уже потрачены на 2 урока → план добирает 2,
+    # а не полный абонемент. Иначе июль завысился бы на 2000.
+    plan_row = _row(forecast, '__ld_s2__', '__ld_paid2__')
+    assert plan_row.by_month == {'2026-07': _D('2000.00'), '2026-08': _D('4000.00')}
+    assert plan_row.remaining_value == _D('6000.00')
+    assert plan_row.worked_off_value == _D('0')
+
+    # А сам факт этих 2 уроков показан на курсе, где занимались.
+    fact_row = _row(forecast, '__ld_s2__', '__ld_lesson2__')
+    assert fact_row.by_month == {'2026-07': _D('2000.00')}
+    assert fact_row.worked_off_value == _D('2000.00')
+
+
 def test_month_kind_labels():
     forecast = collect_forecast(MONTH, full_history=True)
 
@@ -380,7 +432,7 @@ def test_render_full_history_marks_fact_and_plan(data):
 
     header = [c.value for c in ws[1]]
     assert header[:5] == ['ФИО ученика', 'Остаток уроков', 'Остаток аванса, ₽',
-                          'Цена урока, ₽', 'Признано выручки, ₽']
+                          'Цена урока, ₽', 'Признано выручки на курсе, ₽']
     assert 'Май 2026 · факт' in header
     assert 'Июль 2026 · факт+план' in header
     assert 'Август 2026 · план' in header
