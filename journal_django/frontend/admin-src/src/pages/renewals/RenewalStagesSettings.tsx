@@ -5,8 +5,9 @@ import { useApiError } from '../../hooks/useApiError';
 import { SelectInput } from '../../components/form/SelectInput';
 import { TextInput } from '../../components/form/TextInput';
 import { ColorInput } from '../../components/form/ColorInput';
+import { Checkbox } from '../../components/form/Checkbox';
 import { ApiError } from '../../lib/api';
-import type { RenewalStage, StageKind } from '../../lib/renewals';
+import { isPauseStage, type RenewalStage, type StageKind } from '../../lib/renewals';
 import { PageHeader } from '../../components/shell/PageHeader';
 
 const KIND_OPTIONS: { value: StageKind; label: string }[] = [
@@ -37,14 +38,18 @@ export default function RenewalStagesSettings() {
   const [label, setLabel] = useState('');
   const [kind, setKind] = useState<StageKind>('decision');
   const [color, setColor] = useState('#6366F1');
+  const [allowMidCycle, setAllowMidCycle] = useState(false);
 
   const handleCreate = () => {
     const trimmed = label.trim();
     if (!trimmed) return;
     m.create.mutate(
-      { label: trimmed, kind, color },
+      { label: trimmed, kind, color, allow_mid_cycle: allowMidCycle },
       {
-        onSuccess: () => setLabel(''),
+        onSuccess: () => {
+          setLabel('');
+          setAllowMidCycle(false);
+        },
         onError: (err) => showError(err, 'Не удалось создать стадию'),
       },
     );
@@ -85,6 +90,24 @@ export default function RenewalStagesSettings() {
                 {KIND_OPTIONS.find((k) => k.value === s.kind)?.label ?? s.kind}
               </span>
               {s.is_auto && <span className="renewal-stages-list__auto-badge">авто</span>}
+              {/* Переключатель, а не бейдж: стадию нельзя удалить, как только на
+                  ней побывала сделка (FK RESTRICT), поэтому режим существующей
+                  стадии обязан меняться на месте. Только для ручных «Решений» —
+                  на прочих видах бэк флаг игнорирует. */}
+              {!s.is_auto && s.kind === 'decision' && (
+                <Checkbox
+                  className="renewal-stages-list__pause"
+                  label="пауза"
+                  checked={isPauseStage(s)}
+                  disabled={m.update.isPending}
+                  title="Перевести можно в любой момент цикла; выход — «Вернуть в работу»"
+                  onChange={(e) =>
+                    m.update.mutate(
+                      { id: s.id, body: { allow_mid_cycle: e.target.checked } },
+                      { onError: (err) => showError(err, 'Не удалось изменить стадию') },
+                    )}
+                />
+              )}
               <div className="renewal-stages-list__actions">
                 <button
                   type="button"
@@ -148,6 +171,22 @@ export default function RenewalStagesSettings() {
             Добавить
           </button>
         </div>
+        {/* Осмысленно только для вида «Решение»: на стадиях другого вида бэк флаг
+            игнорирует (transitions._is_pause_target требует kind='decision'). */}
+        {kind === 'decision' && (
+          <>
+            <Checkbox
+              label="Можно перевести посреди цикла (как «Заморожен»)"
+              checked={allowMidCycle}
+              onChange={(e) => setAllowMidCycle(e.target.checked)}
+            />
+            <p className="renewal-stages-form__hint">
+              Такую стадию ставят в любой момент — не дожидаясь, пока ученик отработает
+              абонемент. Сделка остаётся открытой, движок её не двигает, а вернуть её
+              в воронку можно кнопкой «Вернуть в работу» в карточке сделки.
+            </p>
+          </>
+        )}
       </section>
     </div>
   );

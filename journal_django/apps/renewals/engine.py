@@ -18,7 +18,6 @@ from django.utils import timezone
 from apps.core.utils.dates import msk_now
 from apps.renewals import cycle
 from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalPipeline, RenewalStage
-from apps.renewals.transitions import FROZEN_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +177,12 @@ def sync_lesson_stage(student_id: int) -> None:
 
     update_fields: list[str] = []
     if matured and deal.due_at is None:
+        # Цикл созрел — с этого момента живой список направлений может разойтись
+        # с тем, что ученик реально отходил в цикле (перевод/уход гасит членство).
+        # Снимаем здесь, в автоматической точке: членство ещё активно наверняка.
+        from apps.renewals.repository import snapshot_directions
+        if snapshot_directions(deal):
+            update_fields.append('directions_snapshot')
         # Календарная дата по МСК, не UTC — иначе события в окне 00:00–02:59
         # по Москве (21:00–23:59 UTC предыдущих суток) уезжают на день/месяц
         # назад. Тот же класс проблемы, что решает `AT TIME ZONE 'Europe/Moscow'`
@@ -268,27 +273,34 @@ def _open_deal_for_update(student_id: int) -> Optional[RenewalDeal]:
 
 
 @transaction.atomic
-def return_from_freeze(deal_id: int, author_id: Optional[int] = None) -> Optional[RenewalDeal]:
-    """«Вернуть в работу»: сделка со стадии 'frozen' → расчётная авто-стадия.
+def return_to_work(deal_id: int, author_id: Optional[int] = None) -> Optional[RenewalDeal]:
+    """«Вернуть в работу»: сделка со стадии-паузы → расчётная авто-стадия.
 
-    Единственный выход из заморозки (решение пользователя 2026-07-25: автовыхода
-    по факту записанного урока нет — sync_lesson_stage не трогает ручные стадии,
-    см. её докстринг). Валидатор переходов обходим осознанно, как reopen_deal:
-    встать на авто-стадию руками правила воронки не дают (is_allowed запрещает
-    ручной вход на is_auto=True стадию), а это не ручной переход, а пересчёт.
+    Единственный выход со стадии-паузы (решение пользователя 2026-07-25 про
+    заморозку: автовыхода по факту записанного урока нет — sync_lesson_stage не
+    трогает ручные стадии, см. её докстринг). Валидатор переходов обходим
+    осознанно, как reopen_deal: встать на авто-стадию руками правила воронки не
+    дают (is_allowed запрещает ручной вход на is_auto=True стадию), а это не
+    ручной переход, а пересчёт.
+
+    Работает для ЛЮБОЙ стадии с allow_mid_cycle, не только 'frozen': раз войти
+    в неё можно было посреди цикла, выйти тем же пересчётом — единственный
+    способ вернуть сделку в нормальный ход воронки. Ученик, доучившийся до конца
+    курса и перешедший на другой, так добирает остаток абонемента: цикл считается
+    по суммарной посещаемости, направление в него не входит.
 
     Адресуется по deal_id: так её вызывает UI карточки сделки.
 
-    None, если сделки нет, она закрыта, стоит не на 'frozen' или расчётной
+    None, если сделки нет, она закрыта, стоит не на стадии-паузе или расчётной
     авто-стадии не нашлось (воронка без прогресс-авто-стадий — практически
-    недостижимо, но молча отвечать «успех», оставив сделку в заморозке, нельзя:
+    недостижимо, но молча отвечать «успех», оставив сделку на паузе, нельзя:
     вьюха обязана отдать 409, а не 200).
     """
     from apps.finances.repository import balance_for_student
 
     deal = (RenewalDeal.objects.select_for_update().select_related('stage', 'pipeline')
             .filter(id=deal_id, outcome_at__isnull=True).first())
-    if deal is None or deal.stage.key != FROZEN_KEY:
+    if deal is None or not deal.stage.allow_mid_cycle:
         return None
 
     auto = _auto_stages(deal.pipeline)
@@ -304,9 +316,10 @@ def return_from_freeze(deal_id: int, author_id: Optional[int] = None) -> Optiona
     from_stage = deal.stage
     deal.stage = target
     deal.stage_entered_at = timezone.now()
+    # Срок есть только у заморозки; у прочих стадий-пауз он и так NULL.
     deal.frozen_until_month = None
     deal.save(update_fields=['stage', 'stage_entered_at', 'frozen_until_month', 'updated_at'])
     RenewalActivity.objects.create(
         deal=deal, kind='system', from_stage=from_stage, to_stage=target,
-        author_id=author_id, body='Возврат в работу из заморозки')
+        author_id=author_id, body=f'Возврат в работу: {from_stage.label}')
     return deal

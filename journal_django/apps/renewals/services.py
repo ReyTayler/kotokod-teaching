@@ -79,12 +79,17 @@ def reopen_deal(deal_id: int, author_id: int | None) -> dict | str | None:
 
 
 def unfreeze_deal(deal_id: int, author_id: int | None) -> dict | str | None:
-    """None — сделки нет; 'not_frozen' — она не на стадии «Заморожен»; dict — вернули в работу."""
+    """None — сделки нет; 'not_frozen' — она не на стадии-паузе; dict — вернули в работу.
+
+    Имя (и URL /unfreeze) историческое: действие появилось для заморозки, а с
+    2026-08-06 работает для любой стадии с allow_mid_cycle. Контракт не
+    переименовываем — он уже в проде и на фронте.
+    """
     from apps.renewals import engine
     from apps.renewals.models import RenewalDeal
     if not RenewalDeal.objects.filter(id=deal_id).exists():
         return None
-    deal = engine.return_from_freeze(deal_id, author_id=author_id)
+    deal = engine.return_to_work(deal_id, author_id=author_id)
     if deal is None:
         return 'not_frozen'
     return repository.deal_computed(deal_id)

@@ -139,10 +139,11 @@ class RenewalReopenView(APIView):
 
 
 class RenewalUnfreezeView(APIView):
-    """«Вернуть в работу»: сделка со стадии «Заморожен» → расчётная авто-стадия.
+    """«Вернуть в работу»: сделка со стадии-паузы → расчётная авто-стадия.
 
-    Единственный ручной выход из заморозки (спека 2026-07-25) — авто-возврата по
-    факту записанного урока нет, engine.sync_lesson_stage её осознанно не трогает.
+    Единственный ручной выход со стадии-паузы (спека 2026-07-25 про заморозку,
+    с 2026-08-06 — любая стадия с allow_mid_cycle) — авто-возврата по факту
+    записанного урока нет, engine.sync_lesson_stage такие стадии осознанно не трогает.
     """
     permission_classes = [IsManagerOrAdmin]
 
@@ -151,7 +152,7 @@ class RenewalUnfreezeView(APIView):
         if result is None:
             raise NotFound({'error': 'Not found'})
         if result == 'not_frozen':
-            return Response({'error': 'Сделка не находится в заморозке'},
+            return Response({'error': 'Сделку нельзя вернуть в работу с этой стадии'},
                             status=status.HTTP_409_CONFLICT)
         return Response(result)
 

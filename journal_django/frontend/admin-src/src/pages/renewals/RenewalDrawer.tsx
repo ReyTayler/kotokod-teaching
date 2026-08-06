@@ -18,7 +18,7 @@ import { RENEWAL_STAGE_LABELS } from '../../lib/labels';
 import { StageBadge } from './StageBadge';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
 import { FreezeDealDialog } from './FreezeDealDialog';
-import { FROZEN_STAGE_KEY, type RenewalActivityItem } from '../../lib/renewals';
+import { FROZEN_STAGE_KEY, isPauseStage, type RenewalActivityItem } from '../../lib/renewals';
 
 interface Props {
   id: number;
@@ -144,26 +144,28 @@ export function RenewalDrawer({ id, onClose }: Props) {
   const cycleDone = !!deal?.cycle_completed;
   const currentStage = (stages || []).find((s) => s.id === deal?.stage_id);
   const isFrozen = deal?.stage_key === FROZEN_STAGE_KEY;
+  // Сделка стоит на стадии-паузе: единственный выход с неё — «Вернуть в работу».
+  const isOnPauseStage = !!currentStage && isPauseStage(currentStage);
   // Обычные ручные переходы (в другую decision-стадию, закрытие) бэк разрешает
   // только С ручной decision-стадии или со «Ждём продление»: с авто-стадий
   // (прогресс, «Ждём оплату») любой move даёт 409 (transitions.py: from_is_auto).
   const fromAllowsManualMoves = !!currentStage
     && ((currentStage.kind === 'decision' && !currentStage.is_auto)
       || currentStage.key === 'awaiting_renewal');
-  // Заморозка — исключение: бэк пускает в неё с ЛЮБОЙ стадии и при незавершённом
-  // цикле (transitions.py: _is_freeze_target), потому что это пауза, а не решение.
-  // Поэтому «Урок 2» → «Заморожен» должно быть доступно и из панели, не только драгом.
-  const freezeTarget = !isFrozen
-    ? (stages || []).find((s) => s.key === FROZEN_STAGE_KEY && s.id !== deal?.stage_id)
-    : undefined;
-  const stageMovable = !!currentStage && (fromAllowsManualMoves || !!freezeTarget);
+  // Стадии-паузы — исключение: бэк пускает в них с ЛЮБОЙ стадии и при незавершённом
+  // цикле (transitions.py: _is_pause_target), потому что это пауза, а не решение.
+  // Поэтому «Урок 2» → «Заморожен»/«Закончил курс» должно быть доступно и из панели,
+  // не только драгом.
+  const pauseTargets = (stages || []).filter(
+    (s) => isPauseStage(s) && s.id !== deal?.stage_id);
+  const stageMovable = !!currentStage && (fromAllowsManualMoves || pauseTargets.length > 0);
   // Прочие ручные цели — только при завершённом цикле и только если уйти с текущей
-  // стадии вообще можно. Заморозка идёт отдельным пунктом (freezeTarget) и не
-  // дублируется здесь.
+  // стадии вообще можно. Паузы идут отдельными пунктами (pauseTargets) и не
+  // дублируются здесь.
   const manualTargets = fromAllowsManualMoves
     ? (stages || []).filter(
       (s) => s.kind === 'decision' && !s.is_auto && cycleDone
-        && s.id !== deal?.stage_id && s.key !== FROZEN_STAGE_KEY)
+        && s.id !== deal?.stage_id && !isPauseStage(s))
     : [];
   // «Ушёл» — всегда; «Продлён» — только при завершённом цикле (через диалог).
   // С авто-стадии закрыть сделку руками нельзя, поэтому и не предлагаем.
@@ -260,9 +262,12 @@ export function RenewalDrawer({ id, onClose }: Props) {
                         onChange={(e) => handleStageChange(e.target.value)}
                         options={[
                           { value: String(currentStage.id), label: currentStage.label },
-                          ...(freezeTarget
-                            ? [{ value: String(freezeTarget.id), label: `${freezeTarget.label}…` }]
-                            : []),
+                          // «…» — у заморозки следом спросим срок; прочие паузы
+                          // переводят сразу, поэтому и многоточия не обещают.
+                          ...pauseTargets.map((s) => ({
+                            value: String(s.id),
+                            label: s.key === FROZEN_STAGE_KEY ? `${s.label}…` : s.label,
+                          })),
                           ...manualTargets.map((s) => ({ value: String(s.id), label: s.label })),
                           ...closeStages.map((s) => ({
                             value: String(s.id),
@@ -302,10 +307,10 @@ export function RenewalDrawer({ id, onClose }: Props) {
                       Изменить месяц
                     </button>
                   )}
-                  {/* Единственный выход из заморозки: ставит расчётную авто-стадию
+                  {/* Единственный выход со стадии-паузы: ставит расчётную авто-стадию
                       по посещаемости и балансу и гасит месяц. Автовыхода по факту
                       записанного урока нет (решение пользователя 2026-07-25). */}
-                  {isFrozen && (
+                  {isOnPauseStage && (
                     <button
                       type="button"
                       className="btn-secondary"

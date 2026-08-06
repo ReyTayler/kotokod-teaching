@@ -117,43 +117,42 @@ def test_other_auto_stages_still_locked_off():
                           from_key='lesson_1', to_kind='won', cycle_completed=True)
 
 
-def test_frozen_allowed_mid_cycle():
-    """В «Заморожен» можно уйти, не докрутив цикл — как и в «Ушёл»."""
+def test_pause_stage_allowed_mid_cycle():
+    """В стадию-паузу можно уйти, не докрутив цикл — как и в «Ушёл»."""
     assert is_allowed(from_kind='progress', to_kind='decision',
                       from_is_auto=True, to_is_auto=False,
-                      from_key='lesson_2', to_key='frozen',
+                      from_key='lesson_2', to_allow_mid_cycle=True,
                       cycle_completed=False) is True
 
 
 def test_other_decision_still_blocked_mid_cycle():
-    """Послабление касается ТОЛЬКО заморозки: «Думает» посреди цикла по-прежнему нет."""
+    """Послабление — только для стадий с allow_mid_cycle: «Думает» посреди цикла нет."""
     assert is_allowed(from_kind='progress', to_kind='decision',
                       from_is_auto=True, to_is_auto=False,
-                      from_key='lesson_2', to_key='thinking',
+                      from_key='lesson_2', to_allow_mid_cycle=False,
                       cycle_completed=False) is False
 
 
-def test_frozen_to_lost_allowed():
-    """Со «Заморожен» всегда можно закрыть сделку как «Ушёл»."""
+def test_pause_stage_to_lost_allowed():
+    """Со стадии-паузы всегда можно закрыть сделку как «Ушёл»."""
     assert is_allowed(from_kind='decision', to_kind='lost',
                       from_is_auto=False, to_is_auto=False,
-                      from_key='frozen', to_key='churned',
-                      cycle_completed=False) is True
+                      from_key='frozen', cycle_completed=False) is True
 
 
-def test_freeze_pass_requires_decision_kind():
-    """Поблажки заморозке даны ей как ПРОМЕЖУТОЧНОЙ стадии, не по одному ключу.
+def test_pause_pass_requires_decision_kind():
+    """Поблажки даны стадии как ПРОМЕЖУТОЧНОЙ, не по одному флагу.
 
-    superadmin может сменить kind стадии key='frozen' на 'won' через настройку
-    стадий. Если бы проверка шла по одному ключу, это открыло бы путь закрыть
-    сделку как «Продлён» посреди цикла и с нулевым балансом, минуя оба гейта.
+    superadmin может сменить kind стадии с allow_mid_cycle на 'won' через
+    настройку стадий. Если бы проверка шла по одному флагу, это открыло бы путь
+    закрыть сделку как «Продлён» посреди цикла и с нулевым балансом, минуя оба гейта.
     """
     assert is_allowed(from_kind='progress', to_kind='won',
                       from_is_auto=True, to_is_auto=False,
-                      from_key='lesson_2', to_key='frozen',
+                      from_key='lesson_2', to_allow_mid_cycle=True,
                       cycle_completed=False, balance=0) is False
     # И при завершённом цикле «Продлён» с нулевым балансом тоже не проходит.
     assert is_allowed(from_kind='decision', to_kind='won',
                       from_is_auto=False, to_is_auto=False,
-                      from_key='thinking', to_key='frozen',
+                      from_key='thinking', to_allow_mid_cycle=True,
                       cycle_completed=True, balance=0) is False

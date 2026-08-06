@@ -12,35 +12,41 @@ _TERMINAL = {'won', 'lost'}
 # (подтверждение/отклонение продления). Прочие авто-стадии двигает только движок.
 AWAITING_RENEWAL_KEY = 'awaiting_renewal'
 
-# Ключ стадии «Заморожен». Единственная decision-стадия, в которую можно уйти
-# посреди цикла: заморозка не связана с созреванием продления. Определена здесь
-# (а не в engine), потому что это правило переходов.
+# Ключ стадии «Заморожен». Сама по себе правил перехода больше не задаёт —
+# «пауза» стала свойством стадии (allow_mid_cycle, см. _is_pause_target).
+# Ключ остался нужен там, где заморозка отличается ОБВЯЗКОЙ, а не правилами:
+# у неё есть срок («до какого месяца», repository.move_deal).
 FROZEN_KEY = 'frozen'
 
 
-def _is_freeze_target(to_key: str | None, to_kind: str) -> bool:
-    """«Заморожен» как цель перехода — и только пока она ПРОМЕЖУТОЧНАЯ стадия.
+def _is_pause_target(to_kind: str, to_allow_mid_cycle: bool) -> bool:
+    """Стадия-«пауза» как цель перехода — и только пока она ПРОМЕЖУТОЧНАЯ.
 
-    Обе поблажки для заморозки (уход с авто-стадии и вход посреди цикла) даны
-    ей как «пауза, а не решение». Требование kind='decision' закрывает лазейку:
-    superadmin может через настройку стадий сменить kind стадии key='frozen'
-    на 'won'/'lost', и тогда проверка по одному ключу открыла бы путь ЗАКРЫТЬ
-    сделку (в том числе как «Продлён» при нулевом балансе), минуя ворота ниже.
+    Пауза — это не решение о продлении, поэтому ей даны обе поблажки: уход с
+    авто-стадии и вход посреди незавершённого цикла. Так живёт «Заморожен», и
+    так же — любая стадия, которой superadmin поставил allow_mid_cycle
+    (например «Закончил курс»: ученик доучился до конца курса, а решение —
+    перевод на другой курс или уход — принимается позже).
+
+    Требование kind='decision' закрывает лазейку: superadmin может через
+    настройку стадий сменить вид такой стадии на 'won'/'lost', и без этой
+    проверки флаг открыл бы путь ЗАКРЫТЬ сделку (в том числе как «Продлён»
+    при нулевом балансе), минуя ворота ниже.
     """
-    return to_key == FROZEN_KEY and to_kind == 'decision'
+    return to_allow_mid_cycle and to_kind == 'decision'
 
 
-def _is_auto_exit_target(to_kind: str, to_key: str | None) -> bool:
+def _is_auto_exit_target(to_kind: str, to_allow_mid_cycle: bool) -> bool:
     """Цели, уход к которым разрешён с авто-стадии прогресса помимо
-    «Ждём продление»: заморозка и «Ушёл» — обе случаются в любой момент цикла,
+    «Ждём продление»: стадия-пауза и «Ушёл» — обе случаются в любой момент цикла,
     а не только в точке принятия решения о продлении (решение пользователя
     2026-07-25 приравняло «Ушёл» и заморозку в этом смысле)."""
-    return _is_freeze_target(to_key, to_kind) or to_kind == 'lost'
+    return _is_pause_target(to_kind, to_allow_mid_cycle) or to_kind == 'lost'
 
 
 def is_allowed(*, from_kind: str, to_kind: str,
                from_is_auto: bool = False, to_is_auto: bool = False,
-               from_key: str | None = None, to_key: str | None = None,
+               from_key: str | None = None, to_allow_mid_cycle: bool = False,
                cycle_completed: bool = True, balance: float = 1) -> bool:
     """
     Авто-стадии (is_auto) двигает движок по событиям. Руками:
@@ -48,10 +54,11 @@ def is_allowed(*, from_kind: str, to_kind: str,
       «Ждём продление». У «Заморожен» с миграции 0012_frozen_manual_stage
       is_auto=False — обычная ручная decision-стадия, этот запрет её не касается;
     - с авто-стадии уйти нельзя (from_is_auto) — КРОМЕ «Ждём продление»
-      (from_key == AWAITING_RENEWAL_KEY) и КРОМЕ ухода в «Заморожен» или «Ушёл»
+      (from_key == AWAITING_RENEWAL_KEY) и КРОМЕ ухода в стадию-паузу или «Ушёл»
       (_is_auto_exit_target): обе — реакция на обстоятельства ученика
-      (болезнь/отпуск или решение уйти), не привязаны к точке принятия решения
-      о продлении и могут понадобиться с любой прогресс-стадии («Урок N»).
+      (болезнь/отпуск, конец курса или решение уйти), не привязаны к точке
+      принятия решения о продлении и могут понадобиться с любой прогресс-стадии
+      («Урок N»).
     С «Ждём продление» (kind='decision') работают обычные ворота decision-стадий:
     в другую ручную decision / «Продлён» — при завершённом цикле; «Ушёл» — всегда.
     В «Продлён» — дополнительно только при положительном балансе (> 0 уроков):
@@ -61,22 +68,23 @@ def is_allowed(*, from_kind: str, to_kind: str,
     от 2026-07-17: без выхода со стадии «Ждём продление» сделку нельзя было закрыть
     как «Продлён»).
 
-    Заморозка посреди незавершённого цикла разрешена решением пользователя
-    2026-07-25 — приравнена к «Ушёл»: обе случаются в любой момент, а не только
-    после отработанного абонемента. Прочие ручные decision-стадии («Думает»,
-    «Игнорит») по-прежнему требуют завершённого цикла.
+    Стадия-пауза посреди незавершённого цикла разрешена решением пользователя
+    2026-07-25 (заморозка) — приравнена к «Ушёл»: обе случаются в любой момент,
+    а не только после отработанного абонемента; решением 2026-08-06 это правило
+    распространено на любую стадию с allow_mid_cycle. Прочие ручные
+    decision-стадии («Думает», «Игнорит») по-прежнему требуют завершённого цикла.
     """
     if from_kind in _TERMINAL:
         return False
     if (from_is_auto and from_key != AWAITING_RENEWAL_KEY
-            and not _is_auto_exit_target(to_kind, to_key)):
+            and not _is_auto_exit_target(to_kind, to_allow_mid_cycle)):
         return False
     if to_is_auto:
         return False
     if to_kind == 'progress':
         return False
     if not cycle_completed:
-        return to_kind == 'lost' or _is_freeze_target(to_key, to_kind)
+        return to_kind == 'lost' or _is_pause_target(to_kind, to_allow_mid_cycle)
     if to_kind == 'won' and balance <= 0:
         return False
     return to_kind in {'decision', 'won', 'lost'}
@@ -84,12 +92,12 @@ def is_allowed(*, from_kind: str, to_kind: str,
 
 def assert_allowed(*, from_kind: str, to_kind: str,
                    from_is_auto: bool = False, to_is_auto: bool = False,
-                   from_key: str | None = None, to_key: str | None = None,
+                   from_key: str | None = None, to_allow_mid_cycle: bool = False,
                    cycle_completed: bool = True, balance: float = 1) -> None:
     if not is_allowed(from_kind=from_kind, to_kind=to_kind,
                       from_is_auto=from_is_auto, to_is_auto=to_is_auto,
-                      from_key=from_key, to_key=to_key, cycle_completed=cycle_completed,
-                      balance=balance):
+                      from_key=from_key, to_allow_mid_cycle=to_allow_mid_cycle,
+                      cycle_completed=cycle_completed, balance=balance):
         if to_kind == 'won' and balance <= 0:
             raise InvalidTransition(
                 'Нельзя отметить как «Продлён»: на балансе ученика должно быть больше 0 уроков')

@@ -13,6 +13,8 @@ from __future__ import annotations
 import pghistory
 from django.db import models
 
+from apps.core.db_fields import TolerantJSONField
+
 
 @pghistory.track(pghistory.InsertEvent(), pghistory.UpdateEvent(), pghistory.DeleteEvent())
 class RenewalPipeline(models.Model):
@@ -52,6 +54,13 @@ class RenewalStage(models.Model):
     sort_order = models.IntegerField()
     kind = models.CharField(max_length=10, choices=Kind.choices)
     is_auto = models.BooleanField(default=False)  # двигается движком vs руками
+    # «Пауза, а не решение»: на такую стадию можно увести сделку в ЛЮБОЙ момент —
+    # с авто-стадии («Урок 2», «Ждём оплату») и при незавершённом цикле, а выход
+    # с неё — только «Вернуть в работу» (engine.return_to_work). Так живёт
+    # «Заморожен»; свойством (а не ключом) это сделано, чтобы superadmin мог
+    # завести свои стадии того же характера («Закончил курс» и т.п.).
+    # Действует ТОЛЬКО при kind='decision' — см. transitions._is_pause_target.
+    allow_mid_cycle = models.BooleanField(default=False)
 
     class Meta:
         managed = True
@@ -107,6 +116,19 @@ class RenewalDeal(models.Model):
     # обнуляет (repository.move_deal / engine.return_from_freeze). DB-CHECK нет:
     # ключ стадии живёт в другой таблице, условие по FK-джойну не выражается.
     frozen_until_month = models.DateField(null=True, blank=True)
+    # Снимок направлений цикла — список id из `directions`, например [3, 7].
+    # Направления сделки иначе читаются вживую из АКТИВНЫХ членств в группах, и
+    # у закрытой сделки они менялись задним числом: ученик перешёл на другой курс
+    # или ушёл — членство погасло, и архив показывал не тот курс, что был.
+    # Пишется ОДИН раз, когда сделка перестаёт быть текущей (цикл созрел или
+    # менеджер увёл её руками), и больше не перезаписывается: снимок отвечает на
+    # вопрос «о каком курсе был этот цикл», а не «где ученик сейчас».
+    # Имена и цвета НЕ денормализуем — их берём джойном, чтобы переименование
+    # направления подхватывалось и в истории.
+    # TolerantJSONField, а не JSONField: apps.core.apps регистрирует
+    # register_default_jsonb, и psycopg2 отдаёт уже готовый list — обычное поле
+    # падало бы на json.loads(list).
+    directions_snapshot = TolerantJSONField(null=True, blank=True)
     reason_code = models.TextField(null=True, blank=True)
     stage_entered_at = models.DateTimeField(auto_now_add=True)
     outcome_at = models.DateTimeField(null=True, blank=True)  # NOT NULL ⇒ сделка закрыта

@@ -10,10 +10,22 @@ export type StageKind = 'progress' | 'decision' | 'won' | 'lost';
 
 /**
  * Ключ стадии «Заморожен» — зеркалит `apps/renewals/transitions.py::FROZEN_KEY`.
- * У неё особые правила перехода (вход разрешён с любой стадии и посреди цикла,
- * выход — только действием «Вернуть в работу»), поэтому UI обязан её опознавать.
+ * Особые ПРАВИЛА ПЕРЕХОДА больше не привязаны к ключу — они у любой стадии с
+ * `allow_mid_cycle` (см. isPauseStage). Ключ остался нужен только там, где у
+ * заморозки особая ОБВЯЗКА: она одна спрашивает срок («до какого месяца»).
  */
 export const FROZEN_STAGE_KEY = 'frozen';
+
+/**
+ * Стадия-«пауза»: вход разрешён с любой стадии и посреди незавершённого цикла,
+ * выход — только действием «Вернуть в работу». Зеркалит
+ * `apps/renewals/transitions.py::_is_pause_target`, включая требование
+ * kind='decision': на стадии другого вида флаг ничего не даёт, и UI не должен
+ * предлагать переход, который бэк отклонит.
+ */
+export function isPauseStage(stage: Pick<RenewalStage, 'kind' | 'allow_mid_cycle'>): boolean {
+  return stage.allow_mid_cycle && stage.kind === 'decision';
+}
 
 export type StageTone = 'info' | 'muted' | 'positive' | 'negative';
 
@@ -45,6 +57,8 @@ export interface RenewalStage {
   color: string | null;
   kind: StageKind;
   is_auto: boolean;
+  /** «Пауза, а не решение» — см. isPauseStage. */
+  allow_mid_cycle: boolean;
   sort_order: number;
 }
 

@@ -21,7 +21,26 @@ def _directions_agg(student_col: str) -> str:
 """
 
 
-DIRECTIONS_AGG_SQL = _directions_agg('d.student_id')
+def _deal_directions_agg(deal_alias: str = 'd') -> str:
+    """Направления СДЕЛКИ: снимок цикла, если он снят, иначе живые членства.
+
+    Снимок хранит только id (см. RenewalDeal.directions_snapshot), поэтому имена
+    и цвета всегда свежие — переименование курса видно и в закрытых сделках.
+    Порядок — по имени, чтобы карточка не «прыгала» между запросами.
+    """
+    return f"""
+    CASE WHEN {deal_alias}.directions_snapshot IS NOT NULL THEN COALESCE((
+        SELECT json_agg(json_build_object('name', sd.name, 'color', sd.color)
+                        ORDER BY sd.name)
+        FROM directions sd
+        WHERE sd.id IN (SELECT jsonb_array_elements_text(
+                            {deal_alias}.directions_snapshot)::int)
+    ), '[]'::json)
+    ELSE {_directions_agg(f'{deal_alias}.student_id')} END
+"""
+
+
+DIRECTIONS_AGG_SQL = _deal_directions_agg('d')
 
 
 # Кандидаты сводки «Без сделок» — ОДНО правило на список и на счётчик бейджа:
@@ -152,6 +171,73 @@ def month_label(value) -> str:
     return f'{_MONTHS_GENITIVE[value.month - 1]} {value.year}'
 
 
+def active_direction_ids(student_id: int) -> list[int]:
+    """id направлений ученика по АКТИВНЫМ членствам."""
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT g.direction_id
+            FROM group_memberships m
+            JOIN groups g ON g.id = m.group_id
+            WHERE m.student_id = %s AND m.active = true AND g.direction_id IS NOT NULL
+            ORDER BY 1
+        """, [student_id])
+        return [r[0] for r in cur.fetchall()]
+
+
+def cycle_direction_ids(student_id: int, cycle_no: int) -> list[int]:
+    """id направлений по УРОКАМ цикла — основной источник снимка сделки.
+
+    Членство в группе гасится, когда ученика выводят из группы, поэтому по нему
+    историю восстановить нельзя: убрали из группы, потом закрыли сделку — и курс
+    потерян. Проведённые уроки, наоборот, неизменны, и «на каком направлении был
+    ученик в этом цикле» — это ровно направления его уроков.
+
+    Границы цикла N — накопленным итогом по той же метрике, что и прогресс сделки
+    (finances.attended_units_total: present=true, 45мин = 0.5 урока): урок входит
+    в цикл, если накопленный итог после него больше (N−1)×4 и до него меньше N×4.
+    Урок на стыке попадает в оба цикла — это верно, он и правда разделён между ними.
+    """
+    lo = (cycle_no - 1) * cycle.LESSONS_PER_CYCLE
+    hi = cycle_no * cycle.LESSONS_PER_CYCLE
+    with connection.cursor() as cur:
+        cur.execute("""
+            WITH att AS (
+                SELECT g.direction_id,
+                       CASE WHEN l.lesson_duration_minutes = 45 THEN 0.5 ELSE 1 END AS w,
+                       SUM(CASE WHEN l.lesson_duration_minutes = 45 THEN 0.5 ELSE 1 END)
+                           OVER (ORDER BY l.lesson_date, l.id
+                                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum
+                FROM lesson_attendance la
+                JOIN lessons l ON l.id = la.lesson_id
+                JOIN groups g  ON g.id = l.group_id
+                WHERE la.student_id = %s AND la.present = true
+                  AND g.direction_id IS NOT NULL
+            )
+            SELECT DISTINCT direction_id FROM att
+            WHERE cum > %s AND cum - w < %s
+            ORDER BY 1
+        """, [student_id, lo, hi])
+        return [r[0] for r in cur.fetchall()]
+
+
+def snapshot_directions(deal) -> bool:
+    """Снять направления цикла, если снимок ещё не снят. True — если записали.
+
+    Источник — уроки цикла (cycle_direction_ids); активные членства только как
+    запасной вариант, когда уроков в цикле ещё не было (сделку закрыли до первого
+    занятия — тогда членство и есть всё, что мы про курс знаем).
+
+    Вызывающий обязан сам сохранить сделку: и созревание (engine), и ручной
+    переход (move_deal) пишут её одним UPDATE вместе со своими полями, а лишний
+    UPDATE поднял бы вторую запись в журнале изменений на ровном месте.
+    """
+    if deal.directions_snapshot is not None:
+        return False
+    deal.directions_snapshot = (cycle_direction_ids(deal.student_id, deal.cycle_no)
+                                or active_direction_ids(deal.student_id))
+    return True
+
+
 def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
               author_id: int | None, frozen_until_month=None) -> dict | None:
     """Переместить сделку в стадию, записать активность, синхронизировать outcome.
@@ -178,7 +264,7 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         from_stage = deal.stage
         assert_allowed(from_kind=from_stage.kind, to_kind=to_stage.kind,
                        from_is_auto=from_stage.is_auto, to_is_auto=to_stage.is_auto,
-                       from_key=from_stage.key, to_key=to_stage.key,
+                       from_key=from_stage.key, to_allow_mid_cycle=to_stage.allow_mid_cycle,
                        cycle_completed=engine.cycle_completed(deal),
                        balance=float(balance_for_student(deal.student_id)))
 
@@ -189,8 +275,13 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
         if reason_code is not None:
             deal.reason_code = reason_code
         deal.outcome_at = timezone.now() if to_stage.kind in ('won', 'lost') else None
+        # Ручной переход = сделку ведут к исходу, дальше живой список направлений
+        # начнёт врать (перевод на другой курс гасит членство). Фиксируем здесь, а
+        # не только при закрытии: «Закончил курс» и «Заморожен» сделку не закрывают.
+        snapshot_directions(deal)
         deal.save(update_fields=['stage', 'stage_entered_at', 'reason_code',
-                                 'outcome_at', 'frozen_until_month', 'updated_at'])
+                                 'outcome_at', 'frozen_until_month',
+                                 'directions_snapshot', 'updated_at'])
         body = reason_code or ''
         if to_frozen and frozen_until_month is not None:
             body = f'Заморозка до {month_label(frozen_until_month)}'
@@ -261,12 +352,17 @@ def _board_where(filters: dict) -> tuple[str, list]:
     if filters.get('assignee_id'):
         where.append('d.assignee_id = %s'); params.append(int(filters['assignee_id']))
     if filters.get('direction_id'):
-        # Направление — атрибут ученика (активные membership), не сделки.
-        where.append("""EXISTS (
-            SELECT 1 FROM group_memberships fm
-            JOIN groups fg ON fg.id = fm.group_id
-            WHERE fm.student_id = d.student_id AND fm.active = true
-              AND fg.direction_id = %s)""")
+        # Фильтр обязан совпадать с тем, что показано в карточке (_deal_directions_agg):
+        # у сделки со снимком ищем по снимку, у прочих — по активным членствам ученика.
+        # Иначе сделка, отфильтрованная по «Робототехнике», показывала бы «Шахматы».
+        where.append("""(CASE WHEN d.directions_snapshot IS NOT NULL
+            THEN d.directions_snapshot @> to_jsonb(%s::int)
+            ELSE EXISTS (
+                SELECT 1 FROM group_memberships fm
+                JOIN groups fg ON fg.id = fm.group_id
+                WHERE fm.student_id = d.student_id AND fm.active = true
+                  AND fg.direction_id = %s) END)""")
+        params.append(int(filters['direction_id']))
         params.append(int(filters['direction_id']))
     if filters.get('student'):
         # Поиск по имени ученика (per-column search в канбане). ILIKE — регистр
@@ -383,7 +479,8 @@ def list_stages() -> list[dict]:
     from apps.renewals.models import RenewalPipeline, RenewalStage
     pipe = RenewalPipeline.objects.get(is_default=True)
     return list(RenewalStage.objects.filter(pipeline=pipe).order_by('sort_order')
-                .values('id', 'key', 'label', 'color', 'kind', 'is_auto', 'sort_order'))
+                .values('id', 'key', 'label', 'color', 'kind', 'is_auto',
+                        'allow_mid_cycle', 'sort_order'))
 
 
 def create_stage(data: dict) -> dict:
@@ -396,7 +493,8 @@ def create_stage(data: dict) -> dict:
     key = _unique_stage_key(pipe, base_key)
     st = RenewalStage.objects.create(
         pipeline=pipe, key=key, label=data['label'], color=data.get('color'),
-        kind=data['kind'], sort_order=next_order, is_auto=False)
+        kind=data['kind'], sort_order=next_order, is_auto=False,
+        allow_mid_cycle=data.get('allow_mid_cycle', False))
     return _stage_dict(st)
 
 
@@ -405,7 +503,7 @@ def update_stage(stage_id: int, data: dict) -> dict | None:
     st = RenewalStage.objects.filter(id=stage_id).first()
     if st is None:
         return None
-    for k in ('label', 'color', 'kind'):
+    for k in ('label', 'color', 'kind', 'allow_mid_cycle'):
         if k in data:
             setattr(st, k, data[k])
     st.save()
@@ -468,7 +566,8 @@ def _unique_stage_key(pipeline, base_key: str) -> str:
 
 def _stage_dict(st) -> dict:
     return {'id': st.id, 'key': st.key, 'label': st.label, 'color': st.color,
-            'kind': st.kind, 'is_auto': st.is_auto, 'sort_order': st.sort_order}
+            'kind': st.kind, 'is_auto': st.is_auto,
+            'allow_mid_cycle': st.allow_mid_cycle, 'sort_order': st.sort_order}
 
 
 def list_deals(page: int, page_size: int, sort_by: str, sort_dir: str, filters: dict) -> dict:

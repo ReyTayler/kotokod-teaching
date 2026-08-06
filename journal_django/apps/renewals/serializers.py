@@ -46,6 +46,10 @@ class StageWriteSerializer(serializers.Serializer):
     color = serializers.RegexField(r'^#[0-9a-fA-F]{6}$', required=False, allow_null=True)
     kind = serializers.ChoiceField(choices=['progress', 'decision', 'won', 'lost'])
     key = serializers.RegexField(r'^[a-z0-9_]+$', required=False)
+    # «Пауза, а не решение»: вход в любой момент цикла, выход — «Вернуть в работу».
+    # Значение имеет силу только при kind='decision' (transitions._is_pause_target),
+    # поэтому несовместимую пару не запрещаем — она просто ни на что не влияет.
+    allow_mid_cycle = serializers.BooleanField(required=False)
 
 
 class StageReorderSerializer(serializers.Serializer):

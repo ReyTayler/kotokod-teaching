@@ -72,6 +72,13 @@
   padding: 1px 6px;
 }
 
+/* Переключатель режима «пауза» стоит в одном ряду с бейджами «авто» —
+   держим его в том же кегле, чтобы строка не разъезжалась по высоте. */
+.renewal-stages-list__pause {
+  font-size: 11px;
+  color: var(--text3);
+}
+
 .renewal-stages-list__actions {
   margin-left: auto;
   display: flex;
@@ -119,6 +126,14 @@
   color: var(--text3);
   text-transform: uppercase;
   letter-spacing: 0.02em;
+}
+
+.renewal-stages-form__hint {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text3);
 }
 
 .renewal-stages-form__row {

@@ -174,12 +174,19 @@ def _current_open_labels() -> dict[int, tuple[str, str]]:
 
 
 def _write_plan(sid: int, plan: StudentPlan, pipe, stages: dict) -> None:
+    # Пересбор сносит все сделки (rebuild_all) и создаёт заново, поэтому снимки
+    # направлений он обязан проставить сам — иначе они терялись бы при каждом
+    # запуске «Пересобрать сделки». Источник тот же, что и в штатном пути:
+    # направления по урокам цикла, которые пересбор и так читает.
+    from apps.renewals.repository import cycle_direction_ids
+
     for c in plan.closed:
         stage = stages['renewed'] if c.kind == 'renewed' else stages['churned']
         deal = RenewalDeal.objects.create(
             student_id=sid, cycle_no=c.cycle_no, pipeline=pipe, stage=stage,
             due_at=(c.date if c.kind == 'renewed' else None),
             outcome_at=_dt(c.date),
+            directions_snapshot=cycle_direction_ids(sid, c.cycle_no),
             reason_code=('unknown' if c.kind == 'churned' else None))
         RenewalDeal.objects.filter(id=deal.id).update(
             stage_entered_at=_dt(c.date), created_at=_dt(c.date))
