@@ -71,7 +71,13 @@ class Command(BaseCommand):
                 f'\n— {payload["teacher_name"]} (id={payload["teacher_id"]}, '
                 f'chat_id={payload["chat_id"]}) —'
             ))
-            self.stdout.write(payload['text'])
+            if payload['error']:
+                # Письмо не собралось. В боевом прогоне это попадёт в журнал
+                # уведомлений строкой «Не доставлено»; здесь — сразу на глаза.
+                self.stdout.write(self.style.ERROR(
+                    f'Письмо не собрано: {payload["error"]}'))
+            else:
+                self.stdout.write(payload['text'])
 
         if options['dry_run']:
             self.stdout.write(self.style.SUCCESS(

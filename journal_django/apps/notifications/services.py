@@ -17,13 +17,20 @@ from django.conf import settings
 from django.db import transaction
 
 from apps.notifications import messages
-from apps.notifications.constants import CHANNEL_DM, CHANNEL_GROUP
+from apps.notifications.constants import CHANNEL_DM, CHANNEL_GROUP, STATUS_FAILED
 from apps.notifications.models import (
     NotificationMessage, NotificationSettings, TelegramRecipient,
 )
 from apps.teachers.models import Teacher
 
 logger = logging.getLogger(__name__)
+
+# Текст строки журнала, когда письмо не удалось собрать. Поле text у сообщения
+# обязательное, а показать в модалке пустоту — значит не сказать ничего.
+FAILED_TEXT = (
+    'Письмо не удалось собрать — преподаватель уведомление не получил. '
+    'Причина указана выше.'
+)
 
 
 def notifications_enabled() -> bool:
@@ -60,6 +67,32 @@ def enqueue(*, kind: str, channel: str, chat_id: int, text: str, dedup_key: str,
             kind=kind, channel=channel, chat_id=chat_id, text=text,
             recipient_teacher_id=recipient_teacher_id,
             source_kind=source_kind, source_id=source_id,
+        ),
+    )
+    return created
+
+
+def record_failure(*, kind: str, channel: str, chat_id: int, dedup_key: str,
+                   recipient_teacher_id: int | None, error: str) -> bool:
+    """
+    Записать в журнал письмо, которое не удалось СОБРАТЬ. Возвращает True,
+    если строка создана.
+
+    Отказы доставки пишет диспетчер — там сообщение существует, и ему есть куда
+    проставить статус. Здесь случай другой: текста нет вовсе, отправлять нечего,
+    и без такой записи провал ничем себя не проявляет — сообщений просто нет,
+    и это неотличимо от «сегодня рассылать было нечего».
+
+    Статус сразу failed, поэтому диспетчер строку не подберёт: это запись в
+    журнале, а не сообщение в очереди.
+    """
+    _, created = NotificationMessage.objects.get_or_create(
+        dedup_key=dedup_key,
+        defaults=dict(
+            kind=kind, channel=channel, chat_id=chat_id,
+            text=FAILED_TEXT, status=STATUS_FAILED,
+            last_error=error[:2000],
+            recipient_teacher_id=recipient_teacher_id,
         ),
     )
     return created

@@ -25,6 +25,31 @@ from apps.scheduling.occurrences import CANCELLED, MOVED
 logger = logging.getLogger(__name__)
 
 
+def _payload(*, teacher_id: int, teacher_name: str, chat_id: int, build) -> dict:
+    """
+    Письмо одному преподавателю; сбой сборки не выпускается наружу.
+
+    Дайджест собирает сообщения всей школы одним проходом — так на сотне
+    преподавателей выходит два запроса, а не двести. Обратная сторона: пока
+    исключение поднималось наружу, оно рвало проход целиком и без письма
+    оставались ВСЕ (прод, 06.08.2026). Ошибка на одном письме должна стоить
+    одного письма.
+
+    Ловим Exception целиком: заранее известны только те сбои, что уже случились,
+    а тишина по всей школе — самое дорогое, чем можно расплатиться за аккуратный
+    список типов. Трассировка уходит в лог, причина — в журнал уведомлений
+    (см. services.record_failure), поэтому проглатыванием это не становится.
+
+    Возвращает payload с готовым text либо с error — разбирает вызывающий.
+    """
+    card = {'teacher_id': teacher_id, 'teacher_name': teacher_name, 'chat_id': chat_id}
+    try:
+        return {**card, 'text': build(), 'error': None}
+    except Exception as exc:  # noqa: BLE001 — см. докстроку
+        logger.exception('Не удалось собрать дайджест преподавателю id=%s', teacher_id)
+        return {**card, 'text': None, 'error': f'{type(exc).__name__}: {exc}'}
+
+
 def _active_recipients() -> dict[int, tuple[int, str]]:
     """teacher_id → (chat_id, ФИО). Только активные привязки."""
     rows = (TelegramRecipient.objects
@@ -105,14 +130,36 @@ def send_morning_digest(day: datetime.date | None = None, *,
 
     queued = 0
     for payload in morning_payloads(day, only_teacher_id=only_teacher_id):
+        key = f'morning:{payload["teacher_id"]}:{day.isoformat()}{dedup_suffix}'
+        if _recorded_failure(payload, kind=KIND_MORNING_DIGEST, dedup_key=key):
+            continue
         created = services.enqueue(
             kind=KIND_MORNING_DIGEST, channel=CHANNEL_DM,
             chat_id=payload['chat_id'], text=payload['text'],
-            dedup_key=f'morning:{payload["teacher_id"]}:{day.isoformat()}{dedup_suffix}',
+            dedup_key=key,
             recipient_teacher_id=payload['teacher_id'],
         )
         queued += int(created)
     return queued
+
+
+def _recorded_failure(payload: dict, *, kind: str, dedup_key: str) -> bool:
+    """
+    Письмо не собралось — положить строку в журнал уведомлений. True, если так и было.
+
+    Ключ идемпотентности — свой, с суффиксом ':error'. Две вещи разом: повторный
+    прогон в тот же день не плодит записей об одном сбое, а рабочий ключ остаётся
+    свободным, поэтому после починки письмо в тот же день всё-таки уйдёт.
+    """
+    if not payload['error']:
+        return False
+    services.record_failure(
+        kind=kind, channel=CHANNEL_DM, chat_id=payload['chat_id'],
+        dedup_key=f'{dedup_key}:error',
+        recipient_teacher_id=payload['teacher_id'],
+        error=payload['error'],
+    )
+    return True
 
 
 def morning_payloads(day: datetime.date,
@@ -122,7 +169,8 @@ def morning_payloads(day: datetime.date,
 
     Отделено от рассылки, чтобы можно было посмотреть текст глазами, ничего не
     отправляя (manage.py send_digest --dry-run). Возвращает
-    [{'teacher_id', 'teacher_name', 'chat_id', 'text'}].
+    [{'teacher_id', 'teacher_name', 'chat_id', 'text', 'error'}]; при сбое сборки
+    text=None, error заполнен (см. _payload).
     """
     recipients = _active_recipients()
     out: list[dict] = []
@@ -135,13 +183,11 @@ def morning_payloads(day: datetime.date,
         if target is None:
             continue
         chat_id, teacher_name = target
-        out.append({
-            'teacher_id': teacher_id,
-            'teacher_name': teacher_name,
-            'chat_id': chat_id,
-            'text': messages.morning_digest(
-                teacher_name=teacher_name, day=day, items=items),
-        })
+        out.append(_payload(
+            teacher_id=teacher_id, teacher_name=teacher_name, chat_id=chat_id,
+            build=lambda name=teacher_name, rows=items: messages.morning_digest(
+                teacher_name=name, day=day, items=rows),
+        ))
     return out
 
 
@@ -171,10 +217,13 @@ def send_fill_digest(day: datetime.date | None = None, *,
 
     queued = 0
     for payload in fill_payloads(day, only_teacher_id=only_teacher_id):
+        key = f'fill:{payload["teacher_id"]}:{day.isoformat()}{dedup_suffix}'
+        if _recorded_failure(payload, kind=KIND_FILL_DIGEST, dedup_key=key):
+            continue
         created = services.enqueue(
             kind=KIND_FILL_DIGEST, channel=CHANNEL_DM,
             chat_id=payload['chat_id'], text=payload['text'],
-            dedup_key=f'fill:{payload["teacher_id"]}:{day.isoformat()}{dedup_suffix}',
+            dedup_key=key,
             recipient_teacher_id=payload['teacher_id'],
         )
         queued += int(created)
@@ -187,7 +236,12 @@ def fill_payloads(day: datetime.date,
     Готовые сообщения вечернего дайджеста, ещё не поставленные в очередь.
 
     Отделено от рассылки ради предпросмотра (manage.py send_digest --dry-run).
-    Возвращает [{'teacher_id', 'teacher_name', 'chat_id', 'text'}].
+    Возвращает [{'teacher_id', 'teacher_name', 'chat_id', 'text', 'error'}]; при
+    сбое сборки text=None, error заполнен (см. _payload).
+
+    Строки раскладываются по преподавателям как есть, а разбор значений (дата,
+    номер занятия, название направления) происходит уже внутри защищённой сборки
+    письма: кривая строка тогда стоит одного письма, а не всей рассылки.
     """
     recipients = _active_recipients()
     by_teacher: dict[int, list[dict]] = {}
@@ -197,24 +251,28 @@ def fill_payloads(day: datetime.date,
             continue
         if only_teacher_id is not None and teacher_id != only_teacher_id:
             continue
-        by_teacher.setdefault(teacher_id, []).append({
-            'date': datetime.date.fromisoformat(row['date']),
-            'time': row['time'] or '—',
-            'group': row['group_name'],
-            'direction': row['direction_name'],
-            'seq': row.get('seq'),
-        })
+        by_teacher.setdefault(teacher_id, []).append(row)
 
     out: list[dict] = []
-    for teacher_id, items in by_teacher.items():
+    for teacher_id, rows in by_teacher.items():
         target = recipients.get(teacher_id)
         if target is None:
             continue
         chat_id, teacher_name = target
-        out.append({
-            'teacher_id': teacher_id,
-            'teacher_name': teacher_name,
-            'chat_id': chat_id,
-            'text': messages.fill_digest(items=items),
-        })
+        out.append(_payload(
+            teacher_id=teacher_id, teacher_name=teacher_name, chat_id=chat_id,
+            build=lambda src=rows: messages.fill_digest(
+                items=[_fill_item(r) for r in src]),
+        ))
     return out
+
+
+def _fill_item(row: dict) -> dict:
+    """Строка вкладки «Заполнить» — в вид, понятный тексту сообщения."""
+    return {
+        'date': datetime.date.fromisoformat(row['date']),
+        'time': row['time'] or '—',
+        'group': row['group_name'],
+        'direction': row['direction_name'],
+        'seq': row.get('seq'),
+    }
