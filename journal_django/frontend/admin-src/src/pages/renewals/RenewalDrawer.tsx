@@ -4,6 +4,7 @@ import { EntityLink } from '../../components/EntityLink';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/form/Field';
 import { SelectInput } from '../../components/form/SelectInput';
+import { DateInput } from '../../components/form/DateInput';
 import { Textarea } from '../../components/form/Textarea';
 import { usePaymentModal } from '../../providers/PaymentModalProvider';
 import {
@@ -11,9 +12,11 @@ import {
 } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useApiError } from '../../hooks/useApiError';
-import { fmtDate, fmtDateTime, fmtLessons } from '../../lib/format';
+import { fmtDate, fmtDateTime, fmtLessons, isoDateMSK, todayMSK } from '../../lib/format';
 import { useAuth } from '../../hooks/useAuth';
-import { canWritePayments, type Role } from '../../lib/permissions';
+import {
+  canEditRenewalOutcomeDate, canWritePayments, type Role,
+} from '../../lib/permissions';
 import { RENEWAL_STAGE_LABELS } from '../../lib/labels';
 import { StageBadge } from './StageBadge';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
@@ -55,7 +58,8 @@ export function RenewalDrawer({ id, onClose }: Props) {
   const { data: deal, isLoading: dealLoading } = useRenewalDeal(id);
   const { data: activity, isLoading: activityLoading } = useRenewalActivity(id);
   const { data: stages } = useRenewalStages();
-  const { comment, patch, move, reopen, unfreeze } = useRenewalMutations();
+  const { comment, patch, move, reopen, unfreeze,
+    setOutcomeDate: setOutcomeDateM } = useRenewalMutations();
   const { open: openPayment } = usePaymentModal();
   const { me } = useAuth();
   // Оплату вносит админ/суперадмин — менеджер ведёт сделку, но не деньги.
@@ -67,6 +71,9 @@ export function RenewalDrawer({ id, onClose }: Props) {
   // Стадия «Заморожен» выбрана в дропдауне: move требует месяц окончания,
   // спрашиваем его тем же диалогом, что и доска.
   const [freezeStageId, setFreezeStageId] = useState<number | null>(null);
+  // Дата закрытия в форме правки. Держим в состоянии, а не читаем из deal
+  // напрямую, чтобы календарь не сбрасывал ввод на каждый рефетч сделки.
+  const [outcomeDate, setOutcomeDate] = useState('');
 
   // onClose обычно приходит как новая инлайн-функция от родителя на каждый рендер —
   // без useCallback здесь listener пересоздавался бы при каждом ре-рендере RenewalDrawer.
@@ -78,6 +85,19 @@ export function RenewalDrawer({ id, onClose }: Props) {
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [handleEscape]);
+
+  // Подставляем сохранённую дату и переподставляем при открытии другой сделки
+  // (drawer переиспользуется) или после успешной записи.
+  useEffect(() => {
+    setOutcomeDate(isoDateMSK(deal?.outcome_at));
+  }, [deal?.outcome_at]);
+
+  const handleOutcomeDateSave = () => {
+    if (!deal || !outcomeDate) return;
+    setOutcomeDateM.mutate({ id: deal.id, outcome_date: outcomeDate }, {
+      onError: (err) => showError(err, 'Не удалось изменить дату закрытия'),
+    });
+  };
 
   const handleAddComment = () => {
     const body = text.trim();
@@ -141,6 +161,10 @@ export function RenewalDrawer({ id, onClose }: Props) {
 
   const stageLabel = deal?.stage_label || (deal ? RENEWAL_STAGE_LABELS[deal.stage_key] : undefined);
   const isClosed = deal?.outcome_at != null;
+  const canEditOutcomeDate = canEditRenewalOutcomeDate(me?.role as Role);
+  // Дата закрытия по МСК — и для подстановки в календарь, и чтобы гасить
+  // «Сохранить», пока значение не изменили.
+  const closedOn = isoDateMSK(deal?.outcome_at);
   const cycleDone = !!deal?.cycle_completed;
   const currentStage = (stages || []).find((s) => s.id === deal?.stage_id);
   const isFrozen = deal?.stage_key === FROZEN_STAGE_KEY;
@@ -239,19 +263,49 @@ export function RenewalDrawer({ id, onClose }: Props) {
             </div>
 
             {isClosed ? (
-              <div className="renewal-drawer__section renewal-drawer__closed">
-                <span className={`status-badge${deal.stage_kind === 'won' ? ' status-badge--positive' : ' status-badge--negative'}`}>
-                  {deal.stage_kind === 'won' ? 'Продлена' : 'Закрыта'} {fmtDateTime(deal.outcome_at!)}
-                </span>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={reopen.isPending}
-                  onClick={() => setConfirmReopen(true)}
-                >
-                  Переоткрыть
-                </button>
-              </div>
+              <>
+                <div className="renewal-drawer__section renewal-drawer__closed">
+                  <span className={`status-badge${deal.stage_kind === 'won' ? ' status-badge--positive' : ' status-badge--negative'}`}>
+                    {deal.stage_kind === 'won' ? 'Продлена' : 'Закрыта'} {fmtDateTime(deal.outcome_at!)}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={reopen.isPending}
+                    onClick={() => setConfirmReopen(true)}
+                  >
+                    Переоткрыть
+                  </button>
+                </div>
+                {/* Сделку часто закрывают позже, чем ученик реально ушёл, а месяц
+                    закрытия — это месяц продления/ухода в аналитике. Поэтому дату
+                    можно поправить задним числом; правка видна в таймлайне. */}
+                {canEditOutcomeDate && (
+                  <div className="renewal-drawer__section renewal-drawer__outcome-date">
+                    <Field label="Дата закрытия">
+                      <div className="renewal-drawer__outcome-date-row">
+                        <DateInput
+                          value={outcomeDate}
+                          onChange={(e) => setOutcomeDate(e.target.value)}
+                        />
+                        {/* DateInput — свой календарь, min/max он не понимает,
+                            поэтому будущее отсекаем здесь (бэк проверяет тоже). */}
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={!outcomeDate
+                            || outcomeDate === closedOn
+                            || outcomeDate > todayMSK()
+                            || setOutcomeDateM.isPending}
+                          onClick={handleOutcomeDateSave}
+                        >
+                          Сохранить
+                        </button>
+                      </div>
+                    </Field>
+                  </div>
+                )}
+              </>
             ) : (
               <>
                 <div className="renewal-drawer__section renewal-drawer__fields">

@@ -627,6 +627,23 @@
   gap: var(--space-3);
 }
 
+/* Правка даты закрытия: календарь тянется, кнопка держит свою ширину —
+   иначе на узком drawer'е «Сохранить» переносится под инпут и рвёт строку. */
+.renewal-drawer__outcome-date-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.renewal-drawer__outcome-date-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.renewal-drawer__outcome-date-row > button {
+  flex: 0 0 auto;
+}
+
 /* ===== Тулбар фильтров раздела =====
    Мягкая панель в общей стилистике: крупный радиус + тень, контролы одной
    высоты (34px). Прежний вид (голый flex с Field-подписями сверху и min-width

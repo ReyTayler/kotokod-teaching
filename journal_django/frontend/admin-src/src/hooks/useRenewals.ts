@@ -171,6 +171,13 @@ export function useRenewalMutations() {
         api<RenewalDealDetail>('POST', `/api/admin/renewals/${id}/unfreeze`),
       onSuccess: invalidateWithStudents,
     }),
+    /** Дата закрытия задним числом — двигает месяц в аналитике, только admin+. */
+    setOutcomeDate: useMutation({
+      mutationFn: ({ id, outcome_date }: { id: number; outcome_date: string }) =>
+        api<RenewalDealDetail>('PATCH', `/api/admin/renewals/${id}/outcome-date`,
+          { outcome_date }),
+      onSuccess: invalidateWithStudents,
+    }),
     create: useMutation({
       mutationFn: ({ student_id }: { student_id: number }) =>
         api<RenewalDealDetail>('POST', '/api/admin/renewals', { student_id }),

@@ -7,10 +7,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin, ReadStaffWriteSuperAdmin
+from apps.core.permissions import (
+    IsAdminOrSuperAdmin,
+    IsManagerOrAdmin,
+    ReadStaffWriteSuperAdmin,
+)
 from apps.renewals import services
 from apps.renewals.serializers import (
     MoveSerializer,
+    OutcomeDateSerializer,
     StageReorderSerializer,
     StageWriteSerializer,
 )
@@ -134,6 +139,29 @@ class RenewalReopenView(APIView):
             raise NotFound({'error': 'Not found'})
         if result == 'not_closed':
             return Response({'error': 'Сделка не закрыта — переоткрывать нечего'},
+                            status=status.HTTP_409_CONFLICT)
+        return Response(result)
+
+
+class RenewalOutcomeDateView(APIView):
+    """Ручная правка даты закрытия сделки.
+
+    Только admin/superadmin: дата закрытия — это месяц, в который аналитика и
+    «Переходимость» относят продление или уход, то есть правка задним числом
+    двигает отчётность. Менеджер, ведущий сделку, такого права не имеет.
+    """
+    permission_classes = [IsAdminOrSuperAdmin]
+
+    def patch(self, request: Request, pk: int) -> Response:
+        ser = OutcomeDateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        result = services.set_outcome_date(
+            pk, ser.validated_data['outcome_date'],
+            author_id=getattr(request.user, 'id', None))
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        if result == 'not_closed':
+            return Response({'error': 'Сделка не закрыта — менять дату закрытия нечему'},
                             status=status.HTTP_409_CONFLICT)
         return Response(result)
 

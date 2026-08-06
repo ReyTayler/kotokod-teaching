@@ -37,6 +37,20 @@ class DealPatchSerializer(serializers.Serializer):
     reason_code = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
+class OutcomeDateSerializer(serializers.Serializer):
+    """Ручная правка даты закрытия сделки (admin/superadmin)."""
+    outcome_date = serializers.DateField()
+
+    def validate_outcome_date(self, value):
+        # Будущее запрещаем: закрытие — свершившийся факт, а дата за сегодняшним
+        # днём ломала бы месячные отчёты (событие в месяце, который не наступил).
+        from apps.core.utils.dates import msk_today
+
+        if value.isoformat() > msk_today():
+            raise serializers.ValidationError('Дата закрытия не может быть в будущем')
+        return value
+
+
 class CommentSerializer(serializers.Serializer):
     body = serializers.CharField()
 

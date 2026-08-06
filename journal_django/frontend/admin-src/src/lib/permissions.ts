@@ -37,6 +37,11 @@ export const canRollbackExtraLesson = isAdminUp;
 export const canSeeLessonPayroll = isSuper;   // зарплата за урок
 export const canRevertChangelog = isAdminUp;
 export const canWriteRenewalStages = isSuper; // конфиг стадий воронки продлений (Фаза 6)
+// Правка даты закрытия сделки задним числом. Дата закрытия = месяц, в который
+// аналитика и «Переходимость» относят продление или уход, поэтому это правка
+// отчётности, а не ведение сделки. Менеджеру закрыто (решение 2026-08-06).
+// Бэк: IsAdminOrSuperAdmin на PATCH /api/admin/renewals/:id/outcome-date.
+export const canEditRenewalOutcomeDate = isAdminUp;
 export const canDeleteStudentComments = isAdminUp; // удаление комментария к ученику
 // Вкладка «Уроки» на странице группы (сетка занятий + редактор урока). Менеджеру
 // не нужна — уроки он всё равно не правит (canWriteLessons), а вкладка только

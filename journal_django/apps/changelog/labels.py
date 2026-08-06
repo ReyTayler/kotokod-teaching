@@ -107,6 +107,8 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/admin/renewals/\d+/reopen$'), 'renewal.reopen'),
     ('POST', re.compile(r'^/api/admin/renewals/\d+/unfreeze$'), 'renewal.unfreeze'),
     ('POST', re.compile(r'^/api/admin/renewals/\d+/comment$'), 'renewal.comment'),
+    ('PATCH', re.compile(r'^/api/admin/renewals/\d+/outcome-date$'),
+     'renewal.outcome_date_update'),
     ('PATCH', re.compile(r'^/api/admin/renewals/\d+$'), 'renewal.update'),
     # teacher SPA
     ('POST', re.compile(r'^/api/submitLesson$'), 'lesson.submit'),

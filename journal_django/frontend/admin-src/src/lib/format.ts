@@ -12,6 +12,22 @@ export function todayMSK(): string {
 }
 
 /**
+ * ISO-дата ('YYYY-MM-DD') по МСК из ISO-даты-времени с бэкенда.
+ * Нужна там, где datetime показывается календарём: сам инпут работает только с
+ * 'YYYY-MM-DD', а браузер администратора может стоять в любой зоне — без явной
+ * Europe/Moscow дата уезжала бы на сутки у всех восточнее МСК.
+ */
+export function isoDateMSK(s: string | null | undefined): string {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/**
  * Текущее время по МСК в минутах от полуночи (09:30 → 570).
  * Часовой пояс задан явно: у администратора на машине может стоять любой, а
  * расписание школы живёт по Москве. hourCycle 'h23' — чтобы полночь пришла

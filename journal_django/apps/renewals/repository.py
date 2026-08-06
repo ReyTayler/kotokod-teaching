@@ -302,6 +302,42 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
     return deal_computed(deal_id)
 
 
+def set_outcome_date(deal_id: int, outcome_date, author_id: int | None) -> dict | str | None:
+    """Переставить дату закрытия у ЗАКРЫТОЙ сделки. None — сделки нет,
+    'not_closed' — она открыта, dict — переставили.
+
+    Зачем. Сделку часто закрывают позже, чем ученик на самом деле ушёл или продлил,
+    а аналитика и «Переходимость» относят событие к МЕСЯЦУ outcome_at. Без правки
+    даты отчёт за июнь молча уезжает в июль, и починить его нечем.
+
+    Время суток — 12:00 МСК выбранного дня: отчёты берут дату как
+    `outcome_at AT TIME ZONE 'Europe/Moscow'`, и полдень гарантирует, что обратное
+    преобразование даст ровно тот день при любом сдвиге зоны.
+
+    Стадию не трогаем: меняется КОГДА закрыли, а не ЧЕМ закончилось.
+    """
+    import datetime
+    from django.db import transaction
+    from apps.core.utils.dates import MSK
+    from apps.renewals.models import RenewalActivity, RenewalDeal
+
+    with transaction.atomic():
+        deal = RenewalDeal.objects.select_for_update().filter(id=deal_id).first()
+        if deal is None:
+            return None
+        if deal.outcome_at is None:
+            return 'not_closed'
+
+        was = deal.outcome_at.astimezone(MSK).date()
+        deal.outcome_at = datetime.datetime.combine(
+            outcome_date, datetime.time(12, 0), tzinfo=MSK)
+        deal.save(update_fields=['outcome_at', 'updated_at'])
+        RenewalActivity.objects.create(
+            deal=deal, kind='system', author_id=author_id,
+            body=f'Дата закрытия изменена: {was.isoformat()} → {outcome_date.isoformat()}')
+    return deal_computed(deal_id)
+
+
 def patch_deal(deal_id: int, data: dict) -> dict | None:
     from django.utils import timezone
     from apps.renewals.models import RenewalDeal

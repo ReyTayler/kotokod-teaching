@@ -78,6 +78,11 @@ def reopen_deal(deal_id: int, author_id: int | None) -> dict | str | None:
     return repository.deal_computed(deal_id)
 
 
+def set_outcome_date(deal_id: int, outcome_date, author_id: int | None) -> dict | str | None:
+    """None — сделки нет; 'not_closed' — она ещё открыта; dict — дату переставили."""
+    return repository.set_outcome_date(deal_id, outcome_date, author_id)
+
+
 def unfreeze_deal(deal_id: int, author_id: int | None) -> dict | str | None:
     """None — сделки нет; 'not_frozen' — она не на стадии-паузе; dict — вернули в работу.
 

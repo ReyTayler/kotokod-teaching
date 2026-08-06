@@ -10,6 +10,7 @@ from apps.renewals.views import (
     RenewalCommentView,
     RenewalDetailView,
     RenewalMoveView,
+    RenewalOutcomeDateView,
     RenewalReopenView,
     RenewalStageDetailView,
     RenewalStageListView,
@@ -36,6 +37,8 @@ urlpatterns = [
     path('/<int:pk>/move', RenewalMoveView.as_view(), name='renewals-move'),
     path('/<int:pk>/reopen', RenewalReopenView.as_view(), name='renewals-reopen'),
     path('/<int:pk>/unfreeze', RenewalUnfreezeView.as_view(), name='renewals-unfreeze'),
+    path('/<int:pk>/outcome-date', RenewalOutcomeDateView.as_view(),
+         name='renewals-outcome-date'),
     path('/<int:pk>/comment', RenewalCommentView.as_view(), name='renewals-comment'),
     path('/<int:pk>/activity', RenewalActivityView.as_view(), name='renewals-activity'),
 ]
