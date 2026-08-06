@@ -10,6 +10,10 @@ export const canSeePayroll = isSuper;
 export const canSeeChangelog = isAdminUp; // журнал изменений — только admin/superadmin (не manager)
 export const canSeeSync = isSuper;
 export const canSeeArchive = isSuper;
+// Починка плана группы (/plan/health, /plan/resync) — только суперадмин: бэк
+// сам зажимает это IsSuperAdmin (разбор рассогласований план↔факт — операция
+// уровня владельца системы, см. apps/scheduling/views.py::GroupPlanHealthView).
+export const canFixPlan = isSuper;
 
 // Архивация / разархивация сущностей (кнопки на detail-страницах, чекбокс active
 // в формах). Только суперадмин — включая группы, где обычная правка доступна

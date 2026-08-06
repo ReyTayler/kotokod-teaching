@@ -14,8 +14,9 @@ from apps.groups.views import (
 )
 from apps.scheduling.views import (
     GroupPlanCancelView, GroupPlanChangeTeacherPermanentView,
-    GroupPlanChangeTeacherView, GroupPlanGenerateView,
-    GroupPlanPermanentChangeView, GroupPlanRescheduleView, GroupPlanView,
+    GroupPlanChangeTeacherView, GroupPlanGenerateView, GroupPlanHealthView,
+    GroupPlanPermanentChangeView, GroupPlanRescheduleView, GroupPlanResyncView,
+    GroupPlanView,
 )
 
 urlpatterns = [
@@ -37,6 +38,11 @@ urlpatterns = [
     path('/<int:pk>/plan/generate', GroupPlanGenerateView.as_view(), name='groups-plan-generate'),
     path('/<int:pk>/plan/permanent-change', GroupPlanPermanentChangeView.as_view(), name='groups-plan-permanent-change'),
     path('/<int:pk>/plan/change-teacher-permanent', GroupPlanChangeTeacherPermanentView.as_view(), name='groups-plan-change-teacher-permanent'),
+    # Здоровье плана и его починка (RBAC IsSuperAdmin, в отличие от остальных
+    # /plan/* с IsManagerOrAdmin). Строковые health/resync не конфликтуют с
+    # /plan/<int:lid>/... — int-конвертер их не матчит.
+    path('/<int:pk>/plan/health', GroupPlanHealthView.as_view(), name='groups-plan-health'),
+    path('/<int:pk>/plan/resync', GroupPlanResyncView.as_view(), name='groups-plan-resync'),
     path('/<int:pk>/plan/<int:lid>/reschedule', GroupPlanRescheduleView.as_view(), name='groups-plan-reschedule'),
     path('/<int:pk>/plan/<int:lid>/change-teacher', GroupPlanChangeTeacherView.as_view(), name='groups-plan-change-teacher'),
     path('/<int:pk>/plan/<int:lid>/cancel', GroupPlanCancelView.as_view(), name='groups-plan-cancel'),

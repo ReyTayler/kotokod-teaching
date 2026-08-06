@@ -348,6 +348,15 @@ def build_summary(operation: str, events: list[dict], lk: Lookups) -> str:
     if operation == 'plan.permanent_change' and planned:
         group = lk.group((planned[0].get('pgh_data') or {}).get('group_id'))
         return f'Смена расписания {group}: занятий изменено — {len(planned)}'
+    if operation == 'plan.resync' and planned:
+        # Считаем ПОЗИЦИИ, а не события: починка пишет строку дважды (сначала
+        # снимает привязку, потом ставит новую — fact_lesson уникален), и len(planned)
+        # завысил бы счёт вдвое. Без этой ветки сработал бы фолбэк и описал бы
+        # пакетную починку фразой первой позиции — ложное описание денежно
+        # значимой операции.
+        group = lk.group((planned[0].get('pgh_data') or {}).get('group_id'))
+        positions = len({e.get('pgh_obj_id') for e in planned})
+        return f'Починка плана {group}: позиций изменено — {positions}'
     if planned:
         # перенос/отмена/смена препода/статус — описываем самым значимым событием
         for ev in planned:

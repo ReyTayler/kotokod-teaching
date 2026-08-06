@@ -104,3 +104,46 @@ class PlanChangeTeacherPermanentSerializer(StrictSerializer):
 
     from_seq = serializers.IntegerField(min_value=1)
     new_teacher_id = serializers.IntegerField(min_value=1)
+
+
+_ISO_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+class PlanResyncSerializer(StrictSerializer):
+    """
+    POST /plan/resync — починка привязок план↔факт.
+
+    expected — целевое состояние КАЖДОЙ меняющейся позиции из предпросмотра:
+    [[position_id, fact_lesson_id|null, 'YYYY-MM-DD'], ...]. Клиент подтверждает
+    ровно тот дифф, который ему показали; сервер сверяет его с диффом, посчитанным
+    под локом, и при расхождении отдаёт 409 (состояние успело измениться).
+    Пустой список — законный вход: «чинить нечего» после успешной починки.
+
+    Тройки разбираем вручную: ListField с разнотипными позициями DRF не
+    выражает, а форму надо проверить до сервиса (иначе 500 вместо 400).
+    """
+
+    expected = serializers.ListField(child=serializers.JSONField(), allow_empty=True)
+
+    def validate_expected(self, value):
+        normalized = []
+        seen = set()
+        for item in value:
+            if not isinstance(item, (list, tuple)) or len(item) != 3:
+                raise serializers.ValidationError(
+                    'Каждый элемент — [position_id, fact_lesson_id|null, "YYYY-MM-DD"].')
+            position_id, fact_lesson_id, date_str = item
+            if not isinstance(position_id, int) or isinstance(position_id, bool) or position_id < 1:
+                raise serializers.ValidationError('position_id — целое число ≥ 1.')
+            if fact_lesson_id is not None and (
+                not isinstance(fact_lesson_id, int) or isinstance(fact_lesson_id, bool)
+                or fact_lesson_id < 1
+            ):
+                raise serializers.ValidationError('fact_lesson_id — целое число ≥ 1 или null.')
+            if not isinstance(date_str, str) or not _ISO_DATE_RE.match(date_str):
+                raise serializers.ValidationError('Дата должна быть в формате YYYY-MM-DD.')
+            if position_id in seen:
+                raise serializers.ValidationError('Позиция указана дважды.')
+            seen.add(position_id)
+            normalized.append((position_id, fact_lesson_id, date_str))
+        return normalized

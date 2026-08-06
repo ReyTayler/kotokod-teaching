@@ -11,12 +11,18 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { groupPlanKey } from './useGroupPlanCalendar';
+import { groupPlanHealthKey } from './useGroupPlanHealth';
 import type { PlanRow } from './useGroupPlanCalendar';
 
 function invalidatePlan(qc: ReturnType<typeof useQueryClient>, groupId: number) {
   qc.invalidateQueries({ queryKey: groupPlanKey(groupId) });
   // Слоты (recurrence-шаблон) меняются при permanent-change — видны в списке групп.
   qc.invalidateQueries({ queryKey: ['groups'] });
+  // «Состояние плана» на той же вкладке держит ПРЕДПРОСМОТР починки. Без сброса
+  // блок остаётся с диффом от прежнего состояния и активной кнопкой на уже
+  // несуществующих изменениях: данные защищает рукопожатие expected (409), но
+  // пользователь ловил бы непонятную ошибку вместо актуальной картины.
+  qc.invalidateQueries({ queryKey: groupPlanHealthKey(groupId) });
 }
 
 /** POST /plan/generate — сгенерировать план курса (идемпотентно, без тела). */

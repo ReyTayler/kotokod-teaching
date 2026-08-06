@@ -10,15 +10,19 @@
 
 Что делает: приводит привязки к инварианту «номер факта = номер позиции».
   • каждый факт вешается на позицию со своим номером;
-  • плановая дата позиции becomes датой факта (позиция описывает прошедшее занятие);
+  • плановая дата позиции становится датой факта (позиция описывает прошедшее занятие);
   • позиции, которым факта не досталось, освобождаются и остаются в плане впереди.
 
 Чего НЕ делает: не создаёт и не удаляет ни уроки, ни позиции, не меняет номера в
 самих уроках. Если фактам не находится позиции с их номером — команда отказывается
 работать целиком, чтобы не чинить наполовину.
 
-Изменения идут под pghistory-контекстом — попадают в журнал изменений и
-откатываются оттуда.
+Здесь только разбор аргументов, вывод и pghistory-контекст: сама логика живёт в
+apps.scheduling.repository (plan_resync_diff / resync_plan_facts) и делится с
+эндпоинтами /plan/health и /plan/resync — чинить в двух местах нечего.
+
+Контекст ставит именно команда: в HTTP-пути его открывает ChangelogMiddleware, и
+явная метка перебила бы правило plan.resync в журнале изменений.
 
     python manage.py resync_plan_facts --group 87            # разбор, без записи
     python manage.py resync_plan_facts --group 87 --apply    # записать
@@ -27,14 +31,24 @@ from __future__ import annotations
 
 import pghistory
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
-from django.db.models import F
 
-from apps.core.utils.dates import msk_now
 from apps.groups.models import Group
-from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
-from apps.scheduling.models import PlannedLesson
-from apps.scheduling.occurrences import DONE, PENDING
+from apps.scheduling import repository, services
+from apps.scheduling.exceptions import PlanResyncBlocked
+
+# Подписи проверок слоя 3 — зеркало PLAN_HEALTH_CHECK_LABELS во фронте
+# (admin-src/src/lib/labels.ts). Без них команда печатала сырые английские ключи.
+_CHECK_RU = {
+    'fact_without_position': 'занятие без позиции в курсе',
+    'duplicate_dates': 'два занятия на одну дату',
+    'duplicate_position_numbers': 'две позиции с одним номером урока',
+}
+
+_REASON_RU = {
+    'no_position': 'нет позиции с таким номером',
+    'locked_position': 'занятие стоит на перенесённой/отменённой позиции',
+    'duplicate_fact_number': 'два занятия с одним номером',
+}
 
 
 class Command(BaseCommand):
@@ -54,102 +68,59 @@ class Command(BaseCommand):
         if group is None:
             raise CommandError(f'Группы {group_id} нет.')
 
-        facts = list(
-            Lesson.objects.filter(group_id=group_id, lesson_type__in=COURSE_LESSON_TYPES)
-            .order_by('lesson_number', 'lesson_date', 'id')
-            .values('id', 'lesson_date', 'lesson_number')
-        )
-        positions = list(
-            PlannedLesson.objects.filter(group_id=group_id, seq__isnull=False)
-            .order_by('seq')
-        )
-
-        by_number = {p.lesson_number: p for p in positions}
-        if len(by_number) != len(positions):
-            raise CommandError('В плане есть позиции с одинаковым номером — сначала это.')
-
-        # Факт без позиции своего номера чинить нечем: отказываемся целиком.
-        orphans = [f for f in facts if f['lesson_number'] not in by_number]
-        if orphans:
-            self.stdout.write(self.style.ERROR(
-                'Для этих занятий нет позиции с таким номером — разберитесь вручную:'))
-            for f in orphans:
-                self.stdout.write(f"  урок {f['id']} №{f['lesson_number']} {f['lesson_date']}")
+        diff = repository.plan_resync_diff(group_id)
+        if diff['blocked_by'] or diff['orphan_facts']:
+            self._report_blocked(diff)
             raise CommandError('Ничего не изменено.')
 
-        wanted = {}      # position_id -> (fact_id, fact_date)
-        for f in facts:
-            wanted[by_number[f['lesson_number']].id] = (f['id'], f['lesson_date'])
-
-        changes = []
-        for p in positions:
-            target = wanted.get(p.id)
-            new_fact = target[0] if target else None
-            new_date = target[1] if target else p.scheduled_date
-            if p.fact_lesson_id != new_fact or p.scheduled_date != new_date:
-                changes.append((p, new_fact, new_date))
-
+        changes = diff['changes']
         self.stdout.write(f'\nГруппа {group.name} (id={group_id}): '
-                          f'позиций {len(positions)}, занятий {len(facts)}')
+                          f'позиций изменится {len(changes)}')
         if not changes:
             self.stdout.write(self.style.SUCCESS('Всё уже согласовано — менять нечего.'))
             return
 
-        self.stdout.write(f'\nИзменится позиций: {len(changes)}\n')
-        self.stdout.write('  позиция  №     было: факт / дата         станет: факт / дата')
-        for p, new_fact, new_date in changes:
+        self.stdout.write('\n  позиция  №     было: факт / дата         станет: факт / дата')
+        for c in changes:
             self.stdout.write(
-                f'  {p.id:<8} {str(p.lesson_number):<5} '
-                f'{str(p.fact_lesson_id):<8} {p.scheduled_date}  ->  '
-                f'{str(new_fact):<8} {new_date}'
+                f'  {c["position_id"]:<8} {str(c["lesson_number"]):<5} '
+                f'{str(c["from"]["fact_lesson_id"]):<8} {c["from"]["scheduled_date"]}  ->  '
+                f'{str(c["to"]["fact_lesson_id"]):<8} {c["to"]["scheduled_date"]}'
             )
-
-        freed = [p for p, f, _ in changes if f is None]
-        if freed:
+        if diff['freed']:
             self.stdout.write('\nОсвобождаются (станут ближайшими занятиями):')
-            for p in freed:
-                self.stdout.write(f'  №{p.lesson_number} на {p.scheduled_date}')
+            for f in diff['freed']:
+                self.stdout.write(f'  №{f["lesson_number"]} на {f["scheduled_date"]}')
 
-        with transaction.atomic():
-            with pghistory.context(
-                operation='manual.resync_plan_facts',
-                url=f'manual/resync-plan-facts/group/{group_id}',
-                method='COMMAND',
-                note=f'{group.name}: снят сдвиг нумерации плана относительно занятий',
-            ):
-                now = msk_now()
-                # Сначала снять все привязки, которые меняются: fact_lesson уникален,
-                # иначе первая же перестановка упрётся в ограничение.
-                for p, _new_fact, _new_date in changes:
-                    if p.fact_lesson_id is not None:
-                        PlannedLesson.objects.filter(id=p.id).update(
-                            fact_lesson=None, status=PENDING, updated_at=now)
-                for p, new_fact, new_date in changes:
-                    PlannedLesson.objects.filter(id=p.id).update(
-                        fact_lesson_id=new_fact,
-                        status=DONE if new_fact else PENDING,
-                        scheduled_date=new_date,
-                        updated_at=now,
-                    )
+        if not apply_changes:
+            self.stdout.write(self.style.WARNING(
+                '\nПробный прогон — в базе ничего не изменилось. '
+                'Повторите с --apply, чтобы записать.'))
+            return
 
-            mismatch = (
-                PlannedLesson.objects
-                .filter(group_id=group_id, seq__isnull=False, fact_lesson__isnull=False)
-                .exclude(lesson_number=F('fact_lesson__lesson_number'))
-                .count()
-            )
-            linked = PlannedLesson.objects.filter(
-                group_id=group_id, fact_lesson__isnull=False).count()
-            self.stdout.write(f'\nПривязано занятий: {linked} из {len(facts)}')
-            self.stdout.write(f'Расхождений «номер позиции ≠ номер занятия»: {mismatch}')
-            if mismatch or linked != len(facts):
-                raise CommandError('Проверка после записи не сошлась — откат.')
+        with pghistory.context(
+            operation='manual.resync_plan_facts',
+            url=f'manual/resync-plan-facts/group/{group_id}',
+            method='COMMAND',
+            note=f'{group.name}: снят сдвиг нумерации плана относительно занятий',
+        ):
+            try:
+                # expected=None: у команды нет рукопожатия с предпросмотром —
+                # применяется то состояние, которое видно под локом.
+                result = services.resync_plan(group_id, expected=None)
+            except PlanResyncBlocked as exc:
+                raise CommandError(str(exc))
 
-            if not apply_changes:
-                transaction.set_rollback(True)
-                self.stdout.write(self.style.WARNING(
-                    '\nПробный прогон — в базе ничего не изменилось. '
-                    'Повторите с --apply, чтобы записать.'))
-                return
+        self.stdout.write(self.style.SUCCESS(
+            f'\nЗаписано: позиций изменено {result["applied"]}, '
+            f'освобождено {result["freed_count"]}.'))
 
-        self.stdout.write(self.style.SUCCESS('\nЗаписано.'))
+    def _report_blocked(self, diff: dict) -> None:
+        if diff['blocked_by']:
+            names = [_CHECK_RU.get(key, key) for key in diff['blocked_by']]
+            self.stdout.write(self.style.ERROR(
+                'Сначала разберитесь с этим: ' + ', '.join(names)))
+        for f in diff['orphan_facts']:
+            self.stdout.write(self.style.ERROR(
+                f'  урок {f["lesson_id"]} №{f["lesson_number"]} {f["lesson_date"]} — '
+                f'{_REASON_RU.get(f["reason"], f["reason"])}'))

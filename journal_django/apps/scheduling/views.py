@@ -18,11 +18,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsManagerOrAdmin, IsTeacher
+from apps.core.permissions import IsManagerOrAdmin, IsSuperAdmin, IsTeacher
 from apps.scheduling import services
+from apps.scheduling.exceptions import PlanResyncBlocked
 from apps.scheduling.serializers import (
     PlanChangeTeacherPermanentSerializer, PlanChangeTeacherSerializer,
-    PlanPermanentChangeSerializer, PlanRescheduleSerializer,
+    PlanPermanentChangeSerializer, PlanRescheduleSerializer, PlanResyncSerializer,
 )
 
 # Максимальная ширина окна (дней) — календарь просит неделю/месяц; ограничиваем,
@@ -250,6 +251,64 @@ class GroupPlanChangeTeacherView(APIView):
         if row is None:
             raise NotFound({'error': 'Not found'})
         return Response(row)
+
+
+class GroupPlanHealthView(APIView):
+    """
+    GET /api/admin/groups/<pk>/plan/health — проверки здоровья плана + предпросмотр
+    починки. ТОЛЬКО ЧТЕНИЕ (health-модуль ничего не пишет по контракту).
+
+    IsSuperAdmin, а не IsManagerOrAdmin: разбор рассогласований план↔факт —
+    операция уровня владельца системы, и предпросмотр здесь неотделим от кнопки
+    применения (resync ниже).
+    """
+
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        report = services.plan_health(pk)
+        if report is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(report)
+
+
+class GroupPlanResyncView(APIView):
+    """
+    POST /api/admin/groups/<pk>/plan/resync — починка «номер факта = номер позиции».
+
+    Тело: {'expected': [[position_id, fact_lesson_id|null, 'YYYY-MM-DD'], ...]} —
+    подтверждение диффа из предпросмотра. 409: сработала граница слоя 3, есть
+    факты без позиции своего номера, либо состояние изменилось. «Чинить нечего» —
+    это 200 с applied=0, а не конфликт.
+    """
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request: Request, pk: int) -> Response:
+        serializer = PlanResyncSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = services.resync_plan(pk, expected=serializer.validated_data['expected'])
+        except PlanResyncBlocked as exc:
+            # except СНАРУЖИ transaction.atomic (она внутри repository) — иначе
+            # был бы TransactionManagementError вместо 409.
+            return Response(
+                {'error': str(exc), 'blocked_by': exc.blocked_by,
+                 'orphan_facts': exc.orphan_facts},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except IntegrityError as exc:
+            # Остаточный 23505 (fact_lesson уникален): гонка с записью урока.
+            if _is_unique_violation(exc):
+                return Response(
+                    {'error': 'Состояние изменилось, обновите предпросмотр.',
+                     'blocked_by': [], 'orphan_facts': []},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            raise
+        if result is None:
+            raise NotFound({'error': 'Not found'})
+        return Response(result)
 
 
 class GroupPlanChangeTeacherPermanentView(APIView):

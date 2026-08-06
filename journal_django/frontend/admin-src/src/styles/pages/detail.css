@@ -1158,6 +1158,59 @@
 .affected-ops-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .affected-ops-list__item { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; font-size: 13px; color: var(--text2); }
 
+/* ── «Состояние плана» (GroupPlanHealthBlock, вкладка «Расписание») ──
+   Три тона на одном инсет-приёме (см. .reg-stream__row--unmarked / .notif-toggle__banner
+   в других страницах): чисто — нейтральная строка без рамки-акцента; можно
+   починить — жёлтый инсет; чинить нельзя — красный. Цвет и текст обязаны
+   совпадать (в блокировке нет кнопки вовсе), поэтому тона три: ok / warn / blocked. */
+.plan-health {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4); border-radius: var(--r-lg);
+  border: 1px solid var(--border); background: var(--bg2);
+}
+.plan-health--ok {
+  flex-direction: row; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text2); font-size: var(--fs-sm);
+}
+.plan-health__icon { color: var(--success); font-weight: 700; }
+.plan-health--warn {
+  border-color: color-mix(in oklab, var(--warning) 28%, transparent);
+  background: color-mix(in oklab, var(--warning) 6%, var(--bg2));
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+.plan-health--blocked {
+  border-color: color-mix(in oklab, var(--danger) 30%, transparent);
+  background: color-mix(in oklab, var(--danger) 6%, var(--bg2));
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.plan-health__head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3); flex-wrap: wrap;
+}
+.plan-health__title { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.plan-health__findings {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.plan-health__blockers { display: flex; flex-direction: column; gap: var(--space-1); }
+.plan-health__blockers-title { font-size: var(--fs-sm); font-weight: 700; color: var(--danger); }
+.plan-health__check { display: flex; flex-direction: column; gap: 2px; }
+.plan-health__check-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text2); }
+.plan-health__rows {
+  list-style: none; margin: 2px 0 0; padding: 0 0 0 var(--space-3);
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: var(--fs-xs); color: var(--text3); font-family: var(--font-mono);
+}
+.plan-health__warning { font-size: var(--fs-sm); color: var(--text2); line-height: 1.5; }
+.plan-health__preview-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin-top: var(--space-2); }
+.plan-health__preview-table th, .plan-health__preview-table td {
+  text-align: left; padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.plan-health__preview-table th { color: var(--text3); font-weight: 500; }
+.plan-health__freed { margin-top: var(--space-3); }
+
 .btn-delete.is-confirming { background: color-mix(in oklab, var(--danger) 16%, transparent); color: var(--danger); border-color: transparent; }
 
 /* ============================================================

@@ -90,6 +90,7 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'account.twofa_disable':         'Выключение 2FA',
   'teacher.telegram_link':         'Привязка Telegram',
   'teacher.telegram_unlink':       'Отвязка Telegram',
+  'plan.resync':                   'Починка плана',
   'changelog.revert':              'Откат',
   other:                           'Другое действие',
 };
@@ -172,6 +173,30 @@ export const RENEWAL_LOST_REASON_LABELS: Record<string, string> = {
   lost_interest: 'Потерял интерес',
   relocation: 'Переезд',
   other: 'Другое',
+};
+
+// ===== Состояние плана группы (GET /plan/health, ключи из apps/scheduling/health.py::CHECKS) =====
+
+// Подписи проверок расхождения план↔занятия. 'duplicate_position_numbers' —
+// восьмая причина блокировки, её считает только сам resync (repository.py,
+// не входит в health.CHECKS), поэтому здесь, а не в CHECKS-списке проверок.
+export const PLAN_HEALTH_CHECK_LABELS: Record<string, string> = {
+  fact_without_position:       'Занятие не привязано ни к одной позиции курса',
+  beyond_course:                'Позиция выходит за пределы длины курса',
+  number_mismatch:              'Номер позиции не совпадает с номером занятия',
+  date_mismatch:                'Плановая дата не совпадает с датой занятия',
+  done_in_future:                'Отмечено проведённым, а дата ещё не наступила',
+  collision:                    'Два занятия стоят в один день и час',
+  duplicate_dates:              'Два занятия проведены в один день',
+  duplicate_position_numbers:   'В плане несколько позиций с одним номером урока',
+};
+
+// Причина, по которой конкретному занятию не находится позиция при починке
+// (resync.orphan_facts[].reason, apps/scheduling/repository.py::_plan_resync_changes).
+export const PLAN_HEALTH_ORPHAN_REASON_LABELS: Record<string, string> = {
+  no_position:            'В плане курса нет позиции с таким номером урока',
+  locked_position:         'Позиция с этим номером занята и её нельзя трогать (перенесена/отменена)',
+  duplicate_fact_number:   'Ещё одно занятие с тем же номером урока',
 };
 
 // ===== Русские числительные =====

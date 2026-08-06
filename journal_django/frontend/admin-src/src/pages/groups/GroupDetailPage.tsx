@@ -29,6 +29,7 @@ import GroupFormModal from './GroupFormModal';
 import GroupMembersBlock from './GroupMembersBlock';
 import GroupScheduleBlock from './GroupScheduleBlock';
 import GroupPlanActions, { type GroupPlanActionsHandle } from './GroupPlanActions';
+import GroupPlanHealthBlock from './GroupPlanHealthBlock';
 import GroupPlanTable from './GroupPlanTable';
 import GroupProgressBlock from './GroupProgressBlock';
 import GroupKpiRow from './GroupKpiRow';
@@ -264,6 +265,7 @@ export default function GroupDetailPage() {
       label: 'Расписание',
       content: (
         <div className="detail__section" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          <GroupPlanHealthBlock groupId={group.id} />
           <GroupPlanActions ref={planActionsRef} group={group} />
           <CalendarView
             occurrences={planCalendar.occurrences}

@@ -13,7 +13,7 @@ from django.db import transaction
 from apps.core.utils.dates import MSK, msk_now
 from apps.extra_lessons import repository as extra_lessons_repository
 from apps.extra_lessons.models import MAKEUP_DONE as EXTRA_DONE
-from apps.scheduling import repository
+from apps.scheduling import health, repository
 from apps.scheduling.occurrences import (
     CANCELLED, DONE, OVERDUE, PENDING, planned_status,
 )
@@ -403,6 +403,39 @@ def generate_plan(group_id: int, request) -> list[dict] | None:
 def resize_plan(group_id: int) -> int:
     """Подогнать план под текущую длину курса группы. См. repository.resize_plan."""
     return repository.resize_plan(group_id)
+
+
+def plan_health(group_id: int) -> dict | None:
+    """
+    Здоровье плана группы + предпросмотр починки. None → группы нет (404).
+
+    {'group_id', 'name', 'findings': {...health.check_group...},
+     'resync': {'blocked_by', 'changes', 'orphan_facts', 'freed'}}
+
+    Только чтение. health.check_group уже посчитал проверки слоя 3 — передаём их
+    в repository готовыми, чтобы не гонять те же запросы второй раз.
+    """
+    report = health.check_group(group_id)
+    if report is None:
+        return None
+    blocked_by = repository.blockers_from_findings(report['findings'])
+    return {
+        **report,
+        'resync': repository.plan_resync_diff(group_id, blocked_by=blocked_by),
+    }
+
+
+def resync_plan(group_id: int, *, expected) -> dict | None:
+    """
+    Применить починку плана. None → группы нет (404); PlanResyncBlocked → 409.
+
+    Своего pghistory.context здесь НЕТ намеренно: в HTTP-пути контекст открывает
+    ChangelogMiddleware, а явная метка перебила бы resolve_operation и правило
+    plan.resync в labels.py стало бы мёртвым. Команда (где middleware нет) ставит
+    контекст сама. Вся починка идёт одной транзакцией → одним контекстом, поэтому
+    откат из журнала возвращает её целиком.
+    """
+    return repository.resync_plan_facts(group_id, expected=expected)
 
 
 def reschedule(group_id: int, lesson_id: int, data: dict, request) -> dict | None:

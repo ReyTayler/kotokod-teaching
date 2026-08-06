@@ -21,8 +21,8 @@ from apps.groups.models import Group
 from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
 from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
-from apps.scheduling import planner
-from apps.scheduling.exceptions import PlanHasRecordedLessons
+from apps.scheduling import health, planner
+from apps.scheduling.exceptions import PlanHasRecordedLessons, PlanResyncBlocked
 from apps.scheduling.models import PlannedLesson
 from apps.scheduling.occurrences import (
     CANCELLED, DONE, MOVED, OVERDUE, PENDING, Slot, _step_for, _walk,
@@ -1397,12 +1397,22 @@ def cancel_lesson(
             if s.effective_to is None
         ]
 
-        target = (
+        # Курсовые строки группы лочатся ПЕРВЫМИ и в порядке seq — тем же, что у
+        # permanent_change/resize_plan/resync_plan_facts. Прежде здесь сначала
+        # лочилась одна строка target по id, а весь курс — после и без order_by:
+        # порядок захвата получался обратный, и «отменить занятие» могло встать
+        # в дедлок с «изменить расписание»/«починить план» на той же группе.
+        # target берём из уже залоченного набора — второй лок не нужен.
+        course_rows = list(
             PlannedLesson.objects
             .select_for_update()
-            .filter(group_id=group_id, id=lesson_id, seq__isnull=False,
-                    status__in=_MUTABLE_STATUSES)
-            .first()
+            .filter(group_id=group_id, seq__isnull=False)
+            .order_by('seq')
+        )
+        target = next(
+            (p for p in course_rows
+             if p.id == lesson_id and p.status in _MUTABLE_STATUSES),
+            None,
         )
         if target is None:
             raise ValueError('Отменить можно только активную курсовую строку.')
@@ -1418,9 +1428,8 @@ def cancel_lesson(
 
         # (2) Переносим саму отменённую строку в конец курса — на первый
         # свободный слот после текущей последней курсовой даты.
-        course_qs = PlannedLesson.objects.select_for_update().filter(
-            group_id=group_id, seq__isnull=False)
-        last_date = max(p.scheduled_date for p in course_qs)
+        # course_rows уже залочены выше — повторный select_for_update не нужен.
+        last_date = max(p.scheduled_date for p in course_rows)
         occupied = frozenset(
             PlannedLesson.objects.filter(group_id=group_id)
             .values_list('scheduled_date', flat=True)
@@ -1632,6 +1641,341 @@ def rebuild_from_facts(group_id: int) -> dict | None:
     slots = slots_by_group([group_id]).get(group_id, [])
     facts = facts_by_group([group_id]).get(group_id, [])
     return rebuild_group_plan(group_id, g, slots, facts)
+
+
+# ---------------------------------------------------------------------------
+# Починка плана: «номер факта = номер позиции» (resync).
+#
+# Прошлое чинится ровно одним правилом: каждое проведённое занятие вешается на
+# позицию СВОЕГО номера, плановая дата позиции становится датой занятия,
+# оставшиеся без факта позиции освобождаются и уходят вперёд. Ни уроков, ни
+# позиций не создаём и не удаляем, номера в самих уроках не трогаем.
+#
+# Разделение как у _build_rebuild_rows/rebuild_group_plan: чистая функция над уже
+# прочитанными списками (_plan_resync_changes) + два пути к ней — read-only
+# предпросмотр (plan_resync_diff) и запись под локами (resync_plan_facts).
+# ---------------------------------------------------------------------------
+
+# Проверки здоровья (health.CHECKS), при которых чинить нельзя: пока занятие не
+# привязано НИ К ОДНОЙ позиции или два занятия стоят на одной дате, «правильная»
+# раскладка не определена. Это граница слоя 3 из спеки, не предусловие команды.
+RESYNC_BLOCKING_CHECKS = ('fact_without_position', 'duplicate_dates')
+
+# Статусы позиций, которые починка вправе трогать. Перенесённые (moved) и
+# отменённые курсовые строки исключены по той же причине, что и в
+# _MUTABLE_STATUSES у permanent_change: их состояние — результат отдельного
+# решения человека, и молча возвращать их в pending/done нельзя.
+_RESYNC_STATUSES = (PENDING, OVERDUE, DONE)
+
+_RESYNC_POSITION_FIELDS = (
+    'id', 'seq', 'lesson_number', 'scheduled_date', 'fact_lesson_id', 'status',
+)
+
+
+def _number_key(value):
+    """Ключ сопоставления по номеру урока.
+
+    Половинный шаг (45 мин) даёт номера 0.5/1.0/1.5 — сравнивать их как строки
+    нельзя ('12.0' != '12'), поэтому нормализуем к Decimal. None (урок без
+    номера) ключом быть не может: такому факту позицию не найти."""
+    if value is None:
+        return None
+    return Decimal(str(value))
+
+
+def _resync_position_dicts(group_id: int, *, lock: bool = False) -> list[dict]:
+    """ВСЕ строки плана группы (курсовые и маркеры), упорядоченные по seq.
+
+    lock=True — select_for_update тем же порядком (seq), что в permanent_change
+    и resize_plan: единый порядок захвата строк защищает от дедлоков."""
+    qs = PlannedLesson.objects.filter(group_id=group_id)
+    if lock:
+        qs = qs.select_for_update()
+    return list(qs.order_by('seq').values(*_RESYNC_POSITION_FIELDS))
+
+
+def _course_facts(group_id: int) -> list[dict]:
+    """Проведённые занятия КУРСА группы (extra/burned позиций не занимают)."""
+    return list(
+        Lesson.objects
+        .filter(group_id=group_id, lesson_type__in=COURSE_LESSON_TYPES)
+        .order_by('lesson_number', 'lesson_date', 'id')
+        .values('id', 'lesson_date', 'lesson_number')
+    )
+
+
+def blockers_from_findings(findings: dict) -> list[str]:
+    """Какие из проверок слоя 3 сработали в готовом отчёте health.check_group.
+
+    ЕДИНСТВЕННОЕ место, где записано правило «что блокирует автопочинку».
+    services.plan_health зовёт её же на уже прочитанном отчёте, чтобы правило не
+    оказалось продублировано в двух файлах и не разошлось при добавлении
+    восьмой проверки.
+    """
+    return [key for key in RESYNC_BLOCKING_CHECKS if findings.get(key)]
+
+
+def _health_blockers(group_id: int) -> list[str]:
+    """Сработавшие проверки слоя 3 (health — только чтение, логики починки в нём нет)."""
+    report = health.check_group(group_id)
+    if report is None:
+        return []
+    return blockers_from_findings(report['findings'])
+
+
+def _plan_resync_changes(facts: list[dict], positions: list[dict]) -> dict:
+    """
+    ЧИСТАЯ функция: что изменится, если разложить факты по позициям своих номеров.
+
+    facts — курсовые занятия группы (_course_facts), positions — ВСЕ строки плана
+    (_resync_position_dicts). Ничего не читает и не пишет: оба пути (предпросмотр
+    без локов и запись под локом) считают дифф ровно этим кодом.
+
+    Возвращает:
+      changes  — [{'position_id', 'lesson_number', 'from': {...}, 'to': {...}}],
+                 только реально меняющиеся позиции, по возрастанию seq;
+      freed    — позиции, которые останутся без факта (уйдут вперёд как ближайшие);
+      orphan_facts — занятия, из-за которых чинить нельзя (см. reason);
+      duplicate_numbers — в плане есть позиции с одинаковым номером (чинить нельзя).
+
+    Даты — ISO-строки, номера — float: структура уходит и в HTTP-ответ, и в
+    сверку с expected, поэтому сериализуемая форма нужна обеим сторонам.
+    """
+    course = [p for p in positions if p['seq'] is not None]
+    touchable = [p for p in course if p['status'] in _RESYNC_STATUSES]
+    touchable_ids = {p['id'] for p in touchable}
+
+    # Факт, сидящий на позиции, которую починка трогать не вправе (moved/cancelled
+    # курсовая строка, маркер): снять его мы не можем, а его номерная позиция
+    # ждёт именно его — операция не определена.
+    locked_fact_ids = {
+        p['fact_lesson_id'] for p in positions
+        if p['fact_lesson_id'] is not None and p['id'] not in touchable_ids
+    }
+
+    by_number: dict = {}
+    duplicate_numbers = False
+    for p in touchable:
+        key = _number_key(p['lesson_number'])
+        if key in by_number:
+            duplicate_numbers = True
+            continue
+        by_number[key] = p
+
+    orphan_facts: list[dict] = []
+    wanted: dict[int, dict] = {}      # position_id -> факт
+    claimed_by: dict[int, int] = {}   # position_id -> id уже занявшего факта
+    for f in facts:
+        key = _number_key(f['lesson_number'])
+        target = by_number.get(key) if key is not None else None
+        if f['id'] in locked_fact_ids:
+            reason = 'locked_position'
+        elif target is None:
+            reason = 'no_position'
+        elif target['id'] in claimed_by:
+            # Два занятия с одним номером — раскладка неоднозначна.
+            reason = 'duplicate_fact_number'
+        else:
+            claimed_by[target['id']] = f['id']
+            wanted[target['id']] = f
+            continue
+        orphan_facts.append({
+            'lesson_id': f['id'],
+            'lesson_number': float(f['lesson_number']) if f['lesson_number'] is not None else None,
+            'lesson_date': _iso(f['lesson_date']),
+            'reason': reason,
+        })
+
+    changes: list[dict] = []
+    freed: list[dict] = []
+    for p in touchable:
+        target = wanted.get(p['id'])
+        new_fact_id = target['id'] if target else None
+        new_date = target['lesson_date'] if target else p['scheduled_date']
+        if p['fact_lesson_id'] == new_fact_id and p['scheduled_date'] == new_date:
+            continue
+        number = float(p['lesson_number']) if p['lesson_number'] is not None else None
+        changes.append({
+            'position_id': p['id'],
+            'lesson_number': number,
+            'from': {
+                'fact_lesson_id': p['fact_lesson_id'],
+                'scheduled_date': _iso(p['scheduled_date']),
+            },
+            'to': {
+                'fact_lesson_id': new_fact_id,
+                'scheduled_date': _iso(new_date),
+            },
+        })
+        if new_fact_id is None:
+            freed.append({
+                'position_id': p['id'],
+                'lesson_number': number,
+                'scheduled_date': _iso(new_date),
+            })
+
+    return {
+        'changes': changes,
+        'freed': freed,
+        'orphan_facts': orphan_facts,
+        'duplicate_numbers': duplicate_numbers,
+    }
+
+
+def _blocked_result(blocked_by: list[str], orphan_facts: list[dict]) -> dict:
+    """Ответ предпросмотра, когда чинить нельзя.
+
+    changes=None НАМЕРЕННО: показывать план починки, который сервер применять
+    откажется, нельзя — интерфейс предложил бы кнопку, дающую 409."""
+    return {
+        'blocked_by': list(blocked_by),
+        'changes': None,
+        'orphan_facts': list(orphan_facts),
+        'freed': [],
+    }
+
+
+def plan_resync_diff(group_id: int, *, blocked_by: list[str] | None = None) -> dict | None:
+    """
+    Предпросмотр починки — ЧТЕНИЕ без локов и без записи. None → группы нет.
+
+    blocked_by передаёт вызывающий, если проверки слоя 3 уже посчитаны (services
+    берёт их из того же health.check_group, который отдаёт findings) — иначе
+    считаем сами. Это единственная причина параметра: не гонять health дважды
+    на один GET.
+    """
+    if not Group.objects.filter(id=group_id).exists():
+        return None
+    if blocked_by is None:
+        blocked_by = _health_blockers(group_id)
+    if blocked_by:
+        return _blocked_result(blocked_by, [])
+
+    diff = _plan_resync_changes(_course_facts(group_id), _resync_position_dicts(group_id))
+    if diff['duplicate_numbers']:
+        return _blocked_result(['duplicate_position_numbers'], diff['orphan_facts'])
+    if diff['orphan_facts']:
+        # Причина та же, что у blocked_by: применять такой план сервер откажется.
+        return _blocked_result([], diff['orphan_facts'])
+    return {
+        'blocked_by': [],
+        'changes': diff['changes'],
+        'orphan_facts': [],
+        'freed': diff['freed'],
+    }
+
+
+def _expected_map(changes: list[dict]) -> dict:
+    """Дифф → {position_id: (fact_lesson_id, 'YYYY-MM-DD')} для сверки с expected."""
+    return {c['position_id']: (c['to']['fact_lesson_id'], c['to']['scheduled_date'])
+            for c in changes}
+
+
+def _normalize_expected(expected) -> dict:
+    """Клиентские тройки [position_id, fact_lesson_id|null, 'YYYY-MM-DD'] → тот же вид.
+    Форма уже проверена сериализатором — здесь только приведение типов."""
+    return {
+        int(pid): (None if fact_id is None else int(fact_id), str(date_str))
+        for pid, fact_id, date_str in expected
+    }
+
+
+def resync_plan_facts(group_id: int, *, expected=None) -> dict | None:
+    """
+    Применить починку. None → группы нет (view → 404).
+
+    Транзакция:
+      (1) ПЕРВЫМ действием — лок всего плана группы (select_for_update, порядок
+          seq: тот же, что в permanent_change/resize_plan → нет дедлоков);
+      (2) факты читаются ПОСЛЕ локов и БЕЗ select_for_update: record_lesson лочит
+          позицию, а потом пишет урок — взяв здесь лок на lessons, мы получили бы
+          обратный порядок блокировок и настоящий дедлок;
+      (3) граница слоя 3 и предусловия перепроверяются ВНУТРИ транзакции (между
+          предпросмотром и применением состояние могло измениться);
+      (4) сверка с expected — до записи; расхождение → PlanResyncBlocked (409).
+          ИСКЛЮЧЕНИЕ: пустой дифф не сверяется вовсе, даже если клиент прислал
+          непустой expected. Это осознанный перекос в пользу идемпотентности:
+          повторный клик (в т.ч. двойной, когда второй запрос несёт тот же
+          expected, а чинить уже нечего) обязан давать 200 applied=0, а не
+          конфликт — иначе пользователь получает ошибку на успешно выполненной
+          операции. Расхождение «клиент видел изменения, а их уже нет» означает,
+          что кто-то починил группу раньше, и цель клиента всё равно достигнута;
+      (5) запись в ДВА прохода: сначала снимаются ВСЕ меняющиеся привязки (включая
+          освобождаемые), потом ставятся новые. fact_lesson уникален — при
+          перестановке двух фактов местами одношаговая запись упёрлась бы в 23505.
+
+    expected=None — сверки нет (путь команды: там нет предпросмотра-рукопожатия).
+    HTTP всегда передаёт список.
+
+    Возвращает {'applied': N, 'freed_count': M, 'plan': [...]}; «чинить нечего» —
+    applied=0, а не конфликт.
+    """
+    if not Group.objects.filter(id=group_id).exists():
+        return None
+
+    now = msk_now()
+    with transaction.atomic():
+        positions = _resync_position_dicts(group_id, lock=True)
+        facts = _course_facts(group_id)
+
+        blocked_by = _health_blockers(group_id)
+        diff = _plan_resync_changes(facts, positions)
+        if diff['duplicate_numbers']:
+            blocked_by = [*blocked_by, 'duplicate_position_numbers']
+        if blocked_by or diff['orphan_facts']:
+            raise PlanResyncBlocked(
+                'План группы нельзя чинить автоматически — разберитесь вручную.',
+                blocked_by=blocked_by, orphan_facts=diff['orphan_facts'],
+            )
+
+        changes = diff['changes']
+        if changes:
+            if expected is not None and _expected_map(changes) != _normalize_expected(expected):
+                raise PlanResyncBlocked('Состояние изменилось, обновите предпросмотр.')
+
+            # (5a) снять ВСЕ меняющиеся привязки — включая освобождаемые позиции.
+            unbind_ids = [c['position_id'] for c in changes
+                          if c['from']['fact_lesson_id'] is not None]
+            if unbind_ids:
+                PlannedLesson.objects.filter(id__in=unbind_ids).update(
+                    fact_lesson_id=None, status=PENDING, updated_at=now)
+
+            # (5b) поставить новые.
+            for c in changes:
+                new_fact_id = c['to']['fact_lesson_id']
+                fields = {
+                    'fact_lesson_id': new_fact_id,
+                    'status': DONE if new_fact_id else PENDING,
+                    'scheduled_date': datetime.date.fromisoformat(c['to']['scheduled_date']),
+                    'updated_at': now,
+                }
+                if new_fact_id is not None:
+                    # Дата пришла от факта — метка разового переноса к ней
+                    # отношения не имеет (тот же приём, что в attach_fact,
+                    # sync_position_date, link_facts, relink_fact).
+                    fields['moved_from_date'] = None
+                PlannedLesson.objects.filter(id=c['position_id']).update(**fields)
+
+            # Страховка по ЗАТРОНУТЫМ позициям (не по всей группе: чужие
+            # moved/cancelled строки мы не чинили и валить из-за них откат нельзя).
+            touched = [c['position_id'] for c in changes]
+            mismatch = (
+                PlannedLesson.objects
+                .filter(id__in=touched, fact_lesson__isnull=False)
+                .exclude(lesson_number=F('fact_lesson__lesson_number'))
+                .count()
+            )
+            if mismatch:  # pragma: no cover — защита от логической ошибки выше
+                raise PlanResyncBlocked(
+                    'Проверка после записи не сошлась — изменения отменены.')
+
+    return {
+        'applied': len(diff['changes']),
+        # freed_count, а не freed: в GET /plan/health это СПИСОК позиций, и
+        # одно имя под две формы — готовая ловушка для следующей правки.
+        'freed_count': len(diff['freed']),
+        'plan': get_plan(group_id),
+    }
 
 
 # ---------------------------------------------------------------------------
