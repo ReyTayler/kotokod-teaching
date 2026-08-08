@@ -69,7 +69,9 @@ export default function RenewalsPage() {
   const closeDrawer = useCallback(() => setSelectedId(null), []);
 
   return (
-    <div className="renewals-page">
+    /* Модификатор --board несёт плотность и полную ширину: базовый класс
+       общий с аналитикой и настройкой стадий, которым это не нужно. */
+    <div className="renewals-page renewals-page--board">
       <PageHeader
         dense
         title="Продления"
