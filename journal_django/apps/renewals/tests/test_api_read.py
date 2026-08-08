@@ -203,3 +203,42 @@ def test_deal_computed_lesson_from_cycle(manager_client, make_student, make_dire
             cur.execute('DELETE FROM renewal_deal WHERE student_id = %s', [sid])
             cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [gid])
             cur.execute('DELETE FROM groups WHERE id = %s', [gid])
+
+
+@pytest.mark.django_db
+def test_board_card_has_balance_in_lessons(manager_client, make_student, make_direction,
+                                           make_teacher, make_attendance):
+    """
+    Карточке нужен balance (в УРОКАХ, не в рублях) — из него карточка канбана
+    строит бейдж «Долг N ур.». Два посещения без оплат = баланс −2.
+    """
+    from django.db import connection
+    sid = make_student()
+    did = make_direction('__renew_balance_dir__')
+    tid = make_teacher()
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO groups (name, direction_id, teacher_id, is_individual, "
+                    "active, created_at, lesson_number_offset) "
+                    "VALUES ('__bal_group__', %s, %s, false, true, now(), 0) RETURNING id",
+                    [did, tid])
+        gid = cur.fetchone()[0]
+        cur.execute("INSERT INTO group_memberships (group_id, student_id, lessons_done, active) "
+                    "VALUES (%s,%s,0,true)", [gid, sid])
+    try:
+        make_attendance(sid, gid, tid, count=2)
+        engine.ensure_deal(sid, cycle_no=1)
+
+        resp = manager_client.get(f'{BASE}?view=board')
+        cards = [c for col in resp.json()['columns'] for c in col['cards']
+                 if c['student_id'] == sid]
+        assert cards, 'карточка сделки не попала на доску'
+        card = cards[0]
+        assert card['balance'] == -2
+        assert card['debt'] is True
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM renewal_activity WHERE deal_id IN '
+                        '(SELECT id FROM renewal_deal WHERE student_id = %s)', [sid])
+            cur.execute('DELETE FROM renewal_deal WHERE student_id = %s', [sid])
+            cur.execute('DELETE FROM group_memberships WHERE group_id = %s', [gid])
+            cur.execute('DELETE FROM groups WHERE id = %s', [gid])

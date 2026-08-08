@@ -481,14 +481,23 @@ def _deals_in_stage(stage_id: int, where_sql: str, base_params: list,
 
 
 def _annotate_debt(cards: list[dict]) -> list[dict]:
-    """Бейдж долга (balance < 0) — батчем через apps.finances, без N+1."""
+    """
+    Баланс ученика и бейдж долга — батчем через apps.finances, без N+1.
+
+    balance измеряется В УРОКАХ (оплачено минус посещено), не в рублях: ту же
+    величину показывает drawer сделки («Баланс — −2 ур.»). Карточка канбана
+    строит из неё бейдж «Долг N ур.», поэтому число нужно ей целиком, а не
+    только знак.
+    """
     from apps.finances.repository import balances_for_students
     ids = list({c['student_id'] for c in cards})
     if not ids:
         return cards
     balances = balances_for_students(ids)
     for c in cards:
-        c['debt'] = float(balances.get(c['student_id'], 0)) < 0
+        balance = float(balances.get(c['student_id'], 0))
+        c['balance'] = balance
+        c['debt'] = balance < 0
     return cards
 
 
