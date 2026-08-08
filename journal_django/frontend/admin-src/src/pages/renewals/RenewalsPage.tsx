@@ -71,6 +71,7 @@ export default function RenewalsPage() {
   return (
     <div className="renewals-page">
       <PageHeader
+        dense
         title="Продления"
         actions={
           <>

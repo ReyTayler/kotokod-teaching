@@ -4,11 +4,26 @@
  *  канбан-доска с DnD и drawer сделки.
  * ============================================================ */
 
+/* Раздел живёт во всю ширину области контента: канбан — горизонтальная лента,
+   и общий потолок --content-max (введённый ради таблиц, чтобы строка из 9
+   колонок не растягивалась через монитор) превращал её в узкое окно.
+   Правило смотрит на страницу-потомка, поэтому остальные разделы не задеты. */
+.app-page:has(> .renewals-page) { max-width: none; }
+
 .renewals-page {
-  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  /* Плотнее общего --section-gap: раздел рабочий, вертикаль на вес золота.
+     Собственного padding у страницы НЕТ — поля раздаёт .app-page. Пока он был,
+     липкая шапка вырывалась на --page-pad-x из уже вдвинутого бокса и не
+     дотягивалась до края области контента. */
+  gap: var(--space-3);
+
+  /* Сумма того, что стоит НАД лентой: шапка (dense) + гэп + панель фильтров +
+     гэп. Из неё считается высота колонок — раньше здесь было магическое
+     calc(100vh - 220px), устаревавшее при любой правке шапки.
+     ЗНАЧЕНИЕ УТОЧНЯЕТСЯ ЗАМЕРОМ В ФИНАЛЬНОЙ ЗАДАЧЕ ПЛАНА. */
+  --rnl-board-top: 200px;
 }
 
 .renewals-page__kpis {
@@ -168,36 +183,58 @@
  *  КАНБАН-ДОСКА
  * ============================================================ */
 
+/* Лента канбана идёт от края до края области контента: гасим боковые поля
+   страницы отрицательным margin и возвращаем их padding'ом, чтобы первая и
+   последняя колонки не липли к краю. Величина ОБЯЗАНА совпадать с
+   --page-pad-x из .app-page и переключаться вместе с ней на 900px — иначе
+   лента вылезет наружу и даст горизонтальный скролл всей страницы (ровно эта
+   ошибка уже ловилась в .kb-editor, см. knowledge.css).
+   overflow-x живёт ТОЛЬКО здесь: <body> по горизонтали не скроллится. */
 .renewal-board {
   display: flex;
-  gap: var(--space-4);
-  overflow-x: auto;
-  /* Скролл только внутри доски — <body> по горизонтали скроллиться не должен. */
+  gap: var(--space-3);
+  margin-inline: calc(-1 * var(--page-pad-x));
+  padding-inline: var(--page-pad-x);
   padding-bottom: var(--space-2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
 .renewal-board--loading {
   color: var(--text3);
-  font-size: 14px;
+  font-size: var(--fs-md);
   padding: var(--space-6);
 }
 
 .renewal-col {
-  flex: 0 0 280px;
+  /* Тянутся на свободном месте, но не ужимаются: на широком мониторе колонки
+     не жмутся в левый угол, на узком включается скролл ленты. Потолок нужен,
+     чтобы три колонки не расползлись на полэкрана каждая. */
+  flex: 1 0 272px;
+  min-width: 272px;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   background: var(--bg3);
   border: 1px solid var(--border);
   border-top: 3px solid var(--border-strong);
-  border-radius: var(--r-sm);
+  border-radius: var(--r);
   padding: var(--space-3);
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - var(--rnl-board-top));
 }
 
 .renewal-col--over {
   border-color: var(--info);
   background: color-mix(in oklab, var(--info) 6%, var(--bg3));
+}
+
+@media (max-width: 900px) {
+  /* Брейкпоинт тот же, на котором .app-page переключает поля на --space-4. */
+  .renewal-board {
+    margin-inline: calc(-1 * var(--space-4));
+    padding-inline: var(--space-4);
+  }
 }
 
 .renewal-col__head {
