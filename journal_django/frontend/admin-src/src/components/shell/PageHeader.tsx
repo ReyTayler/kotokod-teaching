@@ -16,6 +16,12 @@ interface Props {
   actions?: ReactNode;
   /** Строка под заголовком: пояснение или мета. */
   sub?: ReactNode;
+  /**
+   * Плотный режим: заголовок на ступень меньше и сжатый нижний отступ.
+   * Для рабочих экранов, где на счету каждая строка данных, — канбан продлений.
+   * Обычные разделы (списки, карточки сущностей) остаются на общем ритме.
+   */
+  dense?: boolean;
 }
 
 /**
@@ -30,9 +36,9 @@ interface Props {
  * Шапка липкая: при прокрутке длинного списка видно, где находишься, —
  * раньше липкой была только шапка таблицы, и контекст раздела терялся.
  */
-export function PageHeader({ title, count, crumbs, actions, sub }: Props) {
+export function PageHeader({ title, count, crumbs, actions, sub, dense }: Props) {
   return (
-    <header className="page-header">
+    <header className={`page-header${dense ? ' page-header--dense' : ''}`}>
       <div className="page-header__inner">
         <div className="page-header__main">
           {!!crumbs?.length && (
