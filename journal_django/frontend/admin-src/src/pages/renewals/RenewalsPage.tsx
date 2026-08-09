@@ -6,7 +6,9 @@ import { useRenewalAssignees, useRenewalUnassignedCount } from '../../hooks/useR
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { RenewalUnassignedDialog } from './RenewalUnassignedDialog';
 import { SelectInput } from '../../components/form/SelectInput';
+import { TextInput } from '../../components/form/TextInput';
 import { Checkbox } from '../../components/form/Checkbox';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { canWriteRenewalStages, type Role } from '../../lib/permissions';
 import { RenewalBoard } from './RenewalBoard';
 import { RenewalList } from './RenewalList';
@@ -15,6 +17,14 @@ import type { RenewalFilters } from '../../lib/renewals';
 import { PageHeader } from '../../components/shell/PageHeader';
 
 type ViewMode = 'board' | 'list';
+
+/**
+ * Ключи фильтров, живущие в URL — состояние раздела шарится ссылкой.
+ * `student` теперь общий для обоих видов: в канбане уходит в filter[student]
+ * доски (бэк применяет его в _board_where ко ВСЕМ колонкам), в списке — в
+ * тот же фильтр списка. Отдельного поля «Ученик» в тулбаре больше нет.
+ */
+const FILTER_KEYS = ['student', 'assignee_id', 'direction_id', 'cycle_no', 'stage_id', 'include_closed'];
 
 export default function RenewalsPage() {
   const { me } = useAuth();
@@ -30,17 +40,13 @@ export default function RenewalsPage() {
   const [showUnassigned, setShowUnassigned] = useState(false);
   const unassignedCount = unassigned?.count ?? 0;
 
-  // Ключи фильтров, живущие в URL: общие (доска+список) + списочные.
-  const FILTER_KEYS = ['assignee_id', 'direction_id', 'student', 'cycle_no', 'stage_id', 'include_closed'];
-  const hasActiveFilters = FILTER_KEYS.some((k) => sp.get(k));
-
-  // Список-специфичные фильтры (student/cycle_no/stage_id) отправляются только
-  // в списочном виде — в канбане они не применяются (board их игнорирует).
+  // Цикл/стадия/закрытые применяются только в списочном виде — канбан их
+  // игнорирует (доска показывает открытые сделки, разложенные по стадиям).
   const filters: RenewalFilters = {
+    student: sp.get('student') ?? undefined,
     assignee_id: sp.get('assignee_id') ?? undefined,
     direction_id: sp.get('direction_id') ?? undefined,
     ...(view === 'list' ? {
-      student: sp.get('student') ?? undefined,
       cycle_no: sp.get('cycle_no') ?? undefined,
       stage_id: sp.get('stage_id') ?? undefined,
       include_closed: sp.get('include_closed') ?? undefined,
@@ -53,7 +59,6 @@ export default function RenewalsPage() {
     setSp(next, { replace: true });
   };
 
-  // Фильтры живут в URL — состояние доски/списка можно шарить ссылкой.
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(sp);
     if (value) next.set(key, value); else next.delete(key);
@@ -67,6 +72,23 @@ export default function RenewalsPage() {
   };
 
   const closeDrawer = useCallback(() => setSelectedId(null), []);
+
+  // Чипы активных фильтров: в подписи стоит ИМЯ из справочника, а не id —
+  // «Ответственный: 17» не сообщает ничего. Справочник мог ещё не догрузиться,
+  // тогда показываем сам ключ значением, а не пустоту.
+  const assigneeName = (assignees || []).find((a) => String(a.id) === sp.get('assignee_id'))?.full_name;
+  const directionName = (directions || []).find((d) => String(d.id) === sp.get('direction_id'))?.name;
+  const stageName = (stages || []).find((s) => String(s.id) === sp.get('stage_id'))?.label;
+
+  const chips: { key: string; label: string }[] = [];
+  if (sp.get('student')) chips.push({ key: 'student', label: `Поиск: ${sp.get('student')}` });
+  if (sp.get('assignee_id')) chips.push({ key: 'assignee_id', label: `Ответственный: ${assigneeName ?? sp.get('assignee_id')}` });
+  if (sp.get('direction_id')) chips.push({ key: 'direction_id', label: `Направление: ${directionName ?? sp.get('direction_id')}` });
+  if (view === 'list') {
+    if (sp.get('cycle_no')) chips.push({ key: 'cycle_no', label: `Цикл ${sp.get('cycle_no')}` });
+    if (sp.get('stage_id')) chips.push({ key: 'stage_id', label: `Стадия: ${stageName ?? sp.get('stage_id')}` });
+    if (sp.get('include_closed') === 'true') chips.push({ key: 'include_closed', label: 'С закрытыми' });
+  }
 
   return (
     /* Модификатор --board несёт плотность и полную ширину: базовый класс
@@ -100,96 +122,101 @@ export default function RenewalsPage() {
             </button>
             <Link to="/admin/renewals/analytics" className="btn-secondary">Аналитика</Link>
             {canWriteRenewalStages(me?.role as Role) && (
-              <Link to="/admin/renewals/stages" className="btn-secondary">Настройка стадий</Link>
+              /* Иконкой, а не подписью: действие открывают раз в квартал, а
+                 место в шапке оно занимало постоянно. */
+              <Link
+                to="/admin/renewals/stages"
+                className="ui-iconbtn ui-iconbtn--md"
+                aria-label="Настройка стадий"
+                title="Настройка стадий"
+              >
+                <GearGlyph />
+              </Link>
             )}
           </>
         }
       />
 
       <div className="rnl-toolbar">
-        <div className="rnl-toolbar__fields">
-          <label className="rnl-field">
-            <span className="rnl-field__label">Ответственный</span>
-            <SelectInput
-              className="rnl-field__select"
-              value={sp.get('assignee_id') ?? ''}
-              onChange={(e) => setFilter('assignee_id', e.target.value)}
-              options={[
-                { value: '', label: 'Все' },
-                ...(assignees || []).map((a) => ({ value: String(a.id), label: a.full_name })),
-              ]}
-            />
-          </label>
-          <label className="rnl-field">
-            <span className="rnl-field__label">Направление</span>
-            <SelectInput
-              className="rnl-field__select"
-              value={sp.get('direction_id') ?? ''}
-              onChange={(e) => setFilter('direction_id', e.target.value)}
-              options={[
-                { value: '', label: 'Все' },
-                ...(directions || []).map((d) => ({ value: String(d.id), label: d.name })),
-              ]}
-            />
-          </label>
+        <div className="rnl-toolbar__row">
+          {/* Поиск — часть панели фильтрации, а не отдельный контрол внутри
+              каждой колонки: искать ученика приходится, НЕ зная его стадии. */}
+          <SearchInput
+            value={sp.get('student') ?? ''}
+            onChange={(v) => setFilter('student', v)}
+            placeholder="Поиск по имени ученика…"
+            width={240}
+          />
 
-          {/* Фильтры только для списочного вида. */}
+          {/* Пустое значение названо самоописательно — так триггер объясняет
+              себя без uppercase-подписи сверху, которая съедала 20px высоты. */}
+          <SelectInput
+            className="rnl-toolbar__select"
+            value={sp.get('assignee_id') ?? ''}
+            onChange={(e) => setFilter('assignee_id', e.target.value)}
+            options={[
+              { value: '', label: 'Все ответственные' },
+              ...(assignees || []).map((a) => ({ value: String(a.id), label: a.full_name })),
+            ]}
+          />
+          <SelectInput
+            className="rnl-toolbar__select"
+            value={sp.get('direction_id') ?? ''}
+            onChange={(e) => setFilter('direction_id', e.target.value)}
+            options={[
+              { value: '', label: 'Все направления' },
+              ...(directions || []).map((d) => ({ value: String(d.id), label: d.name })),
+            ]}
+          />
+
           {view === 'list' && (
             <>
-              <label className="rnl-field rnl-field--grow">
-                <span className="rnl-field__label">Ученик</span>
-                <input
-                  type="text"
-                  className="rnl-field__input"
-                  placeholder="Поиск по имени…"
-                  value={sp.get('student') ?? ''}
-                  onChange={(e) => setFilter('student', e.target.value)}
-                />
-              </label>
-              <label className="rnl-field rnl-field--sm">
-                <span className="rnl-field__label">Цикл</span>
-                <input
-                  type="number"
-                  min={1}
-                  className="rnl-field__input"
-                  placeholder="№"
-                  value={sp.get('cycle_no') ?? ''}
-                  onChange={(e) => setFilter('cycle_no', e.target.value)}
-                />
-              </label>
-              <label className="rnl-field">
-                <span className="rnl-field__label">Стадия</span>
-                <SelectInput
-                  className="rnl-field__select"
-                  value={sp.get('stage_id') ?? ''}
-                  onChange={(e) => setFilter('stage_id', e.target.value)}
-                  options={[
-                    { value: '', label: 'Все' },
-                    ...(stages || []).map((s) => ({ value: String(s.id), label: s.label })),
-                  ]}
-                />
-              </label>
+              <SelectInput
+                className="rnl-toolbar__select"
+                value={sp.get('stage_id') ?? ''}
+                onChange={(e) => setFilter('stage_id', e.target.value)}
+                options={[
+                  { value: '', label: 'Все стадии' },
+                  ...(stages || []).map((s) => ({ value: String(s.id), label: s.label })),
+                ]}
+              />
+              <TextInput
+                className="rnl-toolbar__cycle"
+                inputMode="numeric"
+                placeholder="Цикл"
+                aria-label="Номер цикла"
+                value={sp.get('cycle_no') ?? ''}
+                onChange={(e) => setFilter('cycle_no', e.target.value.replace(/\D/g, ''))}
+              />
+              <Checkbox
+                label="Закрытые"
+                checked={sp.get('include_closed') === 'true'}
+                onChange={(e) => setFilter('include_closed', e.target.checked ? 'true' : '')}
+              />
             </>
           )}
         </div>
 
-        <div className="rnl-toolbar__aside">
-          {view === 'list' && (
-            <Checkbox
-              label="Закрытые"
-              checked={sp.get('include_closed') === 'true'}
-              onChange={(e) => setFilter('include_closed', e.target.checked ? 'true' : '')}
-            />
-          )}
-          {hasActiveFilters && (
+        {chips.length > 0 && (
+          <div className="rnl-chips">
+            {chips.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                className="rnl-chip"
+                onClick={() => setFilter(c.key, '')}
+                title="Снять фильтр"
+              >
+                <span className="rnl-chip__text">{c.label}</span>
+                <span className="rnl-chip__x" aria-hidden="true">×</span>
+                <span className="sr-only">— снять фильтр</span>
+              </button>
+            ))}
             <button type="button" className="btn-reset-filters" onClick={resetFilters}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
               Сбросить
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {view === 'board'
@@ -204,5 +231,15 @@ export default function RenewalsPage() {
         <RenewalUnassignedDialog onClose={() => setShowUnassigned(false)} />
       )}
     </div>
+  );
+}
+
+function GearGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.2.6.77 1.02 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
   );
 }

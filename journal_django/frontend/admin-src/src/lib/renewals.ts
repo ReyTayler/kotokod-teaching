@@ -79,7 +79,9 @@ export interface RenewalCard {
   due_at: string | null;
   assignee_name: string | null;
   days_in_stage: number;
-  /** Баланс ученика < 0 — красный бейдж «Долг». */
+  /** Баланс ученика В УРОКАХ (оплачено минус посещено). Отрицательный = долг. */
+  balance: number;
+  /** Баланс < 0. Дублирует знак `balance`; оставлен для читаемости условий. */
   debt: boolean;
   /** Отработаны ли все 4 урока текущего цикла — пока false, «Продлён» недоступен. */
   cycle_completed: boolean;

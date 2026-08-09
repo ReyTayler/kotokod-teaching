@@ -1,7 +1,9 @@
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { RenewalCardView } from './RenewalCardView';
 import { TextInput } from '../../components/form/TextInput';
+import { IconButton } from '../../components/ui/IconButton';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { fetchRenewalColumnCards, useRenewalColumnSearch } from '../../hooks/useRenewals';
 import { useApiError } from '../../hooks/useApiError';
 import type { RenewalCard, RenewalColumn as RenewalColumnData, RenewalFilters } from '../../lib/renewals';
@@ -16,19 +18,23 @@ export function RenewalColumn({ col, filters, onOpen }: Props) {
   // Прогресс-стадии («Не было урока», «Урок 1–3») двигает только движок по
   // событиям посещаемости/оплаты — вручную перетащить карточку СЮДА нельзя
   // (droppable отключён), бэк на move в такую стадию тоже ответит 409.
-  // Забрать карточку ИЗ такой колонки (заморозить, отметить ушедшим) можно —
-  // здесь не ограничено, драг карточки из колонки не завязан на useDroppable.
+  // Забрать карточку ИЗ такой колонки (заморозить, отметить ушедшим) можно.
   const isAutoOnly = col.kind === 'progress';
   const { setNodeRef, isOver } = useDroppable({ id: col.stage_id, disabled: isAutoOnly });
   const showError = useApiError();
 
-  // Поиск по имени ученика в этой колонке. deferred — как в списках (не гоним
-  // запрос на каждый символ). Ищем на сервере (ILIKE), а не по загруженным
-  // карточкам — иначе ученик из непрогруженного «хвоста» колонки не найдётся.
+  // Поиск по имени ученика в ЭТОЙ колонке (server-side, ILIKE): ищем на сервере,
+  // а не по загруженным карточкам — иначе ученик из непрогруженного «хвоста»
+  // колонки не найдётся. Поле свёрнуто в лупу: восемь одинаковых инпутов
+  // подряд — шум, а глобальный поиск живёт в панели фильтров.
+  const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const searchToggleRef = useRef<HTMLButtonElement>(null);
   const deferredSearch = useDeferredValue(search.trim());
   const searching = deferredSearch.length > 0;
 
+  // Колонночный поиск СУЖАЕТ глобальный: два ILIKE по одному полю не сложить,
+  // поэтому внутри своей колонки её строка перекрывает общий фильтр.
   const colFilters: RenewalFilters = searching
     ? { ...filters, student: deferredSearch }
     : filters;
@@ -66,6 +72,14 @@ export function RenewalColumn({ col, filters, onOpen }: Props) {
     }
   };
 
+  // Закрытие поиска размонтирует и поле, и кнопку «Закрыть» — фокус улетел бы
+  // на <body>, и клавиатурный обход ленты из восьми колонок начинался бы
+  // заново. Возвращаем его на лупу, из которой поиск и открыли.
+  const closeSearch = () => {
+    setSearch('');
+    setSearchOpen(false);
+    requestAnimationFrame(() => searchToggleRef.current?.focus());
+  };
   const showSearchSpinner = searching && searchFetching && cards.length === 0;
 
   return (
@@ -75,42 +89,61 @@ export function RenewalColumn({ col, filters, onOpen }: Props) {
       style={col.color ? { borderTopColor: col.color } : undefined}
     >
       <div className="renewal-col__head">
-        <span className="renewal-col__label">
-          {col.label}
-          {isAutoOnly && (
-            <span className="renewal-col__auto-badge" title="Двигает только система по событиям — вручную перенести сделку сюда нельзя">
-              авто
-            </span>
-          )}
-        </span>
-        <span className="renewal-col__stats">{count}</span>
-      </div>
-
-      <div className="renewal-col__search">
-        <TextInput
-          className="renewal-col__search-input"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Поиск по имени…"
-          aria-label={`Поиск ученика в стадии «${col.label}»`}
-        />
-        {search && (
-          <button
-            type="button"
-            className="renewal-col__search-clear"
-            onClick={() => setSearch('')}
-            aria-label="Очистить поиск"
-          >
-            ×
-          </button>
+        {searchOpen ? (
+          <div className="renewal-col__search">
+            <TextInput
+              className="renewal-col__search-input"
+              value={search}
+              autoFocus
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') closeSearch(); }}
+              placeholder="Имя ученика…"
+              aria-label={`Поиск ученика в стадии «${col.label}»`}
+            />
+            <IconButton
+              size="sm"
+              label="Закрыть поиск"
+              onClick={closeSearch}
+              icon={<CloseGlyph />}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="renewal-col__title">
+              <span className="renewal-col__label">{col.label}</span>
+              {isAutoOnly && (
+                <span className="renewal-col__auto-badge" title="Двигает только система по событиям — вручную перенести сделку сюда нельзя">
+                  авто
+                </span>
+              )}
+            </div>
+            {/* Счётчик — вторичная метадата, поэтому без плашки. */}
+            <span className="renewal-col__stats">{count}</span>
+            {/* Подсветка при активном поиске: иначе свёрнутый фильтр невидим
+                и «пропавшие» карточки нечем объяснить. */}
+            <IconButton
+              ref={searchToggleRef}
+              size="sm"
+              label={`Поиск в стадии «${col.label}»`}
+              active={searching}
+              onClick={() => setSearchOpen(true)}
+              icon={<SearchGlyph />}
+            />
+          </>
         )}
       </div>
 
-      <div className="renewal-col__body">
+      {/* aria-live на области карточек: колонка перерисовывается от поиска,
+          и без объявления незрячий пользователь не узнаёт, что список сменился. */}
+      <div className="renewal-col__body" aria-live="polite">
         {showSearchSpinner ? (
-          <div className="renewal-col__empty">Ищем…</div>
+          <div className="renewal-col__note">Ищем…</div>
         ) : cards.length === 0 ? (
-          <div className="renewal-col__empty">{searching ? 'Никого не найдено' : 'Пусто'}</div>
+          searching ? (
+            <div className="renewal-col__note">Никого не найдено</div>
+          ) : (
+            <EmptyState hint="На этой стадии пока никого нет">Нет учеников</EmptyState>
+          )
         ) : (
           cards.map((card) => (
             <RenewalCardView key={card.id} card={card} stageId={col.stage_id} onOpen={onOpen} />
@@ -129,5 +162,24 @@ export function RenewalColumn({ col, filters, onOpen }: Props) {
         </button>
       )}
     </div>
+  );
+}
+
+function SearchGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function CloseGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
   );
 }

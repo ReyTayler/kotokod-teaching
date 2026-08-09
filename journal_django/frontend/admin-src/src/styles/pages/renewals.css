@@ -263,94 +263,77 @@
   }
 }
 
+/* Заголовок колонки. Иерархия: название — главное, счётчик — метадата,
+   бейдж «авто» — служебная пометка второй строкой. */
 .renewal-col__head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: flex-start;
   gap: var(--space-2);
-  padding: 0 var(--space-1);
+  min-height: 28px;
+  padding-left: var(--space-1);
+}
+
+.renewal-col__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .renewal-col__label {
-  font-weight: 700;
-  font-size: 13px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--text);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Пометка на колонке прогресс-стадии — сюда нельзя перетащить карточку
-   вручную, двигает только движок. */
+/* Пометка прогресс-стадии: сюда двигает только движок. Без рамки — рамка
+   превращала служебную подпись в самостоятельный элемент управления. */
 .renewal-col__auto-badge {
   font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   color: var(--text3);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 1px 5px;
 }
 
 .renewal-col__stats {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text2);
-  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text3);
   font-variant-numeric: tabular-nums;
+  line-height: 28px;
   white-space: nowrap;
 }
 
-/* Поиск по имени ученика внутри колонки (per-column, server-side). */
+/* Развёрнутый поиск занимает всю строку заголовка. */
 .renewal-col__search {
-  position: relative;
   display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
 }
 
 .renewal-col__search-input {
-  width: 100%;
-  height: 30px;
-  padding: 0 26px 0 var(--space-2);
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  color: var(--text);
-}
-
-.renewal-col__search-input::placeholder {
-  color: var(--text3);
-}
-
-.renewal-col__search-input:focus {
-  outline: none;
-  border-color: var(--info);
-}
-
-.renewal-col__search-clear {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  background: transparent;
-  border: none;
   border-radius: var(--r-sm);
-  color: var(--text3);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.renewal-col__search-clear:hover {
   color: var(--text);
+  outline: none;
+}
+.renewal-col__search-input::placeholder { color: var(--text4); }
+.renewal-col__search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .renewal-col__body {
@@ -361,19 +344,27 @@
   min-height: 40px;
 }
 
-.renewal-col__empty {
+/* Короткая служебная строка («Ищем…», «Никого не найдено») — в отличие от
+   EmptyState, который объясняет ПУСТУЮ стадию и занимает больше места. */
+.renewal-col__note {
   padding: var(--space-3) var(--space-1);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--text3);
   text-align: center;
 }
+
+/* Пустое состояние внутри колонки уже, чем общее: колонка 272px. */
+.renewal-col__body .empty-state { padding: var(--space-4) var(--space-2); }
+.renewal-col__body .empty-state__title { font-size: var(--fs-sm); }
+.renewal-col__body .empty-state__hint { font-size: var(--fs-xs); max-width: none; }
 
 .renewal-col__more {
   background: transparent;
   border: 1px dashed var(--border-strong);
   border-radius: var(--r-sm);
   color: var(--text3);
-  font-size: 12px;
+  font: inherit;
+  font-size: var(--fs-xs);
   padding: var(--space-2);
   cursor: pointer;
 }
@@ -388,16 +379,18 @@
   opacity: 0.6;
 }
 
+/* Карточка сделки. Плотность — главное требование раздела: цель 64–88px по
+   высоте. Верхняя цветная полоса убрана: цвет стадии принадлежит КОЛОНКЕ,
+   на карточке он дублировал бы её и спорил с бейджами состояния. */
 .renewal-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 3px;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--accent);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-3);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-xs);
+  padding: var(--space-2) var(--space-3);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -405,7 +398,7 @@
 
 .renewal-card:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-card);
 }
 
 /* Карточка-источник во время драга — тускнеет на месте, сам «полёт» рисует
@@ -414,11 +407,11 @@
   opacity: 0.35;
 }
 
-/* Плавающая копия внутри DragOverlay: dnd-kit порталит её в document.body,
-   поэтому она вне overflow/stacking-контекста колонок — не обрезается и не
-   уезжает под соседние колонки. Ширина — явная (280px колонки минус 2×padding). */
+/* Плавающая копия в DragOverlay: dnd-kit порталит её в document.body, поэтому
+   она вне overflow/stacking-контекста колонок. Ширина явная — минимальная
+   ширина колонки (272px) минус её горизонтальные поля (2 × --space-3). */
 .renewal-card--overlay {
-  width: 256px;
+  width: 248px;
   cursor: grabbing;
   box-shadow: var(--shadow-popover);
 }
@@ -431,8 +424,8 @@
 }
 
 .renewal-card__student {
+  font-size: var(--fs-md);
   font-weight: 600;
-  font-size: 13px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -440,20 +433,37 @@
 }
 
 .renewal-card__direction {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Ряд состояния. Бейджи-пилюли заменены на цветной текст: рамка и заливка
+   вокруг каждой метки на карточке высотой 68px читаются как отдельные
+   элементы управления. */
 .renewal-card__meta {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: 2px;
+  flex-wrap: wrap;
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Пилюли вместо прямоугольных бейджей — только в этом разделе (страницы со
-   списками/таблицами используют .status-badge без изменений). */
-.renewal-card .status-badge,
+.renewal-card__age { color: var(--text3); }
+.renewal-card__age.is-stuck { color: var(--danger); font-weight: 600; }
+/* Долг — danger: ученик уже занимается в минус, это нарушение.
+   Кончившиеся уроки — warning: ничего не нарушено, но продлевать надо сейчас.
+   Разные цвета намеренно: свести их в один — потерять разницу между
+   «пора работать» и «уже проглядели». */
+.renewal-card__debt { color: var(--danger); font-weight: 600; }
+.renewal-card__spent { color: var(--warning); font-weight: 600; }
+.renewal-card__frozen { color: var(--text3); }
+
+/* Пилюли вместо прямоугольных бейджей — в drawer'е сделки (на карточке
+   бейджей больше нет). */
 .renewal-drawer .status-badge {
   border-radius: 999px;
 }
@@ -707,44 +717,39 @@
   flex: 0 0 auto;
 }
 
-/* ===== Тулбар фильтров раздела =====
-   Мягкая панель в общей стилистике: крупный радиус + тень, контролы одной
-   высоты (34px). Прежний вид (голый flex с Field-подписями сверху и min-width
-   200px) выбивался из остальных страниц. */
+/* ===== Панель фильтров раздела =====
+   Один ряд контролов + строка чипов, появляющаяся только когда что-то выбрано.
+   Прежний вид (uppercase-подписи над каждым полем) съедал ~20px высоты на
+   информацию, которую поле и так сообщает своим значением. */
 .rnl-toolbar {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-  padding: var(--space-3) var(--space-4);
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg2);
   border: 1px solid var(--border2);
-  border-radius: var(--r-lg);
+  border-radius: var(--r);
   box-shadow: var(--shadow-panel);
 }
-.rnl-toolbar__fields { display: flex; align-items: flex-end; gap: var(--space-3); flex-wrap: wrap; min-width: 0; }
-.rnl-toolbar__aside { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 
-.rnl-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.rnl-field--sm { width: 92px; }
-.rnl-field--grow { flex: 1 1 200px; min-width: 180px; }
-.rnl-field__label {
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  color: var(--text3);
-  white-space: nowrap;
+.rnl-toolbar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
 }
-/* Единая высота/рамка для нативного инпута и триггера SelectInput (тот кладёт
-   класс на обёртку, поэтому вид триггера задаём вложенным селектором). */
-.rnl-field__input,
-.rnl-field__select .select-input__trigger {
+
+/* Селекты и поле цикла — одной высоты между собой. SearchInput чуть выше
+   (36px, задано в components.css); ряд выровнен по центру, поэтому разница
+   в 2px не читается, а лезть в общий компонент ради неё не стоит. */
+.rnl-toolbar__select { width: 190px; }
+.rnl-toolbar__select .select-input__trigger,
+.rnl-toolbar__cycle {
   box-sizing: border-box;
-  width: 176px;
+  width: 100%;
   height: 34px;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
@@ -754,22 +759,48 @@
   outline: none;
   transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
-.rnl-field--sm .rnl-field__input { width: 100%; }
-.rnl-field--grow .rnl-field__input { width: 100%; }
-.rnl-field__input::placeholder { color: var(--text4); }
-.rnl-field__input:focus,
-.rnl-field__select .select-input__trigger:focus,
-.rnl-field__select.is-open .select-input__trigger {
+.rnl-toolbar__cycle { width: 88px; }
+.rnl-toolbar__cycle::placeholder { color: var(--text4); }
+.rnl-toolbar__cycle:focus,
+.rnl-toolbar__select .select-input__trigger:focus,
+.rnl-toolbar__select.is-open .select-input__trigger {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.rnl-field__select { width: 176px; }
-.rnl-field__select .select-input__value { font-size: var(--fs-sm); }
+.rnl-toolbar__select .select-input__value { font-size: var(--fs-sm); }
+
+/* Чипы активных фильтров. Сам чип — кнопка: клик снимает свой фильтр,
+   поэтому крестик декоративный (aria-hidden), а смысл несёт подпись. */
+.rnl-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.rnl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 8px 3px 10px;
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 320px;
+}
+.rnl-chip:hover { background: var(--accent-soft-h); }
+.rnl-chip__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rnl-chip__x { font-size: var(--fs-md); line-height: 1; opacity: 0.7; }
+.rnl-chip:hover .rnl-chip__x { opacity: 1; }
 
 @media (max-width: 720px) {
-  .rnl-toolbar { align-items: stretch; }
-  .rnl-field, .rnl-field__input, .rnl-field__select { width: 100%; }
-  .rnl-field--grow, .rnl-field--sm { flex-basis: auto; width: 100%; }
+  .rnl-toolbar__row > * { flex: 1 1 100%; }
+  .rnl-toolbar__select { width: 100%; }
 }
 
 /* ===== Список: направления-чипы и «дней в стадии» ===== */
@@ -846,3 +877,40 @@
   border-color: var(--warning);
   color: var(--warning);
 }
+
+/* ===== Каркас доски на время загрузки =====
+   Повторяет геометрию настоящей карточки, чтобы при появлении данных колонка
+   не дёргалась. Полоски держим тонкими — как строки текста, а не как блоки, —
+   а разницу до высоты настоящей карточки добираем зазором:
+   рамка 2 + поля 16 + ряд аватара 22 + строка 12 + строка 11 + два зазора по 9
+   = 81px против ≈82px у карточки с тремя строками текста.
+   Анимация — общая .skeleton-block из components.css. */
+.rnl-skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* Ряд аватара: кружок той же величины, что Avatar на карточке (22px). */
+.rnl-skeleton__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 22px;
+}
+.rnl-skeleton__avatar {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.rnl-skeleton__title { height: 13px; width: 60%; }
+.rnl-skeleton__line { height: 11px; }
+.rnl-skeleton__line--name { flex: 1; height: 13px; max-width: 75%; }
+.rnl-skeleton__line--dir  { height: 12px; width: 90%; }
+.rnl-skeleton__line--meta { width: 45%; }

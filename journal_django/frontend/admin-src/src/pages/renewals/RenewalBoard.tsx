@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
@@ -12,6 +12,8 @@ import { RenewalColumn } from './RenewalColumn';
 import { RenewalCardContent } from './RenewalCardView';
 import { RenewalCloseDialog, type CloseDialogTarget } from './RenewalCloseDialog';
 import { FreezeDealDialog } from './FreezeDealDialog';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { Button } from '../../components/ui/Button';
 import { FROZEN_STAGE_KEY, type RenewalBoard as RenewalBoardData, type RenewalCard, type RenewalFilters } from '../../lib/renewals';
 
 interface Props {
@@ -37,7 +39,7 @@ function CloseZone({ id, label, tone }: { id: string; label: string; tone: 'won'
 
 export function RenewalBoard({ filters, onOpen }: Props) {
   const qc = useQueryClient();
-  const { data, isLoading } = useRenewalBoard(filters);
+  const { data, isLoading, isError, refetch } = useRenewalBoard(filters);
   const { data: stages } = useRenewalStages();
   const { move, comment } = useRenewalMutations();
   const showError = useApiError();
@@ -53,6 +55,15 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   const [freezeTarget, setFreezeTarget] = useState<
     { dealId: number; studentName: string; stageId: number } | null
   >(null);
+
+  // Фоновый refetch упал, но данные с прошлого раза есть — доску не сносим
+  // (см. ветку isError ниже), иначе она исчезала бы из-под рук. Но и молчать
+  // нельзя: на экране висели бы устаревшие карточки без единого признака,
+  // что связь потеряна.
+  const staleAfterError = isError && !!data;
+  useEffect(() => {
+    if (staleAfterError) toast('Доска не обновилась — показаны прежние данные', 'error');
+  }, [staleAfterError, toast]);
 
   // Терминальные стадии больше не колонки — их id нужны только для move при закрытии.
   const wonStage = (stages || []).find((s) => s.kind === 'won');
@@ -199,7 +210,28 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   };
 
   if (isLoading) {
-    return <div className="renewal-board renewal-board--loading">Загружаем доску…</div>;
+    return <BoardSkeleton stageLabels={(stages || [])
+      .filter((s) => s.kind !== 'won' && s.kind !== 'lost')
+      .map((s) => s.label)} />;
+  }
+
+  // Без этой ветки сбитый бэкенд давал пустую доску, неотличимую от «никого
+  // нет» — менеджер видел бы нулевую воронку и поверил бы ей.
+  //
+  // Условие именно `&& !data`: у запроса keepPreviousData, а каждая мутация
+  // инвалидирует ['renewals'], поэтому упавший ФОНОВЫЙ refetch уже показанной
+  // доски тоже переводит запрос в error. Без проверки данных доска исчезала бы
+  // из-под рук — в том числе посреди перетаскивания карточки. Про фоновую
+  // ошибку сообщает тост (см. эффект ниже), доска при этом остаётся на экране.
+  if (isError && !data) {
+    return (
+      <EmptyState
+        hint="Проверьте соединение и попробуйте ещё раз"
+        action={<Button variant="secondary" onClick={() => refetch()}>Повторить</Button>}
+      >
+        Не удалось загрузить продления
+      </EmptyState>
+    );
   }
 
   const columns = data?.columns || [];
@@ -262,5 +294,48 @@ export function RenewalBoard({ filters, onOpen }: Props) {
         />
       )}
     </DndContext>
+  );
+}
+
+/**
+ * Каркас доски на время загрузки. Заголовки колонок настоящие, когда справочник
+ * стадий уже в кэше (он тянется отдельным запросом с длинным staleTime) —
+ * тогда переход к данным не «перерисовывает» экран целиком. Без справочника
+ * рисуем пять безымянных колонок: столько стадий в воронке по умолчанию.
+ */
+function BoardSkeleton({ stageLabels }: { stageLabels: string[] }) {
+  const columns = stageLabels.length > 0 ? stageLabels : ['', '', '', '', ''];
+  return (
+    <div className="renewal-board" aria-busy="true">
+      {/* Каркас состоит из пустых плашек — объявлять диктору нечего, поэтому
+          вместо aria-live даём одну внятную строку. */}
+      <span className="sr-only">Загружаем доску продлений</span>
+      {columns.map((label, i) => (
+        <div key={i} className="renewal-col">
+          <div className="renewal-col__head">
+            <div className="renewal-col__title">
+              {label
+                ? <span className="renewal-col__label">{label}</span>
+                : <div className="skeleton-block rnl-skeleton__title" />}
+            </div>
+          </div>
+          <div className="renewal-col__body">
+            {[0, 1, 2, 3].map((j) => (
+              <div key={j} className="rnl-skeleton-card">
+                {/* Первый ряд повторяет структуру карточки — кружок аватара
+                    плюс имя, а не одну полоску: иначе каркас ниже настоящей
+                    карточки, и при появлении данных колонка дёргается. */}
+                <div className="rnl-skeleton__row">
+                  <div className="skeleton-block rnl-skeleton__avatar" />
+                  <div className="skeleton-block rnl-skeleton__line rnl-skeleton__line--name" />
+                </div>
+                <div className="skeleton-block rnl-skeleton__line rnl-skeleton__line--dir" />
+                <div className="skeleton-block rnl-skeleton__line rnl-skeleton__line--meta" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
