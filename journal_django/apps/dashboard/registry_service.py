@@ -103,10 +103,15 @@ def _attended_units_subquery():
     исходный пропуск остаётся present=false, а потребление идёт от самого факта
     доп.урока (его вес = длительность исходного урока), поэтому один пропуск
     списывается ровно один раз (см. apps/finances/repository.py, тот же инвариант).
+
+    is_free=False — там же и по той же причине: «бесплатное занятие» посещено
+    (present=true), но денег не берёт и баланс не списывает. Без этого фильтра
+    реестр занижал остаток на каждое бесплатное занятие и метил ученика «Закрыт»
+    при живом абонементе (прод, 12.08.2026).
     """
     return Subquery(
         LessonAttendance.objects
-        .filter(student_id=OuterRef('pk'), present=True)
+        .filter(student_id=OuterRef('pk'), present=True, is_free=False)
         .values('student_id')
         .annotate(u=Coalesce(Sum(Case(
             When(lesson__lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
@@ -269,6 +274,12 @@ def _summary_rows(today: datetime.date) -> list[dict]:
 
     # Один проход по посещениям даёт сразу оба поля: Σ отработанных уроков
     # (45 мин = 0.5) и дату последнего занятия.
+    #
+    # is_free разводит эти два поля: бесплатное занятие баланс не списывает
+    # (вес 0, как в _attended_units_subquery и apps/finances), но ученик на нём
+    # БЫЛ — дату последнего занятия оно двигает. Поэтому фильтр стоит внутри
+    # CASE, а не в .filter(): иначе из-под Max ушли бы те же строки и человек с
+    # одними бесплатными занятиями ложно попал бы в «простой».
     attendance = {
         r['student_id']: r
         for r in LessonAttendance.objects
@@ -276,6 +287,7 @@ def _summary_rows(today: datetime.date) -> list[dict]:
         .values('student_id')
         .annotate(
             units=Coalesce(Sum(Case(
+                When(is_free=True, then=_ZERO_DEC),
                 When(lesson__lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
                 default=Value(Decimal('1')),
                 output_field=_DEC,
