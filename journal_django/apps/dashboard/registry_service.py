@@ -179,7 +179,7 @@ def _next_lesson_subquery(today: datetime.date):
     )
 
 
-def base_students_qs(today: datetime.date) -> QuerySet:
+def base_students_qs(today: datetime.date, *, no_group: bool = False) -> QuerySet:
     """
     Активные ученики (есть активный membership в активной группе), аннотированные
     вычисляемыми полями. База и для списка, и для сводки.
@@ -188,13 +188,21 @@ def base_students_qs(today: datetime.date) -> QuerySet:
     Ушедший ученик покидает реестр, когда менеджер снимает членство, а не по
     стадии сделки — фильтр по последней сделке был бы лишним коррелированным
     подзапросом в тяжёлом кешируемом запросе дашборда.
+
+    no_group=True — режим «Без группы»: тот же queryset с теми же колонками и
+    статусами, но предикат популяции перевёрнут (Exists → NOT Exists). Сюда
+    попадают все, кого обычный реестр не показывает: нераспределённые новенькие,
+    ученики со снятым членством и ученики заархивированных групп. Два режима
+    разбивают учеников школы без пересечений и без потерь — инвариант закреплён
+    тестом (test_registry_no_group.py::test_modes_partition_all_students).
+    Сводка (_summary_rows) режим не знает: KPI описывают тех, кто учится.
     """
     active_membership = GroupMembership.objects.filter(
         student_id=OuterRef('pk'), active=True, group__active=True,
     )
+    population = Student.objects.exclude if no_group else Student.objects.filter
     qs = (
-        Student.objects
-        .filter(Exists(active_membership))
+        population(Exists(active_membership))
         .annotate(
             balance=ExpressionWrapper(
                 Coalesce(_purchased_subquery(), _ZERO_DEC)
@@ -381,10 +389,15 @@ def _apply_order(qs: QuerySet, sort_by: str, sort_dir: str) -> QuerySet:
     return qs.order_by(*order)
 
 
-def students_qs(*, segment='all', search='', sort_by='urgency', sort_dir='asc') -> QuerySet:
-    """Аннотированный, отфильтрованный и отсортированный queryset (view пагинирует)."""
+def students_qs(*, segment='all', search='', sort_by='urgency', sort_dir='asc',
+                no_group=False) -> QuerySet:
+    """Аннотированный, отфильтрованный и отсортированный queryset (view пагинирует).
+
+    no_group переключает популяцию (см. base_students_qs); сегмент, поиск и
+    сортировка работают в обоих режимах одинаково.
+    """
     today = _today()
-    qs = base_students_qs(today)
+    qs = base_students_qs(today, no_group=no_group)
     qs = _apply_segment(qs, segment, today)
     qs = _apply_search(qs, search)
     return _apply_order(qs, sort_by, sort_dir)

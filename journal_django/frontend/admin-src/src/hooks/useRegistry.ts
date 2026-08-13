@@ -18,6 +18,8 @@ export interface RegistryStudentsParams {
   sort_dir: 'asc' | 'desc';
   segment: RegistrySegment;
   search: string;
+  /** Режим «Без группы»: ученики без активного членства (те же колонки). */
+  no_group: boolean;
 }
 
 function buildQuery(p: RegistryStudentsParams): string {
@@ -28,10 +30,12 @@ function buildQuery(p: RegistryStudentsParams): string {
   qs.set('sort_dir', p.sort_dir);
   if (p.segment && p.segment !== 'all') qs.set('segment', p.segment);
   if (p.search) qs.set('search', p.search);
+  if (p.no_group) qs.set('no_group', '1');
   return qs.toString();
 }
 
-// Серверно-пагинированный список активных учеников (подход B).
+// Серверно-пагинированный список учеников (подход B): по умолчанию — учащиеся,
+// с no_group — те, у кого активной группы нет.
 export function useRegistryStudents(params: RegistryStudentsParams) {
   return useQuery({
     queryKey: ['registry', 'students', params],

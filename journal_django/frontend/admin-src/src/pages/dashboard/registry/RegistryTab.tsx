@@ -22,13 +22,14 @@ export default function RegistryTab() {
   const s = useListSearchParams({ sortBy: 'urgency', sortDir: 'asc', pageSize: 30 });
   const {
     page, pageSize, sortBy, sortDir, filters,
-    setPage, setPageSize, setSort, setFilters, getExtra, setExtra,
+    setPage, setPageSize, setSort, setFilters, getExtra, setExtras,
   } = s;
 
   const rawSeg = getExtra('seg');
   const segment: RegistrySegment = SEGMENTS.includes(rawSeg as RegistrySegment)
     ? (rawSeg as RegistrySegment)
     : 'all';
+  const noGroup = getExtra('nogroup') === '1';
 
   const search = filters['student_name'] || '';
   const debouncedSearch = useDeferredValue(search);
@@ -41,9 +42,18 @@ export default function RegistryTab() {
     sort_dir: sortDir,
     segment,
     search: debouncedSearch,
+    no_group: noGroup,
   });
 
-  const selectSegment = (seg: RegistrySegment) => setExtra('seg', seg === 'all' ? null : seg);
+  // Сегмент и «Без группы» переключаются одним обновлением URL, а не двумя:
+  // иначе между ними успевает уйти запрос с промежуточной комбинацией.
+  // Выбор сигнала выключает режим — KPI и сигналы описывают тех, кто учится.
+  const selectSegment = (seg: RegistrySegment) =>
+    setExtras({ seg: seg === 'all' ? null : seg, nogroup: null });
+
+  // Режим «Без группы» — своя выборка: сегменты к ней не применяются.
+  const toggleNoGroup = () =>
+    setExtras({ nogroup: noGroup ? null : '1', seg: null });
 
   const kpis = summary.data?.kpis;
   const dash = (v: number | undefined, fmt?: (n: number) => string) =>
@@ -94,9 +104,18 @@ export default function RegistryTab() {
         />
       </div>
 
-      {segment !== 'all' && (
-        <div className="reg-active-filter">
-          <span className="reg-active-filter__label">Фильтр:</span>
+      <div className="reg-active-filter">
+        <span className="reg-active-filter__label">Фильтр:</span>
+        <button
+          type="button"
+          className={`reg-chip reg-chip--toggle${noGroup ? ' is-on' : ''}`}
+          aria-pressed={noGroup}
+          onClick={toggleNoGroup}
+          title="Ученики без активной группы: ещё не распределённые и выбывшие"
+        >
+          Без группы
+        </button>
+        {segment !== 'all' && (
           <button
             type="button"
             className="reg-chip"
@@ -106,10 +125,11 @@ export default function RegistryTab() {
             {REGISTRY_STATUS_LABELS[segment]}
             <span className="reg-chip__x" aria-hidden>✕</span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <RegistryTable
+        title={noGroup ? 'Ученики без группы' : 'Ученики'}
         rows={students.data?.rows || []}
         isLoading={students.isFetching}
         serverPagination={{

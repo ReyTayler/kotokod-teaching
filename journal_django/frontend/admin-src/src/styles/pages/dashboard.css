@@ -530,6 +530,28 @@
   opacity: 0.7;
 }
 
+/* Переключатель режима «Без группы»: выключенный — нейтральная обводка,
+   включённый наследует акцентный вид базового .reg-chip. */
+.reg-chip--toggle {
+  color: var(--text2);
+  background: var(--bg2);
+  border-color: var(--border-strong);
+}
+
+.reg-chip--toggle:hover {
+  background: var(--bg3);
+}
+
+.reg-chip--toggle.is-on {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.reg-chip--toggle.is-on:hover {
+  background: var(--accent-soft-h);
+}
+
 /* ── Ячейки таблицы реестра ── */
 .reg-cell-code {
   font-family: var(--font-mono);
@@ -843,4 +865,30 @@
 
 .chart-tooltip__row .chart-tooltip__value {
   font-size: 13px;
+}
+/* Текст ошибки под катом (ErrorBoundary): без него о поломке можно сообщить
+   только словами «не работает», а причина остаётся в консоли браузера. */
+.error-fallback__details {
+  max-width: 640px;
+  margin-top: var(--space-3);
+  color: var(--text3);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+
+.error-fallback__details summary {
+  cursor: pointer;
+}
+
+.error-fallback__details code {
+  display: block;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--bg3);
+  color: var(--text2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
 }

@@ -169,9 +169,47 @@ def test_students_segment_narrows_result():
     {'segment': 'bogus'},
     {'sort_by': 'bogus'},
     {'sort_dir': 'sideways'},
+    {'no_group': 'maybe'},
 ])
 def test_students_invalid_params_400(params):
     assert _client('manager').get(STUDENTS, params).status_code == 400
+
+
+# ── Режим «Без группы» (no_group=1) ──────────────────────────────────────────
+
+def test_students_no_group_same_row_shape():
+    """Колонки те же — фронт рисует ту же таблицу, договор ответа не меняется."""
+    body = _client('manager').get(STUDENTS, {'no_group': 1, 'page_size': 5}).json()
+    for r in body['rows']:
+        assert set(r.keys()) == {
+            'student_id', 'student_name', 'codes', 'teacher_names', 'balance',
+            'attended', 'planned', 'progress_pct', 'last_lesson_date',
+            'next_lesson_date', 'status',
+        }
+        assert r['status'] in {'closed', 'ending', 'idle', 'no_plan', 'ok'}
+        # Без активного членства взяться коду группы и преподавателю неоткуда.
+        assert r['codes'] == []
+        assert r['teacher_names'] == []
+
+
+def test_students_no_group_partitions_the_school():
+    """
+    total обычного списка + total «Без группы» == всего учеников в базе.
+    Данными-независимый инвариант: ученик не может ни задвоиться, ни пропасть.
+    """
+    from apps.students.models import Student
+
+    c = _client('manager')
+    with_group = c.get(STUDENTS, {'page_size': 1}).json()['total']
+    without = c.get(STUDENTS, {'no_group': 1, 'page_size': 1}).json()['total']
+    assert with_group + without == Student.objects.count()
+
+
+def test_students_no_group_default_is_off():
+    """Без параметра — прежнее поведение (флаг по умолчанию выключен)."""
+    c = _client('manager')
+    assert c.get(STUDENTS, {'page_size': 1}).json()['total'] == \
+        c.get(STUDENTS, {'no_group': 0, 'page_size': 1}).json()['total']
 
 
 # ── Инварианты БД-пагинации/сортировки (вариант B), не зависят от данных ──

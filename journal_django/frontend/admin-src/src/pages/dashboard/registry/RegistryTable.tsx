@@ -14,9 +14,11 @@ interface Props {
   rows: RegistryStudent[];
   serverPagination: ServerPaginationState & ServerPaginationCallbacks;
   isLoading: boolean;
+  /** Заголовок таблицы: меняется в режиме «Без группы». */
+  title?: string;
 }
 
-export function RegistryTable({ rows, serverPagination, isLoading }: Props) {
+export function RegistryTable({ rows, serverPagination, isLoading, title = 'Ученики' }: Props) {
   const navigate = useNavigate();
 
   const columns: Column<RegistryStudent>[] = [
@@ -94,7 +96,7 @@ export function RegistryTable({ rows, serverPagination, isLoading }: Props) {
     <DataTable<RegistryStudent>
       data={rows}
       columns={columns}
-      title="Ученики"
+      title={title}
       onRowClick={(r) => navigate(`/admin/students/${r.student_id}`)}
       isLoading={isLoading}
       serverPagination={serverPagination}
