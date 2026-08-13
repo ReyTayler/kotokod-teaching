@@ -130,6 +130,8 @@ INSTALLED_APPS = [
     'apps.sync',
     'apps.reports',
     'apps.notifications',
+    'django.contrib.postgres',
+    'apps.knowledge',
 ]
 
 # SessionMiddleware и AuthenticationMiddleware убраны:
@@ -265,6 +267,16 @@ if crontab is not None:
             'task': 'apps.notifications.tasks.send_fill_digest',
             'schedule': crontab(hour=21, minute=0),
         },
+        'knowledge-cleanup-orphan-images': {
+            'task': 'apps.knowledge.tasks.cleanup_orphan_images',
+            'schedule': crontab(hour=4, minute=30),   # CELERY_TIMEZONE='Europe/Moscow'
+        },
+        # Через пять минут после картинок, а не одновременно: обе задачи ходят по
+        # диску, и на двух ядрах им незачем толкаться.
+        'knowledge-cleanup-orphan-files': {
+            'task': 'apps.knowledge.tasks.cleanup_orphan_files',
+            'schedule': crontab(hour=4, minute=35),
+        },
     })
 
 # ---------------------------------------------------------------------------
@@ -280,6 +292,29 @@ TELEGRAM_GENERAL_CHAT_ID: int = env('TELEGRAM_GENERAL_CHAT_ID')
 BOT_SERVICE_TOKEN: str = env('BOT_SERVICE_TOKEN')
 # Сколько ЗАВЕРШЁННЫХ записей очереди храним. Строки в очереди не удаляются никогда.
 NOTIFICATIONS_HISTORY_LIMIT: int = env('NOTIFICATIONS_HISTORY_LIMIT')
+
+# ---------------------------------------------------------------------------
+# База знаний (apps.knowledge) — хранилище картинок
+# ---------------------------------------------------------------------------
+# Корень файлового хранилища. Локально — journal_django/media (в .gitignore),
+# на проде — отдельный каталог вне репозитория.
+KNOWLEDGE_MEDIA_ROOT: str = env('KNOWLEDGE_MEDIA_ROOT', default=str(BASE_DIR / 'media'))
+
+# Префикс internal-локации nginx для X-Accel-Redirect. Пусто → Django отдаёт
+# файл сам через FileResponse (локальная разработка на runserver без nginx).
+KNOWLEDGE_X_ACCEL_PREFIX: str = env('KNOWLEDGE_X_ACCEL_PREFIX', default='')
+
+# Потолок размера загружаемой картинки.
+KNOWLEDGE_MAX_IMAGE_BYTES: int = 10 * 1024 * 1024
+
+# Защита от декомпрессионных бомб: 2 МБ файла могут развернуться в гигабайты RAM.
+KNOWLEDGE_MAX_IMAGE_PIXELS: int = 50_000_000
+
+# Прикреплённые файлы (не картинки). 25 МБ покрывают методичку с иллюстрациями,
+# презентацию и скан договора. Значение обязано быть согласовано с
+# client_max_body_size на локации загрузки в nginx — там оно с запасом на
+# накладные расходы multipart.
+KNOWLEDGE_MAX_FILE_BYTES: int = 25 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # Internationalisation
@@ -317,6 +352,8 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         # Служебный API Telegram-бота (apps/notifications/integration_views.py).
         'bot_service': '120/min',
+        # Загрузка картинок базы знаний — чтобы не залить диск (apps/knowledge).
+        'knowledge_upload': '60/min',
     },
 }
 

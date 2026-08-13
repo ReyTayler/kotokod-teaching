@@ -76,6 +76,8 @@ TELEGRAM_BOT_TOKEN=           # токен того же бота, что кру
 TELEGRAM_GENERAL_CHAT_ID=     # общий чат сотрудников (-100...); пусто → дубли в чат не идут
 BOT_SERVICE_TOKEN=            # общий секрет журнал ↔ бот для /api/integrations/telegram
 NOTIFICATIONS_HISTORY_LIMIT=200  # сколько ЗАВЕРШЁННЫХ записей очереди хранить
+KNOWLEDGE_MEDIA_ROOT=          # корень хранилища картинок базы знаний; прод — /var/www/journal-media
+KNOWLEDGE_X_ACCEL_PREFIX=      # префикс internal-локации nginx; пусто → Django отдаёт файлы сам (локально)
 # Legacy (Phase 5):
 STUDENTS_SPREADSHEET_ID=
 JOURNAL_SPREADSHEET_ID=       # нужен для backfill-payments

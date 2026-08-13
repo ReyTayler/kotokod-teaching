@@ -1,7 +1,19 @@
-import type { LessonType, RegistryStatus } from './types';
+import type { LessonType, RegistryStatus, Role } from './types';
 
 // Статуса ученика больше нет (спека 2026-07-25): его «статус» — стадия последней
 // сделки продления, подписи стадий приходят с бэка (useRenewalStages).
+
+// ===== Роли учётки =====
+// AccountsPage.tsx держит собственную локальную копию (не тронута — вне
+// зоны этой правки), это единственный переиспользуемый экземпляр для
+// нового кода (см. ReaderRolesField в разделе «База знаний»).
+
+export const ROLE_LABELS: Record<Role, string> = {
+  teacher:    'Преподаватель',
+  manager:    'Менеджер',
+  admin:      'Администратор',
+  superadmin: 'Суперадминистратор',
+};
 
 // ===== Реестр куратора — статус ученика =====
 // Подписи бейджа и строк сигналов. Коды приходят с бэка (registry_service.classify).

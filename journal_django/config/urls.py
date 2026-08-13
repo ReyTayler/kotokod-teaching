@@ -48,6 +48,9 @@ urlpatterns = [
     path('api/admin/sync', include('apps.sync.urls')),
     # Отчёты — генерация Excel-отчётов в Celery (role=manager/admin)
     path('api/admin/reports', include('apps.reports.urls')),
+    # База знаний — документация компании (спека 2026-08-06).
+    # Чтение — любая аутентифицированная роль, запись — admin/superadmin.
+    path('api/admin/knowledge', include('apps.knowledge.urls')),
     # Telegram-уведомления: справочник аккаунтов (manager/admin) и раздел
     # «Уведомления» — журнал доставки + расписание (только admin/superadmin).
     path('api/admin/telegram-users', include('apps.notifications.telegram_users_urls')),

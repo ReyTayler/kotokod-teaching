@@ -23,3 +23,5 @@
 @import '../shared/calendar/modal.css';
 /* Матрица посещаемости «Прогресс» (GroupProgressView) — общая с teacher SPA. */
 @import '../shared/progress/progress.css';
+/* База знаний — читатель (DocumentView) и редактор (DocumentEditor). */
+@import './knowledge.css';

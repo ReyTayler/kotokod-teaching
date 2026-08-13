@@ -163,6 +163,15 @@ export const NAV_ICONS: Record<string, ReactElement> = {
       <path d="M15 11.5v-2M12 11.5v-4M9 11.5v-1"/>
     </svg>
   ),
+  knowledge: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+         strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      <line x1="9" y1="7" x2="16" y2="7"/>
+      <line x1="9" y1="11" x2="14" y2="11"/>
+    </svg>
+  ),
 };
 
 export interface NavItem {
@@ -187,7 +196,12 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     title: null,
-    items: [{ key: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' }],
+    items: [
+      { key: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' },
+      // База знаний — не про учебную часть и не про деньги, это сквозной
+      // справочник для всех ролей. Поэтому верхний уровень, рядом с дашбордом.
+      { key: 'knowledge', label: 'База знаний', path: '/admin/knowledge' },
+    ],
   },
   {
     title: 'Учебная часть',

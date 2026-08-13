@@ -136,6 +136,52 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInflight;
 }
 
+/**
+ * Разобрать тело ответа, не падая на не-JSON.
+ *
+ * Ошибку отдаёт не только Django. nginx отвечает СВОЕЙ страницей — обычной
+ * HTML-заглушкой — когда отсекает запрос до приложения: превышен
+ * client_max_body_size (413), сработал лимит частоты (429), упал upstream (502).
+ * Прямой JSON.parse на такой странице бросал SyntaxError, и пользователь видел
+ * в углу экрана «Unexpected token '<'» вместо причины отказа.
+ */
+function parseJsonSafe(text: string): { error?: string; details?: unknown; code?: string } | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Человеческий текст для случая, когда объяснить отказ некому: тело ответа не
+ * наше, а статус — единственное, что известно.
+ */
+function statusMessage(status: number): string {
+  const known: Record<number, string> = {
+    413: 'Файл слишком большой',
+    415: 'Такой файл загрузить нельзя',
+    429: 'Слишком много запросов подряд, подождите минуту',
+    502: 'Сервер недоступен',
+    503: 'Сервер недоступен',
+    504: 'Сервер не ответил вовремя',
+  };
+  return known[status] ?? (status ? `Ошибка ${status}` : 'Нет связи с сервером');
+}
+
+/**
+ * Собрать ApiError из ответа, чем бы ни оказалось его тело.
+ *
+ * statusText намеренно не используется: браузер отдаёт его по-английски
+ * («Request Entity Too Large»), и он перебивал бы наш русский текст. Для
+ * человека в интерфейсе это шаг назад, а не запасной вариант.
+ */
+function errorFromBody(status: number, text: string): ApiError {
+  const json = parseJsonSafe(text);
+  return new ApiError(status, json?.error || statusMessage(status), json?.details, json?.code);
+}
+
 async function rawFetch(method: string, path: string, body?: unknown): Promise<Response> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -182,14 +228,94 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
 
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  const json = text ? JSON.parse(text) : null;
   if (!res.ok) {
     if (res.status === 401 && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('admin:auth-expired'));
     }
-    throw new ApiError(res.status, json?.error || res.statusText, json?.details, json?.code);
+    throw errorFromBody(res.status, text);
   }
-  return json as T;
+  return parseJsonSafe(text) as T;
+}
+
+/**
+ * Загрузка файла multipart-ом. Отдельно от api(): там тело всегда JSON, а для
+ * FormData Content-Type обязан выставить сам браузер — иначе теряется boundary.
+ *
+ * CSRF и обновление access-токена работают так же, как в api().
+ */
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const send = async (): Promise<Response> => {
+    const form = new FormData();
+    form.append('file', file);
+    const headers: Record<string, string> = {};
+    const token = await ensureCsrfToken();
+    if (token) headers['X-CSRFToken'] = token;
+    return fetch(path, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: form,
+    });
+  };
+
+  let res = await send();
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) res = await send();
+  }
+
+  const text = await res.text();
+  if (!res.ok) throw errorFromBody(res.status, text);
+  return parseJsonSafe(text) as T;
+}
+
+/**
+ * Загрузка файла с сообщением о ходе отправки.
+ *
+ * XMLHttpRequest, а не fetch: fetch не умеет сообщать о прогрессе ОТПРАВКИ, а
+ * без него загрузка 25-мегабайтного файла выглядит как зависший интерфейс.
+ * Для картинок это неважно, для прикреплённых файлов — обязательно.
+ *
+ * Живёт здесь, рядом с apiUpload, а не в разделе базы знаний: иначе пришлось бы
+ * вынести наружу выдачу CSRF-токена и обновление access-токена, то есть
+ * размазать аутентификацию по приложению ради одной формы загрузки.
+ */
+export async function apiUploadWithProgress<T>(
+  path: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<T> {
+  const send = (): Promise<{ status: number; text: string }> =>
+    ensureCsrfToken().then((token) => new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', path);
+      xhr.withCredentials = true;
+      if (token) xhr.setRequestHeader('X-CSRFToken', token);
+      xhr.upload.addEventListener('progress', (event) => {
+        // lengthComputable ложно, когда размер неизвестен (редко, но бывает);
+        // деление на ноль дало бы NaN в ширине полосы.
+        if (event.lengthComputable && event.total > 0) {
+          onProgress?.((event.loaded / event.total) * 100);
+        }
+      });
+      xhr.addEventListener('load', () => resolve({ status: xhr.status, text: xhr.responseText }));
+      xhr.addEventListener('error', () => reject(new ApiError(0, 'Не удалось отправить файл')));
+      xhr.addEventListener('abort', () => reject(new ApiError(0, 'Отправка прервана')));
+      xhr.send((() => {
+        const form = new FormData();
+        form.append('file', file);
+        return form;
+      })());
+    }));
+
+  let res = await send();
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) res = await send();
+  }
+
+  if (res.status < 200 || res.status >= 300) throw errorFromBody(res.status, res.text);
+  return parseJsonSafe(res.text) as T;
 }
 
 /**
