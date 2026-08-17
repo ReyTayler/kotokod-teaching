@@ -22,7 +22,7 @@ from apps.lessons.exceptions import (
     LessonHasMakeupResolutions, SystemLessonProtected,
 )
 from apps.core.utils.decimal import to_decimal
-from apps.lessons.models import SYSTEM_LESSON_TYPES, Lesson
+from apps.lessons.models import SYSTEM_LESSON_TYPES, Lesson, LessonAttendance
 from apps.lessons.submission_key import build_submission_key
 from apps.memberships.repository import locked_through_map
 from apps.payroll.calculator import calculate_payment, calculate_penalty
@@ -264,11 +264,21 @@ def record_lesson(*,
             'penalty': penalty,
         })
 
-        # Авто-создание «пропусков, требующих решения» — только для обычных уроков
-        # (extra/burned сами являются РЕЗУЛЬТАТОМ решения, пропусков не порождают).
+        # Авто-создание «пропусков, требующих решения» — для ВСЕХ занятий курса
+        # (regular/substitution/reschedule). Исключены только системные факты
+        # extra/burned: они сами являются РЕЗУЛЬТАТОМ решения и пропусков не порождают.
+        #
+        # Условие ОБЯЗАНО быть «не системный», а не «== regular»: замена и перенос —
+        # такие же занятия курса (COURSE_LESSON_TYPES), пропуск на них требует
+        # отработки ровно так же. Тип выводит СЕРВЕР (apps.teacher_spa.services:
+        # чужая группа → substitution, moved_from_date задан → reschedule), препод
+        # его не выбирает и не видит — поэтому проверка на 'regular' тихо съедала
+        # заявки на всех перенесённых и замещённых занятиях: ПГ216 от 15.08.2026,
+        # ни одна из трёх заявок на таких уроках не создалась автоматически.
+        #
         # Ленивый импорт: apps.extra_lessons.repository импортит apps.lessons.models,
         # прямой top-level импорт здесь завёл бы цикл.
-        if lesson_type == 'regular':
+        if lesson_type not in SYSTEM_LESSON_TYPES:
             # Неоплачиваемый пропуск — терминальный исход, pending НЕ порождает
             # (в отличие от обычного «не был»).
             absent_student_ids = [
@@ -444,14 +454,56 @@ def update_attendance_cell(
 ) -> bool:
     """Точечная правка исхода ученика на проведённом уроке. present — был/не был;
     is_free — «бесплатное занятие» (present=true, денег ноль). is_free при
-    present=false игнорируется. Пересчитывает Payroll (см. repository)."""
+    present=false игнорируется. Пересчитывает Payroll (см. repository).
+
+    Снятие present (флип в «не был») порождает pending-резолюцию так же, как если
+    бы ученика отметили отсутствующим сразу при записи урока — см.
+    _autocreate_pending_for_cell."""
     _assert_not_system_lesson(lesson_id)
     # Флип В present компенсированного пропуска = двойной учёт (см. гард).
     # Снятие present (absent) — безопасно, не гейтим. free — тоже present=true,
     # поэтому под тем же запретом.
     if present:
         _assert_not_compensated(lesson_id, student_id)
-    return repository.update_attendance_cell(lesson_id, student_id, present, is_free)
+    # Одна транзакция на правку ячейки и постановку в очередь: иначе флип
+    # закоммитился бы, а падение autocreate оставило бы пропуск без заявки —
+    # ровно тот тихий исход, который здесь и чинится. Вложенный atomic внутри
+    # repository становится SAVEPOINT'ом.
+    with transaction.atomic():
+        changed = repository.update_attendance_cell(lesson_id, student_id, present, is_free)
+        if changed and not present:
+            _autocreate_pending_for_cell(lesson_id, student_id)
+        return changed
+
+
+def _autocreate_pending_for_cell(lesson_id: int, student_id: int) -> None:
+    """Поставить пропуск в очередь «ждёт решения» после ретроактивного снятия
+    present. Раньше этого не делалось вовсе: record_lesson создавал pending только
+    в момент записи урока, поэтому пропуск, проставленный админом задним числом,
+    в раздел «Доп.уроки» не попадал никогда.
+
+    Не порождает заявку, если ячейка помечена «неоплачиваемый пропуск»
+    (unpaid_skip): это терминальный прощённый исход — ученик урок не посещает
+    (перевод / начал не с 1-го), денег ноль, отработка не требуется. Тот же
+    инвариант, что в record_lesson (там ученики из skip_ids исключаются из
+    absent_student_ids) и в бэкфилле (`la.unpaid_skip = false`).
+
+    Системные уроки (extra/burned) сюда не доходят — вызывающий уже отработал
+    _assert_not_system_lesson. Идемпотентно: autocreate_pending делает
+    ON CONFLICT DO NOTHING по UNIQUE(missed_lesson, student), поэтому повторный
+    флип не плодит дублей и не сбрасывает уже принятое решение (makeup_done/burned)
+    обратно в pending.
+    """
+    row = (
+        LessonAttendance.objects
+        .filter(lesson_id=lesson_id, student_id=student_id)
+        .values('unpaid_skip')
+        .first()
+    )
+    if row is None or row['unpaid_skip']:
+        return
+    from apps.extra_lessons import services as extra_lessons_services
+    extra_lessons_services.autocreate_pending_for_lesson(lesson_id, [student_id])
 
 
 def set_unpaid_skip(lesson_id: int, student_id: int, value: bool) -> bool:

@@ -178,3 +178,106 @@ def test_extra_lesson_does_not_autocreate(
         assert _pending_students(lesson_id) == []  # extra не порождает pending
     finally:
         _cleanup(lesson_id)
+
+
+@pytest.mark.parametrize('lesson_type', ['substitution', 'reschedule'])
+def test_course_lesson_types_autocreate_pending(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lesson_type,
+):
+    """Замена и перенос — такие же занятия курса, как regular: пропуск на них
+    обязан вставать в очередь «ждёт решения».
+
+    Регрессия: гейт был `lesson_type == 'regular'`, из-за чего на всех замещённых
+    и перенесённых занятиях заявки не создавались вовсе. Тип выводит сервер
+    (apps.teacher_spa.services), преподаватель его не выбирает, поэтому потеря
+    была не видна ни в кабинете, ни в логах."""
+    res = services.record_lesson(
+        lesson_date='2026-05-07', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type=lesson_type, record_url=None, submitted_by_token='t',
+        submit_date='2026-05-07',
+        attendance=[{'student_id': student_fixture, 'present': False}])
+    lesson_id = res['lesson_id']
+    try:
+        assert _pending_students(lesson_id) == [student_fixture]
+    finally:
+        _cleanup(lesson_id)
+
+
+@pytest.mark.parametrize('lesson_type', ['regular', 'substitution', 'reschedule'])
+def test_unpaid_skip_never_autocreates_on_any_course_type(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, lesson_type,
+):
+    """«Неоплачиваемый пропуск» — терминальный прощённый исход (перевод / начал не
+    с 1-го урока): отработка не требуется, заявка НЕ создаётся. Расширение гейта на
+    substitution/reschedule не должно этого менять — проверяем на всех трёх типах.
+
+    Пометка ставится слот-маркером (LessonSkip, «Вариант A») — это единственный
+    путь, которым unpaid_skip попадает в record_lesson: AttendanceItemSerializer
+    такого поля не имеет, клиент его прислать не может. record_lesson форсит
+    помеченного ученика в present=false/unpaid_skip=true, что бы ни пришло с фронта."""
+    services.set_lesson_skip(group_fixture, student_fixture, 1, True)
+    res = services.record_lesson(
+        lesson_date='2026-05-08', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type=lesson_type, record_url=None, submitted_by_token='t',
+        submit_date='2026-05-08',
+        # Приходит «пришёл» — маркер обязан переписать исход в неоплачиваемый пропуск.
+        attendance=[{'student_id': student_fixture, 'present': True}])
+    lesson_id = res['lesson_id']
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT present, unpaid_skip FROM lesson_attendance '
+                'WHERE lesson_id=%s AND student_id=%s', [lesson_id, student_fixture])
+            assert cur.fetchone() == (False, True)
+        assert _pending_students(lesson_id) == []
+    finally:
+        services.set_lesson_skip(group_fixture, student_fixture, 1, False)
+        _cleanup(lesson_id)
+
+
+def test_flip_to_absent_autocreates_pending(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """Ретроактивное снятие present (админ правит ячейку задним числом) ставит
+    пропуск в очередь. Прежде pending создавался ТОЛЬКО в момент записи урока,
+    поэтому пропуск, проставленный позже, не попадал в «Доп.уроки» никогда."""
+    res = services.record_lesson(
+        lesson_date='2026-05-09', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='t',
+        submit_date='2026-05-09',
+        attendance=[{'student_id': student_fixture, 'present': True}])
+    lesson_id = res['lesson_id']
+    try:
+        assert _pending_students(lesson_id) == []          # пришёл — заявки нет
+        services.update_attendance_cell(lesson_id, student_fixture, False)
+        assert _pending_students(lesson_id) == [student_fixture]
+        # Идемпотентность: повторное снятие не плодит дублей.
+        services.update_attendance_cell(lesson_id, student_fixture, False)
+        assert _pending_students(lesson_id) == [student_fixture]
+    finally:
+        _cleanup(lesson_id)
+
+
+def test_flip_to_absent_does_not_autocreate_for_unpaid_skip_cell(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """Ячейка, помеченная «неоплачиваемым пропуском», заявку не порождает и при
+    ретро-правке: исход терминальный, отработка не требуется."""
+    res = services.record_lesson(
+        lesson_date='2026-05-10', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='t',
+        submit_date='2026-05-10',
+        attendance=[{'student_id': student_fixture, 'present': True}])
+    lesson_id = res['lesson_id']
+    try:
+        services.set_unpaid_skip(lesson_id, student_fixture, True)
+        assert _pending_students(lesson_id) == []
+        # Явное снятие present поверх пометки — заявки по-прежнему быть не должно.
+        services.update_attendance_cell(lesson_id, student_fixture, False)
+        assert _pending_students(lesson_id) == []
+    finally:
+        _cleanup(lesson_id)

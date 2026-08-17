@@ -5,8 +5,8 @@ from django.db import connection
 from apps.sync.backfills import rebuild_absence_resolutions
 
 
-def _setup():
-    """Активная группа + активный член (enrolled) + обычный урок, где ученик
+def _setup(lesson_type: str = 'regular'):
+    """Активная группа + активный член (enrolled) + урок заданного типа, где ученик
     present=false и БЕЗ резолюции. Возвращает ids для ассертов/очистки."""
     with connection.cursor() as cur:
         cur.execute("INSERT INTO teachers (name) VALUES ('__ar_t__') RETURNING id")
@@ -35,8 +35,8 @@ def _setup():
         cur.execute(
             "INSERT INTO lessons (lesson_date, teacher_id, group_id, lesson_number, "
             "lesson_duration_minutes, lesson_type, submitted_by_token, submitted_at) "
-            "VALUES ('2026-05-01', %s, %s, 1, 60, 'regular', 'AR_TOK', now()) RETURNING id",
-            [teacher_id, group_id])
+            "VALUES ('2026-05-01', %s, %s, 1, 60, %s, 'AR_TOK', now()) RETURNING id",
+            [teacher_id, group_id, lesson_type])
         lesson_id = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s, %s, false)",
@@ -125,6 +125,37 @@ def test_skips_unpaid_skip_miss():
             cur.execute(
                 "UPDATE lesson_attendance SET unpaid_skip=true "
                 "WHERE lesson_id=%s AND student_id=%s", [ctx['lesson_id'], ctx['student_id']])
+        res = rebuild_absence_resolutions.run(dry_run=False)
+        assert res['created'] == 0
+        assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
+    finally:
+        _teardown(ctx)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('lesson_type', ['substitution', 'reschedule'])
+def test_creates_pending_for_substitution_and_reschedule(lesson_type):
+    """Замена и перенос — занятия курса: их пропуски бэкфилл обязан поднимать.
+
+    Регрессия: фильтр был `l.lesson_type = 'regular'`, тот же самый, что и гейт в
+    record_lesson. Из-за этого страховка воспроизводила дыру основного пути —
+    заявки, потерянные на заменах и переносах, восстановить было нечем."""
+    ctx = _setup(lesson_type=lesson_type)
+    try:
+        res = rebuild_absence_resolutions.run(dry_run=False)
+        assert res['created'] >= 1
+        assert _resolution(ctx['lesson_id'], ctx['student_id']) == 'pending'
+    finally:
+        _teardown(ctx)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('lesson_type', ['extra', 'burned'])
+def test_skips_system_lesson_types(lesson_type):
+    """Системные факты (доп.урок / сгорание) сами являются РЕЗУЛЬТАТОМ решения и
+    пропусков не порождают — расширение охвата не должно их зацепить."""
+    ctx = _setup(lesson_type=lesson_type)
+    try:
         res = rebuild_absence_resolutions.run(dry_run=False)
         assert res['created'] == 0
         assert _resolution(ctx['lesson_id'], ctx['student_id']) is None
