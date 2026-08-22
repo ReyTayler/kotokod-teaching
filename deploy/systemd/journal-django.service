@@ -45,8 +45,15 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-# strict делает ВСЮ ФС read-only кроме /run/journal-django (RuntimeDirectory);
-# код и .env читаются, писать сервису некуда. venv/код не модифицируются в рантайме.
+# strict делает ВСЮ ФС read-only кроме /run/journal-django (RuntimeDirectory)
+# и путей из ReadWritePaths ниже; код и .env читаются, venv/код в рантайме не
+# модифицируются.
+#
+# Хранилище Wiki (apps/knowledge) — единственное место, куда сервис ПИШЕТ:
+# загруженные картинки и вложения. Путь обязан совпадать с KNOWLEDGE_MEDIA_ROOT
+# в .env и с alias локации /internal-media/ в nginx. Без этой строки загрузка
+# падает на записи файла, хотя всё остальное работает.
+ReadWritePaths=/var/www/journal-media
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 RestrictSUIDSGID=true

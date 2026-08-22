@@ -142,6 +142,40 @@ cd /opt/kotokod/journal-backend/journal_django
 (`/admin/teachers` → карточка → поле «Telegram»), смотрит оба дайджеста живьём
 и лишь потом привязывает остальных. Отдельного «тестового режима» нет — эта
 последовательность его заменяет.
+**Wiki (`apps/knowledge`) — хранилище картинок и вложений.** Единственное место,
+куда приложение ПИШЕТ на диск. Три настройки обязаны совпадать между собой, и
+несовпадение любой из них выглядит одинаково: раздел работает, документы
+открываются, а картинки и файлы не отдаются.
+
+```bash
+# 1. Каталог вне репозитория. Пишет kotokod (gunicorn и celery), читает www-data
+#    (nginx отдаёт файл по X-Accel-Redirect). setgid — чтобы подкаталоги,
+#    создаваемые приложением, наследовали группу.
+sudo mkdir -p /var/www/journal-media
+sudo chown kotokod:www-data /var/www/journal-media
+sudo chmod 2750 /var/www/journal-media
+```
+
+```
+# 2. .env — путь и префикс internal-локации nginx (см. .env.example):
+KNOWLEDGE_MEDIA_ROOT=/var/www/journal-media
+KNOWLEDGE_X_ACCEL_PREFIX=/internal-media
+```
+
+3. Юниты `journal-django` и `journal-celery-worker` несут
+   `ReadWritePaths=/var/www/journal-media`. Без неё `ProtectSystem=strict`
+   держит всю ФС только на чтение, и загрузка падает на записи файла. Если
+   каталог на сервере другой — править в юнитах, в `.env` и в `alias` локации
+   `/internal-media/` разом.
+
+Проверка после установки: создать документ, вставить в него картинку, открыть
+на чтение. Отобразилась — значит, сошлись все три настройки и права каталога.
+Через минуту `optimize_state` картинки станет `ready` (это уже воркер).
+
+**Сборка SPA на сервере не нужна.** `admin-dist` и `teacher-dist` лежат в
+репозитории собранными, `git pull` приносит их вместе с кодом. Node на VPS
+требуется, только если собирать фронт на месте.
+
 `.env` несёт секреты (DB-пароль, `ADMIN_COOKIE_SECRET`, `SMTP_PASS`) — закрыть права:
 ```bash
 chmod 600 .env && chown kotokod:kotokod .env      # systemd читает от root до сброса прав

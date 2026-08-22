@@ -1,9 +1,15 @@
-# systemd-юнит — ежедневный бэкап PostgreSQL (journal-db-backup.timer его запускает).
+# systemd-юнит — ежедневный бэкап (journal-db-backup.timer его запускает):
+# дамп PostgreSQL плюс архив хранилища файлов Wiki.
+#
+# Песочницы здесь намеренно нет, в отличие от остальных юнитов: скрипт идёт от
+# root, читает /var/www/journal-media и пишет в /opt/kotokod/backups — под
+# ProtectSystem=strict пришлось бы перечислять те же пути в ReadWritePaths,
+# то есть выдать ровно то, что strict и запрещает.
 #
 # Установка: см. шапку deploy/scripts/backup-db.sh.
 
 [Unit]
-Description=KOTOKOD journal — daily PostgreSQL backup
+Description=KOTOKOD journal — daily backup (PostgreSQL + Wiki media)
 
 [Service]
 Type=oneshot

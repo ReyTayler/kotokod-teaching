@@ -44,6 +44,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+# То же хранилище, что у journal-django: воркер дожимает загруженные картинки
+# в WebP (apps.knowledge.tasks.optimize_image) и убирает осиротевшие файлы по
+# расписанию — обе задачи пишут и удаляют на диске.
+ReadWritePaths=/var/www/journal-media
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 RestrictSUIDSGID=true
