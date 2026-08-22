@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { CSSProperties, ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { Editor } from '@tiptap/react';
+import type { EditorView } from '@tiptap/pm/view';
 import { runOnCells, selectCells, type CellScope, type TableChain } from './tableCommands';
 
 /**
@@ -69,6 +70,30 @@ export function TableControls({ editor }: { editor: Editor }) {
   const [table, setTable] = useState<HTMLTableElement | null>(null);
   const [geometry, setGeometry] = useState<Geometry | null>(null);
 
+  // Представление ProseMirror появляется позже нас (см. viewOf). Держим его в
+  // состоянии, чтобы эффекты, которым нужен DOM редактора, выполнились ЗАНОВО,
+  // когда оно создастся, а не молча пропустили свою единственную попытку.
+  const [view, setView] = useState<EditorView | null>(() => viewOf(editor));
+
+  useEffect(() => {
+    const sync = () => setView(viewOf(editor));
+    // Первый вызов — на случай, когда представление уже создано: событие о
+    // его появлении к этому моменту давно прошло.
+    sync();
+    // mount — сразу после создания представления, create — тиком позже.
+    // Слушаем оба: между ними есть промежуток, и в него попадает компонент,
+    // смонтированный ровно в это время. unmount снимает ручки вместе с
+    // представлением, чтобы они не остались висеть над мёртвым DOM.
+    editor.on('mount', sync);
+    editor.on('create', sync);
+    editor.on('unmount', sync);
+    return () => {
+      editor.off('mount', sync);
+      editor.off('create', sync);
+      editor.off('unmount', sync);
+    };
+  }, [editor]);
+
   // Таблица под курсором или под выделением. В ref — чтобы обработчики
   // событий не пересоздавались на каждое наведение.
   const tableRef = useRef<HTMLTableElement | null>(null);
@@ -113,7 +138,8 @@ export function TableControls({ editor }: { editor: Editor }) {
   // Какая таблица «активна»: та, на которую навели мышь, а когда мыши на
   // таблице нет — та, внутри которой стоит курсор.
   useEffect(() => {
-    const dom = editor.view.dom as HTMLElement;
+    if (!view) return;
+    const dom = view.dom as HTMLElement;
     const sheet = (dom.closest('.kb-editor-sheet') ?? dom) as HTMLElement;
     let hideTimer = 0;
 
@@ -150,7 +176,7 @@ export function TableControls({ editor }: { editor: Editor }) {
       sheet.removeEventListener('mouseover', onOver);
       sheet.removeEventListener('mouseleave', hideSoon);
     };
-  }, [editor]);
+  }, [editor, view]);
 
   useEffect(() => {
     const onTransaction = () => {
@@ -167,7 +193,7 @@ export function TableControls({ editor }: { editor: Editor }) {
   // Измеряем до отрисовки: иначе ручки появляются на кадр раньше, чем встают
   // на свои места, и это видно как рывок.
   useLayoutEffect(() => {
-    if (!table) {
+    if (!table || !view) {
       setGeometry(null);
       return;
     }
@@ -184,7 +210,7 @@ export function TableControls({ editor }: { editor: Editor }) {
      * таблицы, — ни ResizeObserver, ни подписка на транзакции его не замечают.
      * Поэтому на время зажатой кнопки мыши идёт свой кадровый цикл.
      */
-    const dom = editor.view.dom as HTMLElement;
+    const dom = view.dom as HTMLElement;
     let dragging = false;
     const tick = () => {
       if (!dragging) return;
@@ -209,7 +235,7 @@ export function TableControls({ editor }: { editor: Editor }) {
       window.removeEventListener('mouseup', onUp);
       cancelAnimationFrame(frame.current);
     };
-  }, [table, editor, measure, schedule]);
+  }, [table, view, measure, schedule]);
 
   return (
     <div ref={layerRef} className="kb-tablectl-layer">
@@ -525,11 +551,32 @@ function sameBands(a: Band[], b: Band[]): boolean {
   });
 }
 
+/**
+ * Представление редактора — или null, пока его нет.
+ *
+ * Проверить нужно именно так, а не `if (editor.view)`: до создания
+ * представления @tiptap/core отдаёт на этом месте прокси, который истинен, но
+ * бросает исключение при обращении к любому полю, кроме state и dispatch.
+ * Компонент монтируется РАНЬШЕ, чем EditorContent создаёт представление
+ * (эффекты выполняются в порядке дерева, а EditorContent идёт следом), — то
+ * есть первый заход в эффект приходится ровно на этот промежуток.
+ */
+function viewOf(editor: Editor): EditorView | null {
+  if (editor.isDestroyed) return null;
+  try {
+    const view = editor.view;
+    return view.dom ? view : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Таблица, внутри которой стоит курсор, — или null. */
 function tableForSelection(editor: Editor): HTMLTableElement | null {
-  if (editor.isDestroyed || !editor.isActive('table')) return null;
+  const view = viewOf(editor);
+  if (!view || !editor.isActive('table')) return null;
   try {
-    const { node } = editor.view.domAtPos(editor.state.selection.from);
+    const { node } = view.domAtPos(editor.state.selection.from);
     const element = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
     return element?.closest('table') ?? null;
   } catch {
