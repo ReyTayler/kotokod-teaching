@@ -171,3 +171,45 @@ def test_assignment_notification_is_idempotent_per_resolution(
     extra_services._notify_assigned(resolution_id)
 
     assert NotificationMessage.objects.filter(kind=KIND_MAKEUP_ASSIGNED).count() == 2
+
+
+@pytest.mark.django_db
+@override_settings(TELEGRAM_GENERAL_CHAT_ID=_GENERAL_CHAT_ID)
+def test_drop_extra_for_present_student_enqueues_cancelled(
+    no_dispatch, linked_recipient, teacher_fixture, student_fixture,  # noqa: F811
+    group_fixture, missed_lesson_fixture, extra_resolutions_cleanup,  # noqa: F811
+):
+    """Ученик пришёл на урок, за который заранее назначен доп.урок — назначение
+    снимается. За ним стоит забронированное время преподавателя, поэтому снятие
+    ОБЯЗАНО сопровождаться уведомлением: иначе человек придёт на несуществующий
+    урок.
+
+    Текст собирается из полей резолюции, которые удаление стирает, — проверяем,
+    что в сообщении есть и дата, и время, и что 'None' туда не просочился.
+
+    Назначение заводим через repository.create_extra_direct: урок уже проведён,
+    поэтому штатный create_extra_assignment увёл бы его в makeup, а нам нужен
+    именно extra за номер существующего урока.
+    """
+    from apps.extra_lessons import repository as extra_repo
+
+    resolution_id = extra_repo.create_extra_direct(
+        group_id=group_fixture, student_id=student_fixture,
+        assigned_teacher_id=teacher_fixture,
+        scheduled_date='2026-04-08', scheduled_time='14:30',
+        duration_minutes=60, target_lesson_number=1)
+
+    dropped = extra_services.drop_extra_for_present_students(
+        missed_lesson_fixture, [student_fixture])
+
+    assert dropped == 1
+    assert not AbsenceResolution.objects.filter(id=resolution_id).exists()
+
+    rows = NotificationMessage.objects.filter(kind=KIND_MAKEUP_CANCELLED).order_by('channel')
+    assert [r.channel for r in rows] == [CHANNEL_DM, CHANNEL_GROUP]
+    text = rows[0].text
+    assert 'отменён' in text
+    assert '__el_test_student__' in text
+    # Поля взяты ДО удаления — иначе здесь были бы None.
+    assert '08.04' in text and '14:30' in text
+    assert 'None' not in text

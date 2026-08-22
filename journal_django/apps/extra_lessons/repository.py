@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from typing import Optional
 
+from django.db import transaction
 from django.db.models import F
 from django.db.models.functions import Coalesce
 
 from apps.extra_lessons.models import (
-    BURNED, EXTRA, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution,
+    BURNED, EXTRA, MAKEUP, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING, AbsenceResolution,
 )
 from apps.lessons.models import Lesson, LessonAttendance
 
@@ -29,6 +30,146 @@ def autocreate_pending(missed_lesson_id, student_ids) -> int:
     )
     return len(student_ids)
 
+
+def adopt_extra_for_lesson(missed_lesson_id, student_ids) -> set:
+    """Привязать к только что записанному пропуску ЗАРАНЕЕ назначенный доп.урок
+    «сверх курса» — вместо того, чтобы заводить по тому же пропуску вторую,
+    независимую запись.
+
+    Менеджер назначает доп.урок за урок №N, которого ЕЩЁ НЕ БЫЛО (ученик
+    предупредил о пропуске заранее). Реального урока №N в этот момент нет,
+    поэтому create_extra_assignment уводит назначение в kind='extra' с
+    missed_lesson=NULL: номер N остаётся только в target_lesson_number, как
+    подпись, связи с будущим уроком нет. Когда урок №N наконец проводится и
+    ученика на нём не оказывается, autocreate_pending завёл бы ВТОРУЮ запись —
+    pending по тому же самому пропуску. Две записи друг о друге не знают:
+    доп.урок спишет урок при проведении, а осиротевший pending закрыть можно
+    только ЕЩЁ одним списанием (burn или второй доп.урок — действия «закрыть без
+    списания» в разделе нет), то есть ученик платит за один пропуск дважды. Плюс
+    ячейка пропуска остаётся красной: compensated_map в apps.groups.repository
+    ищет резолюции по missed_lesson_id, а у extra он пуст.
+
+    Усыновление переводит найденный extra в обычный makeup ЭТОГО пропуска:
+    missed_lesson проставляется, kind='makeup', group и target_lesson_number
+    обнуляются (у makeup группа и номер берутся из самого пропуска — см. record()).
+    Статус, преподаватель, дата, время и факт сохраняются: для менеджера и
+    преподавателя назначение не меняется, уведомлять не о чем. Побочный эффект,
+    который и требуется: record() для makeup берёт длительность из пропущенного
+    урока, поэтому вес списания перестаёт зависеть от того, что менеджер выбрал
+    руками при назначении.
+
+    Усыновляется и УЖЕ ПРОВЕДЁННЫЙ доп.урок (makeup_done): его могли провести
+    раньше пропущенного занятия. Тогда списание так и остаётся одно, а пропуск
+    сразу помечается компенсированным. Других статусов у extra не бывает:
+    создаётся он сразу makeup_scheduled (create_extra_direct), сжечь его нельзя
+    (burn требует pending), а откат факта удаляет его целиком (delete_fact).
+
+    Возвращает student_id, для которых доп.урок усыновлён, — вызывающий исключает
+    их из autocreate_pending.
+    """
+    if not student_ids:
+        return set()
+    lesson = (
+        Lesson.objects
+        .filter(id=missed_lesson_id)
+        .values('group_id', 'lesson_number')
+        .first()
+    )
+    if lesson is None:
+        return set()
+
+    with transaction.atomic():
+        # Ученики, у которых по ЭТОМУ пропуску резолюция уже есть: усыновление дало
+        # бы вторую строку на (missed_lesson, student) — нарушение
+        # absence_resolutions_missed_student_key. Штатный путь сюда не приводит
+        # (создать extra, когда урок уже существует, нельзя — create_extra_assignment
+        # тогда уходит в makeup), но проверка дешёвая и оставляет любой неучтённый
+        # ретро-сценарий без 500.
+        taken = set(
+            AbsenceResolution.objects
+            .filter(missed_lesson_id=missed_lesson_id, student_id__in=student_ids)
+            .values_list('student_id', flat=True)
+        )
+        # select_for_update — против гонки с параллельным проведением/отменой того
+        # же доп.урока: без блокировки record() мог бы закрыть резолюцию как extra
+        # уже после того, как мы прочитали её кандидатом.
+        candidates = list(
+            AbsenceResolution.objects
+            .select_for_update()
+            .filter(
+                kind=EXTRA,
+                group_id=lesson['group_id'],
+                student_id__in=student_ids,
+                target_lesson_number=lesson['lesson_number'],
+                status__in=(MAKEUP_SCHEDULED, MAKEUP_DONE),
+            )
+            .order_by('student_id', 'id')
+            .values('id', 'student_id')
+        )
+
+        adopted = set()
+        for row in candidates:
+            sid = row['student_id']
+            if sid in taken or sid in adopted:
+                # Либо резолюция по пропуску уже есть, либо один доп.урок этого
+                # ученика уже усыновлён: остальные остаются «сверх курса». Дубли
+                # назначения раздел допускает — UNIQUE(missed_lesson, student) их
+                # не ловит, потому что NULL в Postgres не конфликтуют.
+                continue
+            AbsenceResolution.objects.filter(id=row['id']).update(
+                missed_lesson_id=missed_lesson_id,
+                kind=MAKEUP,
+                group_id=None,
+                target_lesson_number=None,
+            )
+            adopted.add(sid)
+        return adopted
+
+def find_open_extra_for_lesson(lesson_id, student_ids) -> list:
+    """id доп.уроков «сверх курса», назначенных ЗА ЭТОТ урок ученикам из списка и
+    ещё НЕ проведённых — кандидаты на удаление, когда ученик оказался на занятии.
+
+    Зеркало adopt_extra_for_lesson: тот же поиск «назначение за этот номер в этой
+    группе», но для обратного исхода. Ученик предупредил о пропуске, менеджер
+    заранее назначил отработку, а ученик всё-таки пришёл — основание для доп.урока
+    исчезло. В системе это уже запрещённое состояние: ручное назначение за
+    посещённый урок отбивается гардом StudentWasPresent (см.
+    services._assign_makeup_for_lesson). Наш случай просто просачивается мимо
+    него, потому что назначение сделано РАНЬШЕ, чем урок состоялся.
+
+    Только status='makeup_scheduled'. Проведённый доп.урок (makeup_done) не
+    трогаем ни при каких условиях: за ним стоит факт-урок и Payroll, удаление
+    резолюции осиротило бы их (ON DELETE SET NULL на fact_lesson). Такой доп.урок
+    состоялся как занятие сверх курса — ученик его посетил и оплатил, отменять
+    задним числом нечего.
+
+    Дату назначения НЕ смотрим: разграничивает именно статус. Назначение с уже
+    прошедшей датой, но без факта — просроченное (висит во вкладке «Заполнить» и
+    в вечернем дайджесте), и его основание исчезло ровно так же.
+    """
+    if not student_ids:
+        return []
+    lesson = (
+        Lesson.objects
+        .filter(id=lesson_id)
+        .values('group_id', 'lesson_number')
+        .first()
+    )
+    if lesson is None:
+        return []
+    return list(
+        AbsenceResolution.objects
+        .select_for_update()
+        .filter(
+            kind=EXTRA,
+            group_id=lesson['group_id'],
+            student_id__in=student_ids,
+            target_lesson_number=lesson['lesson_number'],
+            status=MAKEUP_SCHEDULED,
+        )
+        .order_by('id')
+        .values_list('id', flat=True)
+    )
 
 def _full_values(qs):
     return qs.values(

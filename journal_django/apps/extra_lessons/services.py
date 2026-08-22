@@ -659,10 +659,61 @@ def delete_fact(resolution_id: int, request) -> bool:
 
 
 def autocreate_pending_for_lesson(missed_lesson_id, absent_student_ids) -> int:
-    """Вызывается из record_lesson (та же транзакция) для обычных уроков.
-    Создаёт pending по отсутствовавшим. Идемпотентно."""
-    return repository.autocreate_pending(missed_lesson_id, absent_student_ids)
+    """Поставить пропуски урока в очередь «ждёт решения». Вызывается из
+    apps.lessons.services — и при записи урока (record_lesson), и при
+    ретроактивном снятии present с ячейки — всегда внутри их транзакции.
 
+    Порядок важен. СНАЧАЛА усыновляем заранее назначенные доп.уроки «сверх курса»
+    за этот номер (adopt_extra_for_lesson): менеджер мог назначить отработку ещё
+    до того, как урок состоялся, и тогда по одному пропуску завелись бы две
+    независимые записи — назначенный доп.урок и новый pending. Закрыть лишнюю
+    можно только вторым списанием, то есть ученик заплатил бы за один пропуск
+    дважды. По ОСТАВШИМСЯ отсутствовавшим создаём pending как обычно.
+
+    Идемпотентно с обеих сторон: усыновление пропускает учеников, у которых
+    резолюция по этому пропуску уже есть, а autocreate_pending делает
+    ON CONFLICT DO NOTHING."""
+    if not absent_student_ids:
+        return 0
+    adopted = repository.adopt_extra_for_lesson(missed_lesson_id, absent_student_ids)
+    remaining = [sid for sid in absent_student_ids if sid not in adopted]
+    return repository.autocreate_pending(missed_lesson_id, remaining)
+
+
+def drop_extra_for_present_students(lesson_id, present_student_ids) -> int:
+    """Удалить заранее назначенные доп.уроки «сверх курса» за ЭТОТ урок у
+    учеников, которые на нём ПРИСУТСТВОВАЛИ. Вызывается из apps.lessons.services
+    внутри её транзакции — и при записи урока, и при простановке «был» задним
+    числом.
+
+    Основание доп.урока — ожидаемый пропуск. Ученик пришёл, значит основания нет:
+    назначение снимается, чтобы не превратиться в лишнее занятие сверх курса,
+    которое ученик оплатит, и чтобы не раздувать lessons_done относительно
+    позиции курса (факт такого доп.урока получил бы номер уже проведённого урока
+    и схлопнулся бы с ним в сетке прогресса).
+
+    Преподавателю уведомление уходит ОБЯЗАТЕЛЬНО: за назначением стоит
+    забронированное время, и снять его молча — значит отправить человека на
+    несуществующий урок. Уведомление ставится ДО удаления: текст собирается из
+    полей резолюции (преподаватель, дата, время), после DELETE брать их неоткуда.
+    Всё внутри одной транзакции (transactional outbox): либо снятие и сообщение,
+    либо ни того, ни другого.
+
+    Удаление, а не возврат в pending: за extra нет реального пропуска, в который
+    можно было бы вернуться (тот же принцип, что в cancel_assignment и delete_fact
+    для kind='extra'). Проведённые доп.уроки не трогаются — см.
+    repository.find_open_extra_for_lesson.
+
+    Возвращает число снятых назначений.
+    """
+    if not present_student_ids:
+        return 0
+    with transaction.atomic():
+        ids = repository.find_open_extra_for_lesson(lesson_id, present_student_ids)
+        for rid in ids:
+            _notify_cancelled(rid)
+            repository.delete_resolution(rid)
+    return len(ids)
 
 def enforce_membership_cancellation(student_id, group_id) -> int:
     """

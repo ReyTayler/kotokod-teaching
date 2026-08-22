@@ -285,9 +285,18 @@ def record_lesson(*,
                 a['student_id'] for a in attendance
                 if not a['present'] and a['student_id'] not in skip_ids
             ]
+            from apps.extra_lessons import services as extra_lessons_services
             if absent_student_ids:
-                from apps.extra_lessons import services as extra_lessons_services
                 extra_lessons_services.autocreate_pending_for_lesson(lesson_id, absent_student_ids)
+            # Обратный исход: ученик всё-таки пришёл. Заранее назначенный доп.урок
+            # за ЭТОТ урок остался без основания — снимаем назначение, иначе оно
+            # превратится в лишнее занятие сверх курса, которое ученик оплатит, а
+            # его факт получит номер уже проведённого урока и схлопнется с ним в
+            # сетке прогресса. Назначенному преподавателю уходит уведомление об
+            # отмене — за назначением стоит забронированное время.
+            if present_student_ids:
+                extra_lessons_services.drop_extra_for_present_students(
+                    lesson_id, present_student_ids)
 
         for sid in present_student_ids:
             transaction.on_commit(lambda sid=sid: repository._sync_renewal_stage(sid, direction_id))
@@ -473,6 +482,14 @@ def update_attendance_cell(
         changed = repository.update_attendance_cell(lesson_id, student_id, present, is_free)
         if changed and not present:
             _autocreate_pending_for_cell(lesson_id, student_id)
+        if changed and present:
+            # Ученика отметили присутствовавшим задним числом — заранее назначенный
+            # доп.урок за этот урок теряет основание ровно так же, как при обычной
+            # записи. Правило одно на оба пути: кто именно проставил «был» —
+            # преподаватель в момент урока или админ потом — значения не имеет.
+            from apps.extra_lessons import services as extra_lessons_services
+            extra_lessons_services.drop_extra_for_present_students(
+                lesson_id, [student_id])
         return changed
 
 
