@@ -364,3 +364,38 @@ def test_orphan_ignores_images_used_by_live_documents(admin_client, tmp_path, kb
         # картинка обязана стать кандидатом на уборку, иначе файлы копятся вечно.
         admin_client.delete(f"{DOCS}/{doc['id']}")
         assert image['id'] in repository.orphan_image_ids(future)
+
+
+@pytest.mark.skipif("sys.platform == 'win32'",
+                    reason='POSIX-режим файлов на Windows не выставляется: '
+                           'os.chmod там управляет только атрибутом «только чтение». '
+                           'Проверка осмысленна на Linux — там и работает прод.')
+def test_store_upload_sets_group_readable_mode(tmp_path):
+    """Файл в хранилище обязан быть читаем ГРУППОЙ, а не только владельцем.
+
+    На проде байты отдаёт nginx под www-data по X-Accel-Redirect, тогда как
+    пишет файл приложение под своим пользователем — общая у них только группа
+    (её даёт setgid на каталоге хранилища). tempfile.mkstemp создаёт файл с
+    режимом 0600, и shutil.move этот режим сохраняет; без явного chmod картинки
+    загружаются, но не отображаются — Permission denied у nginx.
+
+    Локально дефект невидим: при пустом KNOWLEDGE_X_ACCEL_PREFIX файл отдаёт сам
+    Django, то есть тот же пользователь, что его записал. Поэтому проверяем
+    режим, а не факт чтения (инцидент 22.08.2026).
+    """
+    payload = _png_bytes()
+    with override_settings(KNOWLEDGE_MEDIA_ROOT=str(tmp_path)):
+        meta = images.store_upload(io.BytesIO(payload), 'x.png')
+
+    mode = (tmp_path / meta.relative_path).stat().st_mode & 0o777
+    assert mode == 0o640, f'ожидался режим 0640, получен {mode:o}'
+
+
+def test_store_upload_leaves_no_temp_files(tmp_path):
+    """Временный файл создаётся внутри хранилища (ради атомарного rename и
+    наследования группы), поэтому обязан быть убран за собой — иначе каталог
+    засоряется кусками kb-upload-*, которые уборщик осиротевших не знает."""
+    with override_settings(KNOWLEDGE_MEDIA_ROOT=str(tmp_path)):
+        images.store_upload(io.BytesIO(_png_bytes()), 'x.png')
+
+    assert list(tmp_path.glob('kb-upload-*')) == []

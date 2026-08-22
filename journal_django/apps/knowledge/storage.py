@@ -30,6 +30,12 @@ from django.conf import settings
 
 _CHUNK = 64 * 1024
 
+# Режим файла в хранилище: чтение владельцу (приложение) и группе —
+# на проде это www-data, под которым nginx отдаёт байты по
+# X-Accel-Redirect. Мир не должен читать: каталог всё равно закрыт (2750),
+# но полагаться только на права каталога — лишнее допущение.
+STORED_FILE_MODE = 0o640
+
 
 class UploadRejected(ValueError):
     """Содержимое не подошло — вьюха отдаёт 415."""
@@ -85,7 +91,14 @@ def store_upload(
     digest = hashlib.sha256()
     size = 0
 
-    tmp_fd, tmp_name = tempfile.mkstemp(prefix='kb-upload-')
+    # Временный файл — ВНУТРИ хранилища, не в /tmp. Две причины. Во-первых,
+    # перенос на постоянное место становится rename в пределах одной ФС —
+    # атомарным и без копирования: под systemd с PrivateTmp каталог /tmp это
+    # tmpfs, то есть каждая загрузка иначе проходит через оперативную память
+    # целиком. Во-вторых, файл сразу наследует группу от setgid-каталога
+    # хранилища (на проде www-data), и nginx может его прочитать.
+    media_root().mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_name = tempfile.mkstemp(prefix='kb-upload-', dir=str(media_root()))
     try:
         with os.fdopen(tmp_fd, 'wb') as tmp:
             while True:
@@ -112,6 +125,15 @@ def store_upload(
         # безопасна, содержимое то же самое по построению.
         shutil.move(tmp_name, target)
         tmp_name = None
+        # Явный режим обязателен: tempfile.mkstemp создаёт файл доступным ТОЛЬКО
+        # владельцу (0600 по документации), и shutil.move этот режим сохраняет.
+        # Без chmod готовый файл читает лишь процесс приложения. Локально это
+        # незаметно — при пустом KNOWLEDGE_X_ACCEL_PREFIX файл отдаёт сам Django,
+        # то есть тот же пользователь. На проде байты отдаёт nginx под www-data:
+        # он упирается в Permission denied, и картинка не грузится, хотя загрузка
+        # прошла успешно (инцидент 22.08.2026). Производные варианты (webp) этим
+        # не страдали — их пишет Pillow под обычной umask.
+        os.chmod(target, STORED_FILE_MODE)
         return StoredBlob(
             sha256=sha256, relative_path=rel, mime=mime,
             byte_size=size, extra=extra,
