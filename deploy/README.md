@@ -47,9 +47,13 @@ Runbook перевода продакшена с Node/Express на Django за n
 проде (`nginx/snippets/journal-static.conf`). Django сам статику больше не отдаёт
 (`config/urls_dev.py` удалён).
 
-1. **Установить nginx:** `scoop install nginx` | `choco install nginx` | zip с nginx.org.
-2. **Указать путь к коду:** в `nginx/local/nginx.conf` проверить `set $app_root …;`
-   (путь к `journal_django/`, форвард-слеши) и абсолютный путь в `include …/snippets/journal-static.conf;`.
+1. **Установить nginx:** `winget install nginxinc.nginx` | `scoop install nginx` |
+   `choco install nginx` | zip с nginx.org.
+2. **Пути править не нужно.** Скрипт вычисляет корень репозитория по своему
+   расположению и пишет пути этой машины в `nginx/local/.runtime/paths.conf`
+   (`set $app_root` и `include` сниппета статики); сам `nginx.conf` машинных
+   путей не содержит и одинаков на всех машинах. Код в другом месте — параметр
+   `-AppRoot <путь>`.
 3. **Поднять Django:**
    ```
    cd journal_django
