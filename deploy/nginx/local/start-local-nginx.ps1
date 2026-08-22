@@ -25,6 +25,10 @@
 .PARAMETER NginxExe
     Явный путь к nginx.exe (если автопоиск не нашёл).
 
+.PARAMETER Prefix
+    Рабочий каталог nginx (-p): туда пишутся logs/ и temp/. По умолчанию
+    .runtime/ рядом со скриптом — он создаётся автоматически.
+
 .NOTES
     Установка nginx (без админ-прав): официальный zip с https://nginx.org/en/download.html,
     распаковать в %USERPROFILE%\nginx\ (скрипт сам найдёт nginx-*\nginx.exe).
@@ -36,7 +40,8 @@ param(
     [switch]$Stop,
     [switch]$Reload,
     [switch]$Test,
-    [string]$NginxExe
+    [string]$NginxExe,
+    [string]$Prefix
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,9 +71,24 @@ if (-not $NginxExe -or -not (Test-Path $NginxExe)) {
     throw "nginx.exe не найден. Скачай zip с https://nginx.org/en/download.html в %USERPROFILE%\nginx\, или укажи -NginxExe <путь>."
 }
 
-# Prefix = каталог установки nginx (нужны logs/ и temp/ для служебных файлов).
-# Для scoop/choco бинарь лежит в .../nginx-<ver>/, prefix = его каталог.
-$Prefix = Split-Path -Parent $NginxExe
+# Prefix (-p) — рабочий каталог nginx: там он держит logs/ и temp/.
+#
+# Каталог САМОЙ установки для этого не годится: winget кладёт в
+# ...\WinGet\Links только шим-exe, без logs/ и temp/, и nginx падает ещё до
+# чтения конфига («could not open error log file»). Поэтому по умолчанию
+# работаем в .runtime/ рядом со скриптом — он не зависит от способа установки
+# (winget/scoop/choco/zip) и не требует прав на системные каталоги.
+#
+# Побочный плюс: logs/csp-violations.log (относительный путь в nginx.conf
+# резолвится под префиксом) оказывается рядом с конфигом, а не закопанным
+# в каталоге установки nginx.
+if (-not $Prefix) {
+    $Prefix = Join-Path $PSScriptRoot '.runtime'
+}
+foreach ($sub in @('', 'logs', 'temp')) {
+    $dir = if ($sub) { Join-Path $Prefix $sub } else { $Prefix }
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+}
 
 Write-Host "nginx:  $NginxExe"
 Write-Host "prefix: $Prefix"

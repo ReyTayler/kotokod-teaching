@@ -67,3 +67,7 @@ Thumbs.db
 
 # ── Изолированные git-worktree для фиче-веток (superpowers) ─
 .worktrees/
+
+# ── Рабочий каталог локального nginx (logs/ и temp/) ───────
+# Создаётся start-local-nginx.ps1 при каждом запуске.
+deploy/nginx/local/.runtime/
