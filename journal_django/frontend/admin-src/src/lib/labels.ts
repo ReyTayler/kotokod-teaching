@@ -6,7 +6,7 @@ import type { LessonType, RegistryStatus, Role } from './types';
 // ===== Роли учётки =====
 // AccountsPage.tsx держит собственную локальную копию (не тронута — вне
 // зоны этой правки), это единственный переиспользуемый экземпляр для
-// нового кода (см. ReaderRolesField в разделе «База знаний»).
+// нового кода (см. ReaderRolesField в разделе «Wiki»).
 
 export const ROLE_LABELS: Record<Role, string> = {
   teacher:    'Преподаватель',

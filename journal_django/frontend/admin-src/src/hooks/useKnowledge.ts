@@ -69,6 +69,36 @@ export function useKnowledgeLibrary(params: LibraryQuery) {
   });
 }
 
+/**
+ * Сколько документов раздела показывает дерево слева.
+ *
+ * Дерево — навигация, а не список: сотня строк в панели шириной 240px уже
+ * бесполезна, а вот запрос за ними стоит столько же, сколько за всей базой.
+ * Что не поместилось, открывается в основной части экрана с пагинацией.
+ */
+export const TREE_BRANCH_SIZE = 50;
+
+/**
+ * Документы одного раздела для ветки дерева.
+ *
+ * Отдельный хук, а не useKnowledgeLibrary с другими параметрами: у ветки свои
+ * правила — фиксированный размер выборки, отсутствие фильтров и запрос ТОЛЬКО
+ * когда ветка раскрыта (enabled). Смешай их — и любой фильтр основного списка
+ * начал бы менять содержимое дерева.
+ */
+export function useSectionDocuments(sectionId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...KEY, 'documents', 'branch', sectionId],
+    queryFn: () =>
+      api<Paginated<KnowledgeDocumentRow>>(
+        'GET',
+        `${BASE}/documents?section_id=${sectionId}&page=1&page_size=${TREE_BRANCH_SIZE}`,
+      ),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useKnowledgeDocument(id: number | undefined) {
   return useQuery({
     queryKey: [...KEY, 'document', id ?? 0],

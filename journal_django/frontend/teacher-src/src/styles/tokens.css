@@ -116,6 +116,7 @@
   --shadow-popover: 0 4px 12px rgba(15,23,42,.08), 0 1px 3px rgba(15,23,42,.04);
   --shadow-xs:      0 1px 2px rgba(15,23,42,.08);
   --shadow-panel:   0 1px 2px rgba(15,23,42,.04), 0 6px 16px -6px rgba(15,23,42,.10);
+  --shadow-raised:  0 2px 4px rgba(15,23,42,.04), 0 1px 2px rgba(15,23,42,.06);
   /* Затемняющая подложка модалок */
   --overlay: rgba(15, 23, 42, 0.45);
 
@@ -159,8 +160,30 @@
   --ease: cubic-bezier(0.25, 1, 0.5, 1);
   --t-fast: 150ms; --t-base: 200ms;
 
+  /* Motion — вторая кривая, «выход»: ею пользуется общий CSS базы знаний. */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
   /* Layout — верхний navbar (не sidebar) */
   --topbar-h: 60px;
+  /* Липкие элементы общего CSS (дерево разделов, оглавление статьи) считают
+     отступ от --header-h. В admin это высота шапки страницы, здесь — высота
+     верхней панели: другая шапка, та же роль. */
+  --header-h: var(--topbar-h);
+  --page-pad-x: 24px;
+
+  /* ── База знаний ──
+     Типографика документа. Значения совпадают с admin намеренно: один и тот
+     же документ обязан читаться одинаково в обоих кабинетах, иначе автор
+     верстает статью вслепую. */
+  --kb-fs-h1: 34px;
+  --kb-fs-h2: 28px;
+  --kb-fs-h3: 22px;
+  --kb-fs-body: 16px;
+  --kb-fs-small: 14px;
+  --kb-fs-caption: 13px;
+  --kb-lh-body: 1.7;
+  --kb-doc-width: 900px;
+  --kb-doc-pad: 72px;
 
   /* Цветовая карта предметов (subject-* — как --dir-color в admin) */
   --subject-python:     #4F59F9;  /* RISD Blue */
@@ -210,6 +233,7 @@
 
   --shadow-modal:   0 12px 32px rgba(0,0,0,.5), 0 4px 8px rgba(0,0,0,.3);
   --shadow-popover: 0 4px 16px rgba(0,0,0,.4), 0 1px 4px rgba(0,0,0,.2);
+  --shadow-raised:  0 2px 6px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
 }
 
 html, body {

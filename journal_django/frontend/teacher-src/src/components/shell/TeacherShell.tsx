@@ -41,6 +41,16 @@ const NAV_ICONS: Record<string, ReactElement> = {
       <path d="M18 12a2 2 0 0 0 0 4h4v-4z" />
     </svg>
   ),
+  // «i» в круге — знак справки. Книга не годилась: точно такая же стоит рядом
+  // на «Мои уроки», и в одной строке меню они не различались бы.
+  knowledge: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9.5" />
+      <line x1="12" y1="11" x2="12" y2="16.5" />
+      {/* Точка над «i» — путь нулевой длины с круглым концом (см. Sidebar.tsx). */}
+      <path d="M12 7.5h.01" />
+    </svg>
+  ),
 };
 
 const SECTIONS = [
@@ -49,6 +59,7 @@ const SECTIONS = [
   { key: 'lessons', label: 'Мои уроки', path: '/lessons' },
   { key: 'report', label: 'Отчёт по уроку', path: '/report' },
   { key: 'payroll', label: 'Зарплата', path: '/payroll' },
+  { key: 'knowledge', label: 'Wiki', path: '/knowledge' },
 ];
 
 function Avatar({ name }: { name: string }) {

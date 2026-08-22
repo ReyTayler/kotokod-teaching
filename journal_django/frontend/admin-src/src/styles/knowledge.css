@@ -95,11 +95,23 @@
 }
 
 /* TipTap оборачивает таблицу в div.tableWrapper при Table.configure({
-   renderWrapper: true }) (см. DocumentView.tsx / DocumentEditor.tsx) — сюда,
-   а не на <table>, вешаем горизонтальный скролл, чтобы широкая таблица не
-   растягивала страницу. */
+   renderWrapper: true }) (см. DocumentView.tsx / DocumentEditor.tsx). Раньше
+   на нём висела горизонтальная прокрутка по ширине КОЛОНКИ текста: таблица
+   упиралась в меру строки и дальше обрезалась, хотя по бокам листа оставалось
+   пустое место. Теперь таблица выходит за поля документа — узкая колонка
+   хороша для текста и мешает таблице. Прокрутка остаётся запасным выходом для
+   таблиц, которые шире всего листа, и в редакторе живёт на поле (.kb-editor-
+   field), а при чтении — на самом обёртке, растянутой до краёв листа. */
 .kb-doc .tableWrapper {
   overflow-x: auto;
+}
+
+/* Чтение: обёртка растянута на поля листа (отрицательные внешние отступы), а
+   внутренние возвращают содержимому прежнее выравнивание по колонке текста.
+   Итог — таблица занимает всю ширину листа, а не колонку. */
+.kb-doc-paper .kb-doc .tableWrapper {
+  margin-inline: calc(-1 * var(--kb-doc-pad));
+  padding-inline: var(--kb-doc-pad);
 }
 
 .kb-doc table {
@@ -301,6 +313,10 @@
   padding: var(--space-6) var(--space-4) var(--space-10);
   background: var(--bg);
   min-height: 70vh;
+  /* Прокрутка широкой таблицы живёт здесь, на поле вокруг листа, а не на
+     обёртке таблицы. Так растянутая таблица действительно выходит за края
+     листа, а добраться до её правого края всё равно можно. */
+  overflow-x: auto;
 }
 
 .kb-editor-sheet {
@@ -533,7 +549,7 @@
   margin-top: var(--space-5);
 }
 
-/* --- Папки ---------------------------------------------------------------- */
+/* --- Дерево разделов ------------------------------------------------------ */
 
 .kb-drive__nav {
   display: flex;
@@ -547,6 +563,9 @@
   position: sticky;
   /* Как и панель редактора — ниже липкой шапки страницы. */
   top: calc(var(--header-h) + var(--space-2));
+  /* Дерево бывает выше экрана: своя прокрутка вместо уехавших за край веток. */
+  max-height: calc(100vh - var(--header-h) - var(--space-8));
+  overflow-y: auto;
 }
 
 .kb-drive__nav-divider {
@@ -555,43 +574,86 @@
   background: var(--border);
 }
 
-.kb-folder {
+.kb-tree,
+.kb-tree__group {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kb-tree__item { min-width: 0; }
+
+/* Шаг вложенности. Уровень приходит из разметки переменной --kb-tree-level:
+   так отступ считает CSS в одном месте, а не каждая строка по-своему. */
+.kb-tree__row {
+  --kb-tree-level: 0;
   display: flex;
   align-items: center;
+  min-width: 0;
+  padding-left: calc(var(--kb-tree-level) * 14px);
   border-radius: var(--r);
   transition: background var(--t-fast) var(--ease);
 }
 
-.kb-folder:hover { background: var(--bg3); }
+.kb-tree__row:hover { background: var(--bg3); }
+.kb-tree__row.is-active { background: var(--accent-soft); }
+.kb-tree__row.is-active .kb-tree__open { color: var(--accent); font-weight: 600; }
+.kb-tree__row.is-active:hover { background: var(--accent-soft-h); }
 
-.kb-folder.is-active { background: var(--accent-soft); }
-.kb-folder.is-active .kb-folder__open { color: var(--accent); font-weight: 600; }
-.kb-folder.is-active:hover { background: var(--accent-soft-h); }
+/* Черновик в дереве приглушён: он там виден только администратору, и путать
+   его с опубликованным документом нельзя. */
+.kb-tree__row.is-muted .kb-tree__open { color: var(--text4); }
 
-.kb-folder__open {
+/* Стрелка раскрытия — отдельная кнопка от названия: раскрыть папку и перейти
+   в неё это разные намерения. У листьев на её месте пустое место того же
+   размера, иначе названия «прыгали» бы по горизонтали. */
+.kb-tree__twist {
+  flex-shrink: 0;
+  width: 20px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text4);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+
+button.kb-tree__twist:hover { color: var(--text2); }
+.kb-tree__twist:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.kb-tree__chev { transition: transform var(--t-fast) var(--ease-out); }
+.kb-tree__chev.is-open { transform: rotate(90deg); }
+
+.kb-tree__open {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex: 1;
   min-width: 0;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-2);
   border: none;
   background: none;
   color: var(--text2);
   font: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   border-radius: var(--r);
 }
 
-.kb-folder__open:focus-visible {
+.kb-tree__open:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
-.kb-folder__icon { display: inline-flex; flex-shrink: 0; }
+.kb-tree__icon { display: inline-flex; flex-shrink: 0; color: var(--text4); }
+.kb-tree__row.is-active .kb-tree__icon { color: var(--accent); }
 
-.kb-folder__title {
+.kb-tree__title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -599,8 +661,8 @@
   white-space: nowrap;
 }
 
-/* Счётчик документов в папке — цифры моноширинным, чтобы столбец не «дышал». */
-.kb-folder__count {
+/* Счётчик документов — цифры моноширинным, чтобы столбец не «дышал». */
+.kb-tree__count {
   flex-shrink: 0;
   color: var(--text4);
   font-family: var(--font-mono);
@@ -608,14 +670,33 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Меню папки появляется по наведению и при фокусе внутри — на сенсорных
+/* Меню раздела появляется по наведению и при фокусе внутри — на сенсорных
    устройствах hover не случается, поэтому там показываем всегда. */
-.kb-folder__menu { opacity: 0; padding-right: var(--space-1); transition: opacity var(--t-fast) var(--ease); }
-.kb-folder:hover .kb-folder__menu,
-.kb-folder:focus-within .kb-folder__menu { opacity: 1; }
+.kb-tree__menu { opacity: 0; padding-right: var(--space-1); transition: opacity var(--t-fast) var(--ease); }
+.kb-tree__row:hover .kb-tree__menu,
+.kb-tree__row:focus-within .kb-tree__menu { opacity: 1; }
 @media (hover: none) {
-  .kb-folder__menu { opacity: 1; }
+  .kb-tree__menu { opacity: 1; }
 }
+
+/* Служебная строка ветки: «Загружаем…», «Пусто», «Ещё N». */
+.kb-tree__note {
+  --kb-tree-level: 2;
+  padding: var(--space-1) var(--space-2) var(--space-1)
+           calc(var(--kb-tree-level) * 14px + 20px + var(--space-2));
+  color: var(--text4);
+  font-size: var(--fs-xs);
+}
+
+.kb-tree__more {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.kb-tree__more:hover { text-decoration: underline; }
 
 /* --- Панель над содержимым ------------------------------------------------ */
 
@@ -1229,6 +1310,12 @@
 @media (max-width: 900px) {
   /* 72px полей на узком экране съедают половину строки. */
   .kb-doc-paper { padding: var(--space-6) var(--space-5); border-radius: var(--r-lg); }
+  /* Выпуск таблицы на поля обязан совпадать с полями листа: иначе она вылезла
+     бы за его край на величину разницы. */
+  .kb-doc-paper .kb-doc .tableWrapper {
+    margin-inline: calc(-1 * var(--space-5));
+    padding-inline: var(--space-5);
+  }
   .kb-history { grid-template-columns: minmax(0, 1fr); }
   .kb-history__list { max-height: 200px; }
 }
@@ -1252,6 +1339,15 @@
 
 .kb-editor-sheet:hover .kb-handle,
 .kb-handle:focus-within { opacity: 1; }
+
+/* Над таблицей ручка блока прячется: левое поле там занято ручками строк
+   (TableControls), и две ручки на одном месте — это промах мышью вместо
+   действия. Саму таблицу можно перетащить за её угловую ручку. */
+.kb-handle.is-over-table,
+.kb-editor-sheet:hover .kb-handle.is-over-table {
+  opacity: 0;
+  pointer-events: none;
+}
 
 .kb-handle__btn,
 .kb-handle__grip {
@@ -1794,22 +1890,123 @@ body.kb-resizing * {
   margin-top: var(--space-2);
 }
 
-/* Всплывающее меню таблицы. Своей рамки не имеет — внутри уже лежит кнопка
-   .kb-toolselect со своим оформлением; двойная рамка выглядела бы как окно
-   внутри окна. */
-.kb-table-bubble {
-  z-index: var(--z-popover);
-  padding: var(--space-1);
+/* ==========================================================================
+ * Ручки таблицы (TableControls.tsx).
+ *
+ * Слой лежит поверх листа и ничего не перехватывает (pointer-events: none) —
+ * иначе он съедал бы щелчки по тексту. Указатель включается точечно, только на
+ * самих кнопках.
+ *
+ * Все размеры считает JS и передаёт инлайном (left/top/width/height): положение
+ * ручки — это положение строки или столбца в DOM, CSS его не знает. Здесь
+ * только вид и правила видимости.
+ * ========================================================================== */
+.kb-tablectl-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Над текстом, но под липкой панелью и всплывающими окнами. */
+  z-index: 1;
+}
+
+.kb-tablectl {
+  position: absolute;
+}
+
+/* Общее для всех кнопок слоя: они появляются вместе с таблицей под курсором,
+   поэтому им не нужен ни свой фон-подложка, ни тень — только различимая
+   форма. */
+.kb-tablectl__bar,
+.kb-tablectl__add,
+.kb-tablectl__corner {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  background: var(--bg2);
-  box-shadow: var(--shadow-popover);
+  border-radius: var(--r-sm);
+  background: var(--bg3);
+  color: var(--text4);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out),
+              opacity var(--t-fast) var(--ease-out);
+}
+
+.kb-tablectl__bar:hover,
+.kb-tablectl__add:hover,
+.kb-tablectl__corner:hover,
+.kb-tablectl__bar[data-state='open'],
+.kb-tablectl__corner[data-state='open'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.kb-tablectl__bar:focus-visible,
+.kb-tablectl__add:focus-visible,
+.kb-tablectl__corner:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Полоса-ручка строки — слева от таблицы, столбца — над ней. Толщина у обеих
+   и у кнопок «дописать» одна (14px): все они стоят на полях таблицы и обязаны
+   читаться как один набор, а не как случайные кнопки разного калибра. */
+.kb-tablectl__bar--row {
+  left: -18px;
+  width: 14px;
+}
+
+.kb-tablectl__bar--col {
+  top: -18px;
+  height: 14px;
+}
+
+/* Дописать столбец справа и строку снизу — самые частые действия при наборе
+   таблицы, поэтому у них своя кнопка во всю сторону таблицы, а не пункт в
+   меню полосы: за одним и тем же действием не должно каждый раз открываться
+   меню. */
+.kb-tablectl__add--col {
+  top: 0;
+  right: -18px;
+  width: 14px;
+  height: 100%;
+}
+
+.kb-tablectl__add--row {
+  left: 0;
+  bottom: -18px;
+  height: 14px;
+  width: 100%;
+}
+
+.kb-tablectl__corner {
+  left: -18px;
+  top: -18px;
+  width: 14px;
+  height: 14px;
 }
 
 /* ==========================================================================
  * Изменение ширины столбцов — штатный механизм @tiptap/extension-table
  * (resizable: true). Разметку и имена классов задаёт он, здесь только вид.
  * ========================================================================== */
+
+/* В редакторе таблица НЕ обрезается по колонке текста: растянутая мышью, она
+   спокойно вылезает за край листа (прокрутка — на .kb-editor-field). Своя
+   заливка нужна ровно из-за этого: выехавшая за лист часть иначе показывала бы
+   сквозь себя серое поле вокруг. */
+.kb-editor .ProseMirror .tableWrapper {
+  overflow: visible;
+}
+
+.kb-editor .ProseMirror table {
+  background: var(--bg2);
+}
 
 /* Заданные ширины действуют только при фиксированной раскладке: при auto
    браузер считает столбцы по содержимому и colgroup игнорирует. Класс ставится

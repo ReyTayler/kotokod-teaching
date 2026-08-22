@@ -83,6 +83,44 @@ function restrictToKnown<T extends AnyExtension>(extension: T, attribute: string
   }) as T;
 }
 
+/**
+ * Выравнивание текста в ячейке таблицы.
+ *
+ * Своё расширение атрибута, потому что @tiptap/extension-table его не заводит:
+ * у ячейки штатно есть только colspan/rowspan/colwidth. Сервер значение уже
+ * принимал (content.py: _check_align с тем же закрытым списком), читалка уже
+ * рисовала (documentRenderMap: attrs.align → text-align), а задать его было
+ * нечем — пункт меню «текст по центру» вызывал setCellAttribute('align'), и
+ * ProseMirror молча выбрасывал неизвестный схеме атрибут. Здесь эта половина
+ * и дописывается.
+ *
+ * text-align, а не устаревший HTML-атрибут align: последний игнорируется в
+ * standards mode, и выравнивание пропало бы при вставке в другой редактор.
+ */
+const CELL_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);
+
+function withCellAlign<T extends AnyExtension>(cell: T): T {
+  return (cell as AnyExtension).extend({
+    addAttributes(this: { parent?: () => Record<string, unknown> }) {
+      return {
+        ...this.parent?.(),
+        align: {
+          default: null,
+          parseHTML: (element: HTMLElement) => {
+            const value = element.style.textAlign || element.getAttribute('align') || '';
+            return CELL_ALIGNMENTS.has(value) ? value : null;
+          },
+          renderHTML: (attributes: { align?: string | null }) =>
+            attributes.align ? { style: `text-align: ${attributes.align}` } : {},
+        },
+      };
+    },
+  }) as T;
+}
+
+const AlignedTableCell = withCellAlign(TableCell);
+const AlignedTableHeader = withCellAlign(TableHeader);
+
 const SafeFontFamily = restrictToKnown(FontFamily, 'fontFamily', KNOWN_FONTS);
 const SafeColor = restrictToKnown(Color, 'color', KNOWN_TEXT_COLORS);
 const SafeBackgroundColor = restrictToKnown(BackgroundColor, 'backgroundColor', KNOWN_HIGHLIGHTS);
@@ -117,8 +155,10 @@ export function buildExtensions(lowlight: Lowlight) {
       codeBlock: false,
     }),
     CodeBlockLowlight.configure({ lowlight, defaultLanguage: null }),
-    // renderWrapper даёт .tableWrapper, на котором висит горизонтальная
-    // прокрутка — иначе широкая таблица растягивает страницу.
+    // renderWrapper даёт .tableWrapper — отдельный слой между абзацем и
+    // таблицей, на котором держится её поведение по ширине (knowledge.css:
+    // в редакторе таблица выходит за поля листа, при чтении — растянута до
+    // краёв листа и прокручивается внутри себя).
     // resizable — штатное изменение ширины столбцов из @tiptap/extension-table.
     // Раньше оно было выключено, и атрибут colwidth оказывался мёртвым грузом:
     // вставка из Google Docs его приносила, поменять было нечем, а читалка его
@@ -133,8 +173,8 @@ export function buildExtensions(lowlight: Lowlight) {
       cellMinWidth: 48,
     }),
     TableRow,
-    TableHeader,
-    TableCell,
+    AlignedTableHeader,
+    AlignedTableCell,
     TaskList,
     // nested: пункт чеклиста может содержать вложенный чеклист — привычно по
     // Notion и не требует ничего на сервере: узлы те же.

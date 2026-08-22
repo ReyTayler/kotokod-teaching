@@ -1,4 +1,4 @@
-/** Типы раздела «База знаний». Форма ответов — из apps/knowledge/views.py. */
+/** Типы раздела «Wiki». Форма ответов — из apps/knowledge/views.py. */
 
 export type KnowledgeRole = 'teacher' | 'manager' | 'admin' | 'superadmin';
 

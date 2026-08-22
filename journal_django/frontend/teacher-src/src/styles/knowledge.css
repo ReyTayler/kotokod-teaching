@@ -1,0 +1,47 @@
+/* Wiki в кабинете преподавателя.
+ *
+ * Основные стили раздела приезжают из admin (@shared/styles/knowledge.css) —
+ * там же, где живёт разметка документа. Здесь только то, чего в admin нет по
+ * построению: у него страница строится компонентом PageHeader, а у teacher —
+ * своей шапкой (.cal-head), и стыковать их надо на месте.
+ */
+
+.kb-teacher {
+  padding: var(--space-6);
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.kb-teacher__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+/* Хлебные крошки документа. Мелким и приглушённым: путь нужен, чтобы вернуться,
+   а не чтобы его читали вместо названия. */
+.kb-teacher__crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  font-size: var(--fs-xs);
+  color: var(--text4);
+}
+
+.kb-teacher__crumbs a {
+  color: var(--text3);
+  text-decoration: none;
+}
+
+.kb-teacher__crumbs a:hover { color: var(--accent); text-decoration: underline; }
+
+/* Панель поиска у преподавателя одна кнопка в ширину меньше, чем у админа
+   (нет фильтра по статусу и переключателя вида), — поэтому поиск занимает
+   строку целиком, а не жмётся влево. */
+.kb-teacher .kb-drive__bar { justify-content: flex-start; }
+
+@media (max-width: 900px) {
+  .kb-teacher { padding: var(--space-4) var(--space-3); }
+}

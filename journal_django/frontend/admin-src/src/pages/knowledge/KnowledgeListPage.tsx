@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { PageHeader } from '../../components/shell/PageHeader';
@@ -41,7 +41,7 @@ type View = 'grid' | 'list';
 const VIEW_STORAGE_KEY = 'kb-view';
 
 const SCOPE_TITLES: Record<LibraryScope, string> = {
-  all: 'База знаний',
+  all: 'Wiki',
   favorites: 'Избранное',
   archive: 'Архив',
 };
@@ -128,11 +128,6 @@ export default function KnowledgeListPage() {
 
   const sectionList = sections.data?.sections ?? [];
   const totalDocuments = sections.data?.total ?? 0;
-  const countBySection = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const item of sectionList) map.set(item.id, item.document_count);
-    return map;
-  }, [sectionList]);
   const openSection = sectionList.find((item) => item.id === sectionId) ?? null;
 
   const actions = {
@@ -175,7 +170,7 @@ export default function KnowledgeListPage() {
           : undefined}
         crumbs={
           openSection && scope === 'all'
-            ? [{ label: 'База знаний', to: '/admin/knowledge' }, { label: openSection.title }]
+            ? [{ label: 'Wiki', to: '/admin/knowledge' }, { label: openSection.title }]
             : undefined
         }
         actions={
@@ -203,7 +198,6 @@ export default function KnowledgeListPage() {
             selection={selection}
             onSelect={selectLibrary}
             sections={sectionList}
-            counts={countBySection}
             totalCount={totalDocuments}
             canWrite={canWrite}
             onRenameSection={(section) => setDialog({ kind: 'rename-section', section })}
@@ -215,7 +209,7 @@ export default function KnowledgeListPage() {
               <SearchInput
                 value={query}
                 onChange={(next) => patchParams({ q: next })}
-                placeholder="Поиск по базе знаний"
+                placeholder="Поиск по Wiki"
               />
               <div className="kb-drive__bar-right">
                 <SelectInput

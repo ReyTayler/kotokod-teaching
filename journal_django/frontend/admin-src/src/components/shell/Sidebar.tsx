@@ -163,13 +163,17 @@ export const NAV_ICONS: Record<string, ReactElement> = {
       <path d="M15 11.5v-2M12 11.5v-4M9 11.5v-1"/>
     </svg>
   ),
+  // «i» в круге — знак справки. Книга, стоявшая тут раньше, повторяла значок
+  // «Отчёты», а в кабинете преподавателя — значок «Мои уроки».
   knowledge: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
          strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-      <line x1="9" y1="7" x2="16" y2="7"/>
-      <line x1="9" y1="11" x2="14" y2="11"/>
+      <circle cx="12" cy="12" r="9.5"/>
+      <line x1="12" y1="11" x2="12" y2="16.5"/>
+      {/* Точка над «i»: путь нулевой длины с круглым концом — иначе она
+          рисовалась бы отдельным <circle> с заливкой и жила бы по другим
+          правилам масштабирования, чем остальные линии значка. */}
+      <path d="M12 7.5h.01"/>
     </svg>
   ),
 };
@@ -198,9 +202,6 @@ export const NAV_GROUPS: NavGroup[] = [
     title: null,
     items: [
       { key: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' },
-      // База знаний — не про учебную часть и не про деньги, это сквозной
-      // справочник для всех ролей. Поэтому верхний уровень, рядом с дашбордом.
-      { key: 'knowledge', label: 'База знаний', path: '/admin/knowledge' },
     ],
   },
   {
@@ -232,6 +233,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Система',
     items: [
+      // Первым в группе: Wiki — единственный её пункт без ролевого условия,
+      // то есть единственный, который видят все. Между разделами, закрытыми
+      // для большинства ролей, он бы терялся.
+      { key: 'knowledge', label: 'Wiki', path: '/admin/knowledge' },
       { key: 'settings', label: 'Настройки', path: '/admin/settings' },
       { key: 'archive', label: 'Архив', path: '/admin/archive', can: canSeeArchive },
       { key: 'accounts', label: 'Учётки', path: '/admin/accounts', can: canSeeAccounts },

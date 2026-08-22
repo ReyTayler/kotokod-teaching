@@ -5,7 +5,7 @@ import { Field } from '../../components/form/Field';
 import { TextInput } from '../../components/form/TextInput';
 
 /**
- * Диалоги раздела «База знаний».
+ * Диалоги раздела «Wiki».
  *
  * Заменяют window.prompt/confirm: браузерные окна нельзя оформить, они рвут
  * визуальный ряд админки, блокируют поток и на части браузеров показывают

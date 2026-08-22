@@ -9,6 +9,8 @@
 @import '@shared/styles/base.css';
 @import '@shared/styles/forms.css';
 @import '@shared/styles/components.css';
+/* Пагинатор и скелетоны списка — те же, что в admin (Paginator.tsx). */
+@import '@shared/styles/table.css';
 @import './shell.css';
 @import './pages.css';
 @import '@shared/shared/calendar/calendar.css';
@@ -19,3 +21,8 @@
 @import './groups.css';
 @import './lessons.css';
 @import './payroll.css';
+/* Wiki — читалка. Файл общий с admin: разметку документа задаёт
+   documentRenderMap, и стили к ней обязаны быть теми же, иначе один и тот же
+   документ выглядел бы в двух кабинетах по-разному. */
+@import '@shared/styles/knowledge.css';
+@import './knowledge.css';

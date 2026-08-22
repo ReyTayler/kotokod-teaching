@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import type { Editor } from '@tiptap/react';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
@@ -8,7 +8,7 @@ import { createSlashMenu } from './SlashMenu';
 import { registerLanguages } from './codeLanguages';
 import { askLink } from './linkPrompt';
 import { EditorToolbar } from './EditorToolbar';
-import { TableMenu } from './TableMenu';
+import { TableControls } from './TableControls';
 import { BlockHandleIcon, PlusIcon } from './editorIcons';
 import { useKnowledgeMutations } from '../../hooks/useKnowledge';
 import { useApiError } from '../../hooks/useApiError';
@@ -289,7 +289,7 @@ export default function DocumentEditor({
       <div className="kb-editor-field">
         <div className="kb-editor-sheet kb-editor-canvas">
           <BlockHandles editor={editor} />
-          <TableMenu editor={editor} />
+          <TableControls editor={editor} />
           <EditorContent editor={editor} className="kb-doc" />
         </div>
       </div>
@@ -305,8 +305,16 @@ export default function DocumentEditor({
  * координат на каждое движение мыши.
  */
 function BlockHandles({ editor }: { editor: Editor }) {
+  // Над таблицей ручка блока не нужна: там своё управление (TableControls), и
+  // оно занимает то же самое левое поле листа.
+  const [overTable, setOverTable] = useState(false);
+
   return (
-    <DragHandle editor={editor} className="kb-handle">
+    <DragHandle
+      editor={editor}
+      className={`kb-handle${overTable ? ' is-over-table' : ''}`}
+      onNodeChange={({ node }) => setOverTable(node?.type.name === 'table')}
+    >
       <button
         type="button"
         className="kb-handle__btn"

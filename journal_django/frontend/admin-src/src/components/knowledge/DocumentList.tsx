@@ -19,27 +19,38 @@ export interface DocumentActions {
   canWrite: boolean;
   /** Архив: вместо правки и публикации предлагается восстановление. */
   archived?: boolean;
-  onEdit: (id: number) => void;
-  onTogglePublish: (doc: KnowledgeDocumentRow) => void;
-  onDuplicate: (doc: KnowledgeDocumentRow) => void;
-  onDelete: (doc: KnowledgeDocumentRow) => void;
-  onRestore: (doc: KnowledgeDocumentRow) => void;
+  /**
+   * Действия правки — необязательные: у читателя (teacher SPA) их нет вовсе,
+   * и требовать от него пустые заглушки означало бы делать вид, будто правка
+   * там возможна. Меню с ними всё равно строится только при canWrite.
+   */
+  onEdit?: (id: number) => void;
+  onTogglePublish?: (doc: KnowledgeDocumentRow) => void;
+  onDuplicate?: (doc: KnowledgeDocumentRow) => void;
+  onDelete?: (doc: KnowledgeDocumentRow) => void;
+  onRestore?: (doc: KnowledgeDocumentRow) => void;
   onToggleFavorite: (doc: KnowledgeDocumentRow) => void;
 }
+
+/**
+ * Корень адресов документа. У админки это /admin/knowledge, у преподавателя —
+ * /knowledge: два SPA, два роутера, одни и те же карточки.
+ */
+const DEFAULT_BASE_PATH = '/admin/knowledge';
 
 function menuItems(doc: KnowledgeDocumentRow, actions: DocumentActions) {
   if (!actions.canWrite) return [];
   if (actions.archived) {
-    return [{ label: 'Восстановить', onSelect: () => actions.onRestore(doc) }];
+    return [{ label: 'Восстановить', onSelect: () => actions.onRestore?.(doc) }];
   }
   return [
-    { label: 'Редактировать', onSelect: () => actions.onEdit(doc.id) },
+    { label: 'Редактировать', onSelect: () => actions.onEdit?.(doc.id) },
     {
       label: doc.status === 'draft' ? 'Опубликовать' : 'Снять с публикации',
-      onSelect: () => actions.onTogglePublish(doc),
+      onSelect: () => actions.onTogglePublish?.(doc),
     },
-    { label: 'Дублировать', onSelect: () => actions.onDuplicate(doc) },
-    { label: 'Удалить', danger: true, onSelect: () => actions.onDelete(doc) },
+    { label: 'Дублировать', onSelect: () => actions.onDuplicate?.(doc) },
+    { label: 'Удалить', danger: true, onSelect: () => actions.onDelete?.(doc) },
   ];
 }
 
@@ -73,11 +84,13 @@ export function DocumentTable({
   actions,
   showSection,
   sections,
+  basePath = DEFAULT_BASE_PATH,
 }: {
   rows: KnowledgeDocumentRow[];
   actions: DocumentActions;
   showSection: boolean;
   sections: KnowledgeSection[];
+  basePath?: string;
 }) {
   const sectionTitle = (id: number) => sections.find((s) => s.id === id)?.title ?? '—';
 
@@ -99,6 +112,7 @@ export function DocumentTable({
           key={doc.id}
           doc={doc}
           actions={actions}
+          basePath={basePath}
           sectionName={showSection ? sectionTitle(doc.section_id) : null}
         />
       ))}
@@ -109,10 +123,12 @@ export function DocumentTable({
 function DocumentRow({
   doc,
   actions,
+  basePath,
   sectionName,
 }: {
   doc: KnowledgeDocumentRow;
   actions: DocumentActions;
+  basePath: string;
   sectionName: string | null;
 }) {
   const items = menuItems(doc, actions);
@@ -122,7 +138,7 @@ function DocumentRow({
       <span className="kb-rows__name" role="cell">
         <span className="kb-rows__icon" aria-hidden="true"><DocIcon size={20} /></span>
         <span className="kb-rows__text">
-          <Link to={`/admin/knowledge/${doc.id}`} className="kb-rows__link">{doc.title}</Link>
+          <Link to={`${basePath}/${doc.id}`} className="kb-rows__link">{doc.title}</Link>
           {/* Фрагмент текста — вторая строка: по названию «Регламент №4»
               непонятно, о чём документ, а по первой фразе обычно понятно. */}
           <span className="kb-rows__excerpt">{doc.excerpt?.trim() || 'Пустой документ'}</span>
@@ -147,14 +163,16 @@ function DocumentRow({
 export function DocumentCards({
   rows,
   actions,
+  basePath = DEFAULT_BASE_PATH,
 }: {
   rows: KnowledgeDocumentRow[];
   actions: DocumentActions;
+  basePath?: string;
 }) {
   return (
     <ul className="kb-cards">
       {rows.map((doc) => (
-        <DocumentCard key={doc.id} doc={doc} actions={actions} />
+        <DocumentCard key={doc.id} doc={doc} actions={actions} basePath={basePath} />
       ))}
     </ul>
   );
@@ -163,15 +181,17 @@ export function DocumentCards({
 function DocumentCard({
   doc,
   actions,
+  basePath,
 }: {
   doc: KnowledgeDocumentRow;
   actions: DocumentActions;
+  basePath: string;
 }) {
   const items = menuItems(doc, actions);
 
   return (
     <li className="kb-card">
-      <Link to={`/admin/knowledge/${doc.id}`} className="kb-card__body">
+      <Link to={`${basePath}/${doc.id}`} className="kb-card__body">
         <span className="kb-card__icon" aria-hidden="true"><DocIcon size={20} /></span>
         <span className="kb-card__title">{doc.title}</span>
         <span className="kb-card__excerpt">{doc.excerpt?.trim() || 'Пустой документ'}</span>

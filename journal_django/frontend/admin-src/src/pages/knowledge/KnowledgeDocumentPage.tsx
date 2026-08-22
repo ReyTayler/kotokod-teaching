@@ -180,7 +180,7 @@ export default function KnowledgeDocumentPage() {
       <PageHeader
         title={data.title}
         crumbs={[
-          { label: 'База знаний', to: '/admin/knowledge' },
+          { label: 'Wiki', to: '/admin/knowledge' },
           ...(sectionTitle
             ? [{ label: sectionTitle, to: `/admin/knowledge?section=${data.section_id}` }]
             : []),
