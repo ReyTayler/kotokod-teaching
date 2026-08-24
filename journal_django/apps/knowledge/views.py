@@ -85,7 +85,10 @@ class SectionDetailView(APIView):
     permission_classes = [KnowledgeReadStaffWriteAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
-        section = repository.get_section(pk)
+        # Видимость решает репозиторий: недоступный роли раздел неотличим от
+        # несуществующего (404), иначе ответ подтверждал бы, что такая папка
+        # в школе есть.
+        section = repository.get_visible_section(request.user.role, pk)
         if section is None:
             raise NotFound()
         return Response(section)

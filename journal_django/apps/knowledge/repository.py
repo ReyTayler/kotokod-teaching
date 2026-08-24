@@ -39,9 +39,19 @@ def list_sections(include_inactive: bool = False, *, role: Optional[str] = None)
     иначе: тянул ВСЕ документы (до 500 строк, 293 КБ ответа) и считал их на
     клиенте. Числа рядом с папками — единственное, ради чего это делалось, и
     ради них же выгрузка росла линейно с базой знаний.
+
+    Читателю (все, кроме admin/superadmin) отдаются только те разделы, где
+    есть хотя бы один доступный ему документ. Иначе дерево показывало бы
+    преподавателю всю структуру школы — «Финансы», «Продажи», — пусть и с
+    нулём внутри: содержимое закрыто, а состав папок нет.
     """
     qs = KnowledgeSection.objects.all()
-    if not include_inactive:
+    full_access = role in FULL_ACCESS_ROLES
+    # include_inactive — инструмент администратора (восстановление удалённого).
+    # Читателю погашенный раздел не показываем в любом случае: его документы
+    # всё равно скрыты (visible_documents_qs требует section__active), то есть
+    # папка приехала бы заведомо пустой.
+    if not include_inactive or (role is not None and not full_access):
         qs = qs.filter(active=True)
     if role is not None:
         # filter внутри Count, а не .filter() по queryset: последний превратил бы
@@ -50,6 +60,11 @@ def list_sections(include_inactive: bool = False, *, role: Optional[str] = None)
         qs = qs.annotate(document_count=Count(
             'documents', filter=_visible_documents_condition(role), distinct=True,
         ))
+        if not full_access:
+            # Отсечка по уже посчитанному числу (HAVING в той же группировке),
+            # а не отдельной проверкой на каждую папку: список разделов обязан
+            # стоить один запрос независимо от их количества.
+            qs = qs.filter(document_count__gt=0)
     fields = ['id', 'title', 'position', 'active']
     if role is not None:
         fields.append('document_count')
@@ -83,6 +98,30 @@ def get_section(section_id: int) -> Optional[dict]:
     return KnowledgeSection.objects.filter(id=section_id).values(
         'id', 'title', 'position', 'active',
     ).first()
+
+
+def get_visible_section(role: str, section_id: int) -> Optional[dict]:
+    """
+    Раздел, если роли его вообще положено видеть. Иначе None — вьюха отдаст 404.
+
+    Правило то же, что в list_sections: читателю раздел существует, только
+    пока внутри есть хотя бы один доступный ему документ. Без этой проверки
+    ручка по id обходила бы дерево и сообщала название любой папки школы
+    любому сотруднику.
+
+    Условие берётся у visible_documents_qs напрямую, а не повторяется здесь
+    третьим списком: разойдись они — и раздел был бы доступен по ссылке
+    ровно тогда, когда его нет в списке.
+    """
+    if role in FULL_ACCESS_ROLES:
+        return get_section(section_id)
+    return (
+        KnowledgeSection.objects
+        .filter(id=section_id, active=True)
+        .filter(Exists(visible_documents_qs(role).filter(section_id=OuterRef('pk'))))
+        .values('id', 'title', 'position', 'active')
+        .first()
+    )
 
 
 def get_active_section(section_id) -> Optional[dict]:

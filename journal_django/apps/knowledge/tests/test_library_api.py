@@ -341,3 +341,114 @@ def test_sections_cost_one_query_regardless_of_count(admin_client, section, djan
     # четырёх чисел не зависит от количества папок или документов.
     with django_assert_num_queries(4):
         admin_client.get(SECTIONS)
+
+
+# ---------------------------------------------------------------------------
+# Видимость самих разделов
+# ---------------------------------------------------------------------------
+# Счётчик выше отвечает на вопрос «сколько документов роль увидит внутри»,
+# этот блок — на предшествующий ему «покажем ли роли саму папку». Правило
+# одно: читатель видит раздел тогда и только тогда, когда внутри есть хотя бы
+# один доступный ему документ. Иначе преподаватель видел бы в дереве всю
+# структуру школы — «Финансы», «Продажи» — пусть и без содержимого.
+
+@pytest.mark.django_db
+def test_section_hidden_when_role_sees_nothing_inside(admin_client, teacher_client, section):
+    _doc(admin_client, section, '__test_kb_чужой', 'текст',
+         published=True, roles=['manager'])
+
+    assert '__test_kb_раздел' not in _sections(teacher_client)
+    assert '__test_kb_раздел' in _sections(admin_client)
+
+
+@pytest.mark.django_db
+def test_section_appears_once_role_gets_a_document(admin_client, teacher_client, section):
+    """Публикация на роль обязана вернуть папку в дерево этой роли."""
+    assert '__test_kb_раздел' not in _sections(teacher_client)
+
+    _doc(admin_client, section, '__test_kb_общий', 'текст',
+         published=True, roles=['teacher'])
+
+    assert _sections(teacher_client)['__test_kb_раздел'] == 1
+
+
+@pytest.mark.django_db
+def test_draft_alone_does_not_reveal_section(admin_client, teacher_client, section):
+    """
+    Черновик, адресованный роли, — ещё не документ для неё.
+
+    Правило видимости раздела обязано совпадать с правилом видимости
+    документа, иначе папка выдаёт факт подготовки материала до публикации.
+    """
+    _doc(admin_client, section, '__test_kb_черновик', 'текст', roles=['teacher'])
+
+    assert '__test_kb_раздел' not in _sections(teacher_client)
+
+
+@pytest.mark.django_db
+def test_manager_hidden_from_teacher_sections_too(admin_client, manager_client, section):
+    """Правило общее для всех читателей, а не персональное для преподавателя."""
+    _doc(admin_client, section, '__test_kb_учительский', 'текст',
+         published=True, roles=['teacher'])
+
+    assert '__test_kb_раздел' not in _sections(manager_client)
+
+
+@pytest.mark.django_db
+def test_empty_section_stays_for_admin(admin_client, section):
+    """
+    Обратная сторона правила: у администратора пустая папка обязана остаться.
+
+    Иначе только что созданный раздел исчезал бы из дерева до первого
+    документа — то есть положить документ было бы некуда.
+    """
+    assert _sections(admin_client)['__test_kb_раздел'] == 0
+
+
+@pytest.mark.django_db
+def test_hidden_section_is_not_reachable_by_id(admin_client, teacher_client, section):
+    """
+    Скрытый раздел не должен отдаваться и по прямому адресу.
+
+    Список — про удобство, а вот ручка по id — про доступ: без проверки роли
+    она сообщала бы название любой папки школы любому сотруднику.
+    """
+    _doc(admin_client, section, '__test_kb_чужой', 'текст',
+         published=True, roles=['manager'])
+    assert teacher_client.get(f"{SECTIONS}/{section['id']}").status_code == 404
+
+    _doc(admin_client, section, '__test_kb_общий', 'текст',
+         published=True, roles=['teacher'])
+    assert teacher_client.get(f"{SECTIONS}/{section['id']}").status_code == 200
+
+
+@pytest.mark.django_db
+def test_admin_reaches_empty_section_by_id(admin_client, section):
+    assert admin_client.get(f"{SECTIONS}/{section['id']}").status_code == 200
+
+
+@pytest.mark.django_db
+def test_sections_still_cost_one_query_for_teacher(
+    admin_client, teacher_client, section, django_assert_num_queries,
+):
+    """
+    Отсечка пустых папок обязана остаться частью той же группировки.
+
+    Проверка «есть ли внутри доступное» напрашивается запросом на папку —
+    и именно так список разделов снова стал бы расти по стоимости вместе с
+    базой знаний.
+    """
+    for i in range(5):
+        created = admin_client.post(
+            SECTIONS, {'title': f'__test_kb_раздел {i}'}, format='json',
+        ).json()
+        _doc(admin_client, created, f'__test_kb_док {i}', 'текст',
+             published=True, roles=['teacher'])
+    teacher_client.get(SECTIONS)        # прогрев: аутентификация и т.п.
+
+    # Пять, а не четыре как у администратора: у преподавателя аутентификация
+    # дочитывает его карточку из teachers. К разделам это не относится — их
+    # по-прежнему ровно один запрос, отсечка пустых уехала в HAVING той же
+    # группировки, плюс общий COUNT для «Все документы».
+    with django_assert_num_queries(5):
+        teacher_client.get(SECTIONS)
