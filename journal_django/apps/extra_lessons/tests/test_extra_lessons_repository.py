@@ -345,3 +345,82 @@ def test_lock_for_delete_returns_locked_fields(
     assert locked['missed_lesson_id'] == missed_lesson_fixture
     assert locked['student_id'] == student_fixture
     assert locked['fact_lesson_id'] == missed_lesson_fixture
+
+
+# ---------------------------------------------------------------------------
+# Порядок списка
+# ---------------------------------------------------------------------------
+# Раздел — рабочая очередь: сверху то, что ждёт решения. Раньше этот порядок
+# получался случайно (сортировка шла по scheduled_date, у pending он NULL, а
+# Postgres кладёт NULL первыми при DESC) и разваливался от смены направления
+# сортировки. Теперь порядок задан явно, поэтому и проверяется явно.
+
+@pytest.fixture
+def ordering_rows(missed_lesson_fixture, extra_missed_lessons, student_fixture,
+                  teacher_fixture, resolution_cleanup):
+    """
+    Три резолюции с заданной датой создания: два «Ждёт решения» и назначенная.
+
+    created_at правится UPDATE'ом: поле auto_now_add, при вставке в него всегда
+    попадает «сейчас». Даты расставлены ПРОТИВ порядка вставки — свежая
+    резолюция заведена первой и потому имеет МЕНЬШИЙ id. Иначе тест не отличал
+    бы сортировку по дате создания от сортировки по id, а прежний код
+    упорядочивал ожидающие именно по id.
+
+    Назначенная резолюция создана позже обеих: наверх ожидающие обязан
+    поднимать статус, а не свежесть.
+    """
+    import datetime as dt
+
+    from apps.extra_lessons.models import AbsenceResolution
+
+    def _pending(lesson_id, created_at):
+        repository.autocreate_pending(lesson_id, [student_fixture])
+        rid = repository.lock_for_assign(lesson_id, student_fixture)['id']
+        AbsenceResolution.objects.filter(id=rid).update(created_at=created_at)
+        return rid
+
+    newer = _pending(extra_missed_lessons[0], dt.datetime(2026, 6, 1, tzinfo=dt.timezone.utc))
+    older = _pending(extra_missed_lessons[1], dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc))
+    scheduled = _assign_fixture_pending(
+        missed_lesson_fixture, student_fixture, teacher_fixture)
+    AbsenceResolution.objects.filter(id=scheduled).update(
+        created_at=dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc))
+    return {'newer': newer, 'older': older, 'scheduled': scheduled}
+
+
+def _positions(rows, ids: dict) -> dict:
+    index = {row['id']: i for i, row in enumerate(rows)}
+    return {name: index[rid] for name, rid in ids.items()}
+
+
+def test_default_order_puts_pending_first_newest_first(ordering_rows):
+    rows = repository.list_resolutions(page_size=500)['rows']
+    pos = _positions(rows, ordering_rows)
+
+    assert pos['newer'] < pos['older'], 'внутри «Ждёт решения» свежие идут первыми'
+    assert pos['older'] < pos['scheduled'], 'назначенные — ниже всех ожидающих'
+
+
+def test_explicit_sort_drops_the_pending_grouping(ordering_rows):
+    """
+    Щелчок по колонке сортирует ВЕСЬ список, а не два блока по отдельности.
+
+    Проверяется на дате доп.урока по возрастанию: у ожидающих её нет (NULL,
+    Postgres кладёт такие в конец при ASC), поэтому назначенная резолюция
+    обязана оказаться выше — при сохранённой группировке это было бы невозможно.
+    """
+    rows = repository.list_resolutions(
+        page_size=500, sort_by='scheduled_date', sort_dir='asc')['rows']
+    pos = _positions(rows, ordering_rows)
+
+    assert pos['scheduled'] < pos['newer']
+    assert pos['scheduled'] < pos['older']
+
+
+def test_unknown_sort_key_falls_back_to_the_queue_order(ordering_rows):
+    """Мусор в sort_by — не повод показать список в произвольном порядке."""
+    rows = repository.list_resolutions(page_size=500, sort_by='нет такой колонки')['rows']
+    pos = _positions(rows, ordering_rows)
+
+    assert pos['newer'] < pos['older'] < pos['scheduled']

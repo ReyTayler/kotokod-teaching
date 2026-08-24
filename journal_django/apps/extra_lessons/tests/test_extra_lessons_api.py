@@ -730,3 +730,55 @@ def test_pending_count_reflects_pending_resolutions(
 def test_pending_count_requires_manager(teacher_client):
     resp = teacher_client.get(f'{ADMIN_URL}/pending-count')
     assert resp.status_code == 403
+
+
+def test_list_default_order_puts_pending_first(
+    admin_client, teacher_fixture, group_fixture, missed_lesson_fixture,
+    student_fixture, cleanup_resolutions,
+):
+    """
+    Список без параметров сортировки — рабочая очередь: «Ждёт решения» сверху,
+    внутри блока свежие первыми.
+
+    Проверяется через API, а не только через репозиторий: у вьюхи свой дефолт
+    sort_by, и разойдись он с дефолтом репозитория — раздел открывался бы в
+    произвольном порядке, а тесты репозитория остались бы зелёными.
+
+    Ожидающая резолюция здесь СТАРШЕ назначенной (наверх её выводит статус, а
+    не свежесть), а между собой ожидающие расставлены против порядка вставки —
+    иначе тест не отличал бы сортировку по дате создания от сортировки по id.
+    """
+    import datetime as dt
+
+    from apps.extra_lessons import repository
+    from apps.extra_lessons.models import AbsenceResolution
+
+    def _created(resolution_id, when):
+        AbsenceResolution.objects.filter(id=resolution_id).update(created_at=when)
+
+    def _extra(**kwargs):
+        return repository.create_extra_direct(
+            group_id=group_fixture, student_id=student_fixture,
+            assigned_teacher_id=teacher_fixture, scheduled_date=dt.date(2026, 4, 20),
+            scheduled_time=dt.time(15, 0), duration_minutes=45,
+            target_lesson_number=None, **kwargs)
+
+    # Ожидающая, заведённая раньше всех (меньший id), но самая свежая по дате.
+    fresh_pending = repository.lock_for_assign(missed_lesson_fixture, student_fixture)['id']
+    _created(fresh_pending, dt.datetime(2026, 6, 1, tzinfo=dt.timezone.utc))
+    # Вторая ожидающая: доп.урок сверх курса, возвращённый в «ждёт решения».
+    stale_pending = _extra()
+    repository.back_to_pending(stale_pending)
+    _created(stale_pending, dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc))
+    # Назначенный — самый свежий из всех, но статус держит его ниже ожидающих.
+    scheduled = _extra()
+    _created(scheduled, dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc))
+
+    try:
+        order = [row['id'] for row in admin_client.get(ADMIN_URL).json()['rows']]
+        assert order.index(fresh_pending) < order.index(stale_pending)
+        assert order.index(stale_pending) < order.index(scheduled)
+    finally:
+        # kind='extra' не привязан к пропуску, поэтому cleanup_resolutions
+        # (чистит по missed_lesson_id) эти строки не заберёт.
+        AbsenceResolution.objects.filter(id__in=[stale_pending, scheduled]).delete()

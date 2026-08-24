@@ -29,7 +29,12 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
 
 export default function ExtraLessonsListPage() {
-  const search = useListSearchParams({ sortBy: 'scheduled_date', sortDir: 'desc' });
+  // Порядок по умолчанию — очередь разбора: «Ждёт решения» сверху, внутри блока
+  // свежие заявки первыми. Это не колонка таблицы, поэтому стрелки сортировки ни
+  // у одного заголовка не горят; щелчок по любому из них переключает список на
+  // обычную сортировку и группировку по статусу снимает (так и задумано).
+  // Значение обязано совпадать с repository.QUEUE_ORDER на бэкенде.
+  const search = useListSearchParams({ sortBy: 'pending_first', sortDir: 'desc' });
   const { page, pageSize, sortBy, sortDir, filters, setPage, setPageSize, setSort, setFilters } = search;
   const debouncedFilters = useDeferredValue(filters);
 

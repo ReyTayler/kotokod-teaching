@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Case, F, IntegerField, Value, When
 from django.db.models.functions import Coalesce
 
 from apps.extra_lessons.models import (
@@ -363,11 +363,45 @@ def delete_pending_for_student_in_group(student_id, group_id) -> int:
     return n
 
 
-def list_resolutions(page=1, page_size=50, sort_by='scheduled_date', sort_dir='desc', filters=None) -> dict:
+# Порядок по умолчанию — очередь разбора: «Ждёт решения» сверху, внутри блока
+# свежие заявки первыми. Это не колонка таблицы (парой «поле + направление» его
+# не выразить), поэтому у него собственное имя. Любое значение sort_by вне
+# _SORTABLE — включая пустое и мусорное — означает этот порядок.
+QUEUE_ORDER = 'pending_first'
+
+# Колонки, по которым список сортируется явным щелчком по заголовку.
+_SORTABLE = {'scheduled_date': 'scheduled_date', 'status': 'status',
+             'teacher_name': 'assigned_teacher__name', 'student_name': 'student__full_name'}
+
+
+def _order_fields(sort_by: str, sort_dir: str) -> tuple:
+    """
+    Во что превращается запрошенная сортировка.
+
+    Явная сортировка по колонке упорядочивает ВЕСЬ список: группировка по
+    статусу при этом снимается намеренно — иначе «сортировать по ученику»
+    означало бы «отсортировать два блока по отдельности», чего от таблицы
+    никто не ждёт.
+
+    Порядок очереди не полагается на то, что у pending scheduled_date пуст
+    (раньше ожидающие всплывали наверх именно так: NULL при DESC идут первыми
+    в Postgres). Это разваливалось от одного щелчка по «Дате доп.урока» и
+    вообще не выражало намерения — теперь статус в сортировке назван прямо.
+    """
+    if sort_by in _SORTABLE:
+        return (('' if sort_dir == 'asc' else '-') + _SORTABLE[sort_by], '-id')
+    awaiting_first = Case(
+        When(status=PENDING, then=Value(0)), default=Value(1),
+        output_field=IntegerField(),
+    )
+    # '-id' — тай-брейк: created_at у пачки резолюций, созданных одной записью
+    # урока, совпадает до микросекунд, а страницы без полного порядка
+    # «переставляются» между запросами и строки задваиваются/пропадают.
+    return (awaiting_first, '-created_at', '-id')
+
+
+def list_resolutions(page=1, page_size=50, sort_by=QUEUE_ORDER, sort_dir='desc', filters=None) -> dict:
     filters = filters or {}
-    sortable = {'scheduled_date': 'scheduled_date', 'status': 'status',
-                'teacher_name': 'assigned_teacher__name', 'student_name': 'student__full_name'}
-    order = ('' if sort_dir == 'asc' else '-') + sortable.get(sort_by, 'scheduled_date')
     qs = AbsenceResolution.objects.all()
     if filters.get('status'):
         qs = qs.filter(status=filters['status'])
@@ -379,7 +413,8 @@ def list_resolutions(page=1, page_size=50, sort_by='scheduled_date', sort_dir='d
         qs = qs.filter(missed_lesson__group__name__icontains=filters['missed_lesson_group_name'])
     total = qs.count()
     offset = max(0, (page - 1) * page_size)
-    rows = list(_full_values(qs.order_by(order, '-id')[offset:offset + page_size]))
+    ordering = _order_fields(sort_by, sort_dir)
+    rows = list(_full_values(qs.order_by(*ordering)[offset:offset + page_size]))
     return {'rows': rows, 'total': total, 'page': page, 'page_size': page_size}
 
 

@@ -736,7 +736,7 @@ def enforce_membership_cancellation(student_id, group_id) -> int:
 
 
 def list_assignments(
-    page: int = 1, page_size: int = 50, sort_by: str = 'scheduled_date',
+    page: int = 1, page_size: int = 50, sort_by: str = repository.QUEUE_ORDER,
     sort_dir: str = 'desc', filters: Optional[dict] = None,
 ) -> dict:
     return repository.list_resolutions(

@@ -69,7 +69,9 @@ def _parse_list_params(request: Request) -> dict:
     except (TypeError, ValueError):
         raw_page_size = 0
     page_size = min(_MAX_PAGE_SIZE, max(1, raw_page_size or _DEFAULT_PAGE_SIZE))
-    sort_by = qp.get('sort_by') or 'scheduled_date'
+    # Пустое значение осмысленно: repository трактует его как порядок очереди
+    # разбора. Дублировать здесь имя колонки не надо — дефолт живёт в одном месте.
+    sort_by = qp.get('sort_by') or ''
     sort_dir = qp.get('sort_dir')
     if sort_dir not in ('asc', 'desc'):
         sort_dir = 'desc'
