@@ -121,13 +121,19 @@ $slash = { param($p) ($p -replace '\\', '/') }
 $PathsDir = Join-Path $PSScriptRoot '.runtime'
 if (-not (Test-Path $PathsDir)) { New-Item -ItemType Directory -Path $PathsDir -Force | Out-Null }
 $PathsConf = Join-Path $PathsDir 'paths.conf'
-@"
+$PathsBody = @"
 # Пути ЭТОЙ машины. Файл создаётся start-local-nginx.ps1 при каждом запуске —
 # править его бессмысленно, изменения затрутся. Он лежит в .runtime/ и в git не
 # попадает: у каждой машины путь свой, а nginx.conf один на всех.
 set `$app_root $(& $slash $AppRoot);
 include $(& $slash $StaticSnippet);
-"@ | Set-Content -Path $PathsConf -Encoding UTF8
+"@
+# UTF-8 БЕЗ BOM, и записью через .NET, а не Set-Content -Encoding UTF8:
+# в Windows PowerShell 5.1 этот ключ ставит BOM, а nginx его не пропускает —
+# три байта приклеиваются к первому '#', комментарий перестаёт быть
+# комментарием, и разбор падает на «unknown directive» уже в paths.conf.
+[System.IO.File]::WriteAllText(
+    $PathsConf, $PathsBody + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "nginx:  $NginxExe"
 Write-Host "prefix: $Prefix"
