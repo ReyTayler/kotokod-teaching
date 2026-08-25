@@ -686,6 +686,15 @@
   margin-top: 4px;
 }
 
+/* Текст модалки «Записать в долг?»: абзацы предупреждения о том, что занятие
+   остаётся платным. */
+.lesson-editor__debt-text {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  line-height: 1.5;
+}
+.lesson-editor__debt-text + .lesson-editor__debt-text { margin-top: var(--space-3); }
+
 /* ── MEMBERSHIPS ── */
 .memberships { margin-top: 12px; }
 .memberships__title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 10px; }

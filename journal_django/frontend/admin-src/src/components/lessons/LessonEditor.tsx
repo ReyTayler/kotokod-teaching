@@ -2,8 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useLessonFull, useLessonMutations, useLessonSkips } from '../../hooks/useLessons';
 import { useMemberships } from '../../hooks/useMemberships';
 import { useApiError } from '../../hooks/useApiError';
+import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../ui/Toast';
+import { Dialog } from '../ui/Dialog';
 import { DateInput } from '../form/DateInput';
+import { unpaidAttendanceBlockMessage } from '../../lib/api';
+import { canRecordLessonInDebt, type Role } from '../../lib/permissions';
 import type { Group } from '../../lib/types';
 
 interface Props {
@@ -31,6 +35,21 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
   const muts = useLessonMutations();
   const { toast } = useToast();
   const showError = useApiError();
+  const { me } = useAuth();
+  const canDebt = canRecordLessonInDebt(me?.role as Role);
+  // Модалка «записать в долг». Появляется ТОЛЬКО после реального отказа сервера
+  // по балансу и только суперадмину: пред-проверять баланс на клиенте нельзя —
+  // источник правды один, серверный (assert_students_paid). `retry` повторяет
+  // ровно ту операцию, что отклонили, уже с allow_debt.
+  const [debtPrompt, setDebtPrompt] =
+    useState<{ message: string; retry: () => Promise<void> } | null>(null);
+
+  /** Отказ по долгу и суперадмин → показать модалку; иначе обычная ошибка. */
+  const handleBlocked = (err: unknown, retry: () => Promise<void>): void => {
+    const message = unpaidAttendanceBlockMessage(err);
+    if (message && canDebt) { setDebtPrompt({ message, retry }); return; }
+    showError(err);
+  };
   const editorRef = useRef<HTMLDivElement | null>(null);
   const isFirstOpenRef = useRef(true);
 
@@ -127,6 +146,25 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
       return;
     }
 
+    // Вынесено в функцию, чтобы модалка «в долг» могла повторить РОВНО ту же
+    // отправку с allow_debt, не собирая payload заново.
+    const createLesson = async (allowDebt: boolean) => {
+      await muts.create.mutateAsync({
+        lesson_date: date,
+        group_id: group.id,
+        teacher_id: group.teacher_id,
+        lesson_number: slotLessonNumber,
+        lesson_duration_minutes: group.lesson_duration_minutes,
+        lesson_type: 'regular',
+        record_url: url,
+        submitted_by_token: 'admin-imported',
+        attendance,
+        ...(allowDebt ? { allow_debt: true } : {}),
+      });
+      toast('Урок создан', 'ok');
+      onClose();
+    };
+
     try {
       if (lesson) {
         // Посещаемость завершённого урока не редактируется здесь — только дата/ссылка.
@@ -135,22 +173,13 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
           body: { lesson_date: date, record_url: url },
         });
         toast('Сохранено', 'ok');
+        onClose();
       } else {
-        await muts.create.mutateAsync({
-          lesson_date: date,
-          group_id: group.id,
-          teacher_id: group.teacher_id,
-          lesson_number: slotLessonNumber,
-          lesson_duration_minutes: group.lesson_duration_minutes,
-          lesson_type: 'regular',
-          record_url: url,
-          submitted_by_token: 'admin-imported',
-          attendance,
-        });
-        toast('Урок создан', 'ok');
+        await createLesson(false);
       }
-      onClose();
-    } catch (err) { showError(err); }
+    } catch (err) {
+      handleBlocked(err, () => createLesson(true));
+    }
   };
 
   const handleDelete = async () => {
@@ -209,15 +238,28 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
               setPresent((p) => ({ ...p, [m.student_id]: nextPresent }));
               setFree((f) => ({ ...f, [m.student_id]: nextFree }));
               if (lesson) {
-                muts.toggleAttendance.mutateAsync({
+                const send = (allowDebt: boolean) => muts.toggleAttendance.mutateAsync({
                   lessonId: lesson.id, studentId: m.student_id,
                   present: nextPresent, is_free: nextFree,
-                })
-                  .catch((err) => {
-                    setPresent((p) => ({ ...p, [m.student_id]: isPresent }));
-                    setFree((f) => ({ ...f, [m.student_id]: isFree }));
-                    showError(err);
+                  ...(allowDebt ? { allow_debt: true } : {}),
+                });
+                const rollback = () => {
+                  setPresent((p) => ({ ...p, [m.student_id]: isPresent }));
+                  setFree((f) => ({ ...f, [m.student_id]: isFree }));
+                };
+                const apply = () => {
+                  setPresent((p) => ({ ...p, [m.student_id]: nextPresent }));
+                  setFree((f) => ({ ...f, [m.student_id]: nextFree }));
+                };
+                send(false).catch((err) => {
+                  // Оптимистичную отметку снимаем сразу: пока висит модалка,
+                  // ячейка должна показывать реальное состояние сервера.
+                  rollback();
+                  handleBlocked(err, async () => {
+                    apply();
+                    await send(true).catch((e) => { rollback(); showError(e); });
                   });
+                });
               }
             };
             // Неопл.пропуск: помечаем СЛОТ через group-эндпоинт — работает и на ещё
@@ -290,6 +332,39 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
           disabled={muts.create.isPending || muts.update.isPending || muts.remove.isPending}
         >{lesson ? 'Сохранить' : 'Создать урок'}</button>
       </div>
+
+      {debtPrompt && (
+        <Dialog
+          open
+          onOpenChange={(o) => { if (!o) setDebtPrompt(null); }}
+          title="Записать в долг?"
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDebtPrompt(null)}
+              >Отмена</button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  const { retry } = debtPrompt;
+                  setDebtPrompt(null);
+                  void retry();
+                }}
+              >Записать в долг</button>
+            </>
+          }
+        >
+          <p className="lesson-editor__debt-text">{debtPrompt.message}</p>
+          <p className="lesson-editor__debt-text">
+            Занятие запишется как обычное платное: баланс ученика уйдёт глубже в
+            минус, преподавателю зарплата за него начислится. Это не «бесплатное
+            занятие» — там денег ноль с обеих сторон.
+          </p>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -46,11 +46,26 @@ export const LESSON_ALREADY_RECORDED = 'lesson_already_recorded';
 // путь отметки, а тексты и реакция экрана у них разные.
 export const EXTRA_LESSON_ALREADY_RECORDED = 'extra_lesson_already_recorded';
 
+// Код отказа (apps.lessons.views): у ученика нет оплаченных уроков. Для
+// суперадмина это не тупик — редактор урока показывает по нему модалку
+// «записать в долг» и повторяет запрос с allow_debt. Остальным ролям — обычная
+// ошибка: бэк их флаг всё равно отвергнет (403).
+export const UNPAID_ATTENDANCE_BLOCKED = 'unpaid_attendance_blocked';
+
 /** Если ошибка — именно блок «есть назначенные доп.уроки», вернуть её текст для
  *  модалки, иначе null (обрабатывать как обычную ошибку через useApiError). */
 export function scheduledMakeupsBlockMessage(err: unknown): string | null {
   if (err instanceof ApiError && err.code === MEMBERSHIP_HAS_SCHEDULED_MAKEUPS) {
     return err.message || 'Нельзя снять ученика из группы: есть назначенные доп.уроки.';
+  }
+  return null;
+}
+
+/** Если ошибка — блок по отрицательному балансу, вернуть её текст (для модалки
+ *  «записать в долг»), иначе null. Тот же приём, что выше. */
+export function unpaidAttendanceBlockMessage(err: unknown): string | null {
+  if (err instanceof ApiError && err.code === UNPAID_ATTENDANCE_BLOCKED) {
+    return err.message || 'У ученика не осталось оплаченных уроков.';
   }
   return null;
 }

@@ -50,6 +50,32 @@ _MAX_PAGE_SIZE = 500
 # (apps.teacher_spa.views.LESSON_ALREADY_RECORDED): урок за это занятие уже записан.
 LESSON_ALREADY_RECORDED = 'lesson_already_recorded'
 
+# У ученика нет оплаченных уроков. Код нужен фронту, чтобы отличить этот отказ от
+# прочих 400 и поднять суперадмину модалку «записать в долг» вместо красной
+# ошибки (обычная запись остаётся заблокированной для всех остальных ролей).
+UNPAID_ATTENDANCE_BLOCKED = 'unpaid_attendance_blocked'
+
+
+def _reject_debt_override(request: Request, data: dict):
+    """
+    Проверка права на `allow_debt` («записать, невзирая на долг»).
+
+    Возвращает Response 403, если флаг передан кем-то кроме superadmin, иначе
+    None. Право проверяется ЗДЕСЬ, а не в permission_classes: вьюхи открыты
+    admin'у на запись (ReadStaffWriteAdmin), сужается только эта возможность.
+
+    Молча игнорировать чужой флаг нельзя — клиент решил бы, что занятие записано
+    в долг, тогда как сервер его отверг бы по балансу с другой формулировкой.
+    """
+    if not data.get('allow_debt'):
+        return None
+    if getattr(request.user, 'role', None) != 'superadmin':
+        return Response(
+            {'error': 'Записать занятие в долг может только суперадмин'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
 
 def _parse_list_params(request: Request) -> dict:
     """
@@ -137,11 +163,17 @@ class LessonListCreateView(APIView):
     def post(self, request: Request) -> Response:
         serializer = LessonCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        denied = _reject_debt_override(request, serializer.validated_data)
+        if denied is not None:
+            return denied
 
         try:
             result = services.create_lesson_full(serializer.validated_data)
         except UnpaidAttendanceBlocked as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # code — чтобы суперадмин увидел модалку «записать в долг», а не
+            # красную ошибку; остальным ролям фронт покажет обычный отказ.
+            return Response({'error': str(e), 'code': UNPAID_ATTENDANCE_BLOCKED},
+                            status=status.HTTP_400_BAD_REQUEST)
         except LessonAlreadyRecorded as e:
             # Тот же конфликт, что у преподавателя: занятие уже записано. Без этой
             # ветки исключение уходило наверх необработанным и админ видел голый
@@ -208,14 +240,19 @@ class AttendanceCellView(APIView):
     def patch(self, request: Request, lesson_id: int, student_id: int) -> Response:
         serializer = AttendanceUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        denied = _reject_debt_override(request, serializer.validated_data)
+        if denied is not None:
+            return denied
 
         try:
             ok = services.update_attendance_cell(
                 lesson_id, student_id, serializer.validated_data['present'],
                 is_free=serializer.validated_data['is_free'],
+                allow_debt=serializer.validated_data['allow_debt'],
             )
         except UnpaidAttendanceBlocked as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': str(e), 'code': UNPAID_ATTENDANCE_BLOCKED},
+                            status=status.HTTP_400_BAD_REQUEST)
         except (SystemLessonProtected, AttendanceCompensatedElsewhere, AttendanceLockedByTransfer) as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if not ok:

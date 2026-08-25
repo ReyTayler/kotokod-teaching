@@ -62,6 +62,10 @@ class LessonCreateSerializer(serializers.Serializer):
     )
     submitted_by_token = serializers.CharField(required=False, trim_whitespace=False)
     attendance = AttendanceItemSerializer(many=True, required=False)
+    # allow_debt — «записать, невзирая на отрицательный баланс». Право проверяет
+    # вьюха (только superadmin), здесь только приём значения. Занятие остаётся
+    # ПЛАТНЫМ: спишется с баланса, зарплата начислится — это не is_free.
+    allow_debt = serializers.BooleanField(required=False, default=False)
 
 
 class LessonUpdateSerializer(serializers.Serializer):
@@ -93,6 +97,9 @@ class AttendanceUpdateSerializer(serializers.Serializer):
 
     present = serializers.BooleanField()
     is_free = serializers.BooleanField(required=False, default=False)
+    # См. LessonCreateSerializer.allow_debt — то же право, тот же смысл:
+    # «отметить присутствие, невзирая на долг». Право проверяет вьюха.
+    allow_debt = serializers.BooleanField(required=False, default=False)
 
 
 class UnpaidSkipUpdateSerializer(serializers.Serializer):

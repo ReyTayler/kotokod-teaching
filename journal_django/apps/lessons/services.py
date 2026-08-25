@@ -356,6 +356,9 @@ def create_lesson_full(data: dict) -> dict:
         submitted_by_token=data.get('submitted_by_token') or 'admin-imported',
         submit_date=data['lesson_date'],
         attendance=data.get('attendance') or [],
+        # Право на флаг проверено во вьюхе (только superadmin) — сюда он приходит
+        # уже разрешённым. Занятие остаётся платным, снят лишь запрет по балансу.
+        skip_balance_check=bool(data.get('allow_debt')),
     )
 
 
@@ -460,10 +463,15 @@ def _assert_not_compensated(lesson_id: int, student_id: int) -> None:
 
 def update_attendance_cell(
     lesson_id: int, student_id: int, present: bool, is_free: bool = False,
+    allow_debt: bool = False,
 ) -> bool:
     """Точечная правка исхода ученика на проведённом уроке. present — был/не был;
     is_free — «бесплатное занятие» (present=true, денег ноль). is_free при
     present=false игнорируется. Пересчитывает Payroll (см. repository).
+
+    allow_debt — снять запрет по отрицательному балансу («записать в долг»).
+    Право на него проверяет вьюха: только superadmin. Урок остаётся ПЛАТНЫМ
+    (спишется с баланса, зарплата начислится) — в отличие от is_free.
 
     Снятие present (флип в «не был») порождает pending-резолюцию так же, как если
     бы ученика отметили отсутствующим сразу при записи урока — см.
@@ -479,7 +487,8 @@ def update_attendance_cell(
     # ровно тот тихий исход, который здесь и чинится. Вложенный atomic внутри
     # repository становится SAVEPOINT'ом.
     with transaction.atomic():
-        changed = repository.update_attendance_cell(lesson_id, student_id, present, is_free)
+        changed = repository.update_attendance_cell(
+            lesson_id, student_id, present, is_free, skip_balance_check=allow_debt)
         if changed and not present:
             _autocreate_pending_for_cell(lesson_id, student_id)
         if changed and present:
