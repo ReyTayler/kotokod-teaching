@@ -116,6 +116,7 @@ def deal_computed(deal_id: int) -> dict | None:
     прогресс n/4 от общей истории, balance, days_in_stage. Баланс — apps.finances.
     """
     from apps.finances.repository import balance_for_student
+    from apps.renewals import engine
 
     sql = f"""
         SELECT d.id, d.student_id, d.cycle_no, d.stage_id,
@@ -157,6 +158,13 @@ def deal_computed(deal_id: int) -> dict | None:
     data['cycle_completed'] = into >= cycle.LESSONS_PER_CYCLE
     data['balance'] = balance_for_student(data['student_id'])
     data['debt'] = float(data['balance']) < 0
+    # Переоткрывать можно только последнюю сделку ученика (engine._assert_reopenable).
+    # Флаг нужен дроверу, чтобы не показывать кнопку, ведущую в 409; правило берём
+    # из движка, а не повторяем здесь.
+    data['can_reopen'] = (
+        data['outcome_at'] is not None
+        and not engine.reopen_blocked(data['student_id'], data['cycle_no'])
+    )
     return data
 
 

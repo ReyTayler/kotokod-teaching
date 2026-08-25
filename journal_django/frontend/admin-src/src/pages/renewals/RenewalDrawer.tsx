@@ -268,14 +268,24 @@ export function RenewalDrawer({ id, onClose }: Props) {
                   <span className={`status-badge${deal.stage_kind === 'won' ? ' status-badge--positive' : ' status-badge--negative'}`}>
                     {deal.stage_kind === 'won' ? 'Продлена' : 'Закрыта'} {fmtDateTime(deal.outcome_at!)}
                   </span>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={reopen.isPending}
-                    onClick={() => setConfirmReopen(true)}
-                  >
-                    Переоткрыть
-                  </button>
+                  {/* Переоткрывать можно только последнюю сделку ученика: оживление
+                      старого цикла поверх более позднего закрытого рвало нумерацию
+                      (прод, 25.08.2026). Флаг считает бэк тем же правилом, что и гард. */}
+                  {deal.can_reopen ? (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={reopen.isPending}
+                      onClick={() => setConfirmReopen(true)}
+                    >
+                      Переоткрыть
+                    </button>
+                  ) : (
+                    <span className="renewal-drawer__hint">
+                      Переоткрыть можно только последнюю сделку ученика — у него есть
+                      более поздние циклы
+                    </span>
+                  )}
                 </div>
                 {/* Сделку часто закрывают позже, чем ученик реально ушёл, а месяц
                     закрытия — это месяц продления/ухода в аналитике. Поэтому дату

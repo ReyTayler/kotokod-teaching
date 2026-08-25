@@ -18,6 +18,7 @@ from django.utils import timezone
 from apps.core.utils.dates import msk_now
 from apps.renewals import cycle
 from apps.renewals.models import RenewalActivity, RenewalDeal, RenewalPipeline, RenewalStage
+from apps.renewals.transitions import InvalidTransition
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,43 @@ def sync_lesson_stage_safe(student_id: int, direction_id: Optional[int] = None) 
             'renewals: не удалось синхронизировать авто-стадию (student=%s)', student_id)
 
 
+def _assert_reopenable(deal: RenewalDeal) -> None:
+    """
+    Переоткрывать можно только ПОСЛЕДНЮЮ сделку ученика.
+
+    Единственная допустимая «более поздняя» сделка — порождённая при закрытии
+    сделка цикла N+1, пока она открыта: reopen_deal её и снимает (или помечает,
+    если её уже трогали руками). Всё остальное — закрытый более поздний цикл или
+    открытая сделка с чужим номером — значит, что ученик прожил цикл дальше.
+
+    Зачем запрет. cycle_no — не свободный счётчик, а функция от посещаемости
+    (cycle.open_cycle_no). Ожив старую сделку поверх закрытого более позднего
+    цикла, менеджер получал «дыру»: при следующем закрытии «Продлён» спавн
+    (repository.move_deal) перешагивал занятый номер через next_open_cycle_no и
+    создавал сделку ВПЕРЕДИ реальности — прогресс `attended − (cycle_no−1)×4`
+    уходил в минус и карточка показывала «Не было урока» ученику с полной
+    историей уроков. Регрессия 2026-08-25 (прод), см. tests/test_reopen_guard.py.
+    """
+    if reopen_blocked(deal.student_id, deal.cycle_no):
+        raise InvalidTransition(
+            'Переоткрывать можно только последнюю сделку ученика — '
+            'у него есть более поздние циклы')
+
+
+def reopen_blocked(student_id: int, cycle_no: int) -> bool:
+    """Есть ли у ученика более поздняя сделка, мешающая переоткрыть цикл cycle_no.
+
+    Отдельная функция, а не выражение внутри _assert_reopenable: тем же правилом
+    считается флаг `can_reopen` в repository.deal_computed, по которому дровер
+    прячет кнопку «Переоткрыть». Правило обязано быть одно — иначе UI предложит
+    действие, на которое бэк ответит 409.
+    """
+    return (RenewalDeal.objects
+            .filter(student_id=student_id, cycle_no__gt=cycle_no)
+            .exclude(cycle_no=cycle_no + 1, outcome_at__isnull=True)
+            .exists())
+
+
 @transaction.atomic
 def reopen_deal(deal_id: int, author_id: Optional[int] = None,
                 note: str = 'Сделка переоткрыта') -> Optional[RenewalDeal]:
@@ -233,6 +271,7 @@ def reopen_deal(deal_id: int, author_id: Optional[int] = None,
             .filter(id=deal_id, outcome_at__isnull=False).first())
     if deal is None:
         return None
+    _assert_reopenable(deal)
 
     nxt = (RenewalDeal.objects.select_for_update().select_related('stage')
            .filter(student_id=deal.student_id,

@@ -165,9 +165,19 @@ def test_create_unknown_student_404(manager_client):
 
 
 @pytest.mark.django_db
-def test_create_skips_closed_cycle_of_returned_student(manager_client, make_student):
+def test_create_refuses_when_closed_cycle_taken_by_returned_student(manager_client,
+                                                                    make_student):
     """Вернувшийся после «Ушёл» ученик: расчётный цикл занят закрытой сделкой —
-    новая создаётся со следующим номером, а не теряется в get_or_create."""
+    создание отказывает, вернуть его в воронку можно только переоткрытием.
+
+    Раньше здесь перешагивался номер цикла (сделка заводилась со следующим), и
+    тест это закреплял. Правило изменено: перешагивание заводит сделку ВПЕРЕДИ
+    посещаемости, её прогресс `attended − (cycle_no−1)×4` уходит в минус — ровно
+    так на проде 2026-08-25 появилась сделка «Не было урока» у ученика с 22
+    уроками (см. tests/test_reopen_guard.py). Переоткрытие как единственный путь
+    для вернувшегося — решение пользователя от 2026-07-27, здесь оно доведено с
+    уровня инструкции до уровня кода.
+    """
     sid = make_student()
     pipe = RenewalPipeline.objects.get(is_default=True)
     lost = RenewalStage.objects.filter(pipeline=pipe, kind='lost').first()
@@ -175,7 +185,6 @@ def test_create_skips_closed_cycle_of_returned_student(manager_client, make_stud
                                stage=lost, outcome_at=timezone.now())
 
     resp = manager_client.post(BASE, {'student_id': sid}, format='json')
-    assert resp.status_code == 201
-    assert resp.json()['cycle_no'] == 2
-    assert RenewalDeal.objects.filter(student_id=sid, outcome_at__isnull=True,
-                                      cycle_no=2).exists()
+    assert resp.status_code == 409
+    assert 'переоткр' in resp.json()['error'].lower()
+    assert not RenewalDeal.objects.filter(student_id=sid, cycle_no=2).exists()

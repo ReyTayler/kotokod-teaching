@@ -50,6 +50,11 @@ class RenewalCollectionView(APIView):
         if result == 'exists':
             return Response({'error': 'У ученика уже есть открытая сделка'},
                             status=status.HTTP_409_CONFLICT)
+        if result == 'cycle_taken':
+            return Response(
+                {'error': 'Текущий цикл ученика уже закрыт сделкой — '
+                          'переоткройте её из карточки, а не создавайте новую'},
+                status=status.HTTP_409_CONFLICT)
         return Response(result, status=status.HTTP_201_CREATED)
 
     def get(self, request: Request) -> Response:
@@ -134,7 +139,10 @@ class RenewalReopenView(APIView):
     permission_classes = [IsManagerOrAdmin]
 
     def post(self, request: Request, pk: int) -> Response:
-        result = services.reopen_deal(pk, author_id=getattr(request.user, 'id', None))
+        try:
+            result = services.reopen_deal(pk, author_id=getattr(request.user, 'id', None))
+        except InvalidTransition as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if result is None:
             raise NotFound({'error': 'Not found'})
         if result == 'not_closed':
