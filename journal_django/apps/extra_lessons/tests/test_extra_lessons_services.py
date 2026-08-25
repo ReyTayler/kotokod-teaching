@@ -944,3 +944,71 @@ def test_delete_resolution_of_done_falls_back_to_rollback(
     assert lessons_done(group_fixture, student_fixture) == Decimal('0')
     assert not Lesson.objects.filter(id=result['lesson_id']).exists()
     assert repository.get_resolution_full(rid)['status'] == PENDING
+
+
+def test_record_two_makeups_same_group_date_and_teacher(
+    teacher_fixture, group_fixture, direction_fixture, missed_lesson_fixture,
+    student_fixture, resolution_cleanup,
+):
+    """Регрессия (прод-500 от 2026-08-25): два ученика ОДНОЙ группы пропустили
+    ОДИН и тот же урок, доп.уроки обоим назначены на одну дату и проводит их
+    один преподаватель. Факт makeup наследует группу и lesson_number
+    пропущенного урока, поэтому у обоих фактов совпадают
+    (lesson_date, group_id, lesson_number) — если токен ещё и общий
+    (`acct:<id>` отправителя), второй INSERT падал на lessons_natural_key
+    (IntegrityError → 500). Токен факта обязан уникализироваться резолюцией,
+    как это уже сделано для extra/burned."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO students (full_name) VALUES ('__el_test_student_2__') RETURNING id")
+        student2 = cur.fetchone()[0]
+        cur.execute(
+            'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+            'VALUES (%s, %s, 0, true)', [group_fixture, student2])
+        cur.execute(
+            'INSERT INTO payments (student_id, direction_id, subscriptions_count, '
+            'lessons_count, unit_price, total_amount, paid_at, created_by) '
+            "VALUES (%s, %s, 2, 8, 1000, 8000, '2026-06-01', 'test')",
+            [student2, direction_fixture])
+        # Второй ученик тоже отсутствовал на том же уроке.
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present) '
+            'VALUES (%s, %s, false)', [missed_lesson_fixture, student2])
+
+    fact_ids = []
+    try:
+        created = services.create_assignment(
+            {
+                'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
+                'student_ids': [student_fixture, student2],
+                'scheduled_date': '2026-04-05', 'scheduled_time': '15:00',
+                'duration_minutes': 45,
+            },
+            _FakeRequest(),
+        )
+        assert created['created'] == 2
+
+        for rid in created['resolution_ids']:
+            result = services.record(
+                rid, teacher_id=teacher_fixture, present=True, record_url=None,
+                submitted_by_token='acct:36', submit_date='2026-04-05',
+                request=_FakeRequest(),
+            )
+            fact_ids.append(result['lesson_id'])
+
+        assert len(set(fact_ids)) == 2
+        facts = Lesson.objects.filter(id__in=fact_ids)
+        assert {f.lesson_type for f in facts} == {'extra'}
+        # Оба факта — в один день, одной группы, с одним номером: развести их
+        # может только токен.
+        assert len({f.submitted_by_token for f in facts}) == 2
+    finally:
+        _delete_resolutions(missed_lesson_fixture)
+        for lid in fact_ids:
+            _cleanup_fact(lid)
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s AND student_id = %s',
+                        [missed_lesson_fixture, student2])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [student2])
+            cur.execute('DELETE FROM payments WHERE student_id = %s', [student2])
+            cur.execute('DELETE FROM students WHERE id = %s', [student2])

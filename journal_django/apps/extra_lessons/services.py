@@ -453,7 +453,14 @@ def record(
             fact_duration = missed_lesson.lesson_duration_minutes
             # lesson_number наследуется от пропущенного урока (компенсирует ЭТУ позицию).
             fact_number = missed_lesson.lesson_number
-            fact_token = submitted_by_token
+            # Уникализирует lessons_natural_key (date,group,number,token): факт
+            # makeup наследует группу и номер ПРОПУЩЕННОГО урока, поэтому у двух
+            # учеников, пропустивших один урок и отработавших его в один день у
+            # одного преподавателя, ключ совпал бы целиком (общий токен
+            # `acct:<id>` отправителя) — второй INSERT падал с 500. Кто записал,
+            # видно из teacher_id факта; защита от повторной отправки — лок
+            # статуса резолюции, а не этот индекс (см. lock_for_record).
+            fact_token = f'makeup:{resolution_id}'
 
         # Оплата: доп.урок СВЕРХ курса (kind='extra') для ИНДИВ-группы — это по сути
         # обычное индивидуальное занятие, поэтому платится по стандартной ставке
