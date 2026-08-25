@@ -874,3 +874,73 @@ def test_record_extra_individual_pays_by_duration(
         assert Payroll.objects.get(lesson_id=rec['lesson_id']).payment == expected
     finally:
         _delete_extra_resolutions(individual_group_fixture)
+
+
+# --- delete_resolution: удаление заявки «Ждёт решения» ----------------------
+
+def test_delete_resolution_removes_pending_row(
+    missed_lesson_fixture, student_fixture, resolution_cleanup,
+):
+    """pending («Ждёт решения») удаляется из БД целиком: за заявкой нет ни
+    факта-урока, ни зарплаты, ни списания с баланса — откатывать нечего."""
+    rid = AbsenceResolution.objects.get(
+        missed_lesson_id=missed_lesson_fixture, student_id=student_fixture,
+        status=PENDING).id
+
+    assert services.delete_resolution(rid, _FakeRequest()) is True
+    assert not AbsenceResolution.objects.filter(id=rid).exists()
+    # Сам пропущенный урок и его посещаемость не тронуты — удалялась заявка,
+    # а не факт отсутствия.
+    assert Lesson.objects.filter(id=missed_lesson_fixture).exists()
+    assert LessonAttendance.objects.filter(
+        lesson_id=missed_lesson_fixture, student_id=student_fixture).exists()
+
+
+def test_delete_resolution_missing_returns_false():
+    assert services.delete_resolution(999_999_999, _FakeRequest()) is False
+
+
+def test_delete_resolution_rejects_scheduled(
+    teacher_fixture, missed_lesson_fixture, student_fixture, resolution_cleanup,
+):
+    """Назначенный доп.урок удалению не подлежит: за ним преподаватель и
+    забронированное время — снимают его «Отменой» (view → 409)."""
+    created = services.create_assignment(
+        {
+            'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-05',
+            'scheduled_time': '15:00', 'duration_minutes': 45,
+        },
+        _FakeRequest(),
+    )
+    rid = created['resolution_ids'][0]
+    with pytest.raises(ValueError):
+        services.delete_resolution(rid, _FakeRequest())
+    assert AbsenceResolution.objects.filter(id=rid).exists()
+
+
+def test_delete_resolution_of_done_falls_back_to_rollback(
+    group_fixture, teacher_fixture, missed_lesson_fixture, student_fixture, lessons_done,
+    resolution_cleanup,
+):
+    """Для проведённого доп.урока DELETE остаётся откатом факта (delete_fact):
+    строка не удаляется, а возвращается в pending, урок — на баланс."""
+    created = services.create_assignment(
+        {
+            'missed_lesson_id': missed_lesson_fixture, 'teacher_id': teacher_fixture,
+            'student_ids': [student_fixture], 'scheduled_date': '2026-04-05',
+            'scheduled_time': '15:00', 'duration_minutes': 45,
+        },
+        _FakeRequest(),
+    )
+    rid = created['resolution_ids'][0]
+    result = services.record(
+        rid, teacher_id=teacher_fixture, present=True,
+        record_url=None, submitted_by_token='acct:1', submit_date='2026-04-05',
+        request=_FakeRequest(),
+    )
+
+    assert services.delete_resolution(rid, _FakeRequest()) is True
+    assert lessons_done(group_fixture, student_fixture) == Decimal('0')
+    assert not Lesson.objects.filter(id=result['lesson_id']).exists()
+    assert repository.get_resolution_full(rid)['status'] == PENDING

@@ -602,6 +602,49 @@ def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
     return {'lesson_id': lesson_id, 'payment': payment}
 
 
+def delete_resolution(resolution_id: int, request) -> bool:
+    """
+    Единая точка DELETE /api/admin/extra-lessons/:id. Что именно происходит,
+    решает статус резолюции — снаружи это одинаковое «удалить запись»:
+
+      pending («Ждёт решения») → строка удаляется из БД целиком. За заявкой ещё
+          нет ни факта-урока, ни зарплаты, ни списания с баланса: откатывать
+          нечего, а сама заявка — лишь напоминание разобрать пропуск, и его
+          снимают, когда разбирать нечего (ученик ушёл, урок отметили по ошибке).
+      makeup_done / burned → откат факта (delete_fact): урок возвращается на
+          баланс, зарплата снимается, резолюция уходит обратно в pending.
+      makeup_scheduled → ValueError (view → 409): за назначением стоят
+          преподаватель и забронированное время, снимают его «Отменой».
+
+    False → резолюции нет (view → 404).
+    """
+    full = repository.get_resolution_full(resolution_id)
+    if full is None:
+        return False
+    if full['status'] == MAKEUP_SCHEDULED:
+        # Своё сообщение, а не общее из delete_fact: назначение снимается
+        # «Отменой», и подсказать надо именно это, иначе 409 читается как «сюда
+        # нельзя», без «а куда можно».
+        raise ValueError('Назначенный доп.урок не удаляют — снимите его «Отменой».')
+    if full['status'] != PENDING:
+        # done/burned откатываем; остальное (legacy waived) delete_fact отклонит сам.
+        return delete_fact(resolution_id, request)
+
+    with transaction.atomic():
+        # Авторитетная проверка статуса под блокировкой строки — тот же приём,
+        # что в delete_fact(). Без неё параллельные «Назначить»/«Сжечь» успели бы
+        # дать заявке факт-урок между чтением выше и DELETE, а fact_lesson у нас
+        # ON DELETE SET NULL: урок и зарплата остались бы в БД сиротами, без
+        # резолюции, через которую их можно откатить.
+        locked = repository.lock_for_delete(resolution_id)
+        if locked is None:
+            return False
+        if locked['status'] != PENDING:
+            raise ValueError('Удалить можно только заявку в статусе «Ждёт решения».')
+        repository.delete_resolution(resolution_id)
+    return True
+
+
 def delete_fact(resolution_id: int, request) -> bool:
     """
     Откатывает проведённый доп.урок ИЛИ сгорание (makeup_done / burned): списывает

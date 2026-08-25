@@ -8,12 +8,15 @@ Admin (IsManagerOrAdmin, менеджер/админ/суперадмин — я
                                                кто-то не был отмечен отсутствующим
                                                на нём, ИЛИ у кого-то balance<=0)
   GET  /api/admin/extra-lessons/:id         → 200 | 404
-  DELETE /api/admin/extra-lessons/:id       → 204 | 404 | 409 (не done/burned)
-      ⚠ ReadStaffWriteAdmin, а не IsManagerOrAdmin: откат проведённого доп.урока и
-      откат сгорания возвращают урок на баланс ученика и снимают зарплату
-      преподавателю — деньги правит админ/суперадмин (решение 2026-07-30).
-      Менеджеру GET по-прежнему доступен (карточка открывается, кнопка видна,
-      но неактивна — см. frontend permissions.canRollbackExtraLesson).
+  DELETE /api/admin/extra-lessons/:id       → 204 | 404 | 409 (makeup_scheduled)
+      Одно действие «удалить запись», два исхода по статусу (services.delete_resolution):
+      pending — строка удаляется из БД целиком (факта и денег за ней нет);
+      makeup_done/burned — откат факта (урок обратно на баланс, зарплата снимается).
+      ⚠ ReadStaffWriteAdmin, а не IsManagerOrAdmin: откат двигает деньги, а
+      удаление заявки безвозвратно — и то, и другое правит админ/суперадмин
+      (решение 2026-07-30). Менеджеру GET по-прежнему доступен (карточка
+      открывается, пункт меню виден, но неактивен — см. frontend
+      permissions.canRollbackExtraLesson).
   POST /api/admin/extra-lessons/:id/cancel  → 200 | 404 | 409 (не scheduled)
   POST /api/admin/extra-lessons/:id/burn    → 200 | 404 | 409 (не pending) |
                                                400 (balance<=0)
@@ -145,8 +148,9 @@ class ExtraLessonPendingCountView(APIView):
 
 
 class ExtraLessonDetailView(APIView):
-    # GET — весь staff; DELETE (откат факта: проведённый доп.урок или сгорание) —
-    # только админ/суперадмин: операция двигает баланс ученика и зарплату.
+    # GET — весь staff; DELETE (удаление заявки «Ждёт решения» ЛИБО откат факта:
+    # проведённый доп.урок или сгорание) — только админ/суперадмин: откат двигает
+    # баланс ученика и зарплату, а удаление заявки необратимо.
     permission_classes = [ReadStaffWriteAdmin]
 
     def get(self, request: Request, pk: int) -> Response:
@@ -157,7 +161,7 @@ class ExtraLessonDetailView(APIView):
 
     def delete(self, request: Request, pk: int) -> Response:
         try:
-            ok = services.delete_fact(pk, request)
+            ok = services.delete_resolution(pk, request)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if not ok:

@@ -4,6 +4,10 @@ export interface ActionMenuItem {
   label: string;
   onSelect: () => void;
   danger?: boolean;
+  /** Пункт виден, но недоступен — обычно из-за роли. */
+  disabled?: boolean;
+  /** Подсказка на пункте: зачем он здесь, если нажать нельзя. */
+  hint?: string;
 }
 
 interface Props {
@@ -38,6 +42,8 @@ export function ActionMenu({ items, label = 'Ещё действия' }: Props) 
             <DropdownMenu.Item
               key={it.label}
               className={`action-menu__item${it.danger ? ' is-danger' : ''}`}
+              disabled={it.disabled}
+              title={it.hint}
               onSelect={it.onSelect}
             >
               {it.label}

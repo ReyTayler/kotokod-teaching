@@ -11,6 +11,7 @@ import { SelectInput } from '../../components/form/SelectInput';
 import { Combobox } from '../../components/form/Combobox';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { Account, AccountStatus, Role } from '../../lib/types';
 import { PageHeader } from '../../components/shell/PageHeader';
@@ -269,45 +270,6 @@ function InviteRevealModal({ title, email, inviteUrl, expiresAt, onClose }: Invi
           </button>
         </div>
       </div>
-    </Dialog>
-  );
-}
-
-// ─── Подтверждение опасного действия ─────────────────────────────────────────
-
-interface ConfirmModalProps {
-  title: string;
-  message: string;
-  confirmLabel: string;
-  danger?: boolean;
-  isPending: boolean;
-  onConfirm: () => void;
-  onClose: () => void;
-}
-
-function ConfirmModal({ title, message, confirmLabel, danger, isPending, onConfirm, onClose }: ConfirmModalProps) {
-  return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title={title}
-      footer={
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-          <button type="button" className="btn-cancel" onClick={onClose} disabled={isPending}>
-            Отмена
-          </button>
-          <button
-            type="button"
-            className={danger ? 'btn-danger' : 'btn-add'}
-            onClick={onConfirm}
-            disabled={isPending}
-          >
-            {isPending ? 'Подождите…' : confirmLabel}
-          </button>
-        </div>
-      }
-    >
-      <p style={{ color: 'var(--text2)', margin: 0 }}>{message}</p>
     </Dialog>
   );
 }

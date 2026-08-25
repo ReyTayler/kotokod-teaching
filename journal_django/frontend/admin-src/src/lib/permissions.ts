@@ -34,6 +34,11 @@ export const canWritePayments = isAdminUp;
 // админ/суперадмин (решение 2026-07-30). Менеджер кнопку видит, но она неактивна.
 // Бэк: ReadStaffWriteAdmin на DELETE /api/admin/extra-lessons/:id.
 export const canRollbackExtraLesson = isAdminUp;
+// Полное удаление заявки на доп.урок в статусе «Ждёт решения». Денег за ней нет,
+// но запись уходит из БД безвозвратно (восстановить можно только через «Журнал
+// изменений»), поэтому право то же, что на откат: админ/суперадмин. Бэк — тот же
+// DELETE /api/admin/extra-lessons/:id под ReadStaffWriteAdmin.
+export const canDeleteExtraLessonRequest = isAdminUp;
 export const canSeeLessonPayroll = isSuper;   // зарплата за урок
 export const canRevertChangelog = isAdminUp;
 export const canWriteRenewalStages = isSuper; // конфиг стадий воронки продлений (Фаза 6)

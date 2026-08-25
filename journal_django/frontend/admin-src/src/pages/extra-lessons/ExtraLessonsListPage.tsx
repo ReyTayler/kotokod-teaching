@@ -5,16 +5,18 @@ import { useApiError } from '../../hooks/useApiError';
 import { useToast } from '../../components/ui/Toast';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
+import { ActionMenu, type ActionMenuItem } from '../../components/ui/ActionMenu';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { AssignExtraLessonModal } from '../../components/lessons/AssignExtraLessonModal';
 import { ManualExtraLessonModal } from '../../components/lessons/ManualExtraLessonModal';
 import { fmtDate } from '../../lib/format';
 import type { AbsenceResolution } from '../../lib/types';
 import { PageHeader } from '../../components/shell/PageHeader';
 import { useAuth } from '../../hooks/useAuth';
-import { canRollbackExtraLesson, type Role } from '../../lib/permissions';
+import { canDeleteExtraLessonRequest, canRollbackExtraLesson, type Role } from '../../lib/permissions';
 
-/** Подсказка на неактивной кнопке отката (менеджеру эти операции закрыты). */
-const NO_ROLLBACK_HINT = 'Обратитесь к администратору';
+/** Подсказка на пункте меню, закрытом ролью (менеджеру эти операции недоступны). */
+const NO_RIGHTS_HINT = 'Обратитесь к администратору';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Ждёт решения',
@@ -27,6 +29,45 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
+
+/**
+ * Действие, требующее подтверждения. Раньше подтверждали вторым нажатием на ту
+ * же кнопку («Точно сжечь?»), но теперь действия живут в меню «…», а меню
+ * закрывается по выбору пункта — спрашивать приходится отдельным окном.
+ */
+type PendingAction =
+  | { type: 'burn'; row: AbsenceResolution }
+  | { type: 'rollback'; row: AbsenceResolution }
+  | { type: 'deleteRequest'; row: AbsenceResolution };
+
+function confirmConfig(action: PendingAction): {
+  title: string; message: string; confirmLabel: string; danger?: boolean;
+} {
+  const who = action.row.student_name;
+  switch (action.type) {
+    case 'burn':
+      return {
+        title: 'Сжечь пропуск?',
+        message: `Урок спишется с баланса ${who}, преподавателю начислится оплата за сгорание. Отработки не будет.`,
+        confirmLabel: 'Сжечь',
+        danger: true,
+      };
+    case 'rollback':
+      return {
+        title: action.row.status === 'burned' ? 'Откатить сгорание?' : 'Откатить доп.урок?',
+        message: `Урок вернётся на баланс ${who}, зарплата преподавателя за него снимется, пропуск снова уйдёт в «Ждёт решения».`,
+        confirmLabel: 'Откатить',
+        danger: true,
+      };
+    case 'deleteRequest':
+      return {
+        title: 'Удалить заявку?',
+        message: `Заявка на доп.урок для ${who} будет удалена из базы безвозвратно. Денег и занятий за ней нет, но и в очереди на разбор этот пропуск больше не появится — восстановить можно только через «Журнал изменений».`,
+        confirmLabel: 'Удалить',
+        danger: true,
+      };
+  }
+}
 
 export default function ExtraLessonsListPage() {
   // Порядок по умолчанию — очередь разбора: «Ждёт решения» сверху, внутри блока
@@ -45,17 +86,17 @@ export default function ExtraLessonsListPage() {
   const showError = useApiError();
   const { toast } = useToast();
   const { me } = useAuth();
-  // Откат факта двигает баланс ученика и зарплату — только админ/суперадмин.
-  // Менеджеру кнопку оставляем на месте, но неактивной с подсказкой.
-  const canRollback = canRollbackExtraLesson(me?.role as Role);
-  // pending → назначить доп.урок (модалка); makeup_scheduled → отмена (сразу,
-  // возврат в «ждёт решения»); makeup_done → откат факта (разрушительно —
-  // откатывает Payroll/посещаемость исходного урока), поэтому по подтверждению.
+  const role = me?.role as Role;
+  // Откат факта двигает баланс ученика и зарплату, удаление заявки необратимо —
+  // и то, и другое только админ/суперадмин. Менеджеру пункты меню оставляем на
+  // месте, но неактивными: иначе состав меню молча меняется от роли к роли.
+  const canRollback = canRollbackExtraLesson(role);
+  const canDeleteRequest = canDeleteExtraLessonRequest(role);
+  // pending → назначить доп.урок (модалка).
   const [assigning, setAssigning] = useState<AbsenceResolution | null>(null);
   // Ручной доп.урок сверх курса (kind='extra') — открывается кнопкой в шапке.
   const [manualOpen, setManualOpen] = useState(false);
-  const [confirmingRollbackId, setConfirmingRollbackId] = useState<number | null>(null);
-  const [confirmingBurnId, setConfirmingBurnId] = useState<number | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
   const rows: AbsenceResolution[] = data?.rows || [];
   const total = data?.total || 0;
@@ -67,57 +108,59 @@ export default function ExtraLessonsListPage() {
     } catch (err) { showError(err); }
   };
 
-  const handleRollback = async (id: number) => {
-    if (confirmingRollbackId !== id) {
-      setConfirmingRollbackId(id);
-      return;
-    }
+  const isConfirmPending = muts.burn.isPending || muts.remove.isPending;
+
+  const handleConfirm = async () => {
+    if (!pendingAction) return;
+    const { type, row } = pendingAction;
     try {
-      // remove = DELETE /extra-lessons/:id — на бэке (1c-2) откатывает и
-      // проведённый доп.урок (makeup_done), и сгорание (burned).
-      await muts.remove.mutateAsync(id);
-      toast('Факт удалён, пропуск снова ждёт решения', 'ok');
-    } catch (err) { showError(err); }
-    setConfirmingRollbackId(null);
+      if (type === 'burn') {
+        await muts.burn.mutateAsync(row.id);
+        toast('Пропуск сожжён, урок списан с баланса', 'ok');
+      } else if (type === 'rollback') {
+        // remove = DELETE /extra-lessons/:id — на бэке откатывает и проведённый
+        // доп.урок (makeup_done), и сгорание (burned).
+        await muts.remove.mutateAsync(row.id);
+        toast('Факт удалён, пропуск снова ждёт решения', 'ok');
+      } else {
+        // Тот же DELETE, но по заявке в статусе pending — там бэк удаляет строку целиком.
+        await muts.remove.mutateAsync(row.id);
+        toast('Заявка удалена', 'ok');
+      }
+    } catch (err) {
+      showError(err);
+    }
+    setPendingAction(null);
   };
 
-  const handleBurn = async (id: number) => {
-    if (confirmingBurnId !== id) {
-      setConfirmingBurnId(id);
-      return;
+  /** Пункты меню «…» для строки — набор зависит от статуса резолюции. */
+  const menuItems = (r: AbsenceResolution): ActionMenuItem[] => {
+    if (r.status === 'pending') {
+      return [
+        { label: 'Назначить доп.урок', onSelect: () => setAssigning(r) },
+        { label: 'Сжечь', onSelect: () => setPendingAction({ type: 'burn', row: r }) },
+        {
+          label: 'Удалить заявку',
+          danger: true,
+          disabled: !canDeleteRequest,
+          hint: canDeleteRequest ? undefined : NO_RIGHTS_HINT,
+          onSelect: () => setPendingAction({ type: 'deleteRequest', row: r }),
+        },
+      ];
     }
-    try {
-      await muts.burn.mutateAsync(id);
-      toast('Пропуск сожжён, урок списан с баланса', 'ok');
-    } catch (err) { showError(err); }
-    setConfirmingBurnId(null);
-  };
-
-  /**
-   * Кнопка отката факта — одна на два статуса (проведён / сгорел), меняется подпись.
-   * Без прав кнопка остаётся на месте, но неактивна: обёртка-span нужна потому, что
-   * disabled-элемент не получает событий мыши и свой title показывает не везде.
-   */
-  const renderRollback = (id: number, label: string) => {
-    if (!canRollback) {
-      return (
-        <span className="gated-action" title={NO_ROLLBACK_HINT}>
-          <button type="button" className="btn-delete" disabled aria-label={`${label} (${NO_ROLLBACK_HINT})`}>
-            {label}
-          </button>
-        </span>
-      );
+    if (r.status === 'makeup_scheduled') {
+      return [{ label: 'Отменить назначение', onSelect: () => { void handleCancel(r.id); } }];
     }
-    const confirming = confirmingRollbackId === id;
-    return (
-      <button
-        type="button"
-        className={`btn-delete${confirming ? ' is-confirming' : ''}`}
-        onClick={() => { void handleRollback(id); }}
-      >
-        {confirming ? 'Точно откатить?' : label}
-      </button>
-    );
+    if (r.status === 'makeup_done' || r.status === 'burned') {
+      return [{
+        label: r.status === 'burned' ? 'Откатить сгорание' : 'Откатить доп.урок',
+        danger: true,
+        disabled: !canRollback,
+        hint: canRollback ? undefined : NO_RIGHTS_HINT,
+        onSelect: () => setPendingAction({ type: 'rollback', row: r }),
+      }];
+    }
+    return [];
   };
 
   const columns: Column<AbsenceResolution>[] = [
@@ -147,36 +190,14 @@ export default function ExtraLessonsListPage() {
       cell: (r) => STATUS_LABELS[r.status] || r.status,
     },
     {
+      // Все действия строки — в одном меню «…»: ряд разноцветных кнопок, меняв-
+      // шийся от статуса к статусу, забивал таблицу и мешал читать сами данные.
       key: 'actions', label: '', sortable: false, searchable: false,
-      cell: (r) => {
-        if (r.status === 'pending') {
-          const burning = confirmingBurnId === r.id;
-          return (
-            <div className="table-actions">
-              <button type="button" className="btn-primary" onClick={() => setAssigning(r)}>
-                Назначить
-              </button>
-              <button
-                type="button"
-                className={`btn-delete${burning ? ' is-confirming' : ''}`}
-                onClick={() => { void handleBurn(r.id); }}
-              >
-                {burning ? 'Точно сжечь?' : 'Сжечь'}
-              </button>
-            </div>
-          );
-        }
-        if (r.status === 'makeup_scheduled') {
-          return (
-            <button type="button" className="btn-secondary" onClick={() => { void handleCancel(r.id); }}>
-              Отменить
-            </button>
-          );
-        }
-        if (r.status === 'makeup_done') return renderRollback(r.id, 'Откатить');
-        if (r.status === 'burned') return renderRollback(r.id, 'Откат сгорания');
-        return null;
-      },
+      cell: (r) => (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <ActionMenu items={menuItems(r)} label={`Действия: ${r.student_name}`} />
+        </div>
+      ),
     },
   ];
 
@@ -220,6 +241,14 @@ export default function ExtraLessonsListPage() {
         />
       )}
       {manualOpen && <ManualExtraLessonModal onClose={() => setManualOpen(false)} />}
+      {pendingAction && (
+        <ConfirmModal
+          {...confirmConfig(pendingAction)}
+          isPending={isConfirmPending}
+          onConfirm={() => { void handleConfirm(); }}
+          onClose={() => setPendingAction(null)}
+        />
+      )}
     </>
   );
 }

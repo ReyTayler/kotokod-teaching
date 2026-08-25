@@ -237,6 +237,13 @@
 .action-menu__item[data-highlighted] { background: var(--bg3); color: var(--text); }
 .action-menu__item.is-danger { color: var(--danger); }
 .action-menu__item.is-danger[data-highlighted] { background: color-mix(in oklab, var(--danger) 10%, transparent); }
+/* Пункт, закрытый ролью: остаётся на месте (чтобы состав меню не «прыгал»
+   между ролями), но гасится и не подсвечивается. Radix ставит data-disabled и
+   сам снимает с него навигацию с клавиатуры. */
+.action-menu__item[data-disabled] {
+  color: var(--text3); cursor: not-allowed; opacity: .6;
+}
+.action-menu__item.is-danger[data-disabled] { color: var(--text3); }
 
 /* Разделитель групп в длинном меню: когда пунктов больше пяти, они перестают
    читаться как набор и превращаются в список. Нужен там, где рядом стоят
@@ -672,9 +679,6 @@
 .attendance-card.is-absent.is-locked .attendance-card__icon {
   background: var(--text3); color: var(--bg2);
 }
-
-/* Горизонтальный ряд кнопок в ячейке таблицы (напр. «Назначить»/«Сжечь»). */
-.table-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .lesson-editor__footer {
   display: flex; gap: 10px; padding-top: 14px;

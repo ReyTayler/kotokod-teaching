@@ -782,3 +782,61 @@ def test_list_default_order_puts_pending_first(
         # kind='extra' не привязан к пропуску, поэтому cleanup_resolutions
         # (чистит по missed_lesson_id) эти строки не заберёт.
         AbsenceResolution.objects.filter(id__in=[stale_pending, scheduled]).delete()
+
+
+# ---------------------------------------------------------------------------
+# Admin: delete pending — полное удаление заявки «Ждёт решения»
+# ---------------------------------------------------------------------------
+
+def _pending_id(missed_lesson_id: int, student_id: int) -> int:
+    """id авто-созданной pending-резолюции пропуска (record_lesson завёл её при
+    записи missed_lesson_fixture — вторую не создать, UNIQUE(пропуск, ученик))."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM absence_resolutions "
+            "WHERE missed_lesson_id = %s AND student_id = %s AND status = 'pending'",
+            [missed_lesson_id, student_id],
+        )
+        return cur.fetchone()[0]
+
+
+def _resolution_exists(rid: int) -> bool:
+    with connection.cursor() as cur:
+        cur.execute('SELECT 1 FROM absence_resolutions WHERE id = %s', [rid])
+        return cur.fetchone() is not None
+
+
+def test_delete_pending_removes_row(
+    admin_client, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    """DELETE заявки в статусе «Ждёт решения» → 204 и строки в БД больше нет."""
+    rid = _pending_id(missed_lesson_fixture, student_fixture)
+
+    resp = admin_client.delete(f'{ADMIN_URL}/{rid}')
+
+    assert resp.status_code == 204
+    assert _resolution_exists(rid) is False
+
+
+def test_delete_pending_forbidden_for_manager(
+    manager_client, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    """Удаление заявки — admin/superadmin (ReadStaffWriteAdmin), как и откат
+    факта. Менеджеру закрыто: заявка удаляется безвозвратно."""
+    rid = _pending_id(missed_lesson_fixture, student_fixture)
+
+    resp = manager_client.delete(f'{ADMIN_URL}/{rid}')
+
+    assert resp.status_code == 403
+    assert _resolution_exists(rid) is True
+
+
+def test_delete_pending_allowed_for_superadmin(
+    superadmin_client, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    rid = _pending_id(missed_lesson_fixture, student_fixture)
+
+    resp = superadmin_client.delete(f'{ADMIN_URL}/{rid}')
+
+    assert resp.status_code == 204
+    assert _resolution_exists(rid) is False

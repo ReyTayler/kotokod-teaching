@@ -199,11 +199,6 @@
 }
 .btn-delete:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Обёртка вокруг кнопки, недоступной по роли: сама disabled-кнопка событий мыши
- * не получает, поэтому подсказку (title) держит span. inline-flex — чтобы обёртка
- * не меняла раскладку внутри .table-actions и не растягивалась по строке. */
-.gated-action { display: inline-flex; cursor: not-allowed; }
-
 /* ============================================================
  *  Button primitive (components/ui/Button.tsx) — reusable, token-based.
  *  Variants: primary/secondary/ghost/danger. Sizes: sm/md.
