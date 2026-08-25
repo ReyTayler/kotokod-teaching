@@ -183,6 +183,11 @@ export interface LessonAttendance {
 export interface LessonFull extends Lesson {
   attendance: LessonAttendance[];
   payroll: PayrollEntry | null;
+  // Ученики, чей пропуск на этом уроке закрыт доп.уроком/сгоранием. Отдельный
+  // список, а не только флаг на строке посещаемости: у ученика, добавленного в
+  // группу ПОСЛЕ проведения урока, строки нет вовсе, а компенсация есть — и
+  // редактор урока рисует карточки по составу группы, не по строкам.
+  compensated_student_ids?: ID[];
 }
 
 // ===== Extra lessons (доп. уроки / резолюции пропусков) =====

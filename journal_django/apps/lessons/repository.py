@@ -300,6 +300,15 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
     for row in attendance:
         row['compensated'] = row['student_id'] in compensated
     lesson['attendance'] = attendance
+    # Тот же факт, но СПИСКОМ, а не флагом на строке. Компенсация существует у пары
+    # (урок × ученик) независимо от того, есть ли строка посещаемости: ученика могли
+    # добавить в группу уже ПОСЛЕ проведения урока и дать ему доп.урок вдогонку —
+    # тогда строки нет, и флаг выше вешать не на что. Редактор урока рисует карточки
+    # по составу группы, поэтому без этого списка такой ученик выглядел красным и
+    # кликабельным, хотя пропуск отработан (а сервер флип всё равно отклонял 409 —
+    # _assert_not_compensated). Матрица прогресса группы учитывает этот случай
+    # отдельной веткой (apps/groups/repository.py, key not in att_map).
+    lesson['compensated_student_ids'] = sorted(compensated)
 
     lesson['payroll'] = dictrow(
         Payroll.objects.filter(lesson_id=lesson_id).values(

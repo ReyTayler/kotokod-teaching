@@ -671,3 +671,57 @@ def test_free_lesson_counts_as_present_for_drop(
     finally:
         _cleanup(lesson_id)
         _drop_resolutions(rid)
+
+
+def test_lesson_full_reports_compensated_for_student_without_attendance_row(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """Ученика добавили в группу ПОСЛЕ проведения урока: строки посещаемости у него
+    нет, но пропуск закрыт доп.уроком (makeup_done).
+
+    Карточки в редакторе урока рисуются по СОСТАВУ ГРУППЫ, а не по строкам
+    посещаемости, поэтому пометка «компенсирован» обязана приезжать отдельным
+    списком: раньше она вешалась только на существующие строки и для такого
+    ученика молча терялась — фронт рисовал его красным и кликабельным, хотя
+    пропуск отработан. Зеркалит apps/groups/tests/test_progress_api.py::
+    test_compensated_without_attendance_row_shows_yellow (там это уже учтено).
+    """
+    res = services.record_lesson(
+        lesson_date='2026-05-07', teacher_id=teacher_id_fixture, group_id=group_fixture,
+        original_teacher_id=None, lesson_number=1, lesson_duration_minutes=60,
+        lesson_type='regular', record_url=None, submitted_by_token='t',
+        submit_date='2026-05-07',
+        attendance=[{'student_id': student_fixture, 'present': True}])
+    lesson_id = res['lesson_id']
+    late_id = None
+    try:
+        with connection.cursor() as cur:
+            cur.execute("INSERT INTO students (full_name) VALUES ('__late Гена__') RETURNING id")
+            late_id = cur.fetchone()[0]
+            cur.execute(
+                'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+                'VALUES (%s,%s,0,true)', [group_fixture, late_id])
+            cur.execute(
+                'INSERT INTO absence_resolutions (missed_lesson_id, student_id, status, created_at) '
+                "VALUES (%s,%s,'makeup_done',now())", [lesson_id, late_id])
+
+        full = services.get_lesson_full(lesson_id)
+
+        # Строки посещаемости у него действительно нет — придумывать её не надо.
+        assert late_id not in [a['student_id'] for a in full['attendance']]
+        # Но пометка «компенсирован» до фронта доезжает.
+        assert late_id in full['compensated_student_ids']
+        # Ученик со строкой и без резолюции компенсированным не считается.
+        assert student_fixture not in full['compensated_student_ids']
+        # Деньги при этом не были под угрозой и до фикса: серверный гард ищет
+        # резолюцию по паре (урок × ученик), строка посещаемости ему не нужна —
+        # флип отклонялся и без неё. Баг был чисто в отображении.
+        with pytest.raises(AttendanceCompensatedElsewhere):
+            services.update_attendance_cell(lesson_id, late_id, True)
+    finally:
+        with connection.cursor() as cur:
+            if late_id is not None:
+                cur.execute('DELETE FROM absence_resolutions WHERE student_id=%s', [late_id])
+                cur.execute('DELETE FROM group_memberships WHERE student_id=%s', [late_id])
+                cur.execute('DELETE FROM students WHERE id=%s', [late_id])
+        _cleanup(lesson_id)

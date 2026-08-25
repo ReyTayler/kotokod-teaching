@@ -187,8 +187,11 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
             const isFree = !!free[m.student_id];
             const isSkip = !!skip[m.student_id];
             // Пропуск уже закрыт доп.уроком/сожжён — флип в present задвоил бы учёт.
-            const compensated = !!(lesson?.attendance || [])
-              .find((a) => a.student_id === m.student_id)?.compensated;
+            // Берём из списка урока, а НЕ из строки посещаемости: ученика могли
+            // добавить в группу после проведения урока и дать доп.урок вдогонку —
+            // строки посещаемости у него нет, а карточку мы всё равно рисуем (они
+            // идут по составу группы), и без списка она была бы красной и активной.
+            const compensated = !!lesson?.compensated_student_ids?.includes(m.student_id);
             // Переведённый: слоты <= отработанного в старой группе ему не считаются.
             const lockedByTransfer = isLockedByTransfer(m, slotLessonNumber);
             // Исход недоступен при неопл.пропуске, компенсации и локе перевода;
