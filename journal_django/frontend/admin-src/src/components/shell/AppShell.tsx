@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
-import { MobileNav } from './MobileNav';
+import { SidebarDrawer } from './SidebarDrawer';
 import { ScrollTopButton } from './ScrollTopButton';
 import { PaymentModalProvider } from '../../providers/PaymentModalProvider';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -68,7 +68,7 @@ export function AppShell() {
             </svg>
           </button>
         )}
-        {isNarrow && <MobileNav open={mobileOpen} onClose={() => setMobileOpen(false)} />}
+        {isNarrow && <SidebarDrawer open={mobileOpen} onOpenChange={setMobileOpen} />}
         <ScrollTopButton />
       </div>
     </PaymentModalProvider>

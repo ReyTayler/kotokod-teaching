@@ -42,17 +42,66 @@
 .sidebar-nav { flex: 1; padding: var(--space-2); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
 .sidebar-nav::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .nav-sep { height: 1px; background: var(--border2); margin: var(--space-2) var(--space-3); }
-/* Смысловые группы разделов: заголовок сверху + сами пункты. */
+/* Закреплённый блок над группами: «Дашборд» + CTA «Внести оплату». */
+.nav-pinned { display: flex; flex-direction: column; margin-bottom: var(--space-3); }
+
+/* Смысловые группы разделов: строка-кнопка + схлопывающийся список пунктов.
+   Группа никуда не ведёт — клик по ней только разворачивает. */
 .nav-group { display: flex; flex-direction: column; }
-.nav-group + .nav-group { margin-top: var(--space-3); }
-.nav-group__title {
-  padding: 0 var(--space-3);
-  margin: var(--space-2) 0 var(--space-1);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.nav-group + .nav-group { margin-top: 1px; }
+
+.nav-group__btn {
+  width: 100%;
+  display: flex; align-items: center;
+  gap: var(--space-2);
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.nav-group__btn:hover { background: var(--bg3); color: var(--text); }
+.nav-group__btn svg { flex-shrink: 0; opacity: 0.85; }
+/* Подпись группы и пункта. nowrap с многоточием, а не перенос: с отступом
+   вложенности длинным подписям вроде «Журнал изменений» остаётся немного
+   места, и перенос на вторую строку ломал бы ритм списка. */
+.nav-group__label {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Свёрнутая группа с активным разделом внутри: видно, где находишься, не
+   разворачивая её. Подсветка живёт на цвете, а не на фоне — фон занят
+   активным пунктом, и два фоновых пятна подряд читались бы как две «текущие»
+   строки. */
+.nav-group__btn--current { color: var(--accent); font-weight: 600; }
+.nav-group__btn--current svg { opacity: 1; }
+
+.nav-group__chevron {
+  display: inline-flex;
   color: var(--text4);
+  transition: transform var(--t-fast) var(--ease);
+}
+.nav-group--open .nav-group__chevron { transform: rotate(90deg); }
+
+/* Схлопывание строкой грида 0fr → 1fr: анимируется настоящая высота
+   содержимого, без JS-замеров и без max-height с угаданным числом. */
+.nav-group__panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--t-base) var(--ease);
+}
+.nav-group--open .nav-group__panel { grid-template-rows: 1fr; }
+.nav-group__items { overflow: hidden; display: flex; flex-direction: column; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-group__panel,
+  .nav-group__chevron { transition: none; }
 }
 .nav-btn {
   width: 100%;
@@ -80,6 +129,15 @@
 }
 .nav-btn svg { flex-shrink: 0; opacity: 0.85; }
 .nav-btn.active svg { opacity: 1; }
+/* Вложенный пункт группы рисуется без иконки, и отступ слева — единственное,
+   чем он показывает вложенность. Вровень с подписью группы (это было бы 34px:
+   10 паддинга + 16 иконки + 8 зазора) не годится — вровень читается как тот же
+   уровень, поэтому пункт уходит заметно правее.
+
+   ВАЖНО: правило обязано стоять ПОСЛЕ `.nav-btn`. Там padding задан
+   шорткатом, специфичность у обоих селекторов одинаковая — и стоя выше, этот
+   padding-left молча затирался целиком. */
+.nav-btn--child { padding-left: 56px; }
 /* Красный бейдж-счётчик необработанных пропусков на кнопке «Доп.уроки». */
 .nav-badge {
   margin-left: auto;
@@ -162,7 +220,7 @@
   color: #0d1f1e;
 }
 
-/* ── COLLAPSIBLE SIDEBAR + MOBILE BOTTOM-SHEET NAV ── */
+/* ── COLLAPSIBLE SIDEBAR + MOBILE DRAWER ── */
 .sidebar-logo { justify-content: space-between; }
 .sidebar-close-btn {
   width: 30px; height: 30px; border-radius: 8px; border: none; cursor: pointer;
@@ -187,50 +245,51 @@
 [data-theme="dark"] .burger-btn { background: color-mix(in oklab, var(--accent) 65%, transparent); }
 [data-theme="dark"] .burger-btn:hover { background: color-mix(in oklab, var(--accent) 90%, transparent); }
 
-.mobile-nav-overlay {
-  position: fixed; inset: 0; z-index: calc(var(--z-nav) + 1);
-  background: rgba(15,23,42,0.4);
-  backdrop-filter: blur(2px);
-  opacity: 0; pointer-events: none;
-  transition: opacity .2s ease;
+/* Мобильная навигация: тот же сайдбар, выезжающий слева поверх контента.
+   Radix держит контент смонтированным, пока идёт CSS-анимация выхода, —
+   отсюда парные правила на [data-state="closed"]. */
+.sidebar-drawer-overlay {
+  position: fixed; inset: 0;
+  z-index: calc(var(--z-nav) + 1);
+  background: var(--overlay);
+  animation: drawer-fade var(--t-base) var(--ease-out);
 }
-.mobile-nav-overlay.open { opacity: 1; pointer-events: auto; }
+.sidebar-drawer-overlay[data-state="closed"] {
+  animation: drawer-fade var(--t-fast) var(--ease-out) reverse;
+}
 
-.mobile-nav {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: calc(var(--z-nav) + 2);
-  background: #ffffff;
-  border-top-left-radius: 24px; border-top-right-radius: 24px;
-  padding: 10px 14px 20px;
-  box-shadow: 0 -10px 32px rgba(0,0,0,0.18);
-  transform: translateY(100%);
-  transition: transform .28s cubic-bezier(.32,1.2,.6,1);
-  max-height: 78vh; overflow-y: auto;
+.sidebar-drawer {
+  position: fixed; top: 0; left: 0;
+  width: min(280px, 86vw);
+  height: 100dvh;
+  z-index: calc(var(--z-nav) + 2);
+  box-shadow: var(--shadow-modal);
+  animation: drawer-in var(--t-slow) var(--ease-out);
 }
-.mobile-nav.open { transform: translateY(0); }
-[data-theme="dark"] .mobile-nav { background: #1f2733; box-shadow: 0 -10px 32px rgba(0,0,0,0.45); }
+.sidebar-drawer[data-state="closed"] {
+  animation: drawer-in var(--t-base) var(--ease-out) reverse;
+}
+/* Базовый .sidebar (base.css) — липкая колонка на всю высоту экрана. Внутри
+   фиксированного drawer он должен быть обычным блоком во всю обёртку. */
+.sidebar-drawer .sidebar {
+  position: static;
+  width: 100%; min-width: 0;
+  height: 100%; min-height: 0;
+  border-right: none;
+}
 
-.mobile-nav-handle {
-  width: 42px; height: 4px; border-radius: 2px;
-  background: var(--border2);
-  margin: 4px auto 14px;
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to   { transform: none; }
 }
-.mobile-nav-list { display: flex; flex-direction: column; gap: 2px; }
-.mobile-nav-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 13px 16px; border-radius: 12px;
-  text-decoration: none; color: var(--text2);
-  font-size: 16px; font-weight: 500;
-  transition: background .15s, color .15s;
+@keyframes drawer-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
-.mobile-nav-item:hover { background: rgba(0,0,0,0.04); color: var(--text); }
-.mobile-nav-item.active {
-  background: color-mix(in oklab, var(--accent) 10%, transparent);
-  color: var(--accent);
-  font-weight: 700;
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-drawer,
+  .sidebar-drawer-overlay { animation: none; }
 }
-.mobile-nav-item svg { flex-shrink: 0; opacity: 0.85; }
-.mobile-nav-item.active svg { opacity: 1; }
-[data-theme="dark"] .mobile-nav-item:hover { background: rgba(255,255,255,0.05); }
 
 /* ============================================================
  *  ШАПКА СТРАНИЦЫ (PageHeader)
