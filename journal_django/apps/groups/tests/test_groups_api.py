@@ -141,6 +141,21 @@ def test_list_sort_by_name_asc(admin_client):
 
 
 @pytest.mark.django_db
+def test_list_sort_by_lessons_done(admin_client):
+    """«Пройдено» — сортируемая колонка списка (whitelist ORDERING_FIELDS).
+
+    На проводе — строка с сохранённым scale ('12.5'), как и все numeric-поля:
+    DateSafeJSONRenderer отдаёт Decimal через str(), см. apps.core.renderers.
+    """
+    for sort_dir in ('asc', 'desc'):
+        resp = admin_client.get(
+            BASE_URL + f'?sort_by=lessons_done&sort_dir={sort_dir}&page_size=10')
+        assert resp.status_code == 200
+        for row in resp.json()['rows']:
+            assert float(row['lessons_done']) >= 0
+
+
+@pytest.mark.django_db
 def test_list_sort_by_invalid_returns_400(admin_client):
     resp = admin_client.get(BASE_URL + '?sort_by=nonexistent')
     assert resp.status_code == 400

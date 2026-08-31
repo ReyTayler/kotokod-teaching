@@ -35,6 +35,9 @@ from apps.scheduling.exceptions import PlanHasRecordedLessons
 ORDERING_FIELDS = [
     'id', 'name', 'direction_id', 'teacher_id',
     'lesson_duration_minutes', 'lessons_per_week', 'group_start_date', 'active',
+    # Аннотация списка, не колонка таблицы: пройдено уроков курса группой
+    # (repository._lessons_done_subquery).
+    'lessons_done',
 ]
 
 

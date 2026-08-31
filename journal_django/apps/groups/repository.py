@@ -18,11 +18,14 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from django.db import transaction
-from django.db.models import Count, F, Q
-from django.db.models.functions import Now
+from django.db.models import (
+    Case, Count, DecimalField, F, OuterRef, Q, Subquery, Sum, Value, When,
+)
+from django.db.models.functions import Cast, Coalesce, Now
 
 from apps.core.utils.dates import msk_today
 from apps.core.utils.orm import dictrow, dictrows
+from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
 
 from .course_length import effective_total_lessons_expr
 from .exceptions import ImmutableGroupFormat
@@ -54,6 +57,8 @@ _SORTABLE: dict[str, str] = {
     'lessons_per_week':        'lessons_per_week',
     'group_start_date':        'group_start_date',
     'active':                  'active',
+    # Аннотация, а не колонка таблицы (см. _lessons_done_subquery в list_groups).
+    'lessons_done':            'lessons_done',
 }
 
 _DEFAULT_SORT_BY = 'name'
@@ -98,6 +103,45 @@ def _slots_by_group(group_ids: list[int]) -> dict[int, list[dict]]:
             'start_time': _fmt_time(s['start_time']),
         })
     return result
+
+
+# Вес занятия в уроках курса: 45 мин = 0.5, иначе 1. Ещё одна копия формулы —
+# полный список копий и причина, почему они до сих пор не сведены в одно место,
+# описаны в apps.teachers.stats (_LESSON_WEIGHT).
+_LESSON_WEIGHT = Case(
+    When(lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
+    default=Value(Decimal('1')),
+    output_field=DecimalField(max_digits=6, decimal_places=1),
+)
+
+_PROGRESS_FIELD = DecimalField(max_digits=6, decimal_places=1)
+
+
+def _lessons_done_subquery():
+    """Подзапрос «сколько уроков курса группа уже прошла» (колонка «Пройдено»).
+
+    Единица — УРОКИ курса, а не календарные занятия: у 45-минутной группы
+    4 занятия = 2 урока (та же единица, что у `lessons_total` и
+    `directions.total_lessons`, см. apps.groups.course_length). Ровно ту же
+    величину отдаёт apps.teachers.stats.group_progress на карточке
+    преподавателя — определение прогресса группы держим единым.
+
+    Считаются только курсовые типы (COURSE_LESSON_TYPES): доп.урок и сгорание
+    пропуска идут сверх сетки курса и позицию плана не занимают.
+
+    Коррелированный подзапрос, а не второй агрегат в общем annotate: агрегация
+    по второй связи (lessons) перемножилась бы на строки первой (memberships) и
+    соврала бы в ОБОИХ счётчиках — классическая ловушка Django ORM. Опирается на
+    существующий индекс lessons_group_date_idx (group_id, lesson_date).
+    """
+    return Subquery(
+        Lesson.objects
+        .filter(group_id=OuterRef('pk'), lesson_type__in=COURSE_LESSON_TYPES)
+        .values('group_id')
+        .annotate(done=Sum(_LESSON_WEIGHT))
+        .values('done')[:1],
+        output_field=_PROGRESS_FIELD,
+    )
 
 
 def _apply_filters(qs, filters: dict[str, Any], include_inactive: bool = False):
@@ -178,14 +222,30 @@ def list_groups(
     # members_count — «Состав группы»: число АКТИВНЫХ членств (учеников сейчас в
     # группе). Одна агрегация с GROUP BY, без N+1. Аннотируем на пагинированной
     # выборке, а не на qs для total (чтобы COUNT(*) групп не превращать в группировку).
+    # lessons_done — «Пройдено»: уроки курса, пройденные группой (подзапрос,
+    # чтобы не пересекаться джойном с members_count — см. _lessons_done_subquery).
+    # Cast — не косметика: без явного ::numeric(6,1) PostgreSQL отдаёт scale
+    # операндов «как есть» (2 занятия по 90 мин → '2', а не '2.0'), см. тот же
+    # разбор в apps.teachers.stats.group_progress.
     ordered = (
-        qs.order_by(f'{order_prefix}{sort_field}', '-id')
-        .annotate(members_count=Count('memberships', filter=Q(memberships__active=True)))
+        qs.annotate(
+            members_count=Count('memberships', filter=Q(memberships__active=True)),
+            lessons_done=Cast(
+                Coalesce(
+                    _lessons_done_subquery(),
+                    Value(Decimal('0')),
+                    output_field=_PROGRESS_FIELD,
+                ),
+                output_field=_PROGRESS_FIELD,
+            ),
+        )
+        .order_by(f'{order_prefix}{sort_field}', '-id')
     )
     rows = dictrows(
         ordered[offset:offset + page_size].values(
             *_GROUP_FIELDS,
             'members_count',
+            'lessons_done',
             direction_name=F('direction__name'),
             direction_color=F('direction__color'),
             teacher_name=F('teacher__name'),

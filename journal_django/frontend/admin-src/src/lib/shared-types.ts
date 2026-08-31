@@ -73,6 +73,10 @@ export interface Group {
   teacher_name?: string;
   slots?: GroupScheduleSlot[];
   members_count?: number;
+  // Пройдено УРОКОВ курса (факты `lessons` курсовых типов, 45 мин = 0.5 урока).
+  // Та же единица, что lessons_total; numeric(6,1) от pg приходит строкой.
+  // Приходит только из списка групп (GET /api/admin/groups).
+  lessons_done?: string | number;
 }
 
 // ===== Group schedule (GET .../groups/:id/schedule, POST /schedule-change) =====

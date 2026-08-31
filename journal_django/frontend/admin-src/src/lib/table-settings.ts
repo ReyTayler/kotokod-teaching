@@ -50,6 +50,7 @@ export const ENTITY_COLUMN_CATALOG: Record<EntityKey, ColumnMeta[]> = {
     { key: 'direction_id',             label: 'Направление' },
     { key: 'teacher_id',               label: 'Преподаватель' },
     { key: 'members_count',            label: 'Состав группы' },
+    { key: 'lessons_done',             label: 'Пройдено' },
     { key: 'is_individual',            label: 'Индив.' },
     { key: 'lesson_duration_minutes',  label: 'Минут' },
     { key: 'lessons_per_week',         label: 'В неделю' },

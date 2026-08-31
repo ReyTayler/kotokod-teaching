@@ -10,7 +10,7 @@ import { DataTable, type Column } from '../../components/table/DataTable';
 import { Avatar } from '../../components/Avatar';
 import { DirTag } from '../../components/ui/DirTag';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { fmtDate } from '../../lib/format';
+import { fmtDate, fmtLessons } from '../../lib/format';
 import { formatSlot } from '../../lib/slots';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
@@ -103,6 +103,19 @@ export default function GroupsListPage() {
       searchable: false,
       cell: (r) => (
         <span className="id-cell" title="Учеников в группе">{r.members_count ?? 0}</span>
+      ),
+    },
+    {
+      key: 'lessons_done',
+      label: 'Пройдено',
+      sortable: true,
+      searchable: false,
+      // Уроки курса, а не занятия: у 45-минутной группы 4 занятия = 2 урока —
+      // та же единица, что «длина курса», поэтому числа сопоставимы.
+      cell: (r) => (
+        <span className="id-cell" title="Пройдено уроков курса">
+          {fmtLessons(Number(r.lessons_done ?? 0))}
+        </span>
       ),
     },
     {

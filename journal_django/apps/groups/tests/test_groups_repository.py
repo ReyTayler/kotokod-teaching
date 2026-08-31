@@ -16,6 +16,9 @@ Unit/integration тесты для GroupsRepository.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from decimal import Decimal
+
 import pytest
 from django.db import connection
 
@@ -30,6 +33,25 @@ def _cleanup_group(group_id: int) -> None:
     """Прямой DELETE — как Nest e2e after() через пул."""
     with connection.cursor() as cur:
         cur.execute('DELETE FROM groups WHERE id = %s', [group_id])
+
+
+def _insert_lessons(group_id: int, teacher_id: int, lesson_types,
+                    duration_minutes: int = 90) -> None:
+    """Вставляет по одному занятию каждого переданного типа (прямой INSERT)."""
+    with connection.cursor() as cur:
+        for i, lesson_type in enumerate(lesson_types):
+            cur.execute(
+                "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number,"
+                " lesson_duration_minutes, lesson_type, submitted_at, submitted_by_token)"
+                " VALUES (%s, %s, %s, %s, %s, %s, now(), '__test__')",
+                [group_id, teacher_id, f'2026-01-{i + 1:02d}', i + 1,
+                 duration_minutes, lesson_type],
+            )
+
+
+def _delete_lessons(group_ids: list[int]) -> None:
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM lessons WHERE group_id = ANY(%s)', [group_ids])
 
 
 def _get_valid_direction_id() -> int:
@@ -50,6 +72,27 @@ def _get_valid_teacher_id() -> int:
     if not row:
         pytest.skip('No teachers in DB — skipping groups tests')
     return row[0]
+
+
+@contextmanager
+def _own_direction_and_teacher():
+    """Собственные направление и преподаватель на время теста.
+
+    _get_valid_direction_id/_get_valid_teacher_id скипают тест, если справочники
+    в тестовой БД пусты — для проверок счётчика «Пройдено» это неприемлемо:
+    тест молча не выполнялся бы. Создаём свои строки и удаляем в finally.
+    """
+    from django.utils import timezone
+    from apps.directions.models import Direction
+    from apps.teachers.models import Teacher
+
+    direction = Direction.objects.create(name='__test_lh_direction__', total_lessons=36)
+    teacher = Teacher.objects.create(name='__test_lh_teacher__', created_at=timezone.now())
+    try:
+        yield direction.id, teacher.id
+    finally:
+        Teacher.objects.filter(id=teacher.id).delete()
+        Direction.objects.filter(id=direction.id).delete()
 
 
 def _make_group_data(**overrides) -> dict:
@@ -158,6 +201,91 @@ class TestListGroups:
                 if student_ids:
                     cur.execute('DELETE FROM students WHERE id = ANY(%s)', [student_ids])
             _cleanup_group(grp['id'])
+
+    def test_lessons_done_counts_only_course_lessons(self):
+        """lessons_done («Пройдено») = уроки курса, пройденные группой.
+
+        Считаются только курсовые типы; доп.урок (extra) и сгорание пропуска
+        (burned) идут сверх сетки курса и в счётчик не попадают.
+        """
+        with _own_direction_and_teacher() as (direction_id, teacher_id):
+            grp = repository.create_group(_make_group_data(
+                name='__test_lessons_done__',
+                direction_id=direction_id, teacher_id=teacher_id))
+            empty = repository.create_group(_make_group_data(
+                name='__test_lessons_done_empty__',
+                direction_id=direction_id, teacher_id=teacher_id))
+            try:
+                _insert_lessons(grp['id'], teacher_id, (
+                    'regular', 'substitution', 'reschedule', 'extra', 'burned'))
+
+                rows = repository.list_groups(
+                    filters={'name': '__test_lessons_done'}, page_size=100)['rows']
+                by_id = {r['id']: r for r in rows}
+                # regular + substitution + reschedule; extra и burned не в счёт
+                assert by_id[grp['id']]['lessons_done'] == Decimal('3.0')
+                # без занятий — 0, а не None: Coalesce вокруг подзапроса
+                assert by_id[empty['id']]['lessons_done'] == Decimal('0.0')
+                # соседний счётчик не поехал от второй аннотации
+                assert by_id[grp['id']]['members_count'] == 0
+            finally:
+                _delete_lessons([grp['id'], empty['id']])
+                _cleanup_group(grp['id'])
+                _cleanup_group(empty['id'])
+
+    def test_lessons_done_counts_45min_as_half(self):
+        """Единица — УРОКИ курса, не занятия: у 45-минутной группы 3 занятия = 1.5 урока.
+
+        Та же единица, что у lessons_total / directions.total_lessons, — иначе
+        колонку нельзя было бы читать рядом с длиной курса.
+        """
+        with _own_direction_and_teacher() as (direction_id, teacher_id):
+            grp = repository.create_group(_make_group_data(
+                name='__test_lessons_done_45__', lesson_duration_minutes=45,
+                direction_id=direction_id, teacher_id=teacher_id))
+            try:
+                _insert_lessons(grp['id'], teacher_id,
+                                ('regular', 'regular', 'regular'), duration_minutes=45)
+
+                rows = repository.list_groups(
+                    filters={'name': '__test_lessons_done_45__'}, page_size=100)['rows']
+                row = next(r for r in rows if r['id'] == grp['id'])
+                assert row['lessons_done'] == Decimal('1.5')
+                # Scale зафиксирован Cast'ом: '1.5', а не '1.50'/'2'
+                assert str(row['lessons_done']) == '1.5'
+            finally:
+                _delete_lessons([grp['id']])
+                _cleanup_group(grp['id'])
+
+    def test_sort_by_lessons_done(self):
+        """Сортировка по lessons_done работает в обе стороны — и в уроках, а не в занятиях."""
+        with _own_direction_and_teacher() as (direction_id, teacher_id):
+            # У 45-минутной группы занятий БОЛЬШЕ, а уроков курса — меньше:
+            # сортировка обязана идти по урокам (1.5 < 2), не по числу занятий (3 > 2).
+            few = repository.create_group(_make_group_data(
+                name='__test_ld_sort_few__', lesson_duration_minutes=45,
+                direction_id=direction_id, teacher_id=teacher_id))
+            many = repository.create_group(_make_group_data(
+                name='__test_ld_sort_many__',
+                direction_id=direction_id, teacher_id=teacher_id))
+            try:
+                _insert_lessons(few['id'], teacher_id,
+                                ('regular', 'regular', 'regular'), duration_minutes=45)
+                _insert_lessons(many['id'], teacher_id, ('regular', 'regular'))
+
+                asc = repository.list_groups(
+                    filters={'name': '__test_ld_sort_'}, sort_by='lessons_done',
+                    sort_dir='asc', page_size=100)['rows']
+                assert [r['id'] for r in asc] == [few['id'], many['id']]
+
+                desc = repository.list_groups(
+                    filters={'name': '__test_ld_sort_'}, sort_by='lessons_done',
+                    sort_dir='desc', page_size=100)['rows']
+                assert [r['id'] for r in desc] == [many['id'], few['id']]
+            finally:
+                _delete_lessons([few['id'], many['id']])
+                _cleanup_group(few['id'])
+                _cleanup_group(many['id'])
 
     def test_page_size_respected(self):
         result = repository.list_groups(page=1, page_size=2)
