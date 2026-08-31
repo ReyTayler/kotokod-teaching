@@ -8,7 +8,11 @@
 """
 from __future__ import annotations
 
+from datetime import timedelta
+from unittest import mock
+
 import pytest
+from django.utils import timezone
 
 from apps.knowledge.tests.conftest import cleanup_kb
 
@@ -231,13 +235,19 @@ def test_stale_save_is_rejected(admin_client, superadmin_client, section):
     doc = _doc(admin_client, section, '__test_kb_док', 'исходное')
     base = admin_client.get(f"{DOCS}/{doc['id']}").json()['updated_at']
 
-    superadmin_client.patch(
-        f"{DOCS}/{doc['id']}",
-        {'content': {'type': 'doc', 'content': [
-            {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'чужая правка'}]},
-        ]}},
-        format='json',
-    )
+    # Часы Windows тикают ~раз в 15 мс: без явного сдвига чужая правка может
+    # получить ту же отметку времени, что и создание документа, — тогда база
+    # совпадёт с текущей версией и конфликт не распознается. Сдвигаем время
+    # чужой правки явно, чтобы тест не зависел от разрешения часов.
+    later = timezone.now() + timedelta(seconds=1)
+    with mock.patch('django.utils.timezone.now', return_value=later):
+        superadmin_client.patch(
+            f"{DOCS}/{doc['id']}",
+            {'content': {'type': 'doc', 'content': [
+                {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'чужая правка'}]},
+            ]}},
+            format='json',
+        )
 
     stale = admin_client.patch(
         f"{DOCS}/{doc['id']}",

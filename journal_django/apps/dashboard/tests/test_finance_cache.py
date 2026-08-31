@@ -164,3 +164,44 @@ def test_rollback_keeps_finance_cache(django_capture_on_commit_callbacks):
         post_save.send(sender=Payment, instance=Payment(), created=True)
     assert svc._dashboard_key(None, None) == key_before
     assert cache.get(key_before) is not None
+
+
+@override_settings(CACHES=_LOCMEM)
+def test_invalidate_changes_generation_even_with_frozen_clock():
+    """
+    Часы Windows имеют разрешение ~15 мс: два вызова time_ns() подряд дают одно
+    значение. Генерация обязана расти всё равно — иначе сброс кэша молча
+    не срабатывает и сводка показывает старые цифры до истечения TTL.
+
+    Замораживаем часы, чтобы проверить это детерминированно, а не «как повезёт».
+    """
+    cache.clear()
+    with mock.patch('apps.dashboard.services.time.time_ns', return_value=1_000):
+        first = svc._dashboard_key(None, None)
+
+        svc.invalidate_finance_cache()
+        second = svc._dashboard_key(None, None)
+        assert second != first, 'сброс кэша не сменил генерацию'
+
+        svc.invalidate_finance_cache()
+        third = svc._dashboard_key(None, None)
+        assert third != second, 'повторный сброс не сменил генерацию'
+
+
+@override_settings(CACHES=_LOCMEM)
+def test_generation_never_goes_backwards():
+    """
+    Часы могут прыгнуть назад (перевод времени, синхронизация NTP). Генерация
+    обязана только расти, иначе старые ключи «оживут» и вернут устаревшие данные.
+    """
+    cache.clear()
+    with mock.patch('apps.dashboard.services.time.time_ns', return_value=5_000):
+        svc._dashboard_key(None, None)
+        svc.invalidate_finance_cache()
+        after_forward = cache.get(svc._GEN_KEY)
+
+    with mock.patch('apps.dashboard.services.time.time_ns', return_value=1_000):
+        svc.invalidate_finance_cache()
+        after_backward = cache.get(svc._GEN_KEY)
+
+    assert after_backward > after_forward, 'генерация уехала назад'

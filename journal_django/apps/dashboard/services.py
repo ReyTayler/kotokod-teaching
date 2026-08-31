@@ -217,8 +217,20 @@ def refresh_dashboard() -> str:
 
 
 def invalidate_finance_cache() -> None:
-    """Сменить генерацию кэша (после мутаций Payment/Lesson — см. signals.py)."""
+    """
+    Сменить генерацию кэша (после мутаций Payment/Lesson — см. signals.py).
+
+    Генерация обязана строго РАСТИ. Просто `time.time_ns()` этого не даёт:
+    на Windows часы тикают примерно раз в 15 мс, поэтому два сброса подряд
+    получают одно значение и второй молча ничего не инвалидирует; а перевод
+    часов назад (синхронизация времени) «оживил» бы старые ключи с устаревшими
+    данными. Поэтому при неувеличении берём предыдущее значение плюс единицу.
+    """
     try:
-        cache.set(_GEN_KEY, time.time_ns(), _GEN_TTL)
+        nxt = time.time_ns()
+        current = cache.get(_GEN_KEY)
+        if current is not None and nxt <= int(current):
+            nxt = int(current) + 1
+        cache.set(_GEN_KEY, nxt, _GEN_TTL)
     except Exception:
         pass
