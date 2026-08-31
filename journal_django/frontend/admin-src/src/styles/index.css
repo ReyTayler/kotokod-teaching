@@ -12,6 +12,7 @@
 @import './pages/dashboard.css';
 @import './pages/changelog.css';
 @import './pages/renewals.css';
+@import './pages/tasks.css';
 @import './pages/admin-calendar.css';
 @import './pages/sync.css';
 @import './pages/reports.css';

@@ -46,6 +46,15 @@ export const canDeleteExtraLessonRequest = isAdminUp;
 export const canSeeLessonPayroll = isSuper;   // зарплата за урок
 export const canRevertChangelog = isAdminUp;
 export const canWriteRenewalStages = isSuper; // конфиг стадий воронки продлений (Фаза 6)
+// Воронки и стадии задач. Права админа и суперадмина уравнены (решение
+// заказчика 2026-08-27); бэк — ReadStaffWriteAdmin на пяти вьюхах воронок
+// и стадий. Менеджер ведёт задачи внутри готовой структуры, но не правит её.
+export const canWriteTaskStages = isAdminUp;
+// Физическое удаление задачи. Штатный способ убрать задачу — закрыть её с
+// результатом «неактуально»; DELETE стирает карточку вместе с лентой и нужен
+// только для явного мусора. Бэк: IsAdminOrSuperAdmin на DELETE
+// /api/admin/tasks/:id (apps/taskboard/views.py::TaskDetailView.get_permissions).
+export const canDeleteTask = isAdminUp;
 // Правка даты закрытия сделки задним числом. Дата закрытия = месяц, в который
 // аналитика и «Переходимость» относят продление или уход, поэтому это правка
 // отчётности, а не ведение сделки. Менеджеру закрыто (решение 2026-08-06).

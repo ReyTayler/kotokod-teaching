@@ -22,6 +22,15 @@ interface Props {
   onChange: (value: string) => void;
   options: Option[];
   placeholder?: string;
+  /**
+   * Значение, которое поле показывает как ПОДСКАЗКУ, а не как выбранный
+   * вариант: поле остаётся пустым, и виден `placeholder` — приглушённое
+   * «Назначить…» вместо обычного «— не назначен —». Сам вариант из `options`
+   * не исчезает, иначе поле стало бы неочищаемым.
+   *
+   * Не задан (по умолчанию) — поведение прежнее: показываем подпись варианта.
+   */
+  placeholderValue?: string;
   /** Сколько строк помещается в выпадашке. Остальное прокручивается. По умолчанию 10. */
   maxVisible?: number;
   /**
@@ -40,7 +49,7 @@ interface Props {
 }
 
 export function Combobox({
-  value, onChange, options, placeholder, maxVisible = 10, itemHeight = 36,
+  value, onChange, options, placeholder, placeholderValue, maxVisible = 10, itemHeight = 36,
   'aria-label': ariaLabel,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -107,8 +116,12 @@ export function Combobox({
   };
 
   // displayValue: при открытом списке показываем query (видимый ввод поиска),
-  // при закрытом — label выбранного.
-  const displayValue = open ? query : (selected?.label || '');
+  // при закрытом — label выбранного. Значение, объявленное «пустым» через
+  // placeholderValue, оставляет поле пустым — вместо подписи варианта виден
+  // приглушённый placeholder.
+  const displayValue = open
+    ? query
+    : (value === placeholderValue ? '' : (selected?.label || ''));
 
   return (
     <div className="combobox" ref={containerRef}>

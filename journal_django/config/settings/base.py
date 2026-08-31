@@ -132,6 +132,7 @@ INSTALLED_APPS = [
     'apps.notifications',
     'django.contrib.postgres',
     'apps.knowledge',
+    'apps.taskboard',
 ]
 
 # SessionMiddleware и AuthenticationMiddleware убраны:

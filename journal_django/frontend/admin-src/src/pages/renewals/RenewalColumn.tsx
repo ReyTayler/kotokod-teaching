@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { RenewalCardView } from './RenewalCardView';
+import { BoardColumnHead } from '../../components/board/BoardColumnHead';
 import { TextInput } from '../../components/form/TextInput';
 import { IconButton } from '../../components/ui/IconButton';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -86,41 +87,44 @@ export function RenewalColumn({ col, filters, onOpen }: Props) {
     <div
       ref={setNodeRef}
       className={`renewal-col${isOver ? ' renewal-col--over' : ''}`}
-      style={col.color ? { borderTopColor: col.color } : undefined}
     >
-      <div className="renewal-col__head">
-        {searchOpen ? (
-          <div className="renewal-col__search">
-            <TextInput
-              className="renewal-col__search-input"
-              value={search}
-              autoFocus
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Escape') closeSearch(); }}
-              placeholder="Имя ученика…"
-              aria-label={`Поиск ученика в стадии «${col.label}»`}
-            />
-            <IconButton
-              size="sm"
-              label="Закрыть поиск"
-              onClick={closeSearch}
-              icon={<CloseGlyph />}
-            />
-          </div>
-        ) : (
-          <>
-            <div className="renewal-col__title">
-              <span className="renewal-col__label">{col.label}</span>
-              {isAutoOnly && (
-                <span className="renewal-col__auto-badge" title="Двигает только система по событиям — вручную перенести сделку сюда нельзя">
-                  авто
-                </span>
-              )}
-            </div>
-            {/* Счётчик — вторичная метадата, поэтому без плашки. */}
-            <span className="renewal-col__stats">{count}</span>
-            {/* Подсветка при активном поиске: иначе свёрнутый фильтр невидим
-                и «пропавшие» карточки нечем объяснить. */}
+      {/* Развёрнутый поиск ЗАМЕЩАЕТ плашку стадии, а не живёт внутри неё:
+          плашка тянется от края до края колонки, и поле ввода на цветной
+          заливке читалось бы хуже, чем на фоне колонки. */}
+      {searchOpen ? (
+        <div className="renewal-col__search">
+          <TextInput
+            className="renewal-col__search-input"
+            value={search}
+            autoFocus
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') closeSearch(); }}
+            placeholder="Имя ученика…"
+            aria-label={`Поиск ученика в стадии «${col.label}»`}
+          />
+          <IconButton
+            size="sm"
+            label="Закрыть поиск"
+            onClick={closeSearch}
+            icon={<CloseGlyph />}
+          />
+        </div>
+      ) : (
+        <BoardColumnHead
+          label={col.label}
+          count={count}
+          color={col.color}
+          badge={isAutoOnly ? (
+            <span
+              className="renewal-col__auto-badge"
+              title="Двигает только система по событиям — вручную перенести сделку сюда нельзя"
+            >
+              авто
+            </span>
+          ) : undefined}
+          actions={(
+            /* Подсветка при активном поиске: иначе свёрнутый фильтр невидим
+               и «пропавшие» карточки нечем объяснить. */
             <IconButton
               ref={searchToggleRef}
               size="sm"
@@ -129,9 +133,9 @@ export function RenewalColumn({ col, filters, onOpen }: Props) {
               onClick={() => setSearchOpen(true)}
               icon={<SearchGlyph />}
             />
-          </>
-        )}
-      </div>
+          )}
+        />
+      )}
 
       {/* aria-live на области карточек: колонка перерисовывается от поиска,
           и без объявления незрячий пользователь не узнаёт, что список сменился. */}

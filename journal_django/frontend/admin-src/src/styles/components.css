@@ -1,5 +1,45 @@
 /* ── COMPONENTS ── */
 .avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+
+/* ── AVATAR STACK — несколько человек в одной строке (components/ui/AvatarStack.tsx).
+   Круги наезжают друг на друга, каждый обведён цветом подложки: без кольца
+   соседи сливаются в сплошное пятно и сосчитать людей нельзя. Величину наезда
+   компонент кладёт инлайном (--avatar-stack-overlap), она зависит от размера. ── */
+.avatar-stack {
+  display: inline-flex;
+  align-items: center;
+  /* Подложка по умолчанию — поверхность карточки. Там, где фон другой,
+     переменную переопределяют на месте (см. .inline-field__control ниже). */
+  --avatar-stack-ring: var(--bg2);
+}
+
+.avatar-stack__item {
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--avatar-stack-ring);
+}
+
+/* Наезд у всех, кроме первого: сдвигать первый значило бы утащить всю стопку
+   левее подписи, к которой она относится. */
+.avatar-stack__item + .avatar-stack__item {
+  margin-left: calc(-1 * var(--avatar-stack-overlap, 5px));
+}
+
+/* «+N» — тот же круг, что и аватар (рамка 2px, моно-шрифт), но нейтральный:
+   это не человек, и собственного цвета по имени у него быть не может. */
+.avatar-stack__more {
+  align-items: center;
+  justify-content: center;
+  box-sizing: content-box;
+  border: 2px solid var(--border);
+  background: var(--bg3);
+  color: var(--text3);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  flex-shrink: 0;
+  cursor: default;
+}
+
 .person-cell { display: flex; align-items: center; gap: 10px; }
 
 /* Кросс-сущностные ссылки (студент → группа, группа → ученик, и т.д.) */
@@ -313,6 +353,9 @@
   z-index: var(--z-toast);
 }
 .toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   padding: 10px 14px;
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -328,6 +371,21 @@
 .toast--ok    { border-color: var(--green); color: var(--green); }
 .toast--error { border-color: var(--red);   color: var(--red); }
 .toast--info  { color: var(--text2); }
+.toast__text { flex: 1; }
+
+/* Действие в toast'е («Отменить»). Подчёркнутая кнопка, не вторая заливка:
+   toast и так висит поверх интерфейса, второй акцент в нём — шум. */
+.toast__action {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 @keyframes toastIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
 
 /* ── MONO BADGE ── */
@@ -686,3 +744,244 @@
 }
 .ui-search__clear:hover { background: var(--bg3); color: var(--text); }
 .ui-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ===== Шапка колонки доски =====
+   Общая для «Задач» и «Продлений» (components/board/BoardColumnHead.tsx).
+   Живёт здесь, а не в pages/tasks.css: вторая копия в renewals.css неизбежно
+   разъехалась бы с первой.
+
+   Заливка и цвет текста приходят инлайном из stageTone() — цвет стадии задаёт
+   суперадмин, токеном его не выразить. Это то же исключение из правила «только
+   токены», что и цвет направления. */
+.board-col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--r) var(--r) 0 0;
+}
+
+.board-col-head__label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-col-head__count {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* Кнопки наследуют цвет подписи: на цветной заливке иконка токеном --text
+   местами исчезает. */
+.board-col-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: inherit;
+}
+
+.board-col-head__actions .ui-iconbtn {
+  color: inherit;
+}
+
+/* Меню «…» стадии: своя светлая подложка и рамка на цветной плашке читаются
+   как чужеродная кнопка, а серый --text3 на тёмной заливке почти исчезает.
+   Гасим фон и рамку, цвет берём от подписи. Правило локальное — на белом фоне
+   карточек исходный вид триггера правильный, глобально его менять нельзя. */
+.board-col-head__actions .action-menu__trigger {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border-color: transparent;
+  color: inherit;
+}
+
+.board-col-head__actions .action-menu__trigger:hover,
+.board-col-head__actions .action-menu__trigger[data-state="open"] {
+  background: color-mix(in oklab, currentColor 18%, transparent);
+  border-color: transparent;
+  color: inherit;
+}
+
+/* ============================================================
+ *  ЛЕНТЫ ВЫЕЗЖАЮЩИХ ПАНЕЛЕЙ (components/ui/DrawerFeed.tsx)
+ *  Комментарии и история задач и сделок оформлены одинаково, поэтому классы
+ *  общие: копия в двух разделах неизбежно разъехалась бы.
+ * ============================================================ */
+
+/* Сворачиваемая секция панели: заголовок с шевроном, по умолчанию раскрыт. */
+
+.drawer-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.drawer-section__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: var(--text3);
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer-section__head:hover .drawer-section__title { color: var(--text2); }
+
+.drawer-section__title {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.drawer-section__chevron {
+  flex: none;
+  transition: transform var(--t-fast) var(--ease);
+}
+
+.drawer-section.is-collapsed .drawer-section__chevron { transform: rotate(-90deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-section__chevron { transition: none; }
+}
+
+.drawer-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* История — лента фраз: аватар автора, одна связная фраза, время справа.
+   Ни точек, ни вертикальной нити: строка и так читается как предложение,
+   а нить только добавляла графики там, где хватает текста. */
+
+.drawer-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.drawer-activity__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text2);
+}
+
+.drawer-activity__phrase {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.drawer-activity__author {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Время — справа и приглушённо: в ленте оно уточнение, а не содержание. */
+.drawer-activity__time {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+.drawer-activity__empty {
+  font-size: var(--fs-sm);
+  color: var(--text3);
+}
+
+/* Комментарии — переписка, а не журнал: разделитель дня по центру и пузыри.
+   Аватар и время прижаты к НИЗУ пузыря — так строка «имя + текст» читается
+   единым блоком, а служебные мелочи не тянут взгляд вверх. */
+
+.drawer-comments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.drawer-comments__day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.drawer-comments__divider {
+  align-self: center;
+  font-size: var(--fs-2xs);
+  color: var(--text3);
+}
+
+.drawer-comments__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.drawer-comments__item {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.drawer-comments__bubble {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg3);
+  border-radius: var(--r-lg);
+  /* Угол у аватара срезан — пузырь «указывает» на автора. */
+  border-bottom-left-radius: var(--r-sm);
+}
+
+.drawer-comments__author {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.drawer-comments__text {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.drawer-comments__time {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+.drawer-comments__empty {
+  font-size: var(--fs-xs);
+  color: var(--text3);
+}

@@ -11,11 +11,23 @@ interface Props extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'onChange'
   placeholder?: string;
   /** Показывать поле поиска. По умолчанию — когда вариантов больше порога. */
   searchable?: boolean;
+  /**
+   * Значение, которое поле показывает как ПОДСКАЗКУ, а не как выбранный
+   * вариант: вместо подписи варианта выводится `placeholder` приглушённым
+   * тоном. Сам вариант из `options` не исчезает — иначе поле стало бы
+   * неочищаемым (пустой вариант — осмысленное действие «отвязать», а не
+   * техническая заглушка).
+   *
+   * Не задан (по умолчанию) — поведение прежнее: показываем подпись варианта.
+   */
+  placeholderValue?: string;
 }
 
 const SEARCH_THRESHOLD = 7;
 
-export function SelectInput({ options, value, onChange, placeholder, disabled, className, searchable, ...rest }: Props) {
+export function SelectInput({
+  options, value, onChange, placeholder, disabled, className, searchable, placeholderValue, ...rest
+}: Props) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [query, setQuery] = useState('');
@@ -28,6 +40,9 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
   const currentValue = value !== undefined ? String(value) : '';
   const selected = useMemo(() => options.find((o) => String(o.value) === currentValue), [options, currentValue]);
   const showSearch = searchable ?? options.length > SEARCH_THRESHOLD;
+  // Показываем подсказку вместо подписи варианта: либо варианта с таким
+  // значением вовсе нет, либо оно объявлено «пустым» через placeholderValue.
+  const asPlaceholder = !selected || currentValue === placeholderValue;
 
   const filtered = useMemo(() => {
     if (!showSearch || !query.trim()) return options;
@@ -99,8 +114,8 @@ export function SelectInput({ options, value, onChange, placeholder, disabled, c
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`select-input__value ${selected ? '' : 'is-placeholder'}`}>
-          {selected ? selected.label : (placeholder || 'Выберите...')}
+        <span className={`select-input__value ${asPlaceholder ? 'is-placeholder' : ''}`}>
+          {asPlaceholder ? (placeholder || 'Выберите...') : selected!.label}
         </span>
         <svg className="select-input__chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

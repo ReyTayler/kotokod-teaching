@@ -110,6 +110,20 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('PATCH', re.compile(r'^/api/admin/renewals/\d+/outcome-date$'),
      'renewal.outcome_date_update'),
     ('PATCH', re.compile(r'^/api/admin/renewals/\d+$'), 'renewal.update'),
+    # Задачи (спека 2026-08-24). Специфичные пути — до /<pk>-правил.
+    ('POST', re.compile(r'^/api/admin/tasks/\d+/move$'), 'task.move'),
+    ('POST', re.compile(r'^/api/admin/tasks/\d+/complete$'), 'task.complete'),
+    ('POST', re.compile(r'^/api/admin/tasks/\d+/comment$'), 'task.comment'),
+    ('POST', re.compile(r'^/api/admin/tasks/boards$'), 'task_board.create'),
+    ('PATCH', re.compile(r'^/api/admin/tasks/boards/\d+$'), 'task_board.update'),
+    ('DELETE', re.compile(r'^/api/admin/tasks/boards/\d+$'), 'task_board.delete'),
+    ('POST', re.compile(r'^/api/admin/tasks/boards/\d+/stages$'), 'task_stage.create'),
+    ('POST', re.compile(r'^/api/admin/tasks/stages/reorder$'), 'task_stage.reorder'),
+    ('PATCH', re.compile(r'^/api/admin/tasks/stages/\d+$'), 'task_stage.update'),
+    ('DELETE', re.compile(r'^/api/admin/tasks/stages/\d+$'), 'task_stage.delete'),
+    ('POST', re.compile(r'^/api/admin/tasks$'), 'task.create'),
+    ('PATCH', re.compile(r'^/api/admin/tasks/\d+$'), 'task.update'),
+    ('DELETE', re.compile(r'^/api/admin/tasks/\d+$'), 'task.delete'),
     # teacher SPA
     ('POST', re.compile(r'^/api/submitLesson$'), 'lesson.submit'),
     # auth-мутации данных (2FA-поля Account меняет сам пользователь)

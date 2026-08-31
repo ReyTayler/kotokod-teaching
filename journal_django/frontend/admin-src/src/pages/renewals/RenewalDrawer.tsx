@@ -2,7 +2,13 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Avatar } from '../../components/Avatar';
 import { EntityLink } from '../../components/EntityLink';
 import { Dialog } from '../../components/ui/Dialog';
-import { Field } from '../../components/form/Field';
+import { DrawerResizeHandle } from '../../components/ui/DrawerResizeHandle';
+import { Button } from '../../components/ui/Button';
+import {
+  ActivityEmpty, ActivityLog, ActivityRow, CollapsibleSection, CommentThread,
+} from '../../components/ui/DrawerFeed';
+import { InlineField } from '../../components/form/InlineField';
+import { CalendarGlyph, PersonGlyph, TypeGlyph } from '../../components/form/FieldIcons';
 import { SelectInput } from '../../components/form/SelectInput';
 import { DateInput } from '../../components/form/DateInput';
 import { Textarea } from '../../components/form/Textarea';
@@ -12,7 +18,10 @@ import {
 } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useApiError } from '../../hooks/useApiError';
-import { fmtDate, fmtDateTime, fmtLessons, isoDateMSK, todayMSK } from '../../lib/format';
+import { useDrawerResize } from '../../hooks/useDrawerResize';
+import {
+  fmtDate, fmtDateTime, fmtLessons, fmtRelativeDateTime, isoDateMSK, todayMSK,
+} from '../../lib/format';
 import { useAuth } from '../../hooks/useAuth';
 import {
   canEditRenewalOutcomeDate, canWritePayments, type Role,
@@ -28,29 +37,37 @@ interface Props {
   onClose: () => void;
 }
 
+const RENEWAL_DRAWER_WIDTH_KEY = 'renewals.drawerWidth';
+
+/**
+ * Строка ленты истории — фраза на естественном языке. Комментарии сюда не
+ * попадают: они живут отдельным блоком панели, поэтому ветки на `comment`
+ * здесь нет (так же в TaskDrawer).
+ *
+ * Глаголы в скобочной форме («перевёл(-а)»): пола сотрудника в учётке нет, а
+ * угадывать его по имени нельзя — ошибка задевает живого человека.
+ * Имя автора и время рисует ActivityRow, здесь только глагольная часть.
+ */
 function ActivityLine({ item }: { item: RenewalActivityItem }) {
-  let body: ReactNode;
+  let phrase: ReactNode;
   switch (item.kind) {
     case 'stage_change':
-      body = <>{item.from_label ?? '—'} → {item.to_label ?? '—'}</>;
-      break;
-    case 'comment':
-      body = <>💬 {item.body}</>;
+      // Откуда перешли не пишем: предыдущая стадия — соседняя строка ленты.
+      phrase = <>перевёл(-а) сделку в «{item.to_label ?? '—'}»</>;
       break;
     case 'payment_linked':
-      body = <>💰 Оплата #{item.payment_id ?? '—'}</>;
+      phrase = <>привязал(-а) оплату #{item.payment_id ?? '—'}</>;
       break;
     default:
-      body = <>{item.body}</>;
+      phrase = <>{item.body}</>;
   }
   return (
-    <li className="renewal-timeline__item">
-      <div className="renewal-timeline__body">{body}</div>
-      <div className="renewal-timeline__meta">
-        {item.author_name && <span>{item.author_name}</span>}
-        {item.created_at && <span>{fmtDateTime(item.created_at)}</span>}
-      </div>
-    </li>
+    <ActivityRow
+      authorName={item.author_name}
+      time={fmtRelativeDateTime(item.created_at)}
+    >
+      {phrase}
+    </ActivityRow>
   );
 }
 
@@ -74,6 +91,13 @@ export function RenewalDrawer({ id, onClose }: Props) {
   // Дата закрытия в форме правки. Держим в состоянии, а не читаем из deal
   // напрямую, чтобы календарь не сбрасывал ввод на каждый рефетч сделки.
   const [outcomeDate, setOutcomeDate] = useState('');
+
+  // Пользовательская ширина панели — тот же общий хук, что и у TaskDrawer
+  // (задача 2026-08-26: ручка ресайза видна всегда + переиспользуемая механика).
+  const {
+    width: drawerWidth, resizing, handleProps: resizeHandleProps, wrapOverlayClose,
+  } = useDrawerResize({ storageKey: RENEWAL_DRAWER_WIDTH_KEY });
+  const handleOverlayClick = wrapOverlayClose(onClose);
 
   // onClose обычно приходит как новая инлайн-функция от родителя на каждый рендер —
   // без useCallback здесь listener пересоздавался бы при каждом ре-рендере RenewalDrawer.
@@ -159,6 +183,14 @@ export function RenewalDrawer({ id, onClose }: Props) {
     );
   };
 
+  // Комментарии и системные события больше не идут одной лентой: читают их
+  // по-разному — комментарии как переписку, историю как журнал событий.
+  // Лента приезжает от новых к старым (ORDER BY created_at DESC на бэке).
+  // Историю так и оставляем — свежее событие сверху; переписку разворачиваем:
+  // комментарии читают сверху вниз по порядку, как в панели задачи.
+  const comments = (activity || []).filter((a) => a.kind === 'comment').slice().reverse();
+  const history = (activity || []).filter((a) => a.kind !== 'comment');
+
   const stageLabel = deal?.stage_label || (deal ? RENEWAL_STAGE_LABELS[deal.stage_key] : undefined);
   const isClosed = deal?.outcome_at != null;
   const canEditOutcomeDate = canEditRenewalOutcomeDate(me?.role as Role);
@@ -198,14 +230,16 @@ export function RenewalDrawer({ id, onClose }: Props) {
     : [];
 
   return (
-    <div className="renewal-drawer-overlay" onClick={onClose}>
+    <div className="renewal-drawer-overlay" onClick={handleOverlayClick}>
       <aside
         className="renewal-drawer"
+        style={{ width: drawerWidth }}
         role="dialog"
         aria-modal="true"
         aria-label="Карточка сделки"
         onClick={(e) => e.stopPropagation()}
       >
+        <DrawerResizeHandle resizing={resizing} {...resizeHandleProps} />
         {dealLoading || !deal ? (
           <div className="renewal-drawer__loading">Загружаем сделку…</div>
         ) : (
@@ -292,10 +326,11 @@ export function RenewalDrawer({ id, onClose }: Props) {
                     можно поправить задним числом; правка видна в таймлайне. */}
                 {canEditOutcomeDate && (
                   <div className="renewal-drawer__section renewal-drawer__outcome-date">
-                    <Field label="Дата закрытия">
+                    <InlineField icon={<CalendarGlyph />} label="Дата закрытия">
                       <div className="renewal-drawer__outcome-date-row">
                         <DateInput
                           value={outcomeDate}
+                          placeholder="Выбрать дату…"
                           onChange={(e) => setOutcomeDate(e.target.value)}
                         />
                         {/* DateInput — свой календарь, min/max он не понимает,
@@ -312,7 +347,7 @@ export function RenewalDrawer({ id, onClose }: Props) {
                           Сохранить
                         </button>
                       </div>
-                    </Field>
+                    </InlineField>
                   </div>
                 )}
               </>
@@ -320,7 +355,7 @@ export function RenewalDrawer({ id, onClose }: Props) {
               <>
                 <div className="renewal-drawer__section renewal-drawer__fields">
                   {stageMovable && currentStage && (
-                    <Field label="Стадия">
+                    <InlineField icon={<TypeGlyph />} label="Стадия">
                       <SelectInput
                         value={String(deal.stage_id)}
                         onChange={(e) => handleStageChange(e.target.value)}
@@ -339,13 +374,16 @@ export function RenewalDrawer({ id, onClose }: Props) {
                           })),
                         ]}
                       />
-                    </Field>
+                    </InlineField>
                   )}
-                  <Field label="Ответственный">
-                    <div className="renewal-drawer__readonly-value" title="Меняется на странице ученика">
+                  {/* Ответственного здесь только показывают — меняется он на
+                      странице ученика. Оформление то же, что у соседних строк,
+                      иначе поле читалось бы как сломанный контрол. */}
+                  <InlineField icon={<PersonGlyph />} label="Ответственный">
+                    <div className="inline-field__readonly" title="Меняется на странице ученика">
                       {deal.assignee_name || '— не назначен —'}
                     </div>
-                  </Field>
+                  </InlineField>
                 </div>
 
                 <div className="renewal-drawer__actions">
@@ -390,39 +428,65 @@ export function RenewalDrawer({ id, onClose }: Props) {
               </>
             )}
 
-            <div className="renewal-drawer__section">
-              <div className="renewal-drawer__section-title">Комментарий</div>
-              <Textarea
-                className="renewal-drawer__comment-input"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Добавить комментарий по сделке…"
-                rows={3}
-              />
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={!text.trim() || comment.isPending}
-                onClick={handleAddComment}
-              >
-                Добавить
-              </button>
-            </div>
-
-            <div className="renewal-drawer__section renewal-drawer__timeline-section">
-              <div className="renewal-drawer__section-title">Активность</div>
-              {activityLoading ? (
-                <div className="renewal-drawer__loading">Загружаем активность…</div>
-              ) : (
-                <ul className="renewal-timeline">
-                  {(activity || []).map((item) => (
-                    <ActivityLine key={item.id} item={item} />
-                  ))}
-                  {(!activity || activity.length === 0) && (
-                    <li className="renewal-timeline__empty">Пока нет активности</li>
+            {/* Комментарии + история: на узкой панели друг под другом,
+                на широкой — двумя колонками (см. @container в renewals.css),
+                тот же приём, что .task-drawer__lower в TaskDrawer. */}
+            <div className="renewal-drawer__lower">
+              <div className="renewal-drawer__section">
+                <CollapsibleSection title="Комментарии">
+                  {activityLoading ? (
+                    <div className="renewal-drawer__loading">Загружаем комментарии…</div>
+                  ) : (
+                    <CommentThread
+                      items={comments.map((c) => ({
+                        id: c.id,
+                        author: c.author_name,
+                        iso: c.created_at,
+                        // Текст комментария сделки лежит в body (у задач — в text).
+                        text: c.body,
+                      }))}
+                      emptyText="Пока нет комментариев"
+                    />
                   )}
-                </ul>
-              )}
+                  <Textarea
+                    className="renewal-drawer__comment-input"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder="Комментарий…"
+                    rows={2}
+                  />
+                  {/* Кнопка появляется только с набранным текстом: пустое поле в
+                      референсе — просто поле. Совсем прятать действие нельзя —
+                      человек должен видеть, чем отправить. */}
+                  {text.trim() && (
+                    <Button
+                      className="renewal-drawer__comment-send"
+                      variant="secondary"
+                      disabled={comment.isPending}
+                      onClick={handleAddComment}
+                    >
+                      Добавить
+                    </Button>
+                  )}
+                </CollapsibleSection>
+              </div>
+
+              <div className="renewal-drawer__section renewal-drawer__timeline-section">
+                <CollapsibleSection title="История">
+                  {activityLoading ? (
+                    <div className="renewal-drawer__loading">Загружаем историю…</div>
+                  ) : (
+                    <ActivityLog>
+                      {history.map((item) => (
+                        <ActivityLine key={item.id} item={item} />
+                      ))}
+                      {history.length === 0 && (
+                        <ActivityEmpty>Пока нет истории</ActivityEmpty>
+                      )}
+                    </ActivityLog>
+                  )}
+                </CollapsibleSection>
+              </div>
             </div>
 
             {closeTarget && (

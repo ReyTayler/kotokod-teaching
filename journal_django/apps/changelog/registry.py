@@ -63,6 +63,16 @@ TRACKED: dict[str, TrackedModel] = {
     'renewals.RenewalStage':          TrackedModel('renewal_stage', True, 25),
     'renewals.RenewalDeal':           TrackedModel('renewal_deal', True, 35),
     'renewals.RenewalActivity':       TrackedModel('renewal_activity', False, 55),
+    # Раздел «Задачи» (спека 2026-08-24). Лента активности неоткатываема —
+    # это лог, восстанавливать в нём нечего.
+    'taskboard.TaskBoard':    TrackedModel('task_board', True, 10),
+    'taskboard.TaskStage':    TrackedModel('task_stage', True, 20),
+    # Откат удаления карточки восстановит её поля, но НЕ исполнителей: связь m2m
+    # идёт через автогенерируемую task_assignee, которую pghistory не трекает, а
+    # revert восстанавливает только собственные поля модели. Смена набора
+    # отдельно пишется в TaskActivity (kind='assign').
+    'taskboard.Task':         TrackedModel('task', True, 30),
+    'taskboard.TaskActivity': TrackedModel('task_activity', False, 40),
 }
 
 

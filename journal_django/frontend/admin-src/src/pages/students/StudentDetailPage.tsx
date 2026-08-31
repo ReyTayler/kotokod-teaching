@@ -22,6 +22,7 @@ import StudentLearningBlock from './StudentLearningBlock';
 import StudentKpiRow from './StudentKpiRow';
 import { StudentBalanceBlock } from './StudentBalanceBlock';
 import StudentCommentsBlock from './StudentCommentsBlock';
+import StudentTasksBlock from './StudentTasksBlock';
 import { useLatestStudentComment } from '../../hooks/useStudentComments';
 import { useAuth } from '../../hooks/useAuth';
 import { canSeeChangelog, canWriteStudentManager, canWritePayments, type Role } from '../../lib/permissions';
@@ -85,7 +86,7 @@ function StudentManagerDialog({ student, onClose }: { student: Student; onClose:
   );
 }
 
-const STUDENT_TABS = ['learning', 'finance', 'comments', 'history'] as const;
+const STUDENT_TABS = ['learning', 'finance', 'tasks', 'comments', 'history'] as const;
 type StudentTab = (typeof STUDENT_TABS)[number];
 const DEFAULT_TAB: StudentTab = 'learning';
 
@@ -251,6 +252,11 @@ export default function StudentDetailPage() {
       value: 'finance',
       label: 'Финансы',
       content: <StudentBalanceBlock studentId={student.id} />,
+    },
+    {
+      value: 'tasks',
+      label: 'Задачи',
+      content: <StudentTasksBlock studentId={student.id} />,
     },
     {
       value: 'comments',

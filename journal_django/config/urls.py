@@ -42,6 +42,8 @@ urlpatterns = [
     path('api/admin/accounts', include('apps.accounts.urls')),
     # Продления — CRM-воронка продлений (/api/admin/renewals, role=manager/admin)
     path('api/admin/renewals', include('apps.renewals.urls')),
+    # Задачи — воронки/стадии/карточки (спека 2026-08-24, role=manager/admin)
+    path('api/admin/tasks', include('apps.taskboard.urls')),
     # Календарь (админ, произвольный преподаватель) — /api/admin/calendar
     path('api/admin/calendar', include('apps.scheduling.admin_urls')),
     # Синхро — ручной запуск backfill/пересчётов из Google Sheets (только superadmin)

@@ -241,12 +241,15 @@
   max-width: 360px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  /* Ни зазора, ни полей: шапка-плашка тянется от края до края и лежит вплотную
+     к верху колонки. Вертикальные интервалы держат сами дети (см. ниже). */
+  gap: 0;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--border-strong);
   border-radius: var(--r);
-  padding: var(--space-3);
+  padding: 0;
+  /* Без обрезки прямой угол колонки срезал бы скругление плашки. */
+  overflow: hidden;
   max-height: calc(100vh - var(--rnl-board-top));
 }
 
@@ -263,58 +266,27 @@
   }
 }
 
-/* Заголовок колонки. Иерархия: название — главное, счётчик — метадата,
-   бейдж «авто» — служебная пометка второй строкой. */
-.renewal-col__head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  min-height: 28px;
-  padding-left: var(--space-1);
-}
-
-.renewal-col__title {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.renewal-col__label {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Пометка прогресс-стадии: сюда двигает только движок. Без рамки — рамка
-   превращала служебную подпись в самостоятельный элемент управления. */
+   превращала служебную подпись в самостоятельный элемент управления.
+   Цвет наследуется от плашки: серый токен на цветной заливке местами пропадает. */
 .renewal-col__auto-badge {
   font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text3);
+  color: inherit;
+  opacity: 0.75;
 }
 
-.renewal-col__stats {
-  font-size: var(--fs-sm);
-  color: var(--text3);
-  font-variant-numeric: tabular-nums;
-  line-height: 28px;
-  white-space: nowrap;
-}
-
-/* Развёрнутый поиск занимает всю строку заголовка. */
+/* Развёрнутый поиск замещает плашку стадии, поэтому держит её геометрию:
+   те же боковые поля и та же высота строки — иначе при открытии поиска
+   вся колонка подпрыгивает. */
 .renewal-col__search {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  width: 100%;
+  min-height: 34px;
+  padding: 0 var(--space-3);
 }
 
 .renewal-col__search-input {
@@ -342,6 +314,9 @@
   gap: var(--space-2);
   overflow-y: auto;
   min-height: 40px;
+  /* Сверху/снизу меньше, чем по бокам: после сплошной плашки полные поля
+     смотрятся пустовато. */
+  padding: var(--space-2) var(--space-3);
 }
 
 /* Короткая служебная строка («Ищем…», «Никого не найдено») — в отличие от
@@ -366,6 +341,7 @@
   font: inherit;
   font-size: var(--fs-xs);
   padding: var(--space-2);
+  margin: 0 var(--space-3) var(--space-3);
   cursor: pointer;
 }
 
@@ -475,22 +451,43 @@
 .renewal-drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.32);
+  /* Токен вместо жёсткого rgba(15, 23, 42, 0.32): тот молчал в тёмной теме —
+     затемнение оставалось «светлым» по формуле, не переключаясь вместе с
+     остальным UI (тот же фикс уже сделан для .task-drawer-overlay). */
+  background: var(--overlay);
   display: flex;
   justify-content: flex-end;
   z-index: 40;
 }
 
+/* Ширина панели — пользовательская (ручка на левом крае, RenewalDrawer.tsx +
+   общий hooks/useDrawerResize.ts), базовое значение здесь — только запасной
+   вариант до применения инлайнового style. container-type включает
+   контейнерные запросы ниже: раскладка полей реагирует на фактическую
+   ширину ПАНЕЛИ, а не окна (устройство 1-в-1 с .task-drawer). */
 .renewal-drawer {
+  position: relative;
   width: min(440px, 100%);
   height: 100%;
   background: var(--bg2);
   border-left: 1px solid var(--border);
   padding: var(--space-6);
+  /* Запас снизу: без него последний блок панели упирается в край экрана, и не
+     видно, что список кончился (то же правило у .task-drawer). */
+  padding-bottom: var(--space-10);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
   overflow-y: auto;
+  overflow-x: hidden;
+  container-type: inline-size;
+}
+
+@media (max-width: 480px) {
+  /* !important перебивает пользовательскую ширину из инлайнового style —
+     на мобильных панель всегда на весь экран. Ручку прячет общее правило
+     в modal.css (.drawer-resize-handle). */
+  .renewal-drawer { width: 100% !important; padding: var(--space-4); }
 }
 
 .renewal-drawer__loading {
@@ -545,14 +542,6 @@
   border-top: 1px solid var(--border);
 }
 
-.renewal-drawer__section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text3);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
 .renewal-drawer__balance {
   display: flex;
   flex-direction: row;
@@ -572,11 +561,6 @@
   color: var(--text);
 }
 
-.renewal-drawer__readonly-value {
-  padding: 8px 12px;
-  color: var(--text);
-}
-
 /* Ряд действий открытой сделки: «Внести оплату» + «Вернуть в работу» (только на
    стадии «Заморожен»). Без обёртки кнопки — прямые flex-дети .renewal-drawer и
    растягиваются на всю ширину колонки. */
@@ -592,48 +576,26 @@
   border-radius: var(--r-lg);
 }
 
+/* Поле комментария — во всю ширину и скруглённое: под лентой переписки оно
+   читается как строка ввода сообщения, а не как ещё одно поле формы. */
 .renewal-drawer__comment-input {
   width: 100%;
   resize: vertical;
   font: inherit;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-lg);
   color: var(--text);
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* Кнопка отправки появляется только с набранным текстом (см. RenewalDrawer). */
+.renewal-drawer__comment-send {
+  align-self: flex-start;
 }
 
 .renewal-drawer__timeline-section {
   flex: 1;
-}
-
-.renewal-timeline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.renewal-timeline__item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 13px;
-  color: var(--text2);
-}
-
-.renewal-timeline__meta {
-  display: flex;
-  gap: var(--space-2);
-  font-size: 11px;
-  color: var(--text3);
-}
-
-.renewal-timeline__empty {
-  font-size: 13px;
-  color: var(--text3);
 }
 
 /* ===== Зоны закрытия сделки (появляются при перетаскивании карточки) ===== */
@@ -687,10 +649,23 @@
   color: var(--text2);
 }
 
+/* Поля идут одним столбцом, а не парами, даже на широкой панели: строка
+   (InlineField) теперь горизонтальная — подпись слева, контрол справа, — и две
+   таких пары в ряд дают четыре колонки текста. Тот же довод, что у
+   .task-drawer__fields в tasks.css. */
 .renewal-drawer__fields {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 2px;
+}
+
+/* Комментарий и лента активности — на узкой панели друг под другом, на
+   широкой встают двумя колонками бок о бок (тот же приём, что
+   .task-drawer__lower в tasks.css). */
+.renewal-drawer__lower {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .renewal-drawer__closed {
@@ -917,6 +892,27 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
+}
+
+/* Шапка колонки в каркасе повторяет геометрию плашки, но нейтральна по цвету:
+   цвет стадии приезжает вместе с доской. */
+.rnl-skeleton__head {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  background: var(--bg2);
+  border-radius: var(--r) var(--r) 0 0;
+}
+
+.rnl-skeleton__head-label {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rnl-skeleton__title { height: 13px; width: 60%; }

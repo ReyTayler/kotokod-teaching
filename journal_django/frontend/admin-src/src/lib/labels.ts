@@ -229,3 +229,60 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (last >= 2 && last <= 4) return few;
   return many;
 }
+
+// ===== Раздел «Задачи» (спека 2026-08-24) =====
+
+export const TASK_PRIORITY_LABELS: Record<string, string> = {
+  low:    'Низкий',
+  normal: 'Обычный',
+  high:   'Высокий',
+};
+
+// Варианты селектора «Срок» (TaskFilters.due). Значения — контракт бэка,
+// подписи держим здесь же, где остальные словари раздела.
+export const TASK_DUE_LABELS: Record<string, string> = {
+  today:   'Сегодня',
+  week:    'Эта неделя',
+  overdue: 'Просроченные',
+  none:    'Без срока',
+};
+
+export const TASK_RESOLUTION_LABELS: Record<string, string> = {
+  done:       'Выполнено',
+  cancelled:  'Отменено',
+  irrelevant: 'Неактуально',
+};
+
+/**
+ * Названия полей для фраз истории: «изменил(-а) <что> на <значение>».
+ *
+ * Винительный падеж, а не именительный: история в панели — не таблица «поле:
+ * было → стало», а лента фраз, и «изменил(-а) Срок на 3 сентября» в неё не
+ * встаёт. Бэкенд пишет в meta сырое {field, from, to} (см. taskboard/
+ * services.py::update_task) — русский текст собирается здесь, чтобы
+ * переименование ученика не переврало историю задним числом.
+ */
+export const TASK_FIELD_PHRASES: Record<string, string> = {
+  title:        'заголовок',
+  description:  'описание',
+  due_date:     'срок',
+  priority:     'приоритет',
+  // Тип задачи как свойство убран (ТЗ 2026-08-28), подпись оставлена ради
+  // старых записей ленты: новых правок этого поля не будет, а без подписи
+  // уже накопленные строки истории выродились бы в «изменил(-а) task_type_id».
+  task_type_id: 'тип задачи',
+  student_id:   'ученика',
+  group_id:     'группу',
+};
+
+// Коды конфликтов раздела приходят с бэка в теле {error: '...'} и попадают
+// в ApiError.message — так же, как их читают продления.
+export const TASK_CONFLICT_LABELS: Record<string, string> = {
+  has_tasks:                    'В этой воронке или стадии есть задачи — сначала перенесите или закройте их',
+  last_stage_of_category:       'Это последняя стадия своего вида: без неё воронка перестанет работать',
+  duplicate_name:               'Такое название уже занято',
+  duplicate_label:              'Такое название уже занято',
+  stages_from_different_boards: 'Стадии разных воронок нельзя переставлять вместе',
+  incomplete_stage_set:         'Передан неполный набор стадий воронки',
+  unknown_stage:                'Такой стадии больше не существует — обновите страницу',
+};

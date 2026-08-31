@@ -76,7 +76,14 @@ export function Floating({
   // за пределами модалки — из-за этого длинные списки в body не скроллились.
   // position:fixed всё равно отсчитывается от вьюпорта и не обрезается overflow
   // тела модалки. Вне модалки (таблицы, пагинатор) — обычный body.
-  const container: Element = anchorRef.current?.closest('[role="dialog"]') ?? document.body;
+  // Radix-поповер тоже помечен role="dialog", но его обёртка позиционируется
+  // transform'ом, а transform создаёт containing block для position:fixed —
+  // портал внутрь уехал бы ровно на смещение поповера. Такому предку не отдаём:
+  // поповер немодальный, react-remove-scroll там нет, body подходит.
+  const dialog = anchorRef.current?.closest('[role="dialog"]');
+  const container: Element = dialog && !dialog.closest('[data-radix-popper-content-wrapper]')
+    ? dialog
+    : document.body;
 
   return createPortal(
     <div ref={floatingRef} className={className} style={style} data-floating-popover>

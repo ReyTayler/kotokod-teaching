@@ -241,6 +241,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { key: 'teachers', label: 'Преподаватели', path: '/admin/teachers' },
       { key: 'directions', label: 'Направления', path: '/admin/directions' },
       { key: 'renewals', label: 'Продления', path: '/admin/renewals' },
+      { key: 'tasks', label: 'Задачи', path: '/admin/tasks' },
     ],
   },
   {

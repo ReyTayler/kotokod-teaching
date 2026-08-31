@@ -446,6 +446,47 @@
 .checkbox.is-disabled { opacity: 0.5; cursor: not-allowed; }
 .checkbox__label { line-height: 1.4; }
 
+/* ===== MultiSelect — выбор нескольких значений (components/form/MultiSelect.tsx)
+   Триггер повторяет облик .select-input__trigger: два соседних поля в одной
+   панели не должны различаться ничем, кроме числа выбранных значений. Стрелки
+   у него нет — сводка выбранного бывает в две строки, и значок сбоку от неё
+   висел бы в пустоте. ===== */
+.multi-select__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.multi-select__trigger:hover { border-color: var(--border-strong); }
+.multi-select.is-open .multi-select__trigger { border-color: var(--accent); }
+.multi-select__value { min-width: 0; }
+.multi-select__value.is-placeholder { color: var(--text4); }
+
+/* Пункты выпадашки — те же галочки, что и у меток задачи, только столбиком. */
+.multi-select__list {
+  display: flex;
+  flex-direction: column;
+}
+.multi-select__item {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--r-sm);
+}
+.multi-select__item:hover { background: var(--bg3); }
+.multi-select__empty {
+  padding: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text3);
+}
+
 /* ===== Compact SelectInput inside DataTable filter row ===== */
 .data-table thead .select-input.search-input { width: 100%; }
 .data-table thead .select-input__trigger {
@@ -456,3 +497,167 @@
 .data-table thead .select-input__chevron { width: 10px; height: 10px; }
 /* Список рендерится порталом в body, поэтому дескрипторы «.data-table thead …»
    до него не достают — компактный вид самой плашки достигается общим стилем. */
+
+/* ============================================================
+ *  InlineField — строка свойства в панели (components/form/InlineField.tsx)
+ *  Используют панель задачи и панель сделки в «Продлениях».
+ * ============================================================ */
+
+/* Строка: слева иконка с подписью, справа контрол. Ширина колонки подписи
+   задана переменной — от неё же отсчитывает отступ довесок под контролом
+   (ссылка на карточку), и разъехаться они не могут. */
+.inline-field {
+  --inline-label-w: 132px;
+  display: grid;
+  grid-template-columns: var(--inline-label-w) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+/* Подпись без uppercase: раньше поля стояли колонками и заглавные буквы
+   отделяли подпись от значения сверху. В строке их разделяет сама колонка, а
+   uppercase на семи строках подряд превращается в шум. */
+.inline-field__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text3);
+}
+
+.inline-field__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text4);
+}
+
+.inline-field__label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-field__control {
+  min-width: 0;
+}
+
+/* Довесок под контролом — ссылка на карточку ученика или группы. Стоит во
+   второй колонке, то есть ровно под контролом, а не под подписью. */
+.inline-field__below {
+  grid-column: 2;
+  padding-left: var(--space-2);
+}
+
+.inline-field__below .entity-link {
+  font-size: var(--fs-xs);
+}
+
+/* Поле, которое здесь не правят (ответственный по сделке — меняется на
+   странице ученика). Отбивка та же, что у контролов, чтобы значение стояло по
+   одной вертикали с ними. */
+.inline-field__readonly {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+/* Контрол в строке свойства не носит собственной рамки и подложки: строка не
+   должна менять облик от того, читают её или правят. Рамка появляется на
+   наведении и в фокусе — тогда, когда человек в поле целится. */
+.inline-field__control .combobox__input,
+.inline-field__control .select-input__trigger,
+.inline-field__control .multi-select__trigger,
+.inline-field__control .date-input__trigger {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-sm);
+  background: transparent;
+  border-color: transparent;
+}
+
+/* Наведение — состояние «целюсь в поле»: проступают подложка и рамка. Открытый
+   и сфокусированный контрол из этого правила исключён, иначе наведённый курсор
+   перебивал бы акцентную рамку правила ниже. */
+.inline-field__control .combobox__input:hover:not(:focus),
+.inline-field__control .select-input:not(.is-open) .select-input__trigger:hover:not(:disabled),
+.inline-field__control .multi-select:not(.is-open) .multi-select__trigger:hover,
+.inline-field__control .date-input:not(.is-open) .date-input__trigger:hover {
+  background: var(--bg3);
+  border-color: var(--border-strong);
+}
+
+/* В фокусе/открытом состоянии — штатная акцентная рамка контрола: те же
+   значения, что задают .combobox__input:focus и .select-input.is-open /
+   .date-input.is-open выше, просто повторённые внутри строки, потому что
+   рамку в основном правиле мы погасили. */
+.inline-field__control .combobox__input:focus,
+.inline-field__control .select-input.is-open .select-input__trigger,
+.inline-field__control .multi-select.is-open .multi-select__trigger,
+.inline-field__control .multi-select__trigger:focus-visible,
+.inline-field__control .date-input.is-open .date-input__trigger {
+  background: var(--bg2);
+  border-color: var(--accent);
+}
+
+/* Пустое поле подсказывает, что в него положить, приглушённым тоном: у
+   SelectInput это .select-input__value.is-placeholder (см. выше), у остальных
+   двух — нативный placeholder инпута. */
+.inline-field__control .combobox__input::placeholder,
+.inline-field__control .date-input__field::placeholder {
+  color: var(--text4);
+}
+
+/* Стрелка селекта и календарик прячутся до наведения: семь строк с
+   постоянными иконками справа превращаются в частокол. */
+.inline-field__control .select-input__chevron,
+.inline-field__control .date-input__icon {
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+
+/* `.is-open` тоже проявляет иконку: у открытого селекта фокус уходит в поле
+   поиска, а оно живёт в портале — :focus-within его уже не видит. */
+.inline-field__control:hover .select-input__chevron,
+.inline-field__control:focus-within .select-input__chevron,
+.inline-field__control .select-input.is-open .select-input__chevron,
+.inline-field__control:hover .date-input__icon,
+.inline-field__control:focus-within .date-input__icon,
+.inline-field__control .date-input.is-open .date-input__icon {
+  opacity: 0.6;
+}
+
+/* ===== Выбор цвета из фиксированного набора (components/form/ColorSwatches.tsx)
+   Кружки, а не квадраты: набор читается как палитра, а не как ряд кнопок.
+   Заливка приходит инлайном — это цвет из набора, токеном его не выразить
+   (то же исключение, что у цвета стадии в шапке колонки). */
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.color-swatches__item {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  /* Кольцо заметное, а не еле видное: в наборе есть белый, и на белой
+     панели диалога без обводки его кружок просто исчезает. */
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--text) 22%, transparent);
+  transition: transform var(--t-fast) var(--ease);
+}
+
+.color-swatches__item:hover { transform: scale(1.12); }
+
+.color-swatches__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+

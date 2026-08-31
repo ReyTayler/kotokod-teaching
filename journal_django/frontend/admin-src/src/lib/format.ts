@@ -168,3 +168,62 @@ export function fmtMonth(iso: string | null | undefined): string {
   const month = MONTHS_GENITIVE[+m[2] - 1];
   return month ? `${month} ${m[1]}` : '—';
 }
+
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн',
+  'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+/**
+ * Вчерашняя дата по МСК в формате 'YYYY-MM-DD'.
+ * Считаем от todayMSK(), а не от локальной полуночи браузера: у сотрудника в
+ * другом поясе «вчера» иначе разъезжается с тем, что показывает бэкенд.
+ */
+function yesterdayMSK(): string {
+  const [y, m, d] = todayMSK().split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+/** Только время по МСК: '09:38'. Время в пузыре переписки — дата уже в разделителе дня. */
+export function fmtTimeMSK(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('ru-RU', {
+    timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/**
+ * Дата-время для ленты истории: «сегодня, 13:19», «вчера, 09:36», «26 авг, 13:19».
+ * Год добавляем, только если он не текущий: в ленте почти всегда свежие записи,
+ * и «2026» в каждой строке — шум.
+ */
+export function fmtRelativeDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const day = isoDateMSK(iso);
+  if (!day) return String(iso);
+  const time = fmtTimeMSK(iso);
+  if (day === todayMSK()) return `сегодня, ${time}`;
+  if (day === yesterdayMSK()) return `вчера, ${time}`;
+  const [y, m, d] = day.split('-');
+  const month = MONTHS_SHORT[+m - 1] ?? m;
+  const year = y === todayMSK().slice(0, 4) ? '' : ` ${y}`;
+  return `${+d} ${month}${year}, ${time}`;
+}
+
+/**
+ * Разделитель дня в переписке: «26 августа 2026», «Сегодня», «Вчера».
+ * Год здесь оставляем всегда: разделитель один на всю пачку сообщений, лишним
+ * шумом не становится, а без года старая переписка читается неоднозначно.
+ */
+export function fmtDayDivider(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const day = isoDateMSK(iso);
+  if (!day) return '—';
+  if (day === todayMSK()) return 'Сегодня';
+  if (day === yesterdayMSK()) return 'Вчера';
+  const [y, m, d] = day.split('-');
+  const month = MONTHS_GENITIVE[+m - 1];
+  return month ? `${+d} ${month} ${y}` : fmtDate(day);
+}

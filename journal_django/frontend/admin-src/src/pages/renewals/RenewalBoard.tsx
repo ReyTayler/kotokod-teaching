@@ -312,12 +312,13 @@ function BoardSkeleton({ stageLabels }: { stageLabels: string[] }) {
       <span className="sr-only">Загружаем доску продлений</span>
       {columns.map((label, i) => (
         <div key={i} className="renewal-col">
-          <div className="renewal-col__head">
-            <div className="renewal-col__title">
-              {label
-                ? <span className="renewal-col__label">{label}</span>
-                : <div className="skeleton-block rnl-skeleton__title" />}
-            </div>
+          {/* Цвет и счётчик стадии приезжают вместе с доской, поэтому в
+              каркасе вместо цветной плашки — нейтральная полоса той же
+              высоты: при появлении данных колонка не дёргается. */}
+          <div className="rnl-skeleton__head">
+            {label
+              ? <span className="rnl-skeleton__head-label">{label}</span>
+              : <div className="skeleton-block rnl-skeleton__title" />}
           </div>
           <div className="renewal-col__body">
             {[0, 1, 2, 3].map((j) => (

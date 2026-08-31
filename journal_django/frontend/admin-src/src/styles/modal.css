@@ -284,3 +284,60 @@
 }
 
 /* nav-btn--cta defined in ── SIDEBAR ── block above */
+
+/* ── DRAWER RESIZE HANDLE ──
+   Общая ручка изменения ширины боковых панелей (TaskDrawer, RenewalDrawer —
+   см. hooks/useDrawerResize.ts + components/ui/DrawerResizeHandle.tsx).
+   Родитель обязан быть position:relative — сама ручка абсолютно спозиционирована
+   на левом крае и не участвует в потоке/скролле панели.
+   Зона захвата мышью (14px) заметно шире видимого «захвата» (4px): попасть
+   курсором в тонкую полоску иначе нереально. Захват виден уже В ПОКОЕ, не
+   только по hover — иначе пользователь не находит ручку, пока случайно не
+   подведёт курсор (правка 2026-08-26, референс WEEEK). */
+.drawer-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* ВНУТРИ панели, а не поверх затемнения: вынесенная наружу ручка висела
+     светлым пятном на тёмном фоне и читалась как посторонний элемент. */
+  left: 0;
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  z-index: 1;
+  touch-action: none;
+}
+
+/* Линии во всю высоту нет намеренно: у панели уже есть своя рамка слева,
+   и вторая вертикаль рядом с ней читалась как визуальный мусор. Ручку
+   обозначает только «захват» по центру высоты. */
+.drawer-resize-handle__grip {
+  width: 4px;
+  height: 44px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  transition: background-color var(--t-fast) var(--ease),
+              height var(--t-fast) var(--ease),
+              width var(--t-fast) var(--ease);
+}
+
+.drawer-resize-handle:hover .drawer-resize-handle__grip,
+.drawer-resize-handle:focus-visible .drawer-resize-handle__grip,
+.drawer-resize-handle.is-resizing .drawer-resize-handle__grip {
+  background: var(--accent);
+  width: 5px;
+  height: 64px;
+}
+
+.drawer-resize-handle:focus-visible {
+  outline: none;
+}
+
+@media (max-width: 480px) {
+  /* На мобильных обе панели идут на весь экран (правило — в стилях каждой
+     страницы, у своего класса .task-drawer/.renewal-drawer) — ручка ресайза
+     там не нужна ни одной из них. */
+  .drawer-resize-handle { display: none; }
+}
