@@ -1614,6 +1614,37 @@ class TestGroupProgress:
         names = [s['name'] for s in body['students']]
         assert '__spa_test_student__' in names
 
+    def test_unpaid_skip_on_not_held_slot_is_blue(
+        self, teacher_fixture, account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """Пометка «неоплачиваемый пропуск» на ЕЩЁ НЕ ПРОВЕДЁННОМ слоте видна и
+        здесь: teacher SPA рисует ту же матрицу тем же GroupProgressView, а
+        сервер отдаёт её из общей apps.groups.services.get_group_progress.
+
+        Регрессия та же, что в apps/groups/tests/test_progress_api.py: раньше
+        матрица читала только lesson_attendance.unpaid_skip, поэтому пропуск на
+        непроведённом уроке не отображался и «дорисовывался» по мере занятий.
+        """
+        with connection.cursor() as cur:
+            for num in (1, 2, 3):
+                cur.execute(
+                    'INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) '
+                    'VALUES (%s,%s,%s,NOW())', [group_fixture, student_fixture, num])
+        try:
+            resp = _client('teacher', account_fixture).get(self._url())
+            assert resp.status_code == 200
+            row = next(s for s in resp.json()['students']
+                       if s['student_id'] == student_fixture)
+            # Уроков в группе нет вовсе — все три слота плановые, но помечены.
+            assert row['unpaid_skip'][:3] == [True, True, True]
+            assert row['cells'][:3] == [False, False, False]
+            # Неоплачиваемый пропуск — не обязательство посещения.
+            assert row['held'] == 0 and row['present'] == 0
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
+
     def test_foreign_teacher_403(
         self, teacher_fixture, account_fixture,
         sub_teacher_fixture, sub_account_fixture,

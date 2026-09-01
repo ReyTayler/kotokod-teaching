@@ -260,9 +260,100 @@ class TestContract:
         assert resp.status_code == 200
         data_queries = [
             q for q in ctx.captured_queries
-            if any(t in q['sql'] for t in ('group_memberships', 'lessons', 'lesson_attendance', 'groups'))
+            if any(t in q['sql'] for t in ('group_memberships', 'lessons', 'lesson_attendance',
+                                           'lesson_skips', 'groups'))
         ]
-        assert len(data_queries) <= 4  # 3 данные + возможный lookup группы/direction
+        # 4 данные (участники + уроки + посещаемость + пометки-пропуски)
+        # + возможный lookup группы/direction.
+        assert len(data_queries) <= 5
+
+
+class TestUnpaidSkipSlots:
+    """Пометка «неоплачиваемый пропуск» живёт на СЛОТЕ группы (lesson_skips) и не
+    ждёт, пока группа до этого урока дойдёт."""
+
+    @staticmethod
+    def _add_member_with_skips(group_id: int, name: str, numbers) -> int:
+        with connection.cursor() as cur:
+            cur.execute('INSERT INTO students (full_name) VALUES (%s) RETURNING id', [name])
+            sid = cur.fetchone()[0]
+            cur.execute(
+                'INSERT INTO group_memberships (group_id, student_id, lessons_done, active) '
+                'VALUES (%s,%s,0,true)', [group_id, sid])
+            for num in numbers:
+                cur.execute(
+                    'INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) '
+                    'VALUES (%s,%s,%s,NOW())', [group_id, sid, num])
+        return sid
+
+    @staticmethod
+    def _cleanup(student_id: int) -> None:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_skips WHERE student_id = %s', [student_id])
+            cur.execute('DELETE FROM group_memberships WHERE student_id = %s', [student_id])
+            cur.execute('DELETE FROM students WHERE id = %s', [student_id])
+
+    def test_skip_on_not_held_slot_is_blue_immediately(self, manager_client, progress_group):
+        """Ученик пришёл в группу с 6-го урока: пропуски 1..5 проставлены, а уроки
+        проведены только на слотах 1-2. Все пять ячеек обязаны быть синими сразу.
+
+        Регрессия: матрица читала только lesson_attendance.unpaid_skip, поэтому
+        синими выходили лишь пропуски под уже проведёнными уроками (1-2), а
+        остальные дорисовывались по мере того, как группа доходила до слота.
+        """
+        gid = progress_group['group_id']
+        gena = self._add_member_with_skips(gid, '__pg Гена__', (1, 2, 3, 4, 5))
+        try:
+            body = manager_client.get(_url(gid)).json()
+            row = next(r for r in body['students'] if r['student_id'] == gena)
+
+            # 1-2 — уроки проведены, строки посещаемости у Гены нет (его не было
+            # в составе); 3-5 — уроков ещё нет вовсе. Синие все пять.
+            assert row['unpaid_skip'][:5] == [True] * 5
+            assert row['cells'][:5] == [False] * 5
+            # Дальше — обычные плановые слоты (total_lessons=8).
+            assert row['unpaid_skip'][5:] == [False] * 3
+            assert row['cells'][5:] == [None] * 3
+            # Неоплачиваемый пропуск — не обязательство посещения.
+            assert row['held'] == 0 and row['present'] == 0
+        finally:
+            self._cleanup(gena)
+
+    def test_skip_beyond_course_length_widens_matrix(self, manager_client, progress_group):
+        """Помеченному пропуску всегда есть где показаться: слот 10 при курсе в
+        8 уроков расширяет матрицу до 10 столбцов, а не теряет пометку."""
+        gid = progress_group['group_id']
+        dina = self._add_member_with_skips(gid, '__pg Дина__', (9, 10))
+        try:
+            body = manager_client.get(_url(gid)).json()
+            assert body['total_slots'] == 10
+            row = next(r for r in body['students'] if r['student_id'] == dina)
+            assert len(row['cells']) == 10
+            assert row['unpaid_skip'][8:] == [True, True]
+            assert row['cells'][8:] == [False, False]
+            # Соседи по группе от расширения не пострадали — у них там пусто.
+            anya = next(r for r in body['students'] if r['student_id'] == progress_group['anya'])
+            assert anya['cells'][8:] == [None, None]
+        finally:
+            self._cleanup(dina)
+
+    def test_real_attendance_wins_over_skip_mark(self, manager_client, progress_group):
+        """Пометка не перекрывает факт: если ученик на этом уроке отмечен как
+        присутствовавший, ячейка зелёная, а не синяя."""
+        gid = progress_group['group_id']
+        with connection.cursor() as cur:
+            # У Ани на уроке 1 есть present=true; вешаем поверх пометку на слот 1.
+            cur.execute(
+                'INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) '
+                'VALUES (%s,%s,1,NOW())', [gid, progress_group['anya']])
+        try:
+            body = manager_client.get(_url(gid)).json()
+            anya = next(r for r in body['students'] if r['student_id'] == progress_group['anya'])
+            assert anya['cells'][0] is True
+            assert anya['unpaid_skip'][0] is False
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [gid])
 
 
 class TestTransferredLessons:

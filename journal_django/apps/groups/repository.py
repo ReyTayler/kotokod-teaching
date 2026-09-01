@@ -465,9 +465,10 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     иначе 1 (как LessonGrid). Для обычных групп это совпадает с ceil(lesson_number)
     (номера целые); для 45-мин групп каждая половина урока получает СВОЙ слот
     (0.5→1, 1.0→2, 1.5→3, …) — без коллапса пар. Число слотов = max(последний слот
-    с уроком, direction.total_lessons / step) — так план 45-мин группы показывает
-    вдвое больше ячеек (2N на total_lessons=N), а плановые, ещё не проведённые
-    уроки видны пунктиром.
+    с уроком, direction.total_lessons / step, последний помеченный пропуском слот)
+    — так план 45-мин группы показывает вдвое больше ячеек (2N на total_lessons=N),
+    плановые, ещё не проведённые уроки видны пунктиром, а помеченному пропуску
+    всегда есть где показаться.
 
     ОГРАНИЧЕНИЕ коллапса: если на один слот всё же попадает >1 урока (дубль номера
     на другую дату — не половинка), берётся только первый — посещаемость остальных
@@ -482,6 +483,16 @@ def get_group_progress(group_id: int) -> Optional[dict]:
               иначе красный,
       None  — урок не проведён (плановый слот) ИЛИ ученик не входил в состав на тот
               урок (нет записи посещаемости).
+
+    Неоплачиваемый пропуск берётся ИЗ ДВУХ источников: lesson_attendance.unpaid_skip
+    (проведённый урок) И пометка на слоте lesson_skips (LessonSkip) — последняя
+    ставится в том числе на ещё не проведённые уроки. Поэтому слот с пометкой
+    получает cells=False + unpaid_skip=True сразу, не дожидаясь, пока группа до него
+    дойдёт: ученику, добавленному в группу на 38-м уроке, все 37 пропусков видны
+    сразу, а не дорисовываются по мере проведения занятий. Реальная посещаемость
+    сильнее пометки: если строка lesson_attendance есть, читается она.
+    В held/present такие ячейки не идут (как плановый слот и перевод) и не
+    расходуют «бюджет» transferred_lessons — явная пометка сильнее разметки перевода.
     Статистика held/present/pct: как ПОСЕЩЕНИЕ засчитываются был, бесплатное занятие
     и компенсированный пропуск (доп.урок/сгорание) — все идут в present (тянут % вверх).
     Обычный «не был» — held без present. Неоплачиваемый пропуск в held НЕ входит (не
@@ -506,7 +517,7 @@ def get_group_progress(group_id: int) -> Optional[dict]:
     """
     import math
 
-    from apps.lessons.models import Lesson, LessonAttendance
+    from apps.lessons.models import Lesson, LessonAttendance, LessonSkip
     from apps.memberships.models import GroupMembership
     from apps.memberships.repository import cumulative_transferred_lessons
 
@@ -553,8 +564,28 @@ def get_group_progress(group_id: int) -> Optional[dict]:
         if slot > max_slot:
             max_slot = slot
 
+    # Пометки «неоплачиваемый пропуск» живут на СЛОТЕ группы (lesson_skips), а не
+    # на строке посещаемости, и ставятся в том числе на ЕЩЁ НЕ ПРОВЕДЁННЫЕ уроки
+    # (см. LessonSkip). Раньше матрица читала только lesson_attendance.unpaid_skip,
+    # поэтому у ученика, добавленного в группу на 38-м уроке, синими выходили лишь
+    # те пропуски, под которыми уже есть проведённый урок, а остальные дорисовыва-
+    # лись по мере того, как группа доходила до этих слотов. Один запрос на матрицу.
+    skip_slots: set[tuple[int, int]] = set()
+    max_skip_slot = 0
+    for skip_student_id, skip_number in (
+        LessonSkip.objects
+        .filter(group_id=group_id)
+        .values_list('student_id', 'lesson_number')
+    ):
+        skip_slot = max(1, round(float(skip_number) / step))
+        skip_slots.add((skip_student_id, skip_slot))
+        if skip_slot > max_skip_slot:
+            max_skip_slot = skip_slot
+
     total_lessons = grp['total_lessons'] or 0
-    slot_count = max(max_slot, round(total_lessons / step))
+    # max_skip_slot в ширине матрицы: помеченный пропуск обязан иметь свой столбец,
+    # даже если он выходит за длину курса — иначе часть пометок просто негде показать.
+    slot_count = max(max_slot, round(total_lessons / step), max_skip_slot)
 
     # Посещаемость всех уроков группы разом: (lesson_id, student_id) →
     # (present, is_free, unpaid_skip) — исходы для раскраски матрицы.
@@ -606,11 +637,21 @@ def get_group_progress(group_id: int) -> Optional[dict]:
         present = 0
         held = 0
         for col in slots:
+            # Пометка на слоте — самостоятельный факт: «этот урок ученик не
+            # посещает, денег ноль». Она не ждёт проведения урока, поэтому слот
+            # красится синим сразу, а не по факту.
+            is_skip_slot = (sid, col['slot']) in skip_slots
             if not col['held']:
-                cells.append(None)
+                # cells=False (а не None) — фронт красит синим только ячейки
+                # cell===false (см. computeCellStatuses); заодно такая ячейка
+                # перестаёт расходовать «бюджет» переведённых уроков, и это
+                # верно: явная пометка сильнее presentational-разметки перевода.
+                cells.append(False if is_skip_slot else None)
                 compensated.append(False)
                 free.append(False)
-                skip_cells.append(False)
+                skip_cells.append(is_skip_slot)
+                # held/present не трогаем: неоплачиваемый пропуск — не
+                # обязательство посещения (как плановый слот и перевод).
                 continue
             key = (col['lesson_id'], sid)
             if key not in att_map:
@@ -627,6 +668,15 @@ def get_group_progress(group_id: int) -> Optional[dict]:
                     # Отработан доп.уроком/сожжён — засчитывается как посещение.
                     held += 1
                     present += 1
+                elif is_skip_slot:
+                    # Урок проведён, строки посещаемости у ученика нет (его не было
+                    # в составе на момент записи), но слот помечен пропуском —
+                    # это синяя ячейка, а не «Не проведён». Реальная посещаемость
+                    # сюда не попадает: ветка работает только при отсутствии att_map.
+                    cells.append(False)
+                    compensated.append(False)
+                    free.append(False)
+                    skip_cells.append(True)
                 else:
                     cells.append(None)
                     compensated.append(False)
