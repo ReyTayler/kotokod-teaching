@@ -50,6 +50,20 @@ tbody tr:last-child { border-bottom: none; }
 /* Наведение подсвечивает строку целиком — при плотных 8px это главный
    ориентир «где я в таблице», поэтому фон заметнее прежнего. */
 tbody tr:hover { background: var(--bg3); }
+/* Строка, требующая разбора («Ждёт решения» в доп.уроках): мягкая красная
+   заливка на всю ширину — статус виден до того, как глаз дошёл до колонки.
+   Заливка строится от --danger через color-mix (как .btn-danger и остальные
+   мягкие поверхности), поэтому в тёмной теме тон уезжает вместе с палитрой, а
+   не остаётся светло-розовым.
+   Правила стоят ПОСЛЕ `tbody tr:hover`: при равной специфичности выигрывает
+   последнее, иначе общий --bg3 на наведении стирал бы подсветку. */
+tbody tr.row--danger { background: color-mix(in oklab, var(--danger) 7%, transparent); }
+tbody tr.row--danger:hover { background: color-mix(in oklab, var(--danger) 13%, transparent); }
+/* Текст строки — тем же красным, но насыщеннее заливки (--danger-strong, см.
+   tokens.css): на бледной подложке обычный --text2 читался как «обычная строка,
+   которую зачем-то подкрасили». Кнопка «…» держит свой --text3 и краснеть не
+   должна — это управление, а не данные. */
+tbody tr.row--danger td { color: var(--danger-strong); }
 .data-table thead tr:nth-child(2) th { padding: 4px 8px; background: var(--bg3); border-bottom: 1px solid var(--border); }
 
 

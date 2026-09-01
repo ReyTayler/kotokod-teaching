@@ -226,6 +226,9 @@ export default function ExtraLessonsListPage() {
         columns={columns}
         title="Доп.уроки"
         isLoading={isFetching}
+        // Нерешённые пропуски — красным на всю строку: это очередь на разбор,
+        // и её видно до того, как глаз дошёл до колонки «Статус».
+        rowClassName={(r) => (r.status === 'pending' ? 'row--danger' : undefined)}
         serverPagination={{
           page, pageSize, total, sortBy, sortDir, filters,
           onPageChange: setPage, onPageSizeChange: setPageSize,

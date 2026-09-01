@@ -38,6 +38,10 @@ interface Props<T> {
    *  PageHeader — таблица им больше не владеет (см. комментарий к компоненту). */
   title?: string;
   onRowClick?: (row: T) => void;
+  /** CSS-класс строки по её данным — подсветка состояния, требующего внимания
+   *  (напр. `.row--danger` на «Ждёт решения»). Возвращать undefined там, где
+   *  подсветки нет: пустая строка добавила бы className="" на каждый <tr>. */
+  rowClassName?: (row: T) => string | undefined;
   /** Действия в тулбаре фильтров. Основные действия страницы — в PageHeader. */
   headerActions?: ReactNode;
   // если передан — переключение в server-mode
@@ -57,7 +61,7 @@ interface Props<T> {
  * они делали её двухэтажной, требовали sticky-привязки к магической высоте
  * (`top: 37px`) и сжимали поля ввода до ширины колонки.
  */
-export function DataTable<T>({ data, columns, title, onRowClick, headerActions, serverPagination, isLoading }: Props<T>) {
+export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, headerActions, serverPagination, isLoading }: Props<T>) {
   const [filters, setFilters] = useState<Record<string, string>>({});
   const hasFilters = Object.values(filters).some((v) => v && v.trim() !== '');
 
@@ -144,6 +148,7 @@ export function DataTable<T>({ data, columns, title, onRowClick, headerActions, 
                 ) : data.map((row, i) => (
                   <tr
                     key={i}
+                    className={rowClassName?.(row)}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
                     style={onRowClick ? { cursor: 'pointer' } : undefined}
                   >
@@ -198,6 +203,7 @@ export function DataTable<T>({ data, columns, title, onRowClick, headerActions, 
             ) : filtered.map((row, i) => (
               <tr
                 key={i}
+                className={rowClassName?.(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 style={onRowClick ? { cursor: 'pointer' } : undefined}
               >
