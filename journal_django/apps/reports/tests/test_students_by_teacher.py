@@ -224,8 +224,68 @@ def test_student_without_group_is_absent(data):
     assert [r for r in _rows() if r.student_name == '__sbt_s9__'] == []
 
 
-def test_rows_sorted_by_teacher_then_student_then_group(data):
-    """Сортировка: преподаватель → ученик → группа."""
+def test_group_month_lessons_counts_course_lessons_only(data):
+    """«Уроков у группы» — курсовая сетка месяца: доп.урок и сгорание не в счёт."""
+    t = data.teacher('__sbt_tE__')
+    g = data.group('__sbt_gE__', t)
+    s1, s2 = data.student('__sbt_sE1__'), data.student('__sbt_sE2__')
+    data.membership(s1, g)
+    data.membership(s2, g)
+    for i, day in enumerate(('2026-07-07', '2026-07-14', '2026-07-21'), start=1):
+        lesson = data.lesson(g, day, i)
+        data.attend(lesson, s1, present=True)
+        data.attend(lesson, s2, present=(i == 1))
+    # Сетку группы не удлиняют: отработка адресная, сгорание — списание денег.
+    data.attend(data.lesson(g, '2026-07-28', 3.5, lesson_type='extra'), s2, present=True)
+    data.attend(data.lesson(g, '2026-07-14', 2, lesson_type='burned'), s2, present=True)
+    # Занятие соседнего месяца в июльскую сетку тоже не входит.
+    data.attend(data.lesson(g, '2026-08-04', 4), s1, present=True)
+
+    rows = _rows()
+
+    assert _row(rows, '__sbt_sE1__').group_lessons == Decimal('3')
+    assert _row(rows, '__sbt_sE1__').lessons == Decimal('3')
+    # У ученика 1 занятие группы + отработка; сгорание не считается.
+    assert _row(rows, '__sbt_sE2__').group_lessons == Decimal('3')
+    assert _row(rows, '__sbt_sE2__').lessons == Decimal('2')
+
+
+def test_group_month_lessons_use_half_lesson_weight(data):
+    """Сетка группы считается в уроках: 45-минутные занятия — по 0.5."""
+    t = data.teacher('__sbt_tF__')
+    g = data.group('__sbt_gF__', t, duration=45)
+    s = data.student('__sbt_sF__')
+    data.membership(s, g)
+    for i, day in enumerate(('2026-07-06', '2026-07-08', '2026-07-13'), start=1):
+        data.attend(data.lesson(g, day, i), s, present=(i != 2))
+
+    row = _row(_rows(), '__sbt_sF__')
+
+    assert (row.group_lessons, row.lessons) == (Decimal('1.5'), Decimal('1'))
+
+
+def test_group_without_lessons_in_month_has_zero_group_lessons(data):
+    """Группа не занималась в месяце — 0 уроков у группы, не пустая ячейка."""
+    t = data.teacher('__sbt_tG__')
+    g = data.group('__sbt_gG__', t)
+    s = data.student('__sbt_sG__')
+    data.membership(s, g)
+
+    assert _row(_rows(), '__sbt_sG__').group_lessons == Decimal('0')
+
+
+def test_direction_of_the_group_is_reported(data):
+    """Направление — свойство группы ученика."""
+    t = data.teacher('__sbt_tH__')
+    g = data.group('__sbt_gH__', t)
+    s = data.student('__sbt_sH__')
+    data.membership(s, g)
+
+    assert _row(_rows(), '__sbt_sH__').direction_name == '__sbt_dir__'
+
+
+def test_rows_sorted_by_teacher_then_group_then_student(data):
+    """Сортировка: преподаватель → группа → ученик."""
     t1, t2 = data.teacher('__sbt_tA__'), data.teacher('__sbt_tB__')
     g_a1 = data.group('__sbt_gA1__', t1)
     g_a2 = data.group('__sbt_gA2__', t1)
@@ -236,11 +296,11 @@ def test_rows_sorted_by_teacher_then_student_then_group(data):
 
     rows = [r for r in _rows() if r.teacher_name.startswith('__sbt_t')]
 
-    assert [(r.teacher_name, r.student_name, r.group_name) for r in rows] == [
-        ('__sbt_tA__', '__sbt_sX__', '__sbt_gA1__'),
-        ('__sbt_tA__', '__sbt_sX__', '__sbt_gA2__'),
-        ('__sbt_tA__', '__sbt_sY__', '__sbt_gA1__'),
-        ('__sbt_tB__', '__sbt_sX__', '__sbt_gB__'),
+    assert [(r.teacher_name, r.group_name, r.student_name) for r in rows] == [
+        ('__sbt_tA__', '__sbt_gA1__', '__sbt_sX__'),
+        ('__sbt_tA__', '__sbt_gA1__', '__sbt_sY__'),
+        ('__sbt_tA__', '__sbt_gA2__', '__sbt_sX__'),
+        ('__sbt_tB__', '__sbt_gB__', '__sbt_sX__'),
     ]
 
 
@@ -257,10 +317,11 @@ def test_render_bytes_writes_sheet(data):
 
     assert ws.title == 'Ученики по преподавателям'
     assert [c.value for c in ws[1]] == [
-        'Ученик', 'Группа', 'Преподаватель', 'Уроков за месяц',
+        'Группа', 'Преподаватель', 'Ученик',
+        'Уроков у группы за месяц', 'Посещено учеником', 'Направление',
     ]
     body = [[c.value for c in row] for row in ws.iter_rows(min_row=2)]
-    assert ['__sbt_sC__', '__sbt_gC__', '__sbt_tC__', 0.5] in body
+    assert ['__sbt_gC__', '__sbt_tC__', '__sbt_sC__', 0.5, 0.5, '__sbt_dir__'] in body
 
 
 def test_build_returns_named_file(data):

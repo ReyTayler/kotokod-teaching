@@ -7,7 +7,7 @@
 момент; фактические замены на отдельных занятиях (`lessons.teacher_id`) в этот
 отчёт не попадают — так и просили.
 
-Два неочевидных правила подсчёта:
+Три неочевидных правила подсчёта:
 
   • Сгорание урока материализовано отдельной записью-уроком с present=true
     (см. apps/extra_lessons/services.py), поэтому фильтра по present мало —
@@ -15,6 +15,10 @@
     посещённым.
   • Единица — УРОК, не занятие: инвариант half-lesson (45 минут → 0.5). Вес
     берётся с самого занятия, не с группы: у отработок длительность своя.
+  • «Уроков у группы за месяц» — только курсовые занятия (COURSE_LESSON_TYPES).
+    Доп.урок и сгорание адресные: они принадлежат ученику, а не сетке группы.
+    Поэтому у ученика посещений может оказаться больше, чем провела группа, —
+    это отработка пропуска, и так и должно быть.
 
 См. docs/superpowers/specs/2026-09-03-students-by-teacher-report-design.md
 """
@@ -28,33 +32,60 @@ from decimal import Decimal
 from django.db.models import Case, DecimalField, Sum, Value, When
 
 from apps.core.utils.dates import msk_month_range
-from apps.lessons.models import LessonAttendance
+from apps.lessons.models import COURSE_LESSON_TYPES, Lesson, LessonAttendance
 from apps.memberships.models import GroupMembership
 
 # Сгорание — не посещение (present=true у записи-факта, см. модуль-docstring).
 BURNED_LESSON_TYPE = 'burned'
 HALF_LESSON_MINUTES = 45
 
-_LESSON_WEIGHT = Sum(
-    Case(
-        When(lesson__lesson_duration_minutes=HALF_LESSON_MINUTES, then=Value(Decimal('0.5'))),
-        default=Value(Decimal('1')),
-        output_field=DecimalField(max_digits=8, decimal_places=1),
+ZERO = Decimal('0')
+
+
+def _lesson_weight(duration_field: str) -> Sum:
+    """Сумма весов уроков: 45 минут → 0.5, иначе 1 (инвариант half-lesson)."""
+    return Sum(
+        Case(
+            When(**{duration_field: HALF_LESSON_MINUTES}, then=Value(Decimal('0.5'))),
+            default=Value(Decimal('1')),
+            output_field=DecimalField(max_digits=8, decimal_places=1),
+        )
     )
-)
 
 
 @dataclass
 class StudentTeacherRow:
     """Строка отчёта: ученик в одной конкретной группе за месяц."""
 
-    student_name: str
     group_name: str
     teacher_name: str
+    student_name: str
+    group_lessons: Decimal
     lessons: Decimal
+    direction_name: str
 
 
-def _attended_pairs(month_start: datetime.date, month_end: datetime.date) -> dict:
+def _group_month_lessons(month_start: datetime.date, month_end: datetime.date) -> dict:
+    """Сколько уроков провела каждая группа за месяц: group_id → сумма весов.
+
+    Только курсовые занятия: доп.урок и сгорание — адресные факты ученика, сетку
+    группы они не удлиняют (см. модуль-docstring).
+    """
+    rows = (
+        Lesson.objects
+        .filter(
+            lesson_date__gte=month_start,
+            lesson_date__lte=month_end,
+            lesson_type__in=COURSE_LESSON_TYPES,
+        )
+        .values('group_id')
+        .annotate(lessons=_lesson_weight('lesson_duration_minutes'))
+    )
+    return {r['group_id']: r['lessons'] or ZERO for r in rows}
+
+
+def _attended_pairs(month_start: datetime.date, month_end: datetime.date,
+                    group_lessons: dict) -> dict:
     """Посещения месяца, свёрнутые до (ученик, группа) → сумма весов уроков."""
     rows = (
         LessonAttendance.objects
@@ -66,16 +97,19 @@ def _attended_pairs(month_start: datetime.date, month_end: datetime.date) -> dic
         .exclude(lesson__lesson_type=BURNED_LESSON_TYPE)
         .values(
             'student_id', 'student__full_name',
-            'lesson__group_id', 'lesson__group__name', 'lesson__group__teacher__name',
+            'lesson__group_id', 'lesson__group__name',
+            'lesson__group__teacher__name', 'lesson__group__direction__name',
         )
-        .annotate(lessons=_LESSON_WEIGHT)
+        .annotate(lessons=_lesson_weight('lesson__lesson_duration_minutes'))
     )
     return {
         (r['student_id'], r['lesson__group_id']): StudentTeacherRow(
-            student_name=r['student__full_name'],
             group_name=r['lesson__group__name'],
             teacher_name=r['lesson__group__teacher__name'],
-            lessons=r['lessons'] or Decimal('0'),
+            student_name=r['student__full_name'],
+            group_lessons=group_lessons.get(r['lesson__group_id'], ZERO),
+            lessons=r['lessons'] or ZERO,
+            direction_name=r['lesson__group__direction__name'],
         )
         for r in rows
     }
@@ -98,36 +132,49 @@ def collect_month(month: str) -> list[StudentTeacherRow]:
     month_start = datetime.date.fromisoformat(start_str)
     month_end = datetime.date.fromisoformat(end_str)
 
-    by_pair = _attended_pairs(month_start, month_end)
+    group_lessons = _group_month_lessons(month_start, month_end)
+    by_pair = _attended_pairs(month_start, month_end, group_lessons)
 
     # Активные членства — чтобы ученик, не появившийся за месяц ни разу, тоже
     # дал строку (0 уроков), а не молча исчез из отчёта преподавателя.
     memberships = GroupMembership.objects.filter(active=True).values(
         'student_id', 'student__full_name',
-        'group_id', 'group__name', 'group__teacher__name',
+        'group_id', 'group__name', 'group__teacher__name', 'group__direction__name',
     )
     for m in memberships:
         key = (m['student_id'], m['group_id'])
         if key in by_pair:
             continue
         by_pair[key] = StudentTeacherRow(
-            student_name=m['student__full_name'],
             group_name=m['group__name'],
             teacher_name=m['group__teacher__name'],
-            lessons=Decimal('0'),
+            student_name=m['student__full_name'],
+            group_lessons=group_lessons.get(m['group_id'], ZERO),
+            lessons=ZERO,
+            direction_name=m['group__direction__name'],
         )
 
     return sorted(
         by_pair.values(),
-        key=lambda r: (r.teacher_name, r.student_name, r.group_name),
+        key=lambda r: (r.teacher_name, r.group_name, r.student_name),
     )
+
+
+HEADERS = [
+    'Группа', 'Преподаватель', 'Ученик',
+    'Уроков у группы за месяц', 'Посещено учеником', 'Направление',
+]
+_COLUMN_WIDTHS = {1: 26, 2: 26, 3: 32, 4: 18, 5: 18, 6: 24}
+# Колонки-числа: Excel должен их суммировать сам, поэтому float + формат «0.#».
+_NUMERIC_COLUMNS = (4, 5)
 
 
 def build_workbook(rows: list[StudentTeacherRow]):
     """Собрать openpyxl.Workbook: плоский лист без строк итогов.
 
     Плоский он намеренно — служебные строки ломают автофильтр и сводные таблицы,
-    которыми этот отчёт и разбирают."""
+    которыми этот отчёт и разбирают.
+    """
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
@@ -136,39 +183,44 @@ def build_workbook(rows: list[StudentTeacherRow]):
     ws = wb.active
     ws.title = 'Ученики по преподавателям'
 
-    headers = ['Ученик', 'Группа', 'Преподаватель', 'Уроков за месяц']
-    ws.append(headers)
+    ws.append(HEADERS)
 
     header_font = Font(bold=True)
     header_fill = PatternFill('solid', fgColor='EDEDED')
-    center = Alignment(horizontal='center', vertical='center')
+    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    number_align = Alignment(horizontal='center')
     thin = Side(style='thin', color='D9D9D9')
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     for cell in ws[1]:
         cell.font = header_font
         cell.fill = header_fill
-        cell.alignment = center
+        cell.alignment = header_align
         cell.border = border
 
     for i, row in enumerate(rows):
         r_idx = 2 + i
-        ws.cell(row=r_idx, column=1, value=row.student_name)
-        ws.cell(row=r_idx, column=2, value=row.group_name)
-        ws.cell(row=r_idx, column=3, value=row.teacher_name)
+        ws.cell(row=r_idx, column=1, value=row.group_name)
+        ws.cell(row=r_idx, column=2, value=row.teacher_name)
+        ws.cell(row=r_idx, column=3, value=row.student_name)
         # float, а не Decimal/строка: иначе Excel не просуммирует колонку сам.
-        lessons_cell = ws.cell(row=r_idx, column=4, value=float(row.lessons))
-        # Кратно 0.5: показываем «4» и «4,5», без хвоста «4,0».
-        lessons_cell.number_format = '0.#'
-        lessons_cell.alignment = center
-        for col in range(1, 5):
-            ws.cell(row=r_idx, column=col).border = border
+        ws.cell(row=r_idx, column=4, value=float(row.group_lessons))
+        ws.cell(row=r_idx, column=5, value=float(row.lessons))
+        ws.cell(row=r_idx, column=6, value=row.direction_name)
+        for col in range(1, len(HEADERS) + 1):
+            cell = ws.cell(row=r_idx, column=col)
+            cell.border = border
+            if col in _NUMERIC_COLUMNS:
+                # Кратно 0.5: показываем «4» и «4,5», без хвоста «4,0».
+                cell.number_format = '0.#'
+                cell.alignment = number_align
 
-    for col_idx, width in {1: 32, 2: 26, 3: 26, 4: 16}.items():
+    for col_idx, width in _COLUMN_WIDTHS.items():
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
+    last_col = get_column_letter(len(HEADERS))
     ws.freeze_panes = ws.cell(row=2, column=1)
-    ws.auto_filter.ref = f'A1:D{max(len(rows) + 1, 2)}'
+    ws.auto_filter.ref = f'A1:{last_col}{max(len(rows) + 1, 2)}'
     return wb
 
 
