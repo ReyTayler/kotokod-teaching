@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from apps.reports.builders import (
     accounting, attendance, renewals, retention, revenue_forecast,
+    students_by_teacher,
 )
 from apps.reports.models import ReportType
 
@@ -19,6 +20,7 @@ _BUILDERS = {
     ReportType.ATTENDANCE_MONTH: attendance.build,
     ReportType.REVENUE_FORECAST: revenue_forecast.build,
     ReportType.RETENTION: retention.build,
+    ReportType.STUDENTS_BY_TEACHER: students_by_teacher.build,
 }
 
 

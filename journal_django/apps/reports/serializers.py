@@ -57,3 +57,7 @@ class RevenueForecastParamsSerializer(_MonthStringSerializer):
 
 class RetentionReportParamsSerializer(_MonthStringSerializer):
     """Параметры «Отчёта по переходимости»: месяц строкой YYYY-MM."""
+
+
+class StudentsByTeacherParamsSerializer(_MonthStringSerializer):
+    """Параметры отчёта «Ученики по преподавателям»: месяц строкой YYYY-MM."""

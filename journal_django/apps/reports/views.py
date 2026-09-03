@@ -30,6 +30,7 @@ from apps.reports.serializers import (
     RenewalsReportParamsSerializer,
     RetentionReportParamsSerializer,
     RevenueForecastParamsSerializer,
+    StudentsByTeacherParamsSerializer,
 )
 from apps.reports.tasks import generate_report_task
 
@@ -44,6 +45,7 @@ _PARAM_SERIALIZERS = {
     ReportType.ATTENDANCE_MONTH: AttendanceReportParamsSerializer,
     ReportType.REVENUE_FORECAST: RevenueForecastParamsSerializer,
     ReportType.RETENTION: RetentionReportParamsSerializer,
+    ReportType.STUDENTS_BY_TEACHER: StudentsByTeacherParamsSerializer,
 }
 
 

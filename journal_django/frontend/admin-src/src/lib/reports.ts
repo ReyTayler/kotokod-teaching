@@ -20,6 +20,7 @@ export const ACCOUNTING_MONTH = 'accounting_month';
 export const ATTENDANCE_MONTH = 'attendance_month';
 export const REVENUE_FORECAST = 'revenue_forecast';
 export const RETENTION = 'retention';
+export const STUDENTS_BY_TEACHER = 'students_by_teacher';
 
 // Месяцы для селекта.
 export const MONTHS_RU = [
@@ -96,6 +97,14 @@ export const REPORT_TYPES: ReportTypeDef[] = [
     desc: 'По каждому направлению и преподавателю за месяц: сколько детей занималось, '
       + 'сколько продлилось, ушло и зависло — с развёрткой по всем циклам продлений. '
       + 'Цикл = 1 абонемент = 4 урока.',
+    buildParams: (year, month) => ({ month: ym(year, month) }),
+  },
+  {
+    reportType: STUDENTS_BY_TEACHER,
+    title: 'Ученики по преподавателям',
+    desc: 'По каждому ученику и каждой его группе за месяц: основной преподаватель группы '
+      + 'и сколько уроков ученик отзанимался. Ученик из двух групп даёт две строки — '
+      + 'по одной на преподавателя. 45-минутное занятие считается за 0,5 урока.',
     buildParams: (year, month) => ({ month: ym(year, month) }),
   },
 ];
