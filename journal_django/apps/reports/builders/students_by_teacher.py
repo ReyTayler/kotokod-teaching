@@ -19,6 +19,11 @@
     Доп.урок и сгорание адресные: они принадлежат ученику, а не сетке группы.
     Поэтому у ученика посещений может оказаться больше, чем провела группа, —
     это отработка пропуска, и так и должно быть.
+  • Из сетки группы вычитаются неоплачиваемые пропуски ЭТОГО ученика
+    (`unpaid_skip`): такие занятия он не посещает и не оплачивает (перевод,
+    заморозка), спрашивать с него их нельзя. Поэтому колонка считается на пару
+    «ученик × группа», а не на группу: у двух учеников одной группы числа
+    законно разойдутся, а у пропустившего весь месяц будет 0.
 
 См. docs/superpowers/specs/2026-09-03-students-by-teacher-report-design.md
 """
@@ -84,8 +89,31 @@ def _group_month_lessons(month_start: datetime.date, month_end: datetime.date) -
     return {r['group_id']: r['lessons'] or ZERO for r in rows}
 
 
-def _attended_pairs(month_start: datetime.date, month_end: datetime.date,
-                    group_lessons: dict) -> dict:
+def _unpaid_skip_pairs(month_start: datetime.date, month_end: datetime.date) -> dict:
+    """Неоплачиваемые пропуски месяца: (ученик, группа) → сумма весов уроков.
+
+    Эти занятия ученик не посещает и не оплачивает (перевод, заморозка) — из его
+    личной нормы они вычитаются, иначе отчёт требовал бы с него уроки, которых
+    для него не было.
+    """
+    rows = (
+        LessonAttendance.objects
+        .filter(
+            unpaid_skip=True,
+            lesson__lesson_date__gte=month_start,
+            lesson__lesson_date__lte=month_end,
+            lesson__lesson_type__in=COURSE_LESSON_TYPES,
+        )
+        .values('student_id', 'lesson__group_id')
+        .annotate(lessons=_lesson_weight('lesson__lesson_duration_minutes'))
+    )
+    return {
+        (r['student_id'], r['lesson__group_id']): r['lessons'] or ZERO
+        for r in rows
+    }
+
+
+def _attended_pairs(month_start: datetime.date, month_end: datetime.date) -> dict:
     """Посещения месяца, свёрнутые до (ученик, группа) → сумма весов уроков."""
     rows = (
         LessonAttendance.objects
@@ -107,7 +135,7 @@ def _attended_pairs(month_start: datetime.date, month_end: datetime.date,
             group_name=r['lesson__group__name'],
             teacher_name=r['lesson__group__teacher__name'],
             student_name=r['student__full_name'],
-            group_lessons=group_lessons.get(r['lesson__group_id'], ZERO),
+            group_lessons=ZERO,  # личная норма ученика — ниже, в collect_month
             lessons=r['lessons'] or ZERO,
             direction_name=r['lesson__group__direction__name'],
         )
@@ -133,7 +161,8 @@ def collect_month(month: str) -> list[StudentTeacherRow]:
     month_end = datetime.date.fromisoformat(end_str)
 
     group_lessons = _group_month_lessons(month_start, month_end)
-    by_pair = _attended_pairs(month_start, month_end, group_lessons)
+    unpaid_skips = _unpaid_skip_pairs(month_start, month_end)
+    by_pair = _attended_pairs(month_start, month_end)
 
     # Активные членства — чтобы ученик, не появившийся за месяц ни разу, тоже
     # дал строку (0 уроков), а не молча исчез из отчёта преподавателя.
@@ -149,10 +178,18 @@ def collect_month(month: str) -> list[StudentTeacherRow]:
             group_name=m['group__name'],
             teacher_name=m['group__teacher__name'],
             student_name=m['student__full_name'],
-            group_lessons=group_lessons.get(m['group_id'], ZERO),
+            group_lessons=ZERO,
             lessons=ZERO,
             direction_name=m['group__direction__name'],
         )
+
+    # Личная норма ученика: сетка группы минус его неоплачиваемые пропуски.
+    # max(..., 0) — страховка от расхождений в данных (пропусков помечено больше,
+    # чем занятий в сетке): отрицательная «норма» в отчёте была бы бессмыслицей.
+    for (student_id, group_id), row in by_pair.items():
+        norm = group_lessons.get(group_id, ZERO) - unpaid_skips.get(
+            (student_id, group_id), ZERO)
+        row.group_lessons = norm if norm > ZERO else ZERO
 
     return sorted(
         by_pair.values(),

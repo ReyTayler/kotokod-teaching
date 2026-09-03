@@ -264,6 +264,63 @@ def test_group_month_lessons_use_half_lesson_weight(data):
     assert (row.group_lessons, row.lessons) == (Decimal('1.5'), Decimal('1'))
 
 
+def test_unpaid_skip_is_subtracted_from_personal_norm(data):
+    """Неоплачиваемый пропуск не спрашивается с ученика: норма меньше сетки."""
+    t = data.teacher('__sbt_tI__')
+    g = data.group('__sbt_gI__', t)
+    s1, s2 = data.student('__sbt_sI1__'), data.student('__sbt_sI2__')
+    data.membership(s1, g)
+    data.membership(s2, g)
+    for i, day in enumerate(('2026-07-07', '2026-07-14', '2026-07-21', '2026-07-28'),
+                            start=1):
+        lesson = data.lesson(g, day, i)
+        data.attend(lesson, s1, present=True)
+        # Второго перевели после первого занятия — дальше неоплачиваемый пропуск.
+        data.attend(lesson, s2, present=(i == 1), unpaid_skip=(i != 1))
+
+    rows = _rows()
+
+    assert (_row(rows, '__sbt_sI1__').group_lessons,
+            _row(rows, '__sbt_sI1__').lessons) == (Decimal('4'), Decimal('4'))
+    assert (_row(rows, '__sbt_sI2__').group_lessons,
+            _row(rows, '__sbt_sI2__').lessons) == (Decimal('1'), Decimal('1'))
+
+
+def test_all_month_unpaid_skip_gives_zero_norm(data):
+    """Весь месяц неоплачиваемый пропуск — норма 0, а не сетка группы."""
+    t = data.teacher('__sbt_tJ__')
+    g = data.group('__sbt_gJ__', t)
+    s_active, s_skip = data.student('__sbt_sJ1__'), data.student('__sbt_sJ2__')
+    data.membership(s_active, g)
+    data.membership(s_skip, g)
+    for i, day in enumerate(('2026-07-07', '2026-07-14', '2026-07-21'), start=1):
+        lesson = data.lesson(g, day, i)
+        data.attend(lesson, s_active, present=True)
+        data.attend(lesson, s_skip, present=False, unpaid_skip=True)
+
+    rows = _rows()
+
+    assert _row(rows, '__sbt_sJ2__').group_lessons == Decimal('0')
+    assert _row(rows, '__sbt_sJ2__').lessons == Decimal('0')
+    # У соседа по группе норма прежняя — вычет личный, не групповой.
+    assert _row(rows, '__sbt_sJ1__').group_lessons == Decimal('3')
+
+
+def test_unpaid_skip_subtracted_with_half_lesson_weight(data):
+    """Вычет считается в уроках: пропущенное 45-минутное занятие — 0.5."""
+    t = data.teacher('__sbt_tK__')
+    g = data.group('__sbt_gK__', t, duration=45)
+    s = data.student('__sbt_sK__')
+    data.membership(s, g)
+    for i, day in enumerate(('2026-07-06', '2026-07-08', '2026-07-13'), start=1):
+        data.attend(data.lesson(g, day, i), s, present=(i == 1),
+                    unpaid_skip=(i != 1))
+
+    row = _row(_rows(), '__sbt_sK__')
+
+    assert (row.group_lessons, row.lessons) == (Decimal('0.5'), Decimal('0.5'))
+
+
 def test_group_without_lessons_in_month_has_zero_group_lessons(data):
     """Группа не занималась в месяце — 0 уроков у группы, не пустая ячейка."""
     t = data.teacher('__sbt_tG__')
