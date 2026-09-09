@@ -64,8 +64,10 @@ export const REPORT_TYPES: ReportTypeDef[] = [
   },
   {
     reportType: ACCOUNTING_MONTH,
-    title: 'Бухгалтерский отчёт',
-    desc: 'По каждому ученику за месяц: посещённые уроки, оплаты, остаток оплаченных уроков и остаток аванса.',
+    title: 'Отчёт по поступлениям и выручке',
+    desc: 'Реестр поступлений: каждая оплата, признавшая выручку в выбранном месяце — '
+      + 'дата платежа, цена 1 урока, признанная выручка по месяцам, выручка итого, '
+      + 'возвраты и остаток аванса на конец месяца.',
     buildParams: (year, month) => ({ month: ym(year, month) }),
   },
   {
@@ -109,3 +111,8 @@ export const REPORT_TYPES: ReportTypeDef[] = [
     buildParams: (year, month) => ({ month: ym(year, month) }),
   },
 ];
+
+/** Описание отчёта по его типу из адреса страницы (`/admin/reports/:reportType`). */
+export function findReportType(reportType: string): ReportTypeDef | undefined {
+  return REPORT_TYPES.find((def) => def.reportType === reportType);
+}

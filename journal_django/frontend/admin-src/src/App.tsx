@@ -30,6 +30,7 @@ import RenewalsPage from './pages/renewals/RenewalsPage';
 import TasksPage from './pages/tasks/TasksPage';
 import RenewalStagesSettings from './pages/renewals/RenewalStagesSettings';
 import ReportsPage from './pages/reports/ReportsPage';
+import ReportPage from './pages/reports/ReportPage';
 import KnowledgeListPage from './pages/knowledge/KnowledgeListPage';
 import KnowledgeDocumentPage from './pages/knowledge/KnowledgeDocumentPage';
 
@@ -70,6 +71,7 @@ export function App() {
             <Route path="/admin/renewals/stages" element={<RequireRole roles={['superadmin']}><RenewalStagesSettings /></RequireRole>} />
             <Route path="/admin/tasks" element={<RequireRole roles={['manager','admin','superadmin']}><TasksPage /></RequireRole>} />
             <Route path="/admin/reports" element={<RequireRole roles={['manager','admin','superadmin']}><ReportsPage /></RequireRole>} />
+            <Route path="/admin/reports/:reportType" element={<RequireRole roles={['manager','admin','superadmin']}><ReportPage /></RequireRole>} />
 
             <Route path="/admin/knowledge" element={<KnowledgeListPage />} />
             <Route path="/admin/knowledge/:id" element={<KnowledgeDocumentPage />} />

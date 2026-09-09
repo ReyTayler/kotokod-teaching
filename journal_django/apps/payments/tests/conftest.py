@@ -21,12 +21,17 @@ def django_db_setup():
 # ---------------------------------------------------------------------------
 
 def _get_teacher_id() -> int:
+    """Преподаватель для уроков; на пустой journal_test создаём своего.
+
+    Раньше здесь был pytest.skip — на чистой тестовой БД это молча выключало
+    тесты оплат целиком."""
     with connection.cursor() as cur:
         cur.execute('SELECT id FROM teachers LIMIT 1')
         row = cur.fetchone()
-    if not row:
-        pytest.skip('No teachers in DB — skipping payments tests')
-    return row[0]
+        if row:
+            return row[0]
+        cur.execute("INSERT INTO teachers (name) VALUES ('__pay_teacher__') RETURNING id")
+        return cur.fetchone()[0]
 
 
 # ---------------------------------------------------------------------------

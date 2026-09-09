@@ -175,16 +175,44 @@ def test_manager_cannot_create_surcharge(manager_client, parent_payment, student
 
 
 @pytest.mark.django_db
-def test_surcharge_counts_in_month_cash(admin_client, parent_payment, student_fixture):
-    """Доплата попадает в поступления своего месяца — ради этого фича и делалась."""
+def test_surcharge_is_folded_into_parent_payment_row(
+    admin_client, parent_payment, student_fixture, group_fixture, teacher_id_fixture,
+):
+    """
+    Доплата — не самостоятельное поступление: собственной партии она не образует,
+    поэтому в реестре признания выручки видна колонкой «Доплаты» у своей
+    родительской оплаты, а строки у самой доплаты нет.
+    """
     from apps.finances.reports import collect_monthly_report
     payload = _surcharge_payload(parent_payment)
     payload['student_id'] = student_fixture
-    admin_client.post(BASE_URL, payload, format='json')
-
-    rows = collect_monthly_report('2026-02')
-    row = next(r for r in rows if r.student_id == student_fixture)
-    assert row.paid_month_total == Decimal('1000')
+    resp = admin_client.post(BASE_URL, payload, format='json')
+    surcharge_id = resp.json()['id']
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
+            "lesson_duration_minutes, lesson_type, submitted_by_token) "
+            "VALUES (%s,%s,'2026-02-05',1,60,'group','test') RETURNING id",
+            [group_fixture, teacher_id_fixture],
+        )
+        lesson_id = cur.fetchone()[0]
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s,%s,true)',
+            [lesson_id, student_fixture],
+        )
+    try:
+        rows = collect_monthly_report('2026-02').rows
+        row = next(r for r in rows if r.payment_id == parent_payment)
+        assert row.surcharge_amount == Decimal('1000')
+        assert not [r for r in rows if r.payment_id == surcharge_id]
+        # Инвариант строки: сумма + доплаты = выручка + возврат + аванс.
+        assert row.total_amount + row.surcharge_amount == (
+            row.revenue_total + row.refunded + row.advance
+        )
+    finally:
+        with connection.cursor() as cur:
+            cur.execute('DELETE FROM lesson_attendance WHERE lesson_id = %s', [lesson_id])
+            cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])
 
 
 @pytest.mark.django_db

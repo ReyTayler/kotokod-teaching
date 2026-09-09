@@ -41,6 +41,13 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
   — тот же хвост, но по партиям и в порядке очереди. Нужен прогнозу выручки
   (apps/finances/revenue_forecast.py): месяц режется по 4 урока и может попасть
   на партии с РАЗНОЙ ценой, поэтому свёрнутой суммы по направлению не хватает.
+  worked_off_by_month_payment: { (ym, payment_id): Decimal } — признанная выручка
+  в разрезе ПЛАТЕЖА (не направления): чьи именно деньги стали выручкой в этом
+  месяце. remaining_by_payment / refunded_by_payment: { payment_id: Decimal } —
+  тот же разрез для неотработанного остатка и для денег, погашенных возвратом.
+  Все три — ТОЧНЫЕ Decimal без округления (потребитель — реестр признания
+  выручки, apps/finances/reports.py — округляет один раз). Партии без
+  payment_id в эти разрезы не попадают.
   worked_off_by_month_lot_direction / worked_off_by_month_lesson_direction:
   { (ym, direction_id): {'value': Decimal, 'lessons': Decimal} } — один и тот же
   факт отработки в двух разрезах: по направлению ОПЛАТЫ (чьи деньги списаны) и по
@@ -91,6 +98,15 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     # выручку на том курсе, который её заработал, даже если деньги пришли с
     # партии другого направления (пул оплат общий на ученика).
     by_month_lesson_direction: dict = {}
+    # Разрезы ПО ПЛАТЕЖУ (реестр признания выручки, спека 2026-09-08). Партия
+    # знает свой payment_id (build_lots); оплата с доплатами даёт несколько
+    # партий с одним id — здесь они складываются обратно в один платёж.
+    # ВАЖНО: значения НЕ округляются до копеек (в отличие от worked_off_*) —
+    # потребитель округляет один раз и распределяет невязку, та же дисциплина,
+    # что у remaining_lots.price_per_lesson.
+    by_month_payment: dict = {}
+    remaining_by_payment: dict = {}
+    refunded_by_payment: dict = {}
     unit_prices_month: list[Decimal] = []
     unit_qtys_month: list[Decimal] = []  # уроков (units, half-lesson=0.5) на каждую цену
 
@@ -109,6 +125,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                 continue
             take = need if need < lot_remaining else lot_remaining  # min(need, lot_remaining)
             value = take * to_decimal(lots[lot_idx]['price_per_lesson'])
+            payment_id = lots[lot_idx].get('payment_id')
             if not is_refund:
                 worked_off_total += value
                 ym = c['date'][:7]
@@ -126,6 +143,9 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                 )
                 lesson_bucket['value'] += value
                 lesson_bucket['lessons'] += take
+                if payment_id is not None:
+                    mp_key = (ym, payment_id)
+                    by_month_payment[mp_key] = by_month_payment.get(mp_key, _ZERO) + value
                 if in_month:
                     worked_off_month += value
                     price = to_decimal(lots[lot_idx]['price_per_lesson'])
@@ -134,6 +154,11 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                         unit_qtys_month.append(take)
                     else:
                         unit_qtys_month[-1] += take
+            elif payment_id is not None:
+                # Возврат: деньги партии погашены, но выручкой не стали.
+                refunded_by_payment[payment_id] = (
+                    refunded_by_payment.get(payment_id, _ZERO) + value
+                )
             lot_remaining -= take
             need -= take
         if need > 0 and not is_refund:
@@ -163,6 +188,11 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             'price_per_lesson': price,
             'direction_id': lot.get('direction_id'),
         })
+        payment_id = lot.get('payment_id')
+        if payment_id is not None:
+            remaining_by_payment[payment_id] = (
+                remaining_by_payment.get(payment_id, _ZERO) + lessons * price
+            )
 
     if lot_idx < len(lots):
         remaining_value += lot_remaining * to_decimal(lots[lot_idx]['price_per_lesson'])
@@ -211,4 +241,12 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             k: {'value': round_kopecks(v['value']), 'lessons': v['lessons']}
             for k, v in by_month_lesson_direction.items()
         },
+        # Разрезы по ПЛАТЕЖУ для реестра признания выручки: чьи именно деньги
+        # стали выручкой в этом месяце, сколько от платежа осталось авансом и
+        # сколько погашено возвратом. ТОЧНЫЕ Decimal без округления —
+        # округление один раз делает отчёт, отдавая невязку последнему месяцу.
+        # Партии без payment_id (легаси-вызовы) сюда не попадают.
+        'worked_off_by_month_payment': dict(by_month_payment),
+        'remaining_by_payment': dict(remaining_by_payment),
+        'refunded_by_payment': dict(refunded_by_payment),
     }

@@ -21,8 +21,9 @@ def test_builder_returns_valid_workbook():
     assert isinstance(count, int)
     from openpyxl import load_workbook
     ws = load_workbook(io.BytesIO(content)).active
+    assert ws.title == 'Реестр'
     assert ws.cell(row=1, column=1).value == 'ФИО ученика'
-    assert ws.cell(row=1, column=3).value == 'Посещено уроков за месяц'
+    assert ws.cell(row=1, column=4).value == 'Дата оплаты'
 
 
 def test_build_report_accounting_via_service():

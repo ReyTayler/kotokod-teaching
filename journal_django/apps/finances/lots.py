@@ -27,7 +27,10 @@ def build_lots(rows, surcharges_by_parent):
           синтетические списания).
     surcharges_by_parent: {parent_payment_id: {subscription_index: Decimal сумма}}.
 
-    Возвращает [{'lessons': int, 'price_per_lesson': Decimal, 'direction_id': int|None}].
+    Возвращает [{'lessons': int, 'price_per_lesson': Decimal, 'direction_id': int|None,
+                 'payment_id': int}]. payment_id — id оплаты, породившей партию;
+    оплата с доплатами даёт несколько партий с ОДНИМ payment_id (по нему реестр
+    признания выручки собирает их обратно в один платёж).
     """
     lots = []
     for r in rows:
@@ -45,13 +48,14 @@ def build_lots(rows, surcharges_by_parent):
                 'lessons': lessons,
                 'price_per_lesson': total / Decimal(lessons),
                 'direction_id': direction_id,
+                'payment_id': r['id'],
             })
             continue
-        lots.extend(_split_into_blocks(lessons, total, surcharges, direction_id))
+        lots.extend(_split_into_blocks(lessons, total, surcharges, direction_id, r['id']))
     return lots
 
 
-def _split_into_blocks(lessons: int, total: Decimal, surcharges: dict, direction_id):
+def _split_into_blocks(lessons: int, total: Decimal, surcharges: dict, direction_id, payment_id):
     """
     Разрезать оплату на абонементы по 4 урока и раздать доплаты по номерам блоков.
 
@@ -91,5 +95,6 @@ def _split_into_blocks(lessons: int, total: Decimal, surcharges: dict, direction
             'lessons': block_lessons,
             'price_per_lesson': (base + extra) / Decimal(block_lessons),
             'direction_id': direction_id,
+            'payment_id': payment_id,
         })
     return out

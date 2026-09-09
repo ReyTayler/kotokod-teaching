@@ -1,76 +1,74 @@
 /* journal_django/frontend/admin-src/src/styles/pages/reports.css */
-/* Раздел «Отчёты»: карточки генерации (без истории — отчёты не хранятся). */
+/* Раздел «Отчёты»: список отчётов (таблица) + страница одного отчёта с формой.
+   Истории нет — отчёты не хранятся, файл скачивается по готовности. */
 
-.report-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+/* Название отчёта — единственная колонка списка, поэтому набрано как ссылка-
+   заголовок строки, а не как обычная ячейка данных. */
+.report-list__name {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.report-page {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4);
 }
 
-.report-card {
+/* Форма узкая: поля отчёта — это два-три коротких значения, растянутые на всю
+   ширину экрана они читались бы хуже, а не лучше. */
+.report-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  align-items: flex-start;
+  gap: var(--space-4);
+  max-width: 480px;
   padding: var(--space-4);
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
 }
 
-.report-card__head {
+.report-form__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.report-form__fields .field { width: 100%; }
+
+.report-form__toggle {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.report-card__title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
+.report-form__submit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-.report-card__desc {
-  font-size: 13px;
+.report-form__submit .btn-add { align-self: flex-start; }
+
+.report-form__status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Пустой статус не должен оставлять после кнопки полосу воздуха. */
+.report-form__status:empty { display: none; }
+
+.report-form__hint {
+  font-size: var(--fs-sm);
   color: var(--text3);
-  max-width: 60ch;
   line-height: 1.5;
 }
 
-.report-card__controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-}
+.report-form__hint--warn { color: var(--warning); }
+.report-form__hint--error { color: var(--danger); }
+.report-form__hint--ok { color: var(--success); }
 
-.report-card__controls > * {
-  min-width: 140px;
-}
-
-.report-card__controls .btn-add {
-  min-width: auto;
-}
-
-/* Подпись к селектору месяца — нужна там, где «за месяц» неточно (у прогноза
-   это месяц НАЧАЛА раскладки, а не отчётный период). */
-.report-card__control-label {
-  min-width: auto;
-  font-size: 13px;
-  color: var(--text3);
-}
-
-/* Флажок в ряду контролов не тянется на общую min-width селектов. */
-.report-card__controls .checkbox {
-  min-width: auto;
-}
-
-.report-card__hint {
-  font-size: 13px;
-  color: var(--text3);
-}
-
-.report-card__hint--warn { color: var(--warning); }
-.report-card__hint--error { color: var(--danger); }
-.report-card__hint--ok { color: var(--success); }
-
-[data-theme="dark"] .report-card__hint--ok { color: #4ade80; }
+[data-theme="dark"] .report-form__hint--ok { color: #4ade80; }

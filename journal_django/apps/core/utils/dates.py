@@ -75,3 +75,21 @@ def msk_month_range(d: str | datetime.date | datetime.datetime) -> tuple[str, st
     last_day = next_month_first - datetime.timedelta(days=1)
 
     return first_day.strftime('%Y-%m-%d'), last_day.strftime('%Y-%m-%d')
+
+
+_MONTH_NAMES = (
+    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+)
+
+
+def month_label(ym: str) -> str:
+    """'2026-07' → 'Июль 2026'. Подпись месяца-колонки в отчётах."""
+    year, month = int(ym[:4]), int(ym[5:7])
+    return f'{_MONTH_NAMES[month - 1]} {year}'
+
+
+def next_month(ym: str) -> str:
+    """'2026-12' → '2027-01'."""
+    year, month = int(ym[:4]), int(ym[5:7])
+    return f'{year + 1}-01' if month == 12 else f'{year}-{month + 1:02d}'

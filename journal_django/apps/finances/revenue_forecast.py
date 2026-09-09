@@ -55,7 +55,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
-from apps.core.utils.dates import msk_month_range, msk_today
+from apps.core.utils.dates import month_label, msk_month_range, msk_today, next_month
 from apps.core.utils.decimal import round_kopecks
 from apps.directions.models import Direction
 from apps.finances.fifo import compute_fifo
@@ -67,24 +67,6 @@ from apps.students.models import Student
 LESSONS_PER_MONTH = Decimal('4')
 
 NO_DIRECTION = 'Без направления'
-
-_MONTH_NAMES = (
-    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-)
-
-
-def month_label(ym: str) -> str:
-    """'2026-07' → 'Июль 2026'."""
-    year, month = int(ym[:4]), int(ym[5:7])
-    return f'{_MONTH_NAMES[month - 1]} {year}'
-
-
-def next_month(ym: str) -> str:
-    """'2026-12' → '2027-01'."""
-    year, month = int(ym[:4]), int(ym[5:7])
-    return f'{year + 1}-01' if month == 12 else f'{year}-{month + 1:02d}'
-
 
 @dataclass
 class ForecastRow:

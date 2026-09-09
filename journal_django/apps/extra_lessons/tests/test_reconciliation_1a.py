@@ -97,11 +97,9 @@ def _payroll_sum(teacher_id: int) -> int:
         return int(cur.fetchone()[0])
 
 
-def _report_row(month: str, student_id: int):
-    for row in collect_monthly_report(month):
-        if row.student_id == student_id:
-            return row
-    return None
+def _report_rows(month: str, student_id: int):
+    """Строки реестра признания выручки по ученику (строка = платёж)."""
+    return [r for r in collect_monthly_report(month).rows if r.student_id == student_id]
 
 
 def test_makeup_money_reconciliation_1a(
@@ -158,13 +156,15 @@ def test_makeup_money_reconciliation_1a(
         assert balance == 7
         assert balance == baseline_balance - 1
 
-        # --- Помесячный отчёт за апрель (месяц проведения доп.урока) ----------
-        row = _report_row('2026-04', student_fixture)
-        assert row is not None
-        assert row.attended_lessons == 1                 # посещено в апреле
-        assert row.worked_off_month == Decimal('1000')   # 1 урок × 1000 ₽
-        assert row.balance == 7
-        assert row.remaining_value == Decimal('7000')    # 7 × 1000 ₽
+        # --- Реестр признания выручки за апрель (месяц доп.урока) -------------
+        rows = _report_rows('2026-04', student_fixture)
+        assert len(rows) == 1                                      # одна оплата ученика
+        row = rows[0]
+        assert row.revenue_by_month['2026-04'] == Decimal('1000')   # 1 урок × 1000 ₽
+        assert row.advance == Decimal('7000')                       # 7 × 1000 ₽
+        assert row.total_amount + row.surcharge_amount == (
+            row.revenue_total + row.refunded + row.advance
+        )
 
         # --- Зарплата преподавателя: 0 (пропуск) + 200 (доп.урок) = 200 ------
         assert _payroll_sum(teacher_fixture) == 200

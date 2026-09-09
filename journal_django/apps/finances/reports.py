@@ -1,65 +1,108 @@
 """
-Сборка данных бухгалтерского отчёта за месяц + запись в Excel.
+Отчёт по поступлениям и выручке: реестр платежей + запись в Excel.
 
-Переиспользует существующие сервисы финансов — не дублирует правила
-half-lesson и FIFO-остаток аванса (apps.finances.repository.fifo_inputs +
-apps.finances.fifo.compute_fifo, тот же батч-паттерн, что
-apps/dashboard/services.py::get_dashboard использует для deferred_total —
-один проход по всем ученикам, без запроса в цикле).
+Строка = поступление клиента: дата оплаты, цена 1 урока по этому платежу,
+признанная выручка по календарным месяцам до выбранного включительно, выручка
+итого, возвращённые деньги и остаток аванса на конец выбранного месяца.
 
-«Посещено уроков за месяц» тоже выводится из inp['cons_by_key']
-(fifo_inputs()), а не отдельным запросом к LessonAttendance: так «посещено»
-и «отработано» относятся к одному и тому же месяцу для одного и того же
-события. И доп.урок, и сгорание — отдельные записи-уроки (lesson_type
-'extra'/'burned'), их собственная lesson_date = дата проведения/сжигания
-естественно относит деньги к нужному месяцу, без отдельного ремаппинга.
+Правила денег не дублируются: партии строит apps/finances/lots.py::build_lots,
+очередь — apps/finances/fifo.py::compute_fifo. Отчёт лишь читает разрезы по
+платежу (worked_off_by_month_payment / remaining_by_payment /
+refunded_by_payment), которые FIFO отдаёт точными Decimal.
 
-См. docs/superpowers/specs/2026-07-15-accounting-monthly-report-design.md
+As-of: потребления обрезаются по последний день выбранного месяца ДО вызова
+compute_fifo — отсюда и аванс на конец месяца, и отсутствие месяцев позже
+выбранного, без отдельной арифметики.
+
+См. docs/superpowers/specs/2026-09-08-accounting-payment-ledger-design.md
 """
 from __future__ import annotations
 
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
-from apps.core.utils.dates import msk_month_range
-from apps.core.utils.decimal import js_number
+from django.db.models import F, Sum
+
+from apps.core.utils.dates import month_label, msk_month_range, next_month
+from apps.core.utils.decimal import round_kopecks
 from apps.finances.fifo import compute_fifo
-from apps.finances.repository import (
-    _date_str,
-    balances_for_students,
-    fifo_inputs,
-    free_attended_units_by_month,
-)
+from apps.finances.repository import _date_str, fifo_inputs
 from apps.payments.models import Payment
 from apps.students.models import Student
 
+NO_DIRECTION = 'Без направления'
+
+_ZERO = Decimal('0')
+
 
 @dataclass
-class MonthlyReportRow:
+class PaymentLedgerRow:
+    """Одно поступление клиента и судьба его денег на конец выбранного месяца."""
+
+    payment_id: int
     student_id: int
     full_name: str
     platform_id: str | None
-    attended_lessons: int | float          # оплаченные + бесплатные посещённые
-    free_attended_lessons: int | float     # из них бесплатных (present, is_free)
-    worked_off_month: Decimal
-    unit_prices_month: list[Decimal]
-    unit_qtys_month: list[Decimal]          # уроков по каждой цене (выровнено с prices)
-    payments: list[tuple[str, Decimal]]
-    paid_month_total: Decimal
-    balance: int | float
-    remaining_value: Decimal
+    direction_name: str
+    paid_at: str                  # 'YYYY-MM-DD'
+    total_amount: Decimal         # сумма самой оплаты, без доплат
+    surcharge_amount: Decimal     # доплаты к абонементам этой оплаты
+    unit_price: Decimal           # (сумма + доплаты) / уроков оплаты
+    # 'YYYY-MM' → признанная выручка месяца (только месяцы с признанием).
+    revenue_by_month: dict[str, Decimal] = field(default_factory=dict)
+    revenue_total: Decimal = _ZERO
+    refunded: Decimal = _ZERO
+    advance: Decimal = _ZERO
 
 
-def collect_monthly_report(month: str) -> list[MonthlyReportRow]:
+@dataclass
+class LedgerReport:
+    """Готовые данные листа: месяцы-колонки и строки-платежи."""
+
+    month: str
+    months: list[str]
+    rows: list[PaymentLedgerRow]
+
+
+def _months_range(first: str, last: str) -> list[str]:
+    """Сплошная шкала календарных месяцев [first, last]."""
+    out = [first]
+    while out[-1] < last:
+        out.append(next_month(out[-1]))
+    return out
+
+
+def _round_by_month(exact_by_month: dict[str, Decimal]) -> tuple[dict[str, Decimal], Decimal]:
     """
-    Данные отчёта по ВСЕМ ученикам системы за указанный месяц.
+    Округлить месяцы до копеек, отдав невязку последнему месяцу с признанием.
 
-    month: 'YYYY-MM'. Посещаемость/оплаты (kind purchase+extra)/отработанные деньги —
-    только внутри месяца [month_start, month_end] включительно. Баланс и остаток
-    аванса — на сегодня (те же величины, что apps.finances.balance.get_student_balance
-    отдаёт per-student, но здесь батчево на всех разом).
+    Тот же приём, что в apps/finances/revenue_forecast.py: сумма показанных
+    ячеек в точности равна округлённой признанной выручке платежа.
+    """
+    total = round_kopecks(sum(exact_by_month.values(), _ZERO))
+    ordered = sorted(exact_by_month)  # 'YYYY-MM' лексикографически = хронологически
+    rounded: dict[str, Decimal] = {}
+    accumulated = _ZERO
+    for i, ym in enumerate(ordered):
+        if i < len(ordered) - 1:
+            cell = round_kopecks(exact_by_month[ym])
+            accumulated += cell
+        else:
+            cell = total - accumulated
+        rounded[ym] = cell
+    return rounded, total
+
+
+def collect_monthly_report(month: str) -> LedgerReport:
+    """
+    Реестр платежей, признавших выручку в указанном месяце.
+
+    month: 'YYYY-MM'. В отчёт попадает платёж, у которого в этом месяце есть
+    признанная выручка. Признание показывается по всем месяцам от самого
+    раннего среди отобранных строк до указанного включительно; аванс — остаток
+    на конец указанного месяца.
 
     Raises:
         ValueError: month не в формате YYYY-MM / невалидный месяц (1-12).
@@ -71,214 +114,201 @@ def collect_monthly_report(month: str) -> list[MonthlyReportRow]:
         datetime.date.fromisoformat(month_end) + datetime.timedelta(days=1)
     ).strftime('%Y-%m-%d')
 
-    students = list(
-        Student.objects.order_by('full_name').values('id', 'full_name', 'platform_id')
-    )
-    student_ids = [s['id'] for s in students]
-
-    # kind__in=['purchase','extra','surcharge']: доплата за доп.урок сверх курса
-    # (kind='extra') — реальная выручка и полноценная FIFO-партия (fifo_inputs
-    # берёт всё, кроме refund), поэтому в листе оплат/«Итого оплачено» она обязана
-    # присутствовать — иначе отчёт теряет деньги и рассинхронен с «Остатком
-    # аванса». Доплата к абонементу (kind='surcharge') — по той же причине: это
-    # реально полученные от клиента деньги (просто без уроков, они уже куплены
-    # родительской оплатой), без неё касса месяца, в котором клиент доплатил,
-    # была бы занижена ровно на сумму доплаты. refund не входит: это возврат, он
-    # гасит остаток отдельной синтетической записью в FIFO.
-    payment_rows = (
-        Payment.objects
-        .filter(kind__in=['purchase', 'extra', 'surcharge'],
-                paid_at__gte=month_start, paid_at__lte=month_end)
-        .order_by('student_id', 'paid_at', 'id')
-        .values('student_id', 'paid_at', 'total_amount')
-    )
-    payments_by_student: dict[int, list[tuple[str, Decimal]]] = {}
-    for r in payment_rows:
-        payments_by_student.setdefault(r['student_id'], []).append(
-            (_date_str(r['paid_at']), r['total_amount'])
-        )
-
-    balances = balances_for_students(student_ids)
-
-    # Бесплатные посещённые уроки за месяц — отдельным батчем: в FIFO-потребление
-    # они не входят (is_free=False там), но «Посещено» их должно учитывать.
-    free_by_student = free_attended_units_by_month(month_start, month_end)
-
     inp = fifo_inputs()
-    remaining_value_by_student: dict[int, Decimal] = {}
-    worked_off_month_by_student: dict[int, Decimal] = {}
-    unit_prices_month_by_student: dict[int, list[Decimal]] = {}
-    unit_qtys_month_by_student: dict[int, list[Decimal]] = {}
-    attended_by_student: dict[int, Decimal] = {}
+    worked: dict[tuple[str, int], Decimal] = {}
+    remaining: dict[int, Decimal] = {}
+    refunded: dict[int, Decimal] = {}
     for key in inp['keys']:
+        # As-of: всё, что позже конца месяца, отчёт ещё «не видит».
+        cons = [c for c in inp['cons_by_key'].get(key, []) if c['date'] <= month_end]
         fifo = compute_fifo(
-            inp['lots_by_key'].get(key, []), inp['cons_by_key'].get(key, []),
-            month_start, month_end_exclusive,
+            inp['lots_by_key'].get(key, []), cons, month_start, month_end_exclusive,
         )
-        sid = int(key)
-        remaining_value_by_student[sid] = fifo['remaining_value']
-        worked_off_month_by_student[sid] = fifo['worked_off_month']
-        unit_prices_month_by_student[sid] = fifo['worked_off_unit_prices_month']
-        unit_qtys_month_by_student[sid] = fifo['worked_off_units_month']
+        # Платёж принадлежит ровно одному ученику, поэтому ключи разных
+        # учеников не пересекаются и update() ничего не затирает.
+        worked.update(fifo['worked_off_by_month_payment'])
+        remaining.update(fifo['remaining_by_payment'])
+        refunded.update(fifo['refunded_by_payment'])
 
-        # «Посещено уроков за месяц» — из ТЕХ ЖЕ consumption-записей, что и
-        # «отработано» (inp['cons_by_key'], построены fifo_inputs()). В новой
-        # модели факт доп.урока сам является consumption-записью в дату своего
-        # проведения (исходный пропуск остаётся present=false), поэтому «посещено»
-        # и «отработано» в отчёте всегда относятся к одному и тому же месяцу для
-        # одного и того же события, без задвоения по доп.уроку.
-        attended = Decimal('0')
-        for c in inp['cons_by_key'].get(key, []):
-            if c.get('refund'):
-                continue
-            # Инклюзивная граница [month_start, month_end] — семантически то же
-            # окно, что compute_fifo(..., month_start, month_end_exclusive) выше
-            # (month_end_exclusive = month_end + 1 день), просто без открытого
-            # интервала: обе стороны должны двигаться синхронно при правке.
-            if month_start <= c['date'] <= month_end:
-                attended += c['units']
-        attended_by_student[sid] = attended
+    selected = {pid for (ym, pid), value in worked.items() if ym == month and value > 0}
+    if not selected:
+        return LedgerReport(month=month, months=[month], rows=[])
 
-    rows: list[MonthlyReportRow] = []
-    for s in students:
-        sid = s['id']
-        payments = payments_by_student.get(sid, [])
-        # «Посещено» = оплаченные (attended_by_student, из FIFO-потребления, без free)
-        # + бесплатные (free_by_student). free показывается отдельной колонкой, поэтому
-        # оплаченные = attended_lessons − free_attended_lessons сходятся с суммой
-        # unit_qtys_month (детализация по ценам считает только оплаченные списания).
-        paid_attended = attended_by_student.get(sid, Decimal('0'))
-        free_attended = free_by_student.get(sid, Decimal('0'))
-        rows.append(MonthlyReportRow(
-            student_id=sid,
-            full_name=s['full_name'],
-            platform_id=s['platform_id'],
-            attended_lessons=js_number(paid_attended + free_attended),
-            free_attended_lessons=js_number(free_attended),
-            worked_off_month=worked_off_month_by_student.get(sid, Decimal('0')),
-            unit_prices_month=unit_prices_month_by_student.get(sid, []),
-            unit_qtys_month=unit_qtys_month_by_student.get(sid, []),
-            payments=payments,
-            paid_month_total=sum((amount for _, amount in payments), Decimal('0')),
-            balance=balances.get(sid, 0),
-            remaining_value=remaining_value_by_student.get(sid, Decimal('0')),
+    exact_by_payment: dict[int, dict[str, Decimal]] = {}
+    for (ym, pid), value in worked.items():
+        if pid in selected and value > 0:
+            exact_by_payment.setdefault(pid, {})[ym] = value
+
+    earliest = min(ym for months in exact_by_payment.values() for ym in months)
+
+    payments = list(
+        Payment.objects
+        .filter(id__in=selected)
+        .values('id', 'student_id', 'paid_at', 'total_amount', 'lessons_count',
+                direction_name=F('direction__name'))
+    )
+    surcharge_rows = (
+        Payment.objects
+        .filter(kind='surcharge', parent_payment_id__in=selected)
+        .values('parent_payment_id')
+        .annotate(total=Sum('total_amount'))
+    )
+    surcharge_by_parent = {r['parent_payment_id']: r['total'] for r in surcharge_rows}
+    students = {
+        s['id']: s
+        for s in Student.objects
+        .filter(id__in={p['student_id'] for p in payments})
+        .values('id', 'full_name', 'platform_id')
+    }
+
+    rows: list[PaymentLedgerRow] = []
+    for p in payments:
+        pid = p['id']
+        by_month, revenue_total = _round_by_month(exact_by_payment[pid])
+        refund_amount = round_kopecks(refunded.get(pid, _ZERO))
+        surcharge = Decimal(surcharge_by_parent.get(pid) or 0)
+        gross = Decimal(p['total_amount']) + surcharge
+        lessons = int(p['lessons_count'] or 0)
+        student = students.get(p['student_id'], {})
+        rows.append(PaymentLedgerRow(
+            payment_id=pid,
+            student_id=p['student_id'],
+            full_name=student.get('full_name') or '',
+            platform_id=student.get('platform_id'),
+            direction_name=p['direction_name'] or NO_DIRECTION,
+            paid_at=_date_str(p['paid_at']),
+            total_amount=Decimal(p['total_amount']),
+            surcharge_amount=surcharge,
+            unit_price=round_kopecks(gross / lessons) if lessons > 0 else _ZERO,
+            revenue_by_month=by_month,
+            revenue_total=revenue_total,
+            refunded=refund_amount,
+            # Аванс абсорбирует невязку округления: строка сходится всегда. В
+            # точной арифметике это и есть remaining_by_payment (см. §4.4 спеки).
+            advance=gross - revenue_total - refund_amount,
         ))
-    return rows
+
+    rows.sort(key=lambda r: (r.full_name, r.paid_at, r.payment_id))
+    return LedgerReport(month=month, months=_months_range(earliest, month), rows=rows)
 
 
-def _pair_cols(base: int, i: int) -> tuple[int, int]:
-    """1-й/2-й столбец i-й пары (0-based) начиная с колонки base."""
-    return base + 2 * i, base + 2 * i + 1
+_MONEY_FMT = '#,##0.00'
+_DATE_FMT = 'DD.MM.YYYY'
+
+# Оформление листа (референс пользователя 2026-09-08). Шапка разбита на
+# смысловые блоки, каждый со своим оттенком серого; текст белый жирный. Внутри
+# блока оттенок один — глаз читает «кто заплатил / сколько / когда признали /
+# итог» как четыре зоны, а не как полсотни одинаковых колонок.
+_FONT_NAME = 'Calibri'
+_FONT_SIZE = 11
+_HEADER_REF = 'FF595959'      # опорные: ФИО, Platform ID, направление, дата
+_HEADER_MONEY = 'FF7F7F7F'    # деньги платежа: сумма, доплаты, цена урока
+_HEADER_MONTH = 'FF9C9C9C'    # колонки-месяцы признания выручки
+_HEADER_TOTAL = 'FF595959'    # итоги: выручка, возвраты, аванс
+_GRID = 'FFD9D9D9'
 
 
-def build_report_workbook(rows: list[MonthlyReportRow]):
-    """Собрать openpyxl.Workbook отчёта (один ученик = одна строка), без сохранения.
+def build_report_workbook(report: LedgerReport):
+    """Собрать openpyxl.Workbook реестра (одна строка = один платёж), без сохранения.
 
-    Общее ядро для write_report_xlsx (запись в файл, CLI-команда) и
-    render_report_bytes (байты для ReportJob в разделе «Отчёты»)."""
+    Общее ядро для write_report_xlsx (файл на диск, CLI-команда) и
+    render_report_bytes (байты для раздела «Отчёты»)."""
     import openpyxl
-    from openpyxl.styles import Font
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
-
-    max_prices = max((len(r.unit_prices_month) for r in rows), default=0)
-    max_payments = max((len(r.payments) for r in rows), default=0)
-
-    # Фиксированные колонки: ФИО(1) / Platform ID(2) / Посещено(3) /
-    # в т.ч. бесплатных(4) / Отработано ₽(5). Дальше — блок пар «Стоимость 1
-    # урока i / Уроков по цене i» (2 колонки на цену), затем блок оплат (пары
-    # дата/платёж), затем итог/баланс/остаток.
-    free_col = 4
-    worked_col = 5
-    price_base = 6
-    payments_base = price_base + max_prices * 2
-    total_col = payments_base + max_payments * 2
-    balance_col = total_col + 1
-    remaining_col = balance_col + 1
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = 'Отчёт'
+    ws.title = 'Реестр'
 
     headers = [
-        'ФИО ученика', 'Platform ID', 'Посещено уроков за месяц',
-        'в т.ч. бесплатных', 'Отработано деньгами за месяц, ₽',
+        'ФИО ученика', 'Platform ID', 'Направление оплаты', 'Дата оплаты',
+        'Сумма платежа, ₽', 'Доплаты, ₽', 'Цена 1 урока, ₽',
     ]
-    for i in range(1, max_prices + 1):
-        headers += [f'Стоимость 1 урока {i}', f'Уроков по цене {i}']
-    for i in range(1, max_payments + 1):
-        headers += [f'Дата {i}', f'Платёж {i}']
-    headers += ['Итого оплачено за месяц, ₽', 'Остаток оплаченных уроков', 'Остаток аванса, ₽']
+    headers += [month_label(ym) for ym in report.months]
+    headers += ['Выручка итого, ₽', 'Возвращено, ₽', 'Аванс, ₽']
     ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
 
-    money_fmt = '#,##0.00'
-    date_fmt = 'DD.MM.YYYY'
+    months_base = 8                                   # 1-я колонка-месяц
+    total_col = months_base + len(report.months)
+    refunded_col = total_col + 1
+    advance_col = refunded_col + 1
 
-    for row in rows:
+    header_font = Font(name=_FONT_NAME, size=_FONT_SIZE, bold=True, color='FFFFFFFF')
+    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    for col in range(1, advance_col + 1):
+        if col <= 4:
+            colour = _HEADER_REF
+        elif col <= 7:
+            colour = _HEADER_MONEY
+        elif col < total_col:
+            colour = _HEADER_MONTH
+        else:
+            colour = _HEADER_TOTAL
+        cell = ws.cell(row=1, column=col)
+        cell.font = header_font
+        cell.alignment = header_align
+        cell.fill = PatternFill('solid', start_color=colour, end_color=colour)
+    ws.row_dimensions[1].height = 32
+
+    for row in report.rows:
         values: list = [
-            row.full_name, row.platform_id or '-', row.attended_lessons,
-            row.free_attended_lessons, float(row.worked_off_month),
+            row.full_name, row.platform_id or '-', row.direction_name,
+            datetime.date.fromisoformat(row.paid_at),
+            float(row.total_amount), float(row.surcharge_amount), float(row.unit_price),
         ]
-        for i in range(max_prices):
-            if i < len(row.unit_prices_month):
-                values += [float(row.unit_prices_month[i]), float(row.unit_qtys_month[i])]
-            else:
-                values += ['-', '-']
-        for i in range(max_payments):
-            if i < len(row.payments):
-                pay_date, pay_amount = row.payments[i]
-                values += [datetime.date.fromisoformat(pay_date), float(pay_amount)]
-            else:
-                values += ['-', '-']
-        values += [float(row.paid_month_total), row.balance, float(row.remaining_value)]
+        # Месяц без признания — пустая ячейка (а не '-'): лист разреженный, а
+        # SUM по колонке месяца должен читаться без правок.
+        values += [
+            float(row.revenue_by_month[ym]) if ym in row.revenue_by_month else None
+            for ym in report.months
+        ]
+        values += [float(row.revenue_total), float(row.refunded), float(row.advance)]
         ws.append(values)
 
-    for excel_row in range(2, len(rows) + 2):
-        ws.cell(row=excel_row, column=worked_col).number_format = money_fmt
-        for i in range(max_prices):
-            price_col, _qty_col = _pair_cols(price_base, i)
-            ws.cell(row=excel_row, column=price_col).number_format = money_fmt
-        for i in range(max_payments):
-            date_col, amount_col = _pair_cols(payments_base, i)
-            date_cell = ws.cell(row=excel_row, column=date_col)
-            if isinstance(date_cell.value, datetime.date):
-                date_cell.number_format = date_fmt
-            ws.cell(row=excel_row, column=amount_col).number_format = money_fmt
-        ws.cell(row=excel_row, column=total_col).number_format = money_fmt
-        ws.cell(row=excel_row, column=remaining_col).number_format = money_fmt
+    money_cols = [5, 6, 7, total_col, refunded_col, advance_col]
+    money_cols += list(range(months_base, months_base + len(report.months)))
+    body_font = Font(name=_FONT_NAME, size=_FONT_SIZE)
+    thin = Side(style='thin', color=_GRID)
+    grid = Border(left=thin, right=thin, top=thin, bottom=thin)
+    date_align = Alignment(horizontal='center')
+    for excel_row in range(2, len(report.rows) + 2):
+        for col in range(1, advance_col + 1):
+            cell = ws.cell(row=excel_row, column=col)
+            cell.font = body_font
+            cell.border = grid
+        ws.cell(row=excel_row, column=4).number_format = _DATE_FMT
+        ws.cell(row=excel_row, column=4).alignment = date_align
+        for col in money_cols:
+            ws.cell(row=excel_row, column=col).number_format = _MONEY_FMT
 
-    widths = {
-        1: 32, 2: 14, 3: 12, free_col: 14, worked_col: 16,
-        total_col: 18, balance_col: 14, remaining_col: 14,
-    }
-    for i in range(max_prices):
-        price_col, qty_col = _pair_cols(price_base, i)
-        widths[price_col] = 14
-        widths[qty_col] = 12
-    for i in range(max_payments):
-        date_col, amount_col = _pair_cols(payments_base, i)
-        widths[date_col] = 12
-        widths[amount_col] = 12
+    widths = {1: 32, 2: 14, 3: 22, 4: 13, 5: 16, 6: 12, 7: 15,
+              total_col: 16, refunded_col: 14, advance_col: 14}
+    for i in range(len(report.months)):
+        widths[months_base + i] = 13
     for col_idx, width in widths.items():
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
-    ws.freeze_panes = 'A2'
+    last_col = get_column_letter(advance_col)
+    ws.auto_filter.ref = f'A1:{last_col}{len(report.rows) + 1}'
+    # Месяцев бывает под полсотни: закрепляем шапку ВМЕСТЕ с опорными колонками
+    # (кто, куда и когда заплатил), иначе при прокрутке вправо строка теряет имя.
+    ws.freeze_panes = 'E2'
     return wb
 
 
-def write_report_xlsx(rows: list[MonthlyReportRow], path: str | Path) -> None:
-    """Пишет rows в один лист «Отчёт»: один ученик = одна строка (файл на диск)."""
-    wb = build_report_workbook(rows)
+def write_report_xlsx(report: LedgerReport, path: str | Path) -> None:
+    """Пишет реестр в один лист «Реестр» (файл на диск)."""
+    wb = build_report_workbook(report)
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out_path))
 
 
-def render_report_bytes(rows: list[MonthlyReportRow]) -> bytes:
-    """Отчёт как xlsx-байты (для хранения в ReportJob.content)."""
+def render_report_bytes(report: LedgerReport) -> bytes:
+    """Реестр как xlsx-байты (для раздела «Отчёты»)."""
     import io
-    wb = build_report_workbook(rows)
+    wb = build_report_workbook(report)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

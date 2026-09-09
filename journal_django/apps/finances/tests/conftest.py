@@ -13,18 +13,25 @@ def django_db_setup():
     pass
 
 
-def _get_teacher_id() -> int:
+@pytest.fixture
+def teacher_id_fixture():
+    """
+    Преподаватель для уроков. Раньше фикстура делала pytest.skip, если в БД не
+    было ни одного — на пустой journal_test это молча выключало почти все тесты
+    финансов. Теперь преподаватель создаётся и убирается за собой.
+    """
     with connection.cursor() as cur:
         cur.execute('SELECT id FROM teachers LIMIT 1')
         row = cur.fetchone()
-    if not row:
-        pytest.skip('No teachers in DB')
-    return row[0]
-
-
-@pytest.fixture
-def teacher_id_fixture():
-    return _get_teacher_id()
+    if row:
+        yield row[0]
+        return
+    with connection.cursor() as cur:
+        cur.execute("INSERT INTO teachers (name) VALUES ('__fin_teacher__') RETURNING id")
+        tid = cur.fetchone()[0]
+    yield tid
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM teachers WHERE id = %s', [tid])
 
 
 @pytest.fixture

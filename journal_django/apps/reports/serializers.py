@@ -36,7 +36,7 @@ class _MonthStringSerializer(serializers.Serializer):
 
 
 class AccountingReportParamsSerializer(_MonthStringSerializer):
-    """Параметры «Бухгалтерского отчёта»: месяц строкой YYYY-MM (формат
+    """Параметры «Отчёта по поступлениям и выручке»: месяц строкой YYYY-MM (формат
     apps.finances.reports.collect_monthly_report)."""
 
 

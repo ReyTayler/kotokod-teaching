@@ -72,3 +72,16 @@ def test_surcharge_to_missing_block_is_ignored_safely():
     lots = build_lots([_row(1, 4, '4000')], {1: {9: Decimal('100')}})
     assert [lot['lessons'] for lot in lots] == [4]
     assert lots[0]['price_per_lesson'] == Decimal('1000')
+
+
+def test_build_lots_marks_every_lot_with_its_payment_id():
+    """Партия знает свой платёж — на этом стоит реестр признания выручки."""
+    lots = build_lots([_row(11, 4, '2000'), _row(12, 8, '4000')], {})
+    assert [lot['payment_id'] for lot in lots] == [11, 12]
+
+
+def test_build_lots_blocks_of_one_payment_share_payment_id():
+    """Доплата дробит оплату на блоки — но все блоки принадлежат одному платежу."""
+    lots = build_lots([_row(21, 8, '4000')], {21: {2: Decimal('500')}})
+    assert len(lots) == 2
+    assert {lot['payment_id'] for lot in lots} == {21}

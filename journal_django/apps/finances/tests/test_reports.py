@@ -1,6 +1,11 @@
 """
-Тесты сборки данных отчёта (apps/finances/reports.py::collect_monthly_report).
-Использует существующие фикстуры apps/finances/tests/conftest.py.
+Тесты сборки реестра признания выручки
+(apps/finances/reports.py::collect_monthly_report).
+
+Строка отчёта = платёж. Фикстуры — apps/finances/tests/conftest.py; БД общая
+(managed=False), поэтому свои строки ищем по payment_id.
+
+Спека: docs/superpowers/specs/2026-09-08-accounting-payment-ledger-design.md
 """
 from __future__ import annotations
 
@@ -15,8 +20,8 @@ pytestmark = pytest.mark.django_db
 
 
 def _add_payment(created, student_id, direction_id, subs, total, paid_at, kind='purchase'):
-    # purchase/extra — положительные (extra = доплата за доп.урок сверх курса,
-    # те же знаковые правила, что и purchase); refund — отрицательные.
+    # purchase/extra — положительные (extra = доплата за доп.урок сверх курса);
+    # refund — отрицательные.
     positive = kind in ('purchase', 'extra')
     lessons = subs * 4 if positive else -(subs * 4)
     amount = total if positive else -total
@@ -47,7 +52,21 @@ def _add_payment_exact(created, student_id, direction_id, lessons_count, unit_pr
     return pid
 
 
-def _add_lesson_attendance(created, group_id, teacher_id, student_id, date, duration=60, is_free=False):
+def _add_surcharge(created, student_id, parent_id, index, total, paid_at):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO payments (student_id, subscriptions_count, lessons_count, kind, "
+            "unit_price, total_amount, paid_at, created_by, parent_payment_id, subscription_index) "
+            "VALUES (%s,NULL,NULL,'surcharge',%s,%s,%s,'test',%s,%s) RETURNING id",
+            [student_id, total, total, paid_at, parent_id, index],
+        )
+        pid = cur.fetchone()[0]
+    created['payments'].append(pid)
+    return pid
+
+
+def _add_lesson_attendance(created, group_id, teacher_id, student_id, date,
+                           duration=60, is_free=False):
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
@@ -65,212 +84,225 @@ def _add_lesson_attendance(created, group_id, teacher_id, student_id, date, dura
     return lid
 
 
-def test_collect_monthly_report_single_student_full_scenario(
+def _row(report, payment_id):
+    return next((r for r in report.rows if r.payment_id == payment_id), None)
+
+
+def test_row_shows_payment_recognition_by_month_total_and_advance(
     group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
 ):
     with connection.cursor() as cur:
-        cur.execute(
-            "UPDATE students SET platform_id = 'PL-42' WHERE id = %s", [student_fixture]
+        cur.execute("UPDATE students SET platform_id = 'PL-42' WHERE id = %s", [student_fixture])
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-05-01')
+    # По одному уроку в мае, июне и июле — признание растянуто на три месяца.
+    for date in ('2026-05-10', '2026-06-10', '2026-07-10'):
+        _add_lesson_attendance(
+            graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, date,
         )
-    # Две оплаты ВНУТРИ месяца (2026-07), одна ДО месяца (не должна попасть в payments/paid_month_total,
-    # но должна попасть в лайфтайм-баланс).
-    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, '2026-07-05')
-    _add_payment(graph_cleanup, student_fixture, direction_fixture, 2, 3600, '2026-07-20')
-    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, '2026-06-15')
-    # 1 обычный урок (1.0) + 1 полу-урок (0.5) внутри месяца = 1.5 посещено.
+
+    report = collect_monthly_report('2026-07')
+    row = _row(report, pid)
+
+    assert row is not None
+    assert row.platform_id == 'PL-42'
+    assert row.paid_at == '2026-05-01'
+    assert row.total_amount == Decimal('2000')
+    assert row.surcharge_amount == Decimal('0')
+    assert row.unit_price == Decimal('500.00')
+    assert row.revenue_by_month == {
+        '2026-05': Decimal('500.00'),
+        '2026-06': Decimal('500.00'),
+        '2026-07': Decimal('500.00'),
+    }
+    assert row.revenue_total == Decimal('1500.00')
+    assert row.refunded == Decimal('0.00')
+    assert row.advance == Decimal('500.00')
+    # Шкала месяцев — сплошная, от раннего признания до выбранного месяца.
+    assert report.months[0] <= '2026-05'
+    assert report.months[-1] == '2026-07'
+    assert report.months == sorted(set(report.months))
+
+
+def test_payment_without_recognition_in_month_is_absent(
+    student_fixture, direction_fixture, graph_cleanup,
+):
+    """Свежая оплата без проведённых уроков строки не даёт (решение 3 спеки)."""
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-07-05')
+
+    assert _row(collect_monthly_report('2026-07'), pid) is None
+
+
+def test_advance_is_as_of_end_of_month(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Уроки ПОСЛЕ выбранного месяца не уменьшают аванс и не создают колонок."""
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
     _add_lesson_attendance(
-        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10', duration=60,
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10',
+    )
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-08-05',
+    )
+
+    report = collect_monthly_report('2026-07')
+    row = _row(report, pid)
+
+    assert row.revenue_total == Decimal('500.00')      # августовский урок не признан
+    assert row.advance == Decimal('1500.00')           # 3 урока по 500 ещё авансом
+    assert '2026-08' not in row.revenue_by_month
+    assert report.months[-1] == '2026-07'
+
+
+def test_surcharge_is_shown_in_its_own_column_and_raises_unit_price(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Доплата к абонементу своей строки не даёт: она видна в колонке родителя."""
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-07-01')
+    sid = _add_surcharge(graph_cleanup, student_fixture, pid, 1, 400, '2026-07-02')
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10',
+    )
+
+    report = collect_monthly_report('2026-07')
+    row = _row(report, pid)
+
+    assert _row(report, sid) is None                   # сама доплата строкой не является
+    assert row.total_amount == Decimal('2000')
+    assert row.surcharge_amount == Decimal('400')
+    assert row.unit_price == Decimal('600.00')         # (2000 + 400) / 4
+    assert row.revenue_total == Decimal('600.00')      # 1 урок по подорожавшей цене
+    assert row.advance == Decimal('1800.00')
+
+
+def test_refund_is_shown_and_row_reconciles(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-07-01')
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10',
+    )
+    _add_payment(
+        graph_cleanup, student_fixture, direction_fixture, 1, 1500, '2026-07-20', kind='refund',
+    )
+
+    row = _row(collect_monthly_report('2026-07'), pid)
+
+    assert row.revenue_total == Decimal('500.00')
+    assert row.refunded == Decimal('1500.00')
+    assert row.advance == Decimal('0.00')
+
+
+def test_every_row_reconciles(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Инвариант отчёта: Сумма + Доплаты = Выручка итого + Возвращено + Аванс."""
+    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 3, 1000, '2026-06-01')
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10',
     )
     _add_lesson_attendance(
         graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-11', duration=45,
     )
-    # Урок ВНЕ месяца — не должен попасть в attended_lessons.
+
+    for row in collect_monthly_report('2026-07').rows:
+        assert row.total_amount + row.surcharge_amount == (
+            row.revenue_total + row.refunded + row.advance
+        ), f'строка не сходится: платёж {row.payment_id}'
+
+
+def test_advance_matches_fifo_remaining_within_a_kopeck(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Аванс выводится из суммы строки — он обязан совпадать с FIFO-остатком."""
+    from apps.finances.fifo import compute_fifo
+    from apps.finances.repository import fifo_inputs
+
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 3, 1000, '2026-06-01')
     _add_lesson_attendance(
-        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-08-01', duration=60,
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10',
     )
 
-    rows = collect_monthly_report('2026-07')
-    row = next(r for r in rows if r.student_id == student_fixture)
+    row = _row(collect_monthly_report('2026-07'), pid)
+    inp = fifo_inputs()
+    key = str(student_fixture)
+    cons = [c for c in inp['cons_by_key'].get(key, []) if c['date'] <= '2026-07-31']
+    fifo = compute_fifo(inp['lots_by_key'][key], cons, '2026-07-01', '2026-08-01')
 
-    assert row.platform_id == 'PL-42'
-    assert row.attended_lessons == 1.5
-    assert row.payments == [('2026-07-05', Decimal('2000.00')), ('2026-07-20', Decimal('3600.00'))]
-    assert row.paid_month_total == Decimal('5600.00')
-    # Баланс не ограничен месяцем (лайфтайм purchased-attended, как balance_for_student):
-    # куплено 4+8+4=16 (включая оплату ДО месяца), отработано 1.5+1=2.5 (включая урок ПОСЛЕ
-    # месяца) → баланс 13.5.
-    assert row.balance == 13.5
-    # FIFO по лотам в порядке paid_at: 06-15 (4@500), 07-05 (4@500), 07-20 (8@450).
-    # Списано 2.5 из первого лота (06-15) → остаток 1.5@500 + 4@500 + 8@450 = 6350.
-    assert row.remaining_value == Decimal('6350.00')
-    # Отработано деньгами ИМЕННО за 2026-07: 1.5 урока внутри месяца, всё ещё из
-    # первого лота (06-15, 500/урок) — урок 08-01 не входит (вне месяца).
-    assert row.worked_off_month == Decimal('750.00')
-    assert row.unit_prices_month == [Decimal('500.00')]
+    assert abs(row.advance - fifo['remaining_by_payment'][pid]) <= Decimal('0.01')
 
 
-def test_collect_monthly_report_student_with_no_activity_gets_zero_row(student_fixture):
-    rows = collect_monthly_report('2026-07')
-    row = next(r for r in rows if r.student_id == student_fixture)
+def test_half_lesson_recognizes_half_the_price(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-07-01')
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10', duration=45,
+    )
 
-    assert row.platform_id is None
-    assert row.attended_lessons == 0
-    assert row.payments == []
-    assert row.paid_month_total == Decimal('0')
-    assert row.balance == 0
-    assert row.remaining_value == Decimal('0')
-    assert row.worked_off_month == Decimal('0')
-    assert row.unit_prices_month == []
+    row = _row(collect_monthly_report('2026-07'), pid)
+
+    assert row.revenue_by_month == {'2026-07': Decimal('250.00')}
+    assert row.advance == Decimal('1750.00')
 
 
-def test_collect_monthly_report_invalid_month_raises_value_error():
+def test_free_lesson_recognizes_nothing(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Бесплатное занятие денег не берёт — строки в отчёте не появляется."""
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-07-01')
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10', is_free=True,
+    )
+
+    assert _row(collect_monthly_report('2026-07'), pid) is None
+
+
+def test_extra_payment_gets_its_own_row(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Доплата за доп.урок сверх курса — самостоятельная партия, значит и строка."""
+    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-06-01')
+    extra_pid = _add_payment(
+        graph_cleanup, student_fixture, direction_fixture, 1, 1872, '2026-07-01', kind='extra',
+    )
+    # Первый урок гасит партию-предоплату, второй уходит уже в партию extra.
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-05',
+    )
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-06',
+    )
+
+    row = _row(collect_monthly_report('2026-07'), extra_pid)
+
+    assert row is not None
+    # Направление — свойство самой оплаты (в FIFO партия extra лимит курса не
+    # занимает и идёт без направления, но в реестре показываем то, что в оплате).
+    assert row.direction_name == '__fin_dir__'
+    assert row.revenue_by_month == {'2026-07': Decimal('468.00')}   # 1872 / 4
+
+
+def test_rows_sorted_by_student_then_payment_date(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-05-01')
+    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-04-01')
+    for date in ('2026-07-05', '2026-07-06'):
+        _add_lesson_attendance(
+            graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, date,
+        )
+
+    rows = [r for r in collect_monthly_report('2026-07').rows if r.student_id == student_fixture]
+
+    assert [r.paid_at for r in rows] == ['2026-04-01', '2026-05-01']
+
+
+def test_empty_report_still_reports_the_selected_month():
+    report = collect_monthly_report('2019-01')
+    assert report.rows == []
+    assert report.months == ['2019-01']
+
+
+def test_invalid_month_raises_value_error():
     with pytest.raises(ValueError):
         collect_monthly_report('2026-13')
-
-
-def test_collect_monthly_report_multiple_price_tiers_within_month(
-    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
-):
-    # Лот A (2 урока @500) заканчивается ВНУТРИ месяца, продолжение — лот B (4 урока @450).
-    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 2, 500, '2026-06-01')
-    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 450, '2026-06-02')
-
-    # 3 урока внутри месяца: 2 добивают лот A (500), 1-й идёт из лота B (450).
-    _add_lesson_attendance(
-        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-05', duration=60,
-    )
-    _add_lesson_attendance(
-        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-06', duration=60,
-    )
-    _add_lesson_attendance(
-        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-07', duration=60,
-    )
-
-    rows = collect_monthly_report('2026-07')
-    row = next(r for r in rows if r.student_id == student_fixture)
-
-    assert row.unit_prices_month == [Decimal('500.00'), Decimal('450.00')]
-    assert row.unit_qtys_month == [Decimal('2'), Decimal('1')]  # 2 урока по 500, 1 по 450
-    assert row.worked_off_month == Decimal('1450.00')  # 2*500 + 1*450
-
-
-def test_collect_monthly_report_extra_payment_counted_as_payment(
-    student_fixture, direction_fixture, graph_cleanup,
-):
-    """
-    Регрессия (Соловьёв Иван 2, оплата 2026-07-23): доплата за доп.урок сверх
-    курса (kind='extra') — реальные деньги клиента и полноценная FIFO-партия.
-    Она ОБЯЗАНА попадать в колонки «Дата/Платёж» и «Итого оплачено», иначе
-    отчёт теряет выручку и рассинхронен с остатком аванса (FIFO extra учитывает).
-    """
-    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 2000, '2026-07-05')
-    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 1872, '2026-07-23', kind='extra')
-
-    rows = collect_monthly_report('2026-07')
-    row = next(r for r in rows if r.student_id == student_fixture)
-
-    assert row.payments == [
-        ('2026-07-05', Decimal('2000.00')),
-        ('2026-07-23', Decimal('1872.00')),
-    ]
-    assert row.paid_month_total == Decimal('3872.00')
-
-
-def test_collect_monthly_report_free_lesson_counted_in_attended_not_worked_off(
-    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
-):
-    """
-    Бесплатное занятие (present=true, is_free=true) ПОСЕЩЕНО, но денег не берёт:
-    входит в «Посещено» и в отдельную «в т.ч. бесплатных», но НЕ в «Отработано ₽»
-    и НЕ в детализацию по ценам. «Посещено» = оплаченные + бесплатные сходится.
-    """
-    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
-    # 1 обычный (оплачиваемый) урок + 1 бесплатный — оба внутри месяца.
-    _add_lesson_attendance(
-        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10', duration=60,
-    )
-    _add_lesson_attendance(
-        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-12',
-        duration=60, is_free=True,
-    )
-
-    rows = collect_monthly_report('2026-07')
-    row = next(r for r in rows if r.student_id == student_fixture)
-
-    assert row.attended_lessons == 2            # 1 оплаченный + 1 бесплатный
-    assert row.free_attended_lessons == 1       # из них бесплатный
-    assert row.worked_off_month == Decimal('500.00')  # только оплаченный
-    assert row.unit_prices_month == [Decimal('500.00')]
-    assert row.unit_qtys_month == [Decimal('1')]  # детализация по ценам — только оплаченный
-    # Сходимость: посещено − бесплатных == сумма кол-в по ценам.
-    assert row.attended_lessons - row.free_attended_lessons == sum(row.unit_qtys_month)
-
-
-def test_collect_monthly_report_extra_lesson_counted_in_makeup_month(
-    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
-):
-    """
-    Регрессия (решение пользователя 2026-07-16): пропуск в одном месяце,
-    скомпенсированный доп.уроком в ДРУГОМ месяце, должен относить и
-    «посещено», и «отработано» к месяцу ФАКТИЧЕСКОГО проведения доп.урока —
-    не к месяцу исходного пропуска, и не задваивать посещаемость.
-    """
-    from apps.extra_lessons import services as extra_services
-    from apps.extra_lessons.models import AbsenceResolution
-    from apps.extra_lessons.repository import get_resolution_full
-
-    class _FakeRequest:
-        META = {}
-        user = None
-
-    _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
-
-    # Пропуск в июне — пока не компенсирован.
-    with connection.cursor() as cur:
-        cur.execute(
-            "INSERT INTO lessons (group_id, teacher_id, lesson_date, lesson_number, "
-            "lesson_duration_minutes, lesson_type, submitted_by_token) "
-            "VALUES (%s,%s,'2026-06-05',1,60,'regular','test') RETURNING id",
-            [group_fixture, teacher_id_fixture],
-        )
-        missed_lid = cur.fetchone()[0]
-        cur.execute(
-            'INSERT INTO lesson_attendance (lesson_id, student_id, present) VALUES (%s,%s,false)',
-            [missed_lid, student_fixture],
-        )
-    graph_cleanup['lessons'].append(missed_lid)
-
-    created = extra_services.create_assignment(
-        {
-            'missed_lesson_id': missed_lid, 'teacher_id': teacher_id_fixture,
-            'student_ids': [student_fixture], 'scheduled_date': '2026-07-10',
-            'scheduled_time': '15:00', 'duration_minutes': 45,
-        },
-        _FakeRequest(),
-    )
-    rid = created['resolution_ids'][0]
-    try:
-        extra_services.record(
-            rid, teacher_id=teacher_id_fixture, present=True,
-            record_url=None, submitted_by_token='test', submit_date='2026-07-10',
-            request=_FakeRequest(),
-        )
-
-        june_row = next(
-            r for r in collect_monthly_report('2026-06') if r.student_id == student_fixture
-        )
-        july_row = next(
-            r for r in collect_monthly_report('2026-07') if r.student_id == student_fixture
-        )
-
-        # Июнь (месяц пропуска) — ничего не отработано и не посещено.
-        assert june_row.attended_lessons == 0
-        assert june_row.worked_off_month == Decimal('0')
-        # Июль (месяц доп.урока) — ровно 1 урок посещён и отработан, без задвоения.
-        assert july_row.attended_lessons == 1
-        assert july_row.worked_off_month == Decimal('500.00')
-    finally:
-        full = get_resolution_full(rid)
-        if full and full['status'] == 'makeup_done':
-            extra_services.delete_fact(rid, _FakeRequest())
-        AbsenceResolution.objects.filter(id=rid).delete()

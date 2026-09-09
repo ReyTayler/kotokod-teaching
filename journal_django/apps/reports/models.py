@@ -13,7 +13,7 @@ from django.db import models
 
 class ReportType(models.TextChoices):
     RENEWALS_MONTH = 'renewals_month', 'Отчёт по продлениям (за месяц)'
-    ACCOUNTING_MONTH = 'accounting_month', 'Бухгалтерский отчёт (за месяц)'
+    ACCOUNTING_MONTH = 'accounting_month', 'Отчёт по поступлениям и выручке (за месяц)'
     ATTENDANCE_MONTH = 'attendance_month', 'Отчёт по посещаемости (за месяц)'
     REVENUE_FORECAST = 'revenue_forecast', 'Прогноз отработки денег по месяцам'
     RETENTION = 'retention', 'Отчёт по переходимости (за месяц)'

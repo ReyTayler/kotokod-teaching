@@ -321,3 +321,78 @@ def test_remaining_by_direction_empty_when_nothing_left():
     lots = [{'lessons': 2, 'price_per_lesson': _D(500), 'direction_id': 1}]
     r = compute_fifo(lots, _lessons(2, '2026-06-10'), MS, ME)
     assert r['remaining_by_direction'] == {}
+
+
+# ---------------------------------------------------------------------------
+# Разрезы по платежу (реестр признания выручки, спека 2026-09-08)
+# ---------------------------------------------------------------------------
+
+def test_worked_off_by_month_payment_splits_recognition_across_months():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500), 'payment_id': 7}]
+    cons = _lessons(1, '2025-09-10') + _lessons(2, '2026-06-10')
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_month_payment'] == {
+        ('2025-09', 7): _D(500),
+        ('2026-06', 7): _D(1000),
+    }
+    assert r['remaining_by_payment'] == {7: _D(500)}
+
+
+def test_payment_slices_are_summed_into_one_payment_key():
+    """Оплата с доплатой = две партии с разными ценами, но одним payment_id."""
+    lots = [
+        {'lessons': 4, 'price_per_lesson': _D(500), 'payment_id': 9},
+        {'lessons': 4, 'price_per_lesson': _D(625), 'payment_id': 9},
+    ]
+    cons = _lessons(6, '2026-06-10')
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_month_payment'] == {('2026-06', 9): _D(3250)}  # 4*500 + 2*625
+    assert r['remaining_by_payment'] == {9: _D(1250)}                      # 2*625
+
+
+def test_refund_fills_refunded_by_payment_and_not_revenue():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500), 'payment_id': 3}]
+    cons = [
+        {'units': 1, 'date': '2026-06-10'},
+        {'units': 2, 'date': '2026-06-20', 'refund': True},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_month_payment'] == {('2026-06', 3): _D(500)}
+    assert r['refunded_by_payment'] == {3: _D(1000)}
+    assert r['remaining_by_payment'] == {3: _D(500)}
+
+
+def test_payment_cuts_are_exact_and_reconcile_with_lot_value():
+    """Инвариант строки отчёта: стоимость партий = выручка + возврат + остаток."""
+    lots = [{'lessons': 3, 'price_per_lesson': _D(1000) / _D(3), 'payment_id': 5}]
+    cons = [
+        {'units': 1, 'date': '2026-06-10'},
+        {'units': 1, 'date': '2026-06-20', 'refund': True},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    revenue = sum(r['worked_off_by_month_payment'].values())
+    # Каждый урок партии классифицирован ровно один раз: выручка, возврат или
+    # непогашенный хвост. Сверяем с фактической стоимостью партии (цена задана
+    # непериодической дробью нарочно — округления в разрезах быть не должно).
+    lot_value = _D(3) * (_D(1000) / _D(3))
+    assert revenue + r['refunded_by_payment'][5] + r['remaining_by_payment'][5] == lot_value
+
+
+def test_half_lesson_recognition_lands_in_its_own_month():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500), 'payment_id': 4}]
+    cons = [{'units': 0.5, 'date': '2026-05-10'}, {'units': 0.5, 'date': '2026-06-10'}]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_month_payment'] == {
+        ('2026-05', 4): _D(250),
+        ('2026-06', 4): _D(250),
+    }
+
+
+def test_lots_without_payment_id_are_skipped_in_payment_cuts():
+    """Легаси-вызовы без payment_id должны работать как раньше, без падений."""
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    r = compute_fifo(lots, _lessons(2, '2026-06-10'), MS, ME)
+    assert r['worked_off_by_month_payment'] == {}
+    assert r['remaining_by_payment'] == {}
+    assert r['refunded_by_payment'] == {}
+    assert r['worked_off_month'] == _D('1000.00')
