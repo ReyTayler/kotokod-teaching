@@ -1,9 +1,17 @@
 import { useTheme } from '../../providers/ThemeProvider';
 
-export function ThemeToggle() {
+/** `rail` — узкая колонка: подпись прячется, смысл кнопки несёт title. */
+export function ThemeToggle({ rail }: { rail?: boolean } = {}) {
   const { theme, toggle } = useTheme();
+  const label = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
   return (
-    <button type="button" className="theme-toggle-btn" onClick={toggle}>
+    <button
+      type="button"
+      className="theme-toggle-btn"
+      onClick={toggle}
+      title={rail ? label : undefined}
+      aria-label={rail ? label : undefined}
+    >
       {theme === 'dark' ? (
         <>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -17,14 +25,14 @@ export function ThemeToggle() {
             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
           </svg>
-          <span>Светлая тема</span>
+          <span className="nav-btn__label">Светлая тема</span>
         </>
       ) : (
         <>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
-          <span>Тёмная тема</span>
+          <span className="nav-btn__label">Тёмная тема</span>
         </>
       )}
     </button>

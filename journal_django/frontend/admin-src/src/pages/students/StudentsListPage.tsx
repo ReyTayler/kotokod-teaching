@@ -1,12 +1,12 @@
 import { useDeferredValue } from 'react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useStudents } from '../../hooks/useStudents';
 import { useRenewalAssignees } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
 import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
+import { RowOpenButton } from '../../components/table/RowOpenButton';
 import { Avatar } from '../../components/Avatar';
 import { StudentStageBadge } from '../../components/StudentStageBadge';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -16,7 +16,6 @@ import { PageHeader } from '../../components/shell/PageHeader';
 import StudentFormModal from './StudentFormModal';
 
 export default function StudentsListPage() {
-  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
 
   // URL-синхронизированный стейт пагинации и сортировки.
@@ -46,9 +45,13 @@ export default function StudentsListPage() {
     {
       key: 'id',
       label: 'ID',
+      // Ширина задана явно: когда колонок мало, таблица тянется на 100% ширины
+      // панели и делит излишек между колонками пропорционально содержимому —
+      // без этого колонка из трёх цифр получала бы двести с лишним пикселей.
+      width: 72,
       sortable: false,
       searchable: false,
-      cell: (r) => <span className="id-cell">#{r.id}</span>,
+      cell: (r) => <span className="id-cell">{r.id}</span>,
     },
     {
       key: 'full_name',
@@ -135,7 +138,7 @@ export default function StudentsListPage() {
     />
   );
 
-  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={9} /></>;
+  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={10} roomy /></>;
 
   return (
     <>
@@ -144,7 +147,8 @@ export default function StudentsListPage() {
         data={rows}
         columns={visibleColumns}
         title="Ученики"
-        onRowClick={(row) => navigate(`/admin/students/${row.id}`)}
+        roomy
+        rowAction={(row) => <RowOpenButton to={`/admin/students/${row.id}`} />}
         isLoading={isFetching}
         serverPagination={{
           page,

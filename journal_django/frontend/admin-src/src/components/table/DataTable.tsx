@@ -44,6 +44,13 @@ interface Props<T> {
   rowClassName?: (row: T) => string | undefined;
   /** Действия в тулбаре фильтров. Основные действия страницы — в PageHeader. */
   headerActions?: ReactNode;
+  /** Содержимое липкой колонки действий у правого края строки (кнопка
+   *  «Открыть» в списках сущностей). Колонка не участвует в настройках
+   *  видимости колонок: скрыть единственный способ открыть карточку нельзя. */
+  rowAction?: (row: T) => ReactNode;
+  /** Просторный ритм строки (см. `.table-panel--roomy` в table.css) — списки
+   *  сущностей. По умолчанию таблица плотная. */
+  roomy?: boolean;
   // если передан — переключение в server-mode
   serverPagination?: ServerPaginationState & ServerPaginationCallbacks;
   isLoading?: boolean;
@@ -61,7 +68,16 @@ interface Props<T> {
  * они делали её двухэтажной, требовали sticky-привязки к магической высоте
  * (`top: 37px`) и сжимали поля ввода до ширины колонки.
  */
-export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, headerActions, serverPagination, isLoading }: Props<T>) {
+export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, headerActions, rowAction, roomy, serverPagination, isLoading }: Props<T>) {
+  // Колонка действий не входит в `columns`, но занимает ячейку в каждой строке —
+  // пустое состояние обязано растянуться и на неё, иначе «Ничего не найдено»
+  // окажется прижатым влево, а справа повиснет пустая липкая ячейка.
+  const totalCols = columns.length + (rowAction ? 1 : 0);
+  const panelClass = roomy ? ' table-panel--roomy' : '';
+  // Курсор задаётся всегда, а не только при наличии onRowClick: глобальное
+  // правило `tbody tr { cursor: pointer }` в table.css иначе обещало бы клик
+  // там, где строка ничего не делает.
+  const rowStyle = { cursor: onRowClick ? 'pointer' : 'default' } as const;
   const [filters, setFilters] = useState<Record<string, string>>({});
   const hasFilters = Object.values(filters).some((v) => v && v.trim() !== '');
 
@@ -115,7 +131,7 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
           hasFilters={hasServerFilters}
           actions={headerActions}
         />
-        <div className={`table-panel data-table-wrapper${isLoading ? ' data-table--loading' : ''}`}>
+        <div className={`table-panel data-table-wrapper${panelClass}${isLoading ? ' data-table--loading' : ''}`}>
           <div className="table-wrap">
             <table className="data-table" aria-label={title}>
               <thead>
@@ -138,25 +154,31 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
                       </th>
                     );
                   })}
+                  {rowAction && (
+                    <th className="col-actions">
+                      <span className="sr-only">Действия</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {data.length === 0 ? (
                   <tr>
-                    <EmptyRow cols={columns.length} filtered={Object.values(sp.filters).some((v) => v)} />
+                    <EmptyRow cols={totalCols} filtered={Object.values(sp.filters).some((v) => v)} />
                   </tr>
                 ) : data.map((row, i) => (
                   <tr
                     key={i}
                     className={rowClassName?.(row)}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
-                    style={onRowClick ? { cursor: 'pointer' } : undefined}
+                    style={rowStyle}
                   >
                     {columns.map((c) => (
                       <td key={c.key}>
                         {c.cell ? c.cell(row) : String((row as Record<string, unknown>)[c.key] ?? '—')}
                       </td>
                     ))}
+                    {rowAction && <td className="col-actions">{rowAction(row)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -185,33 +207,39 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
         hasFilters={hasFilters}
         actions={headerActions}
       />
-      <div className="table-panel">
+      <div className={`table-panel${panelClass}`}>
         <div className="table-wrap">
-          <table aria-label={title}>
+          <table className="data-table" aria-label={title}>
             <thead>
               <tr>
                 {columns.map((c) => (
                   <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>
                 ))}
+                {rowAction && (
+                  <th className="col-actions">
+                    <span className="sr-only">Действия</span>
+                  </th>
+                )}
               </tr>
             </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <EmptyRow cols={columns.length} filtered={hasFilters} />
+                <EmptyRow cols={totalCols} filtered={hasFilters} />
               </tr>
             ) : filtered.map((row, i) => (
               <tr
                 key={i}
                 className={rowClassName?.(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                style={onRowClick ? { cursor: 'pointer' } : undefined}
+                style={rowStyle}
               >
                 {columns.map((c) => (
                   <td key={c.key}>
                     {c.cell ? c.cell(row) : String((row as Record<string, unknown>)[c.key] ?? '—')}
                   </td>
                 ))}
+                {rowAction && <td className="col-actions">{rowAction(row)}</td>}
               </tr>
             ))}
             </tbody>

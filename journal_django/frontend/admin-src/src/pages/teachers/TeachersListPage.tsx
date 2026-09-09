@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTeachers } from '../../hooks/useTeachers';
 import { useGroupsAll } from '../../hooks/useGroups';
 import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
+import { RowOpenButton } from '../../components/table/RowOpenButton';
 import { Avatar } from '../../components/Avatar';
 import { Pill } from '../../components/ui/Pill';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -16,7 +16,6 @@ import { PageHeader } from '../../components/shell/PageHeader';
 export default function TeachersListPage() {
   const { data, isLoading } = useTeachers();
   const { data: groups = [] } = useGroupsAll(true);
-  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const { me } = useAuth();
   const canWrite = canWriteTeachers(me?.role as Role);
@@ -24,7 +23,7 @@ export default function TeachersListPage() {
   const rows: Teacher[] = data || [];
 
   const columns: Column<Teacher>[] = [
-    { key: 'id', label: 'ID', cell: (r) => <span className="id-cell">#{r.id}</span> },
+    { key: 'id', label: 'ID', width: 72, cell: (r) => <span className="id-cell">{r.id}</span> },
     { key: 'name', label: 'Преподаватель', searchable: true,
       cell: (r) => (
         <div className="person-cell">
@@ -55,7 +54,7 @@ export default function TeachersListPage() {
     />
   );
 
-  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={7} /></>;
+  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={7} roomy /></>;
 
   return (
     <>
@@ -64,7 +63,8 @@ export default function TeachersListPage() {
         data={rows}
         columns={visibleColumns}
         title="Преподаватели"
-        onRowClick={(row) => navigate(`/admin/teachers/${row.id}`)}
+        roomy
+        rowAction={(row) => <RowOpenButton to={`/admin/teachers/${row.id}`} />}
       />
       {modalOpen && (
         <TeacherFormModal initial={null} onClose={() => setModalOpen(false)} />

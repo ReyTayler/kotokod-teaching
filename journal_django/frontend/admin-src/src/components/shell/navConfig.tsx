@@ -291,6 +291,26 @@ export const NAV_GROUPS: NavGroup[] = [
  * (`/admin/students/42`) должны подсвечивать свою группу, но `/admin/lessons`
  * не должен ловить чужой `/admin/lessons-archive`, если такой однажды заведут.
  */
+/**
+ * Подпись раздела, которому принадлежит путь, либо null.
+ *
+ * Нужна верхней панели узкого режима: там нет боковой колонки, и название
+ * раздела — единственный ответ на вопрос «где я». Сравнение по началу пути с
+ * обязательным «/» на стыке — как в groupKeyOfPath ниже: карточка ученика
+ * (`/admin/students/42`) обязана показывать «Ученики».
+ */
+export function navLabelOfPath(pathname: string): string | null {
+  for (const it of NAV_PINNED) {
+    if (pathname === it.path || pathname.startsWith(`${it.path}/`)) return it.label;
+  }
+  for (const group of NAV_GROUPS) {
+    for (const it of group.items) {
+      if (pathname === it.path || pathname.startsWith(`${it.path}/`)) return it.label;
+    }
+  }
+  return null;
+}
+
 export function groupKeyOfPath(pathname: string): string | null {
   for (const group of NAV_GROUPS) {
     const hit = group.items.some(

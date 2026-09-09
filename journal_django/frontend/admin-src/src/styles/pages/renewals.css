@@ -457,7 +457,13 @@
   background: var(--overlay);
   display: flex;
   justify-content: flex-end;
-  z-index: 40;
+  /* var(--z-overlay), а не прежние «40 на глаз». Боковая панель — модальная
+     поверхность: она обязана закрывать собой и содержимое, и навигацию. С 40
+     её накрывала верхняя панель узкого режима (--z-nav, 900), которая появилась
+     позже, — и срезала ровно первую строку панели, то есть имя и кнопку
+     закрытия. Шкала слоёв объявлена в tokens.css именно чтобы такие столкновения
+     разрешались порядком уровней, а не сравнением случайных чисел. */
+  z-index: var(--z-overlay);
 }
 
 /* Ширина панели — пользовательская (ручка на левом крае, RenewalDrawer.tsx +
@@ -483,13 +489,6 @@
   container-type: inline-size;
 }
 
-@media (max-width: 480px) {
-  /* !important перебивает пользовательскую ширину из инлайнового style —
-     на мобильных панель всегда на весь экран. Ручку прячет общее правило
-     в modal.css (.drawer-resize-handle). */
-  .renewal-drawer { width: 100% !important; padding: var(--space-4); }
-}
-
 .renewal-drawer__loading {
   color: var(--text3);
   font-size: 14px;
@@ -507,23 +506,27 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* min-width: 0 обязателен, и это ровно та причина, по которой крестик
+     «пропадал» на телефоне. Шапка — flex со space-between, а у флекс-элемента
+     минимальная ширина по умолчанию равна ширине содержимого: длинное имя
+     ученика не сжималось, строка переполнялась, и кнопка закрытия уезжала за
+     правый край панели, где её срезал overflow-x: hidden. Теперь вместо этого
+     сжимается имя (многоточие ниже), а кнопка остаётся на месте. */
+  min-width: 0;
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 700;
   color: var(--text);
 }
 
-.renewal-drawer__close {
-  background: transparent;
-  border: none;
-  color: var(--text3);
-  font-size: 16px;
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
-}
-
-.renewal-drawer__close:hover {
-  color: var(--text);
+/* Имя ученика — единственное, что в шапке имеет право сжиматься, поэтому
+   многоточие вешаем на него. */
+.renewal-drawer__title > a,
+.renewal-drawer__title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .renewal-drawer__subhead {

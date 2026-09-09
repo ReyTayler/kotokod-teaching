@@ -67,6 +67,136 @@ tbody tr.row--danger td { color: var(--danger-strong); }
 .data-table thead tr:nth-child(2) th { padding: 4px 8px; background: var(--bg3); border-bottom: 1px solid var(--border); }
 
 
+/* ============================================================
+ *  ПРОСТОРНЫЙ РИТМ СПИСКОВ СУЩНОСТЕЙ — .table-panel--roomy
+ *
+ *  Дефолт таблицы остаётся плотным (8px строка): служебные таблицы —
+ *  уроки, абонементы, архив, продления — смотрят пачками, и там каждая
+ *  потерянная строка = лишний скролл.
+ *
+ *  Четыре списка сущностей (Ученики, Группы, Преподаватели, Направления)
+ *  переведены на ритм эталона: строка ровно --row-h, шапка обычным
+ *  регистром 13px вместо разряженного капса 11px, кегль данных 14px.
+ *  Опция, а не глобальная замена: так две плотности не перемешиваются
+ *  случайно, а перевести остальные таблицы можно добавлением класса.
+ *
+ *  Высота задаётся на <tr>, а не паддингом ячейки: у «Учеников» строку
+ *  держит аватар 32px, у «Направлений» — только текст, и на одном лишь
+ *  паддинге шаг у этих таблиц разъехался бы на 12px.
+ * ============================================================ */
+.table-panel--roomy thead th {
+  padding: 11px var(--cell-pad-x);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text3);
+}
+[data-theme="dark"] .table-panel--roomy thead th {
+  font-weight: 700;
+  font-size: var(--fs-sm);
+}
+.table-panel--roomy tbody tr { height: var(--row-h); }
+.table-panel--roomy tbody td {
+  padding: var(--cell-pad-y) var(--cell-pad-x);
+  font-size: var(--fs-md);
+  max-width: 280px;
+}
+/* Разделитель строк заметнее, чем в плотном режиме: на 52px шаге линия в 5%
+   чёрного теряется, и строки начинают читаться сплошным полотном. */
+.table-panel--roomy tbody tr { border-bottom: 1px solid var(--border); }
+.table-panel--roomy tbody tr:last-child { border-bottom: none; }
+
+/* ── ДВУХЭТАЖНАЯ ЯЧЕЙКА ──
+   Приём эталона: главное значение и приглушённая метаданная под ним
+   («Каримова И. З.» / «id: 16066»). Экономит колонку там, где второе
+   значение всегда читается вместе с первым и отдельно не фильтруется. */
+.cell-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cell-stack__main { color: var(--text); font-weight: 500; line-height: 1.35; }
+.cell-stack__sub {
+  font-size: var(--fs-xs);
+  color: var(--text3);
+  line-height: 1.35;
+}
+
+/* ── КОЛОНКА ДЕЙСТВИЙ ──
+   Липнет к правому краю: у «Групп» тринадцать колонок и горизонтальный
+   скролл, а кнопка «Открыть» обязана оставаться на виду.
+
+   Собственный непрозрачный фон обязателен — под липкой ячейкой проезжают
+   данные соседних колонок. Отсюда же парное правило на :hover: без него
+   подсветка строки обрывалась бы на границе колонки. */
+.col-actions {
+  position: sticky;
+  right: 0;
+  /* 1px, а НЕ 1%. Процент здесь взрывает всю раскладку таблицы: ширина колонки
+     считается от ширины таблицы, минимальная ширина ячейки задана содержимым
+     (кнопка «Открыть» ≈ 100px), и чтобы 1% равнялся сотне пикселей, браузер
+     растягивает таблицу до ~10000px. Дальше оставшиеся 99% делятся между
+     остальными колонками — отсюда и брались шестисотпиксельные ID.
+     С 1px минимум по содержимому просто побеждает заявленную ширину, и колонка
+     садится ровно по кнопке. */
+  width: 1px;
+  white-space: nowrap;
+  text-align: right;
+}
+thead th.col-actions {
+  background: var(--bg3);
+  /* Угловая ячейка липнет сразу по двум осям (top от общего правила шапки и
+     right отсюда) и обязана лежать выше обычных липких ячеек, иначе первая
+     строка тела проезжает поверх неё. */
+  z-index: calc(var(--z-sticky) + 1);
+  box-shadow: inset 1px 0 0 var(--border);
+}
+tbody td.col-actions {
+  background: var(--bg2);
+  box-shadow: inset 1px 0 0 var(--border);
+}
+tbody tr:hover td.col-actions { background: var(--bg3); }
+
+/* Кнопка перехода в карточку сущности.
+   В эталоне она сплошная синяя, но там акцент — приглушённый корпоративный
+   синий. Наш --accent (#4F59F9) насыщеннее, и пятьдесят сплошных плашек в
+   колонке перетягивают внимание с самих данных. Поэтому покой — тональная
+   заливка, а сплошной акцент включается на наведении строки: ровно там, где
+   пользователь и собирается нажать. */
+.btn-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.btn-open svg { flex-shrink: 0; }
+tbody tr:hover .btn-open,
+.btn-open:hover,
+.btn-open:focus-visible {
+  background: var(--accent);
+  color: #ffffff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-open { transition: none; }
+}
+/* На телефоне подпись уходит, остаётся шеврон: липкая колонка с текстом
+   «Открыть» съедала около четверти ширины экрана — на 390px это те самые
+   колонки с данными, ради которых в таблицу и заходят. Доступное имя ссылки
+   держится через aria-label (см. RowOpenButton). */
+@media (max-width: 640px) {
+  .btn-open { padding: 0 var(--space-2); gap: 0; }
+  .btn-open__label { display: none; }
+}
+
 /* Фильтры колонок переехали в тулбар над таблицей (FilterBar в DataTable.tsx),
    их прежние стили .thead-filters/.col-filter удалены как оставшиеся без разметки. */
 /* Поверхности фильтров тянутся из токенов — отдельная тёмная тема не нужна
@@ -263,6 +393,11 @@ thead th {
    остаются интерактивными, иначе сфокусированный фильтр-инпут терял фокус
    при рефетче на каждый введённый символ. */
 .data-table--loading tbody { pointer-events: none; }
+/* Колонка действий — исключение. Клик по строке в списках сущностей больше
+   ничего не делает, и кнопка «Открыть» осталась единственным входом в карточку:
+   гасить её на каждый рефетч фильтра значит отбирать навигацию у пользователя,
+   пока таблица моргает. Данные под кнопкой всё равно перерисуются. */
+.data-table--loading tbody .col-actions { pointer-events: auto; }
 .data-table th.sortable { cursor: pointer; user-select: none; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 /* accent-soft полупрозрачный (rgba .10) — на sticky-заголовке сквозь него
    просвечивала бы строка, ушедшая под шапку при скролле (видно только в

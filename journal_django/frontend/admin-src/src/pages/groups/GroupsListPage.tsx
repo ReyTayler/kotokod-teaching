@@ -1,12 +1,12 @@
 import { useDeferredValue, useMemo } from 'react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useGroups } from '../../hooks/useGroups';
 import { useDirections } from '../../hooks/useDirections';
 import { useTeachers } from '../../hooks/useTeachers';
 import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
+import { RowOpenButton } from '../../components/table/RowOpenButton';
 import { Avatar } from '../../components/Avatar';
 import { DirTag } from '../../components/ui/DirTag';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -18,7 +18,6 @@ import { PageHeader } from '../../components/shell/PageHeader';
 
 export default function GroupsListPage() {
   const [modalOpen, setModalOpen] = useState(false);
-  const navigate = useNavigate();
 
   // URL-синхронизированный стейт пагинации и сортировки.
   const search = useListSearchParams({ sortBy: 'name', sortDir: 'asc' });
@@ -59,9 +58,10 @@ export default function GroupsListPage() {
     {
       key: 'id',
       label: 'ID',
+      width: 72,
       sortable: false,
       searchable: false,
-      cell: (r) => <span className="id-cell">#{r.id}</span>,
+      cell: (r) => <span className="id-cell">{r.id}</span>,
     },
     {
       key: 'name',
@@ -78,7 +78,7 @@ export default function GroupsListPage() {
       searchOptions: directionOptions,
       cell: (r) => r.direction_name
         ? <DirTag direction={{ id: r.direction_id, name: r.direction_name, color: r.direction_color ?? null, active: true, total_lessons: null, subscription_price: null }} />
-        : <span className="id-cell">#{r.direction_id}</span>,
+        : <span className="id-cell">{r.direction_id}</span>,
     },
     {
       key: 'teacher_id',
@@ -87,7 +87,7 @@ export default function GroupsListPage() {
       searchable: true,
       searchOptions: teacherOptions,
       cell: (r) => {
-        if (!r.teacher_name) return <span className="id-cell">#{r.teacher_id}</span>;
+        if (!r.teacher_name) return <span className="id-cell">{r.teacher_id}</span>;
         return (
           <div className="person-cell">
             <Avatar name={r.teacher_name} size={26} />
@@ -102,7 +102,7 @@ export default function GroupsListPage() {
       sortable: false,
       searchable: false,
       cell: (r) => (
-        <span className="id-cell" title="Учеников в группе">{r.members_count ?? 0}</span>
+        <span className="cell-num" title="Учеников в группе">{r.members_count ?? 0}</span>
       ),
     },
     {
@@ -113,7 +113,7 @@ export default function GroupsListPage() {
       // Уроки курса, а не занятия: у 45-минутной группы 4 занятия = 2 урока —
       // та же единица, что «длина курса», поэтому числа сопоставимы.
       cell: (r) => (
-        <span className="id-cell" title="Пройдено уроков курса">
+        <span className="cell-num" title="Пройдено уроков курса">
           {fmtLessons(Number(r.lessons_done ?? 0))}
         </span>
       ),
@@ -190,7 +190,7 @@ export default function GroupsListPage() {
     />
   );
 
-  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={9} /></>;
+  if (isLoading) return <>{header}<TableSkeleton rows={6} cols={9} roomy /></>;
 
   return (
     <>
@@ -199,7 +199,8 @@ export default function GroupsListPage() {
         data={rows}
         columns={visibleColumns}
         title="Группы"
-        onRowClick={(row) => navigate(`/admin/groups/${row.id}`)}
+        roomy
+        rowAction={(row) => <RowOpenButton to={`/admin/groups/${row.id}`} />}
         isLoading={isFetching}
         serverPagination={{
           page,

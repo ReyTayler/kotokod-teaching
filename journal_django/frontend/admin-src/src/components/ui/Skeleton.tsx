@@ -1,5 +1,14 @@
-export function TableSkeleton({ rows = 5, cols = 5 }: { rows?: number; cols?: number }) {
+/**
+ * `roomy` — тот же признак, что и у DataTable: скелетон обязан держать шаг
+ * строки той таблицы, которую замещает, иначе при появлении данных вёрстка
+ * прыгает с 36px строки на 52px. Панель (белый фон + тень) рисуется только в
+ * просторном режиме — в плотном скелетон исторически показывался «голым», и
+ * менять это здесь не место.
+ */
+export function TableSkeleton({ rows = 5, cols = 5, roomy }: { rows?: number; cols?: number; roomy?: boolean }) {
+  const panel = roomy ? 'table-panel table-panel--roomy' : '';
   return (
+    <div className={panel}>
     <div className="table-wrap" aria-busy="true">
       <span className="sr-only">Загружаем данные…</span>
       <table>
@@ -13,6 +22,7 @@ export function TableSkeleton({ rows = 5, cols = 5 }: { rows?: number; cols?: nu
           ))}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }

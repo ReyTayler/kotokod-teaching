@@ -285,6 +285,65 @@
 
 /* nav-btn--cta defined in ── SIDEBAR ── block above */
 
+/* ── КНОПКА ЗАКРЫТИЯ БОКОВОЙ ПАНЕЛИ ──
+   Общая для панели сделки и панели задачи (там же, где общая ручка ресайза):
+   раньше правило было объявлено дважды — в renewals.css и tasks.css — двумя
+   одинаковыми копиями, и правка одной из них молча разошлась бы со второй.
+
+   Была голая «крестик»-глифа 16px цветом --text3 с полями 4/8px: цель нажатия
+   примерно 30×24px при рекомендованных 44 и контраст на уровне служебной
+   подписи. На мыши это работало, пальцем — нет, и кнопка читалась скорее как
+   украшение шапки, чем как выход из панели. */
+.renewal-drawer__close,
+.task-drawer__close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text2);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
+}
+.renewal-drawer__close:hover,
+.task-drawer__close:hover {
+  background: var(--bg3);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+@media (max-width: 480px) {
+  /* !important перебивает пользовательскую ширину из инлайнового style (см.
+     hooks/useDrawerResize.ts) — на телефоне панель всегда во весь экран. Ручку
+     ресайза прячет общее правило .drawer-resize-handle ниже.
+     Правило было объявлено дословно дважды — в renewals.css и tasks.css;
+     здесь оно одно на обе панели, как и всё остальное в этом блоке. */
+  .renewal-drawer,
+  .task-drawer { width: 100% !important; padding: var(--space-4); }
+
+  /* Раз панель занимает весь экран, затемнения, по которому её закрывают на
+     большом экране, не остаётся вовсе — и крестик становится единственным
+     выходом. 40px — нижняя граница удобной цели для пальца; подложка стоит
+     постоянно, а не по наведению, которого на тач-экране нет. */
+  .renewal-drawer__close,
+  .task-drawer__close {
+    width: 40px;
+    height: 40px;
+    background: var(--bg3);
+    border-color: var(--border);
+    color: var(--text);
+  }
+}
+
 /* ── DRAWER RESIZE HANDLE ──
    Общая ручка изменения ширины боковых панелей (TaskDrawer, RenewalDrawer —
    см. hooks/useDrawerResize.ts + components/ui/DrawerResizeHandle.tsx).

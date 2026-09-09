@@ -1,6 +1,7 @@
 /* ── SIDEBAR ── */
+.sidebar-logo__brand { min-width: 0; }
 .sidebar-logo {
-  padding: var(--space-5) var(--space-4) var(--space-5);
+  padding: var(--space-5) var(--space-4);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center;
   gap: var(--space-3);
@@ -26,12 +27,12 @@
    скобки < > и кот зашиты cyan (#50dcfe). */
 .logo-mark {
   display: block;
-  height: 22px;
+  height: 26px;
   width: auto;
   color: var(--text);
 }
 .logo-sub {
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   color: var(--text4);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -39,9 +40,15 @@
   font-weight: 500;
 }
 /* Прокрутка работает, но сам скроллбар скрыт (Firefox / IE / WebKit). */
-.sidebar-nav { flex: 1; padding: var(--space-2); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+.sidebar-nav { flex: 1; padding: var(--space-3); overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
 .sidebar-nav::-webkit-scrollbar { width: 0; height: 0; display: none; }
-.nav-sep { height: 1px; background: var(--border2); margin: var(--space-2) var(--space-3); }
+/* Иконки в navConfig.tsx нарисованы с зашитыми width/height="16". CSS
+   перебивает атрибуты presentational SVG, поэтому размер поднимается здесь —
+   одним правилом, а не правкой двадцати пяти иконок. Шеврон группы исключён:
+   он служебный и рядом с 18px подписью выглядел бы вторым значком. */
+.sidebar-nav .nav-btn > svg,
+.sidebar-nav .nav-group__btn > svg { width: 18px; height: 18px; }
+.nav-sep { height: 1px; background: var(--border2); margin: var(--space-3) var(--space-3); }
 /* Закреплённый блок над группами: «Дашборд» + CTA «Внести оплату». */
 .nav-pinned { display: flex; flex-direction: column; margin-bottom: var(--space-3); }
 
@@ -52,16 +59,17 @@
 
 .nav-group__btn {
   width: 100%;
+  min-height: 40px;
   display: flex; align-items: center;
-  gap: var(--space-2);
-  padding: 7px 10px;
+  gap: var(--space-3);
+  padding: 9px 12px;
   border: none;
-  border-radius: var(--r-sm);
+  border-radius: var(--r);
   background: transparent;
   color: var(--text2);
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-md);
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
@@ -71,7 +79,8 @@
 /* Подпись группы и пункта. nowrap с многоточием, а не перенос: с отступом
    вложенности длинным подписям вроде «Журнал изменений» остаётся немного
    места, и перенос на вторую строку ломал бы ритм списка. */
-.nav-group__label {
+.nav-group__label,
+.nav-btn__label {
   flex: 1; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -105,18 +114,19 @@
 }
 .nav-btn {
   width: 100%;
+  min-height: 40px;
   display: flex; align-items: center;
-  gap: var(--space-2);
-  padding: 7px 10px;
-  border-radius: var(--r-sm);
+  gap: var(--space-3);
+  padding: 9px 12px;
+  border-radius: var(--r);
   border: none;
   cursor: pointer;
   background: transparent;
   color: var(--text2);
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 500;
   text-align: left;
-  margin-bottom: 1px;
+  margin-bottom: 2px;
   text-decoration: none;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   font-family: inherit;
@@ -137,16 +147,16 @@
    ВАЖНО: правило обязано стоять ПОСЛЕ `.nav-btn`. Там padding задан
    шорткатом, специфичность у обоих селекторов одинаковая — и стоя выше, этот
    padding-left молча затирался целиком. */
-.nav-btn--child { padding-left: 35px; }
+.nav-btn--child { padding-left: 42px; }
 /* Красный бейдж-счётчик необработанных пропусков на кнопке «Доп.уроки». */
 .nav-badge {
   margin-left: auto;
-  min-width: 18px; height: 18px;
-  padding: 0 5px;
+  min-width: 20px; height: 20px;
+  padding: 0 6px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: 9px;
   background: var(--danger); color: #fff;
-  font-size: 11px; font-weight: 700; line-height: 1;
+  font-size: var(--fs-xs); font-weight: 700; line-height: 1;
   flex-shrink: 0;
 }
 .nav-btn--cta {
@@ -156,25 +166,30 @@
   margin-top: var(--space-2);
 }
 .nav-btn--cta:hover { background: var(--accent-soft-h); color: var(--accent); }
-.sidebar-footer { padding: var(--space-3) var(--space-2); border-top: 1px solid var(--border); }
+.sidebar-footer { padding: var(--space-3); border-top: 1px solid var(--border); }
 .user-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
-.user-name { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.2; }
-.user-role { font-size: 11px; color: var(--text4); margin-top: 1px; }
+.user-name { font-size: var(--fs-md); font-weight: 600; color: var(--text); line-height: 1.2; }
+.user-role { font-size: var(--fs-xs); color: var(--text4); margin-top: 2px; }
 .logout-btn {
   width: 100%;
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: 7px 10px;
-  border-radius: var(--r-sm);
+  min-height: 38px;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 9px 12px;
+  border-radius: var(--r);
   border: none; cursor: pointer;
   background: transparent;
   color: var(--text3);
-  font-size: 13px;
+  font-size: var(--fs-md);
   text-align: left;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   font-family: inherit;
 }
 .logout-btn:hover { background: var(--bg3); color: var(--text); }
-.theme-toggle-btn { width: 100%; display: flex; align-items: center; gap: var(--space-2); padding: 7px 10px; border-radius: var(--r-sm); border: 1px solid var(--border); cursor: pointer; background: var(--bg3); color: var(--text3); font-size: 13px; text-align: left; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); font-family: inherit; margin-bottom: var(--space-1); }
+/* Иконки подвала нарисованы 15px в разметке — поднимаем до 18px, как в
+   навигации, иначе низ панели выглядит мельче своего верха. */
+.sidebar-footer .logout-btn > svg,
+.sidebar-footer .theme-toggle-btn > svg { width: 18px; height: 18px; }
+.theme-toggle-btn { width: 100%; min-height: 38px; display: flex; align-items: center; gap: var(--space-3); padding: 9px 12px; border-radius: var(--r); border: 1px solid var(--border); cursor: pointer; background: var(--bg3); color: var(--text3); font-size: var(--fs-md); text-align: left; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); font-family: inherit; margin-bottom: var(--space-1); }
 .theme-toggle-btn:hover { background: var(--bg4); color: var(--text2); border-color: var(--accent); }
 
 /* ── SECTIONS ── */
@@ -185,8 +200,8 @@
 /* ── SCROLL-TOP BUTTON ── */
 #scroll-top-btn {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  right: calc(24px + env(safe-area-inset-right));
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -222,28 +237,17 @@
 
 /* ── COLLAPSIBLE SIDEBAR + MOBILE DRAWER ── */
 .sidebar-logo { justify-content: space-between; }
-.sidebar-close-btn {
+.sidebar-toggle-btn {
   width: 30px; height: 30px; border-radius: 8px; border: none; cursor: pointer;
   background: transparent; color: var(--text3);
   display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
   transition: background .15s, color .15s;
 }
-.sidebar-close-btn:hover { background: rgba(0,0,0,0.06); color: var(--text); }
-[data-theme="dark"] .sidebar-close-btn:hover { background: rgba(255,255,255,0.06); }
+.sidebar-toggle-btn:hover { background: rgba(0,0,0,0.06); color: var(--text); }
+[data-theme="dark"] .sidebar-toggle-btn:hover { background: rgba(255,255,255,0.06); }
 
-.burger-btn {
-  position: fixed; left: 20px; bottom: 20px; z-index: var(--z-nav);
-  width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
-  background: color-mix(in oklab, var(--accent) 70%, transparent); color: #ffffff;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 6px 20px color-mix(in oklab, var(--accent) 28%, transparent), 0 2px 6px rgba(0,0,0,0.12);
-  backdrop-filter: blur(10px);
-  transition: background .15s, transform .15s, box-shadow .15s;
-}
-.burger-btn:hover { background: color-mix(in oklab, var(--accent) 95%, transparent); transform: translateY(-2px); box-shadow: 0 10px 24px color-mix(in oklab, var(--accent) 35%, transparent), 0 2px 6px rgba(0,0,0,0.12); }
-.burger-btn:active { transform: translateY(0); }
-[data-theme="dark"] .burger-btn { background: color-mix(in oklab, var(--accent) 65%, transparent); }
-[data-theme="dark"] .burger-btn:hover { background: color-mix(in oklab, var(--accent) 90%, transparent); }
+
 
 /* Мобильная навигация: тот же сайдбар, выезжающий слева поверх контента.
    Radix держит контент смонтированным, пока идёт CSS-анимация выхода, —
@@ -259,9 +263,23 @@
 }
 
 .sidebar-drawer {
-  position: fixed; top: 0; left: 0;
-  width: min(280px, 86vw);
-  height: 100dvh;
+  position: fixed;
+  /* Высота выводится из ПРИВЯЗОК (top + bottom), а не задаётся 100dvh.
+     Разница принципиальна: dvh — снимок высоты экрана, который мобильные
+     браузеры пересчитывают при показе и скрытии адресной строки, и если
+     панель открыть в неудачный момент, её высота остаётся от прежнего замера —
+     панель оказывается короче экрана и показывает страницу под собой. Пара
+     top/bottom привязывает оба края к области просмотра и пересчитывать
+     нечего.
+     Собственный фон — вторая страховка на тот же случай: раньше фон приходил
+     только от вложенного .sidebar, и любой промах по высоте открывал дыру на
+     страницу. */
+  top: 0; bottom: 0; left: 0;
+  /* Совпадает с --sidebar-w: выезжающая панель — тот же сайдбар, и разъехаться
+     с ним по ширине она не должна. */
+  width: min(var(--sidebar-w), 88vw);
+  background: var(--bg);
+  overflow: hidden;
   z-index: calc(var(--z-nav) + 2);
   box-shadow: var(--shadow-modal);
   animation: drawer-in var(--t-slow) var(--ease-out);
@@ -275,7 +293,15 @@
   position: static;
   width: 100%; min-width: 0;
   height: 100%; min-height: 0;
+  /* Прокручивается только список разделов (.sidebar-nav со своим overflow):
+     логотип сверху и блок пользователя снизу обязаны оставаться на местах.
+     Без overflow:hidden длинный список выдавливал подвал за нижний край, и
+     «Выйти» становилось недостижимым. */
+  max-height: 100%;
+  overflow: hidden;
   border-right: none;
+  /* Нижняя системная полоска телефона перекрывала кнопку выхода. */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 @keyframes drawer-in {
@@ -351,7 +377,10 @@
 .page-header--dense .page-header__title { font-size: var(--fs-3xl); }
 
 @media (max-width: 900px) {
-  .page-header { margin-inline: calc(-1 * var(--space-4)); padding: var(--space-4) var(--space-4) var(--space-3); }
+  .page-header {
+    margin-inline: calc(-1 * var(--space-4));
+    padding: var(--space-4) var(--space-4) var(--space-3);
+  }
   .page-header__title { font-size: var(--fs-3xl); }
 }
 
@@ -380,3 +409,149 @@
 
 /* Страница-карточка: тот же вертикальный ритм, что у остальных страниц. */
 .detail-page { display: flex; flex-direction: column; animation: fadeIn .18s ease; }
+
+
+/* ============================================================
+ *  РЕЛЬСА — свёрнутая боковая колонка (.sidebar--rail)
+ *
+ *  Прежнее «свернуть» прятало навигацию целиком, и на её место вставала
+ *  плавающая кнопка. Это меняло шило на мыло: экран освобождался, но
+ *  пропадал ответ на вопрос «в каком я разделе», а кнопка начинала
+ *  перекрывать содержимое.
+ *
+ *  Рельса освобождает те же 208px, оставляя полосу иконок: текущий раздел
+ *  подсвечен, соседние — в одном нажатии, поверх содержимого ничего не
+ *  висит. Разделы группы открываются вылетающей панелью (.nav-flyout).
+ * ============================================================ */
+.sidebar--rail {
+  width: var(--sidebar-rail-w);
+  min-width: var(--sidebar-rail-w);
+}
+/* Шапка панели встаёт в два этажа: знак, под ним кнопка разворота. Рядом они
+   не помещаются — 64px минус поля это ровно одна кнопка. */
+.sidebar--rail .sidebar-logo {
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-2);
+}
+.sidebar--rail .logo-sub { display: none; }
+.sidebar--rail .logo-mark { height: 30px; }
+
+.sidebar--rail .sidebar-nav { padding: var(--space-2); }
+/* Кнопка раздела становится квадратом 44px — нижняя граница удобной цели
+   нажатия. Подписи прячутся, их роль берут на себя title и aria-label. */
+.sidebar--rail .nav-btn,
+.sidebar--rail .nav-group__btn {
+  position: relative;
+  width: 44px; height: 44px;
+  min-height: 0;
+  padding: 0;
+  margin: 0 auto var(--space-1);
+  justify-content: center;
+  gap: 0;
+}
+.sidebar--rail .nav-btn__label,
+.sidebar--rail .nav-group__label,
+.sidebar--rail .nav-group__chevron,
+.sidebar--rail .nav-group__panel,
+.sidebar--rail .user-row__text { display: none; }
+.sidebar--rail .nav-btn--cta { margin-top: var(--space-2); }
+/* Счётчик пропусков в рельсе не помещается в строку и садится на угол иконки —
+   так же, как значок непрочитанного на иконке приложения. */
+.sidebar--rail .nav-badge {
+  position: absolute;
+  top: 2px; right: 2px;
+  margin-left: 0;
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  font-size: var(--fs-2xs);
+}
+.sidebar--rail .nav-group + .nav-group { margin-top: 0; }
+/* В развёрнутой колонке группу с текущим разделом хватало подсветить цветом:
+   фон там занят активным ПУНКТОМ, и два пятна подряд читались бы как две
+   «текущие» строки. В рельсе пунктов на экране нет вовсе, конкурировать не с
+   чем — и одного цвета иконки мало, чтобы поймать раздел взглядом. */
+.sidebar--rail .nav-group__btn--current { background: var(--accent-soft); }
+.sidebar--rail .nav-group__btn--current:hover { background: var(--accent-soft-h); }
+
+.sidebar--rail .sidebar-footer { padding: var(--space-2); }
+.sidebar--rail .user-row { justify-content: center; padding: var(--space-2) 0; }
+.sidebar--rail .theme-toggle-btn,
+.sidebar--rail .logout-btn {
+  width: 44px; height: 40px;
+  min-height: 0;
+  padding: 0;
+  margin: 0 auto var(--space-1);
+  justify-content: center;
+  gap: 0;
+}
+
+/* ── ВЫЛЕТАЮЩАЯ ПАНЕЛЬ РАЗДЕЛОВ (рельса) ──
+   Рендерится порталом (Radix Popover), а не внутри колонки: .sidebar-nav
+   прокручиваемый, и вложенный список обрезался бы его краем. */
+.nav-flyout {
+  z-index: var(--z-popover);
+  min-width: 210px;
+  display: flex; flex-direction: column;
+  padding: var(--space-2);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-popover);
+}
+.nav-flyout__title {
+  padding: var(--space-1) var(--space-3) var(--space-2);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+/* Внутри вылета вложенности нет — отступ, которым пункт показывал уровень в
+   аккордеоне, здесь только съедал бы ширину. */
+.nav-flyout .nav-btn--child { padding-left: var(--space-3); }
+
+/* ============================================================
+ *  ВЕРХНЯЯ ПАНЕЛЬ УЗКОГО РЕЖИМА (TopBar)
+ *  В потоке и липкая: перекрывать содержимое ей нечем по устройству —
+ *  ровно то, чего не умела плавающая кнопка.
+ * ============================================================ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: calc(var(--topbar-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) var(--space-4) 0;
+  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar__burger {
+  flex-shrink: 0;
+  width: 40px; height: 40px;
+  margin-left: calc(-1 * var(--space-2));
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--r);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.topbar__burger:hover { background: var(--bg3); color: var(--text); }
+.topbar__mark { height: 22px; width: auto; color: var(--text); flex-shrink: 0; }
+.topbar__section {
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Липкая шапка страницы уступает верхней панели: обе липнут к верху, и без
+   сдвига шапка уехала бы под панель. Класс вешает AppShell — так порог узкого
+   режима остаётся единственным числом в JS и не дублируется медиазапросом. */
+.main--topbar .page-header { top: calc(var(--topbar-h) + env(safe-area-inset-top)); }

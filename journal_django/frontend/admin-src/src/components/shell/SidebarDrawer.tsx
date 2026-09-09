@@ -20,7 +20,7 @@ export function SidebarDrawer({ open, onOpenChange }: Props) {
         <RadixDialog.Overlay className="sidebar-drawer-overlay" />
         <RadixDialog.Content className="sidebar-drawer" aria-describedby={undefined}>
           <RadixDialog.Title className="sr-only">Меню разделов</RadixDialog.Title>
-          <Sidebar onClose={() => onOpenChange(false)} />
+          <Sidebar onToggle={() => onOpenChange(false)} toggleLabel="Закрыть меню" />
         </RadixDialog.Content>
       </RadixDialog.Portal>
     </RadixDialog.Root>
