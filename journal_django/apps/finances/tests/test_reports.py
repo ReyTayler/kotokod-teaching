@@ -123,13 +123,56 @@ def test_row_shows_payment_recognition_by_month_total_and_advance(
     assert report.months == sorted(set(report.months))
 
 
-def test_payment_without_recognition_in_month_is_absent(
+def test_payment_received_in_month_appears_even_without_recognition(
     student_fixture, direction_fixture, graph_cleanup,
 ):
-    """Свежая оплата без проведённых уроков строки не даёт (решение 3 спеки)."""
+    """Деньги пришли в месяце — строка есть, даже если уроков по ним ещё не было."""
     pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-07-05')
 
+    row = _row(collect_monthly_report('2026-07'), pid)
+
+    assert row is not None
+    assert row.revenue_by_month == {}
+    assert row.revenue_total == Decimal('0.00')
+    assert row.advance == Decimal('2000')          # вся сумма ещё авансом
+
+
+def test_old_payment_without_recognition_in_month_is_absent(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Оплата прошлого месяца без признания в выбранном — не наше событие."""
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-05-05')
+    _add_lesson_attendance(
+        graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-05-10',
+    )
+
     assert _row(collect_monthly_report('2026-07'), pid) is None
+
+
+def test_surcharge_received_in_month_pulls_in_its_parent_payment(
+    student_fixture, direction_fixture, graph_cleanup,
+):
+    """Доплата своей строки не имеет — значит, втягивает в отчёт родительскую оплату."""
+    pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-05-05')
+    _add_surcharge(graph_cleanup, student_fixture, pid, 1, 400, '2026-07-02')
+
+    row = _row(collect_monthly_report('2026-07'), pid)
+
+    assert row is not None
+    assert row.surcharge_amount == Decimal('400')
+    assert row.revenue_total == Decimal('0.00')
+    assert row.advance == Decimal('2400')          # 2000 оплаты + 400 доплаты
+
+
+def test_refund_alone_does_not_create_a_row(
+    student_fixture, direction_fixture, graph_cleanup,
+):
+    """Возврат — не поступление: своей строкой он не становится."""
+    refund_id = _add_payment(
+        graph_cleanup, student_fixture, direction_fixture, 1, 1500, '2026-07-20', kind='refund',
+    )
+
+    assert _row(collect_monthly_report('2026-07'), refund_id) is None
 
 
 def test_advance_is_as_of_end_of_month(
@@ -248,13 +291,17 @@ def test_half_lesson_recognizes_half_the_price(
 def test_free_lesson_recognizes_nothing(
     group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
 ):
-    """Бесплатное занятие денег не берёт — строки в отчёте не появляется."""
+    """Бесплатное занятие денег не берёт: выручки нет, вся сумма остаётся авансом."""
     pid = _add_payment_exact(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-07-01')
     _add_lesson_attendance(
         graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-10', is_free=True,
     )
 
-    assert _row(collect_monthly_report('2026-07'), pid) is None
+    # Строка есть — деньги пришли в июле; признания по ней нет.
+    row = _row(collect_monthly_report('2026-07'), pid)
+    assert row.revenue_by_month == {}
+    assert row.revenue_total == Decimal('0.00')
+    assert row.advance == Decimal('2000')
 
 
 def test_extra_payment_gets_its_own_row(

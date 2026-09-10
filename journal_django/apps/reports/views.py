@@ -26,6 +26,7 @@ from apps.core.permissions import IsManagerOrAdmin
 from apps.reports.models import ReportType
 from apps.reports.serializers import (
     AccountingReportParamsSerializer,
+    AccountingStudentsParamsSerializer,
     AttendanceReportParamsSerializer,
     RenewalsReportParamsSerializer,
     RetentionReportParamsSerializer,
@@ -46,6 +47,7 @@ _PARAM_SERIALIZERS = {
     ReportType.REVENUE_FORECAST: RevenueForecastParamsSerializer,
     ReportType.RETENTION: RetentionReportParamsSerializer,
     ReportType.STUDENTS_BY_TEACHER: StudentsByTeacherParamsSerializer,
+    ReportType.ACCOUNTING_STUDENTS: AccountingStudentsParamsSerializer,
 }
 
 

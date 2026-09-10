@@ -396,3 +396,65 @@ def test_lots_without_payment_id_are_skipped_in_payment_cuts():
     assert r['remaining_by_payment'] == {}
     assert r['refunded_by_payment'] == {}
     assert r['worked_off_month'] == _D('1000.00')
+
+
+def test_over_consumed_value_prices_debt_by_last_lot():
+    """Долг в деньгах: уроки сверх оплаченных считаем по цене последней партии."""
+    lots = [
+        {'lessons': 2, 'price_per_lesson': _D(500)},
+        {'lessons': 2, 'price_per_lesson': _D(600)},
+    ]
+    r = compute_fifo(lots, _lessons(6, '2026-06-10'), MS, ME)
+    assert r['over_consumed_lessons'] == _D('2.00')
+    assert r['over_consumed_value'] == _D('1200.00')      # 2 урока × 600 (цена последней партии)
+
+
+def test_over_consumed_value_is_zero_without_lots():
+    """Без единой оплаты цены нет — долг деньгами посчитать не из чего."""
+    r = compute_fifo([], _lessons(3, '2026-06-10'), MS, ME)
+    assert r['over_consumed_lessons'] == _D('3.00')
+    assert r['over_consumed_value'] == _D('0.00')
+
+
+def test_no_debt_when_lots_cover_lessons():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    r = compute_fifo(lots, _lessons(3, '2026-06-10'), MS, ME)
+    assert r['over_consumed_value'] == _D('0.00')
+
+
+def test_lessons_and_remaining_lessons_by_payment():
+    """Разбивка по оплате нужна не только в деньгах, но и в уроках."""
+    lots = [
+        {'lessons': 4, 'price_per_lesson': _D(500), 'payment_id': 1},
+        {'lessons': 4, 'price_per_lesson': _D(600), 'payment_id': 2},
+    ]
+    cons = _lessons(2, '2026-05-10') + _lessons(4, '2026-06-10')
+    r = compute_fifo(lots, cons, MS, ME)
+
+    # В июне отработано 2 урока из первой оплаты и 2 из второй.
+    assert r['worked_off_lessons_by_month_payment'] == {
+        ('2026-05', 1): _D(2),
+        ('2026-06', 1): _D(2),
+        ('2026-06', 2): _D(2),
+    }
+    assert r['remaining_lessons_by_payment'] == {2: _D(2)}
+    assert r['remaining_by_payment'] == {2: _D(1200)}
+
+
+def test_half_lesson_in_payment_lessons_cut():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500), 'payment_id': 8}]
+    cons = [{'units': 0.5, 'date': '2026-06-10'}]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_lessons_by_month_payment'] == {('2026-06', 8): _D('0.5')}
+    assert r['remaining_lessons_by_payment'] == {8: _D('3.5')}
+
+
+def test_over_consumed_within_month_is_separated_from_lifetime():
+    """Долг месяца считаем отдельно от накопленного: строка отчёта — про месяц."""
+    lots = [{'lessons': 2, 'price_per_lesson': _D(500), 'payment_id': 1}]
+    cons = _lessons(3, '2026-05-10') + _lessons(2, '2026-06-10')
+    r = compute_fifo(lots, cons, MS, ME)
+
+    assert r['over_consumed_lessons'] == _D('3.00')          # всего сверх оплаты
+    assert r['over_consumed_lessons_month'] == _D('2.00')    # из них в июне
+    assert r['over_consumed_value_month'] == _D('1000.00')   # 2 × 500

@@ -61,3 +61,7 @@ class RetentionReportParamsSerializer(_MonthStringSerializer):
 
 class StudentsByTeacherParamsSerializer(_MonthStringSerializer):
     """Параметры отчёта «Ученики по преподавателям»: месяц строкой YYYY-MM."""
+
+
+class AccountingStudentsParamsSerializer(_MonthStringSerializer):
+    """Параметры «Бухгалтерского отчёта» (по ученикам): месяц строкой YYYY-MM."""

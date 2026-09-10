@@ -95,14 +95,42 @@ def _round_by_month(exact_by_month: dict[str, Decimal]) -> tuple[dict[str, Decim
     return rounded, total
 
 
+def _received_in_month(month_start: str, month_end: str) -> set[int]:
+    """
+    Платежи, деньги по которым пришли внутри месяца.
+
+    purchase/extra отвечают за себя. Доплата к абонементу (surcharge) собственной
+    строки не имеет никогда — поэтому пришедшая в месяце доплата втягивает в
+    отчёт СВОЮ родительскую оплату: её деньги видны в колонке «Доплаты».
+    refund не поступление, а возврат: строки не создаёт, он виден колонкой
+    «Возвращено» у тех платежей, чьи партии погасил.
+    """
+    rows = (
+        Payment.objects
+        .filter(paid_at__gte=month_start, paid_at__lte=month_end,
+                kind__in=['purchase', 'extra', 'surcharge'])
+        .values_list('id', 'kind', 'parent_payment_id')
+    )
+    received: set[int] = set()
+    for payment_id, kind, parent_id in rows:
+        if kind == 'surcharge':
+            if parent_id is not None:
+                received.add(parent_id)
+        else:
+            received.add(payment_id)
+    return received
+
+
 def collect_monthly_report(month: str) -> LedgerReport:
     """
-    Реестр платежей, признавших выручку в указанном месяце.
+    Реестр платежей за указанный месяц: пришедших и/или признавших выручку.
 
     month: 'YYYY-MM'. В отчёт попадает платёж, у которого в этом месяце есть
-    признанная выручка. Признание показывается по всем месяцам от самого
-    раннего среди отобранных строк до указанного включительно; аванс — остаток
-    на конец указанного месяца.
+    признанная выручка ЛИБО в этом месяце пришли деньги (решение пользователя
+    2026-09-10: касса месяца должна быть видна целиком, даже когда уроков по
+    оплате ещё не было — такая строка показывает нулевую выручку и полный аванс).
+    Признание показывается по всем месяцам от самого раннего среди отобранных
+    строк до указанного включительно; аванс — остаток на конец указанного месяца.
 
     Raises:
         ValueError: month не в формате YYYY-MM / невалидный месяц (1-12).
@@ -130,7 +158,8 @@ def collect_monthly_report(month: str) -> LedgerReport:
         remaining.update(fifo['remaining_by_payment'])
         refunded.update(fifo['refunded_by_payment'])
 
-    selected = {pid for (ym, pid), value in worked.items() if ym == month and value > 0}
+    recognized = {pid for (ym, pid), value in worked.items() if ym == month and value > 0}
+    selected = recognized | _received_in_month(month_start, month_end)
     if not selected:
         return LedgerReport(month=month, months=[month], rows=[])
 
@@ -139,7 +168,12 @@ def collect_monthly_report(month: str) -> LedgerReport:
         if pid in selected and value > 0:
             exact_by_payment.setdefault(pid, {})[ym] = value
 
-    earliest = min(ym for months in exact_by_payment.values() for ym in months)
+    # Строка без единого месяца признания (деньги пришли, уроков ещё не было)
+    # шкалу не двигает; если таких строк весь отчёт — шкала это сам месяц.
+    earliest = min(
+        (ym for months in exact_by_payment.values() for ym in months),
+        default=month,
+    )
 
     payments = list(
         Payment.objects
@@ -164,7 +198,8 @@ def collect_monthly_report(month: str) -> LedgerReport:
     rows: list[PaymentLedgerRow] = []
     for p in payments:
         pid = p['id']
-        by_month, revenue_total = _round_by_month(exact_by_payment[pid])
+        # Пусто у платежа, который в отчёт попал приходом денег, а не признанием.
+        by_month, revenue_total = _round_by_month(exact_by_payment.get(pid, {}))
         refund_amount = round_kopecks(refunded.get(pid, _ZERO))
         surcharge = Decimal(surcharge_by_parent.get(pid) or 0)
         gross = Decimal(p['total_amount']) + surcharge

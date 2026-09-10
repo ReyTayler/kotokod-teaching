@@ -41,6 +41,10 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
   — тот же хвост, но по партиям и в порядке очереди. Нужен прогнозу выручки
   (apps/finances/revenue_forecast.py): месяц режется по 4 урока и может попасть
   на партии с РАЗНОЙ ценой, поэтому свёрнутой суммы по направлению не хватает.
+  over_consumed_value: Decimal — долг деньгами: уроки, проведённые сверх
+  оплаченных, оценённые по цене урока ПОСЛЕДНЕЙ партии ученика (его текущая
+  цена; своей цены у таких уроков нет — партии кончились). Без единой партии
+  цены нет вовсе, поэтому 0.
   worked_off_by_month_payment: { (ym, payment_id): Decimal } — признанная выручка
   в разрезе ПЛАТЕЖА (не направления): чьи именно деньги стали выручкой в этом
   месяце. remaining_by_payment / refunded_by_payment: { payment_id: Decimal } —
@@ -105,8 +109,13 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     # потребитель округляет один раз и распределяет невязку, та же дисциплина,
     # что у remaining_lots.price_per_lesson.
     by_month_payment: dict = {}
+    lessons_by_month_payment: dict = {}      # тот же разрез, но в УРОКАХ
     remaining_by_payment: dict = {}
+    remaining_lessons_by_payment: dict = {}  # хвост оплаты в уроках
     refunded_by_payment: dict = {}
+    # Перерасход ВНУТРИ месяца — отдельно от накопленного за всю историю:
+    # строка отчёта рассказывает про месяц, а не про весь долг ученика.
+    over_consumed_month = _ZERO
     unit_prices_month: list[Decimal] = []
     unit_qtys_month: list[Decimal] = []  # уроков (units, half-lesson=0.5) на каждую цену
 
@@ -146,6 +155,9 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                 if payment_id is not None:
                     mp_key = (ym, payment_id)
                     by_month_payment[mp_key] = by_month_payment.get(mp_key, _ZERO) + value
+                    lessons_by_month_payment[mp_key] = (
+                        lessons_by_month_payment.get(mp_key, _ZERO) + take
+                    )
                 if in_month:
                     worked_off_month += value
                     price = to_decimal(lots[lot_idx]['price_per_lesson'])
@@ -163,6 +175,8 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             need -= take
         if need > 0 and not is_refund:
             over_consumed_lessons += need
+            if in_month:
+                over_consumed_month += need
 
     remaining_value = _ZERO
     # Из чего состоит непогашенный хвост: { direction_id | None: {lessons, value} }.
@@ -193,6 +207,9 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             remaining_by_payment[payment_id] = (
                 remaining_by_payment.get(payment_id, _ZERO) + lessons * price
             )
+            remaining_lessons_by_payment[payment_id] = (
+                remaining_lessons_by_payment.get(payment_id, _ZERO) + lessons
+            )
 
     if lot_idx < len(lots):
         remaining_value += lot_remaining * to_decimal(lots[lot_idx]['price_per_lesson'])
@@ -206,6 +223,10 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         'worked_off_month': round_kopecks(worked_off_month),
         'remaining_value': round_kopecks(remaining_value),
         'over_consumed_lessons': round_kopecks(over_consumed_lessons),
+        # Долг деньгами по цене последней партии — см. docstring модуля.
+        'over_consumed_value': round_kopecks(
+            over_consumed_lessons * to_decimal(lots[-1]['price_per_lesson']) if lots else _ZERO
+        ),
         'worked_off_by_month': {k: round_kopecks(v) for k, v in by_month.items()},
         'worked_off_by_direction': {k: round_kopecks(v) for k, v in by_direction.items()},
         'worked_off_unit_prices_month': [round_kopecks(p) for p in unit_prices_month],
@@ -247,6 +268,16 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         # округление один раз делает отчёт, отдавая невязку последнему месяцу.
         # Партии без payment_id (легаси-вызовы) сюда не попадают.
         'worked_off_by_month_payment': dict(by_month_payment),
+        # Те же разрезы в УРОКАХ (half-lesson=0.5) — деньги на уроки не делятся,
+        # когда у оплаты несколько цен (доплата к абонементу дробит партию).
+        'worked_off_lessons_by_month_payment': dict(lessons_by_month_payment),
         'remaining_by_payment': dict(remaining_by_payment),
+        'remaining_lessons_by_payment': dict(remaining_lessons_by_payment),
         'refunded_by_payment': dict(refunded_by_payment),
+        # Перерасход внутри [month_start, month_end): уроки и их стоимость по
+        # цене последней партии (см. over_consumed_value выше).
+        'over_consumed_lessons_month': round_kopecks(over_consumed_month),
+        'over_consumed_value_month': round_kopecks(
+            over_consumed_month * to_decimal(lots[-1]['price_per_lesson']) if lots else _ZERO
+        ),
     }

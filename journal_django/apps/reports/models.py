@@ -18,3 +18,4 @@ class ReportType(models.TextChoices):
     REVENUE_FORECAST = 'revenue_forecast', 'Прогноз отработки денег по месяцам'
     RETENTION = 'retention', 'Отчёт по переходимости (за месяц)'
     STUDENTS_BY_TEACHER = 'students_by_teacher', 'Ученики по преподавателям (за месяц)'
+    ACCOUNTING_STUDENTS = 'accounting_students', 'Бухгалтерский отчёт (за месяц)'

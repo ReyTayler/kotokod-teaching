@@ -21,6 +21,7 @@ export const ATTENDANCE_MONTH = 'attendance_month';
 export const REVENUE_FORECAST = 'revenue_forecast';
 export const RETENTION = 'retention';
 export const STUDENTS_BY_TEACHER = 'students_by_teacher';
+export const ACCOUNTING_STUDENTS = 'accounting_students';
 
 // Месяцы для селекта.
 export const MONTHS_RU = [
@@ -65,9 +66,18 @@ export const REPORT_TYPES: ReportTypeDef[] = [
   {
     reportType: ACCOUNTING_MONTH,
     title: 'Отчёт по поступлениям и выручке',
-    desc: 'Реестр поступлений: каждая оплата, признавшая выручку в выбранном месяце — '
-      + 'дата платежа, цена 1 урока, признанная выручка по месяцам, выручка итого, '
-      + 'возвраты и остаток аванса на конец месяца.',
+    desc: 'Реестр поступлений: каждая оплата, пришедшая в выбранном месяце или '
+      + 'признавшая в нём выручку — дата платежа, цена 1 урока, признанная выручка '
+      + 'по месяцам, выручка итого, возвраты и остаток аванса на конец месяца.',
+    buildParams: (year, month) => ({ month: ym(year, month) }),
+  },
+  {
+    reportType: ACCOUNTING_STUDENTS,
+    title: 'Бухгалтерский отчёт',
+    desc: 'Детальная разбивка по каждому ученику за месяц: строка на каждую оплату, '
+      + 'с которой списывались деньги, и на каждую оплату месяца — посещённые уроки, '
+      + 'отработанные деньги, стоимость 1 урока, остаток уроков и аванса. Уроки сверх '
+      + 'оплаченных — отдельной строкой с долгом. Остатки — на конец месяца.',
     buildParams: (year, month) => ({ month: ym(year, month) }),
   },
   {
