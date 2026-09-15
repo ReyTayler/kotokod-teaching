@@ -458,3 +458,125 @@ def test_over_consumed_within_month_is_separated_from_lifetime():
     assert r['over_consumed_lessons'] == _D('3.00')          # всего сверх оплаты
     assert r['over_consumed_lessons_month'] == _D('2.00')    # из них в июне
     assert r['over_consumed_value_month'] == _D('1000.00')   # 2 × 500
+
+
+# ---------------------------------------------------------------------------
+# Разрез по уроку — вкладка «Уроки» в карточке ученика (спека 2026-09-14)
+# ---------------------------------------------------------------------------
+
+def test_by_lesson_single_lesson():
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    cons = [{'units': 1, 'date': '2026-06-10', 'lesson_id': 11}]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_lesson'] == {11: _D('500')}
+    assert r['over_consumed_by_lesson'] == {}
+
+
+def test_by_lesson_half_lesson_costs_half():
+    """45 минут = 0.5 урока → списывается полцены партии."""
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    cons = [{'units': 0.5, 'date': '2026-06-10', 'lesson_id': 12}]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_lesson'] == {12: _D('250.0')}
+
+
+def test_by_lesson_spanning_two_lots_sums_both_parts():
+    """Урок на стыке абонементов гасится двумя партиями — в разрезе сумма обеих.
+
+    Партий в полурока не бывает (fifo_inputs: lessons = int(raw) > 0), поэтому
+    на стык выводит half-lesson: 45-минутный урок сдвигает очередь на 0.5 и
+    следующий целый урок садится сразу на две партии.
+    """
+    lots = [
+        {'lessons': 2, 'price_per_lesson': _D(500)},
+        {'lessons': 4, 'price_per_lesson': _D(400)},
+    ]
+    cons = [
+        {'units': 0.5, 'date': '2026-06-10', 'lesson_id': 13},
+        {'units': 1, 'date': '2026-06-11', 'lesson_id': 14},
+        {'units': 1, 'date': '2026-06-12', 'lesson_id': 15},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    # Урок 15 добирает 0.5 из первой партии (250) и 0.5 из второй (200).
+    assert r['worked_off_by_lesson'] == {
+        13: _D('250.0'),
+        14: _D('500'),
+        15: _D('450.0'),
+    }
+
+
+def test_by_lesson_debt_lesson_has_no_money_and_is_over_consumed():
+    """Урок сверх оплаченного: денег не признано, урок попал в перерасход."""
+    lots = [{'lessons': 1, 'price_per_lesson': _D(500)}]
+    cons = [
+        {'units': 1, 'date': '2026-06-10', 'lesson_id': 21},
+        {'units': 1, 'date': '2026-06-11', 'lesson_id': 22},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_lesson'] == {21: _D('500')}
+    assert r['over_consumed_by_lesson'] == {22: _D('1')}
+
+
+def test_by_lesson_partially_paid_lesson_is_both_recognized_and_debt():
+    """Партий хватило на половину урока: полцены признано, полурока — долг.
+
+    Остаток в полурока даёт не партия (таких не бывает), а предшествующий
+    45-минутный урок, съевший половину целой партии.
+    """
+    lots = [{'lessons': 1, 'price_per_lesson': _D(500)}]
+    cons = [
+        {'units': 0.5, 'date': '2026-06-10', 'lesson_id': 30},
+        {'units': 1, 'date': '2026-06-11', 'lesson_id': 31},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_lesson'] == {30: _D('250.0'), 31: _D('250.0')}
+    assert r['over_consumed_by_lesson'] == {31: _D('0.5')}
+
+
+def test_by_lesson_sum_equals_worked_off_total():
+    """Разрез не расходится с итогом — иначе колонка врёт относительно отчётов."""
+    lots = [
+        {'lessons': 4, 'price_per_lesson': _D(500)},
+        {'lessons': 4, 'price_per_lesson': _D(450)},
+    ]
+    cons = [
+        {'units': 1, 'date': '2026-05-10', 'lesson_id': 41},
+        {'units': 0.5, 'date': '2026-06-10', 'lesson_id': 42},
+        {'units': 1, 'date': '2026-06-11', 'lesson_id': 43},
+        {'units': 1, 'date': '2026-06-12', 'lesson_id': 44},
+        {'units': 1, 'date': '2026-06-13', 'lesson_id': 45},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert sum(r['worked_off_by_lesson'].values()) == r['worked_off_total']
+    # Итога мало: он сойдётся и если все деньги записать одному уроку. Урок 45
+    # садится на стык партий (0.5 по 500 + 0.5 по 450) — проверяем адресность.
+    assert r['worked_off_by_lesson'][45] == _D('475.0')
+
+
+def test_by_lesson_ignores_consumptions_without_lesson_id():
+    """Синтетический возврат урока не имеет — в разрезе его быть не должно."""
+    lots = [{'lessons': 4, 'price_per_lesson': _D(500)}]
+    cons = [
+        {'units': 1, 'date': '2026-06-10', 'lesson_id': 51},
+        {'units': 3, 'date': '2026-06-20', 'direction_id': None, 'refund': True},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_lesson'] == {51: _D('500')}
+    assert r['over_consumed_by_lesson'] == {}
+
+
+def test_by_lesson_debt_without_lesson_id_is_ignored():
+    """Легаси-вызовы (dashboard/reports/student_month) урока не передают.
+
+    Перерасход всё так же копится в общий over_consumed_lessons, но в разрез
+    по уроку не попадает — иначе ключ None собрал бы долг всех таких записей.
+    """
+    lots = [{'lessons': 1, 'price_per_lesson': _D(500)}]
+    cons = [
+        {'units': 1, 'date': '2026-06-10', 'lesson_id': 61},
+        {'units': 1, 'date': '2026-06-11'},  # сверх оплаченного и без урока
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['worked_off_by_lesson'] == {61: _D('500')}
+    assert r['over_consumed_by_lesson'] == {}
+    assert r['over_consumed_lessons'] == _D('1.00')

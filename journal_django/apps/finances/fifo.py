@@ -20,8 +20,11 @@ dashboard getMonthlyFinance не будет байт-пустым в неско�
 lots:         [{ 'lessons': n, 'price_per_lesson': Decimal, 'direction_id': int|None }]
               — в порядке оплаты (старые первыми). direction_id опционален: нужен
               только для remaining_by_direction (см. ниже), на очередь не влияет.
-consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None }] — в порядке даты урока.
-              direction_id — направление УРОКА (не оплаты), опционально (может отсутствовать).
+consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None,
+              'lesson_id': int|None }] — в порядке даты урока.
+              direction_id — направление УРОКА (не оплаты), опционально.
+              lesson_id — урок записи; нужен разрезу worked_off_by_lesson
+              (вкладка «Уроки» карточки ученика), опционален.
 
 Возврат (Decimal, округлены до копеек):
   worked_off_total, worked_off_month, remaining_value, over_consumed_lessons,
@@ -52,6 +55,20 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None 
   Все три — ТОЧНЫЕ Decimal без округления (потребитель — реестр признания
   выручки, apps/finances/reports.py — округляет один раз). Партии без
   payment_id в эти разрезы не попадают.
+  worked_off_by_lesson: { lesson_id: Decimal } — ДЕНЬГИ, признанные конкретным
+  уроком: сколько списала эта запись потребления. Урок на стыке абонементов
+  гасится двумя партиями — здесь лежит сумма обеих долей.
+  over_consumed_by_lesson: { lesson_id: Decimal } — сколько УРОКОВ этой записи
+  прошло сверх оплаченного остатка (half-lesson = 0.5). ЭТО НЕ ДЕНЬГИ: гнать
+  значение через round_kopecks и печатать как рубли нельзя — получится
+  «0,50 ₽» вместо «полурока долга». Частично оплаченный урок попадает в ОБА
+  разреза сразу: часть признана деньгами, часть ушла в долг.
+  Оба разреза — ПОЖИЗНЕННЫЕ: полуинтервал [month_start, month_end) их не
+  ограничивает (в отличие от worked_off_month), в них вся история ученика.
+  Значения — ТОЧНЫЕ Decimal без округления, как у разрезов по платежу:
+  округляет потребитель, один раз на строку. Потребления без lesson_id
+  (синтетические возвраты, легаси-вызовы dashboard/reports/student_month)
+  ни в один из разрезов не попадают.
   worked_off_by_month_lot_direction / worked_off_by_month_lesson_direction:
   { (ym, direction_id): {'value': Decimal, 'lessons': Decimal} } — один и тот же
   факт отработки в двух разрезах: по направлению ОПЛАТЫ (чьи деньги списаны) и по
@@ -118,6 +135,14 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     over_consumed_month = _ZERO
     unit_prices_month: list[Decimal] = []
     unit_qtys_month: list[Decimal] = []  # уроков (units, half-lesson=0.5) на каждую цену
+    # Разрез ПО УРОКУ (вкладка «Уроки» карточки ученика, спека 2026-09-14):
+    # сколько денег списала конкретная запись потребления и сколько её уроков
+    # прошло сверх оплаченного остатка. Ключ — lesson_id записи; потребления без
+    # него (синтетические возвраты) в разрезы не попадают. Значения — ТОЧНЫЕ
+    # Decimal без округления, как у разрезов по платежу: округляет потребитель,
+    # один раз на строку.
+    by_lesson: dict[int, Decimal] = {}
+    over_consumed_by_lesson: dict[int, Decimal] = {}
 
     for c in consumptions:
         need = to_decimal(c['units'])
@@ -125,6 +150,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         in_month = month_start <= c['date'] < month_end
         direction_id = c.get('direction_id')
         is_refund = bool(c.get('refund'))
+        lesson_id = c.get('lesson_id')
         while need > 0 and lot_idx < len(lots):
             if lot_remaining <= 0:
                 lot_idx += 1
@@ -137,6 +163,8 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             payment_id = lots[lot_idx].get('payment_id')
             if not is_refund:
                 worked_off_total += value
+                if lesson_id is not None:
+                    by_lesson[lesson_id] = by_lesson.get(lesson_id, _ZERO) + value
                 ym = c['date'][:7]
                 by_month[ym] = by_month.get(ym, _ZERO) + value
                 if direction_id is not None:
@@ -175,6 +203,10 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             need -= take
         if need > 0 and not is_refund:
             over_consumed_lessons += need
+            if lesson_id is not None:
+                over_consumed_by_lesson[lesson_id] = (
+                    over_consumed_by_lesson.get(lesson_id, _ZERO) + need
+                )
             if in_month:
                 over_consumed_month += need
 
@@ -274,6 +306,14 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         'remaining_by_payment': dict(remaining_by_payment),
         'remaining_lessons_by_payment': dict(remaining_lessons_by_payment),
         'refunded_by_payment': dict(refunded_by_payment),
+        # { lesson_id: Decimal } — признанные ДЕНЬГИ в разрезе конкретного урока
+        # и { lesson_id: Decimal } — сколько УРОКОВ этой записи прошло сверх
+        # оплаченного (half-lesson = 0.5; второй разрез — не деньги, через
+        # round_kopecks его печатать нельзя). Оба пожизненные, вне [month_start,
+        # month_end). Точные Decimal без округления — округляет потребитель
+        # (планируется apps/finances/repository.py::student_lesson_recognition).
+        'worked_off_by_lesson': dict(by_lesson),
+        'over_consumed_by_lesson': dict(over_consumed_by_lesson),
         # Перерасход внутри [month_start, month_end): уроки и их стоимость по
         # цене последней партии (см. over_consumed_value выше).
         'over_consumed_lessons_month': round_kopecks(over_consumed_month),

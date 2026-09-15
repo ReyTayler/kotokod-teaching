@@ -22,10 +22,10 @@ import datetime
 from decimal import Decimal
 from typing import Iterable, Optional
 
-from django.db.models import Case, DecimalField, F, Sum, Value, When
+from django.db.models import DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 
-from apps.core.utils.decimal import to_decimal
+from apps.core.utils.decimal import round_kopecks, to_decimal
 from apps.finances.lots import build_lots
 
 from apps.directions.models import Direction
@@ -35,6 +35,11 @@ from apps.payments.models import Payment
 
 _DEC = DecimalField(max_digits=20, decimal_places=2)
 _ZERO = Value(Decimal('0'), output_field=_DEC)
+
+# Окно месяца для compute_fifo, раскрытое на всю историю: per-student расчёты
+# (остаток к возврату, признание по урокам) нарезки по месяцу не делают — им
+# нужны сквозные итоги, а не строка отчёта за месяц.
+_FIFO_FULL_RANGE = ('0001-01-01', '9999-12-31')
 
 
 # ---------------------------------------------------------------------------
@@ -55,12 +60,15 @@ def _date_str(value) -> str:
 
 
 def _attended_units_case():
-    """half-lesson: SUM(CASE WHEN duration=45 THEN 0.5 ELSE 1) как Decimal-выражение."""
-    return Case(
-        When(lesson__lesson_duration_minutes=45, then=Value(Decimal('0.5'))),
-        default=Value(Decimal('1')),
-        output_field=_DEC,
-    )
+    """
+    half-lesson: SUM(CASE WHEN duration=45 THEN 0.5 ELSE 1) как Decimal-выражение.
+
+    Своего определения здесь больше нет: вес — общий инвариант проекта и живёт в
+    apps/lessons/weights.py. Имя оставлено, потому что на него завязаны вызовы
+    внутри модуля.
+    """
+    from apps.lessons.weights import attended_units_case
+    return attended_units_case()
 
 
 def surcharges_by_parent(student_id: int | None = None) -> dict[int, dict[int, Decimal]]:
@@ -292,6 +300,28 @@ def student_fifo_remaining(student_id: int) -> dict:
     по нему возврат раскладывается на строки (apps/payments::refund_student),
     иначе лимит курса после возврата не освобождается.
 
+    Партии и потребления строит _student_fifo_args — там же правила refund/surcharge.
+    """
+    from apps.finances.fifo import compute_fifo
+
+    remaining_lessons = balance_for_student(student_id)
+    lots, cons = _student_fifo_args(student_id)
+    fifo = compute_fifo(lots, cons, *_FIFO_FULL_RANGE)
+    return {
+        'remaining_lessons': remaining_lessons,
+        'remaining_value': fifo['remaining_value'],
+        'remaining_by_direction': fifo['remaining_by_direction'],
+    }
+
+
+def _student_fifo_args(student_id: int) -> tuple[list[dict], list[dict]]:
+    """
+    Партии и потребления ОДНОГО ученика — общий вход всех per-student расчётов
+    FIFO (остаток к возврату, признание по урокам). Общешкольный обход тех же
+    правил отдельный — см. fifo_inputs(); внутри per-student пути обход один,
+    иначе два независимых разъехались бы при первой же правке правил (доплаты,
+    возвраты, бесплатные занятия).
+
     Строки kind='refund' (см. apps/payments/repository.py::refund_student) не
     образуют партий — как в fifo_inputs(), они становятся синтетическими
     consumption-записями (флаг refund), которые гасят остаток партий без
@@ -300,11 +330,11 @@ def student_fifo_remaining(student_id: int) -> dict:
     Строки kind='surcharge' партий не образуют — как в fifo_inputs(), они
     дробят партию parent_payment на блоки по 4 урока (apps/finances/lots.py).
     Так возврат средств считается по уже подорожавшим ценам без отдельных правок.
+
+    Каждое потребление несёт lesson_id — по нему compute_fifo строит разрез
+    worked_off_by_lesson (вкладка «Уроки» карточки ученика). Синтетические
+    списания-возвраты урока не имеют и в разрез не попадают.
     """
-    from apps.finances.fifo import compute_fifo
-
-    remaining_lessons = balance_for_student(student_id)
-
     payment_rows = (
         Payment.objects.filter(student_id=student_id)
         .exclude(kind='surcharge')          # доплаты партий не образуют
@@ -347,18 +377,52 @@ def student_fifo_remaining(student_id: int) -> dict:
             # Месяц денег = lesson_date записи (extra/burned — своя дата проведения).
             'date': _date_str(r['lesson_date']),
             'direction_id': None,
+            'lesson_id': r['lesson_id'],
         }
         for r in cons_rows
     ]
     cons.extend(refund_cons)
     cons.sort(key=lambda c: (c['date'], 1 if c.get('refund') else 0))
+    return lots, cons
 
-    fifo = compute_fifo(lots, cons, '0001-01-01', '9999-12-31')
-    return {
-        'remaining_lessons': remaining_lessons,
-        'remaining_value': fifo['remaining_value'],
-        'remaining_by_direction': fifo['remaining_by_direction'],
-    }
+
+def student_lesson_recognition(student_id: int) -> dict[int, dict]:
+    """
+    { lesson_id: {'recognized': Decimal (копейки), 'is_debt': bool} } — сколько
+    денег списал каждый урок ученика. Источник колонки «Признано» во вкладке
+    «Уроки» карточки ученика (спека 2026-09-14).
+
+    Считается по ВСЕЙ истории ученика: чтобы знать, какие абонементы к моменту
+    урока уже погашены, частичной выборки не хватает. Поэтому функция — для
+    карточки ОДНОГО ученика; построчно в списках учеников её звать нельзя
+    (история каждого целиком на каждую строку).
+
+    is_debt=True — урок прошёл сверх оплаченного остатка ЦЕЛИКОМ ИЛИ ЧАСТИЧНО;
+    это не «денег ноль»: у частично оплаченного урока recognized > 0 и флаг
+    стоит одновременно. Оценку самого долга деньгами не даём — колонка
+    показывает признанную выручку. Бесплатное занятие в потребление не входит
+    вовсе, поэтому в карте его нет — потребитель показывает 0 ₽.
+
+    recognized округляется до копеек ПОСТРОЧНО, а отчёты округляют итог один
+    раз, поэтому на неделящихся ценах (1000/3) сумма колонки может разойтись с
+    отчётом на копейки — по копейке на строку. Колонка объясняет урок, сверять
+    итоги по ней нельзя.
+    """
+    from apps.finances.fifo import compute_fifo
+
+    lots, cons = _student_fifo_args(student_id)
+    fifo = compute_fifo(lots, cons, *_FIFO_FULL_RANGE)
+    debt = fifo['over_consumed_by_lesson']
+
+    out: dict[int, dict] = {}
+    for lesson_id, value in fifo['worked_off_by_lesson'].items():
+        out[lesson_id] = {
+            'recognized': round_kopecks(value),
+            'is_debt': lesson_id in debt,
+        }
+    for lesson_id in debt:
+        out.setdefault(lesson_id, {'recognized': Decimal('0.00'), 'is_debt': True})
+    return out
 
 
 def paid_by_direction_rows(student_id: int) -> list[dict]:
