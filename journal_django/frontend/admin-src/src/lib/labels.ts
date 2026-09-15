@@ -1,4 +1,4 @@
-import type { LessonType, RegistryStatus, Role } from './types';
+import type { LessonType, RegistryStatus, Role, StudentLessonKind } from './types';
 
 // Статуса ученика больше нет (спека 2026-07-25): его «статус» — стадия последней
 // сделки продления, подписи стадий приходят с бэка (useRenewalStages).
@@ -38,6 +38,18 @@ export const LESSON_TYPE_LABELS: Record<LessonType, string> = {
 export const LESSON_TYPE_OPTIONS: { value: LessonType; label: string }[] =
   (Object.entries(LESSON_TYPE_LABELS) as [LessonType, string][])
     .map(([value, label]) => ({ value, label }));
+
+// ===== Тип строки во вкладке «Уроки» карточки ученика =====
+// Отдельный набор, а не LESSON_TYPE_LABELS: тот описывает сырой lessons.lesson_type
+// и не знает ни «сгоревшего», ни «бесплатного» (последний — вовсе не тип урока,
+// а исход посещаемости). Коды выводит бэкенд (apps/students/lesson_history.py).
+
+export const STUDENT_LESSON_KIND_LABELS: Record<StudentLessonKind, string> = {
+  regular: 'Обычный',
+  free:    'Бесплатный',
+  extra:   'Доп.урок',
+  burned:  'Сгоревший',
+};
 
 // ===== Changelog: операции журнала изменений =====
 // Ключи — из apps/changelog/labels.py (бэкенд выводит их из method+url).

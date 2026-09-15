@@ -1,37 +1,103 @@
+import { useSearchParams } from 'react-router-dom';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { RowOpenButton } from '../../components/table/RowOpenButton';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { REPORT_TYPES, type ReportTypeDef } from '../../lib/reports';
 
 /**
- * Список доступных отчётов: строка = отчёт, кнопка открывает его страницу.
+ * Раздел «Отчёты»: две вкладки.
  *
- * Раньше здесь была сетка карточек, и каждая карточка несла собственные
- * контролы генерации — раздел рос вширь и вглубь одновременно, а описание
- * отчёта конкурировало за место с его полями. Теперь список отвечает только на
- * вопрос «какие отчёты есть», а настройка и запуск живут на странице отчёта
- * (тот же паттерн «список → карточка», что у учеников, групп и преподавателей).
+ * «Отчёты» — фоновые выгрузки: строка отвечает на вопрос «какие отчёты есть»,
+ * настройка и запуск живут на странице отчёта (тот же паттерн «список →
+ * карточка», что у учеников, групп и преподавателей).
+ *
+ * «Дашборд» — живые экраны со сводками. Пока один; список сделан таблицей, а не
+ * единственной ссылкой, чтобы второй лёг рядом строкой, а не переделкой раздела.
  */
 const columns: Column<ReportTypeDef>[] = [
   { key: 'title', label: 'Отчёт', cell: (row) => <span className="report-list__name">{row.title}</span> },
 ];
 
+interface DashboardDef {
+  key: string;
+  title: string;
+  desc: string;
+  path: string;
+}
+
+const DASHBOARDS: DashboardDef[] = [
+  {
+    key: 'attendance',
+    title: 'Посещения учеников',
+    desc: 'Отработанные уроки за всё время и за период, с разбивкой по ученикам',
+    path: '/admin/reports/dashboard/attendance',
+  },
+];
+
+const dashboardColumns: Column<DashboardDef>[] = [
+  { key: 'title', label: 'Дашборд', cell: (row) => <span className="report-list__name">{row.title}</span> },
+];
+
+const TABS = ['reports', 'dashboard'] as const;
+type ReportsTab = (typeof TABS)[number];
+const DEFAULT_TAB: ReportsTab = 'reports';
+
+function isTab(value: string | null): value is ReportsTab {
+  return !!value && (TABS as readonly string[]).includes(value);
+}
+
 export default function ReportsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const raw = searchParams.get('tab');
+  const activeTab: ReportsTab = isTab(raw) ? raw : DEFAULT_TAB;
+
+  const setActiveTab = (tab: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === DEFAULT_TAB) next.delete('tab'); else next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  };
+
+  const tabs: TabItem[] = [
+    {
+      value: 'reports',
+      label: 'Отчёты',
+      content: (
+        <DataTable<ReportTypeDef>
+          data={REPORT_TYPES}
+          columns={columns}
+          title="Список доступных отчётов"
+          roomy
+          rowAction={(row) => (
+            <RowOpenButton to={`/admin/reports/${row.reportType}`} title={row.desc} />
+          )}
+        />
+      ),
+    },
+    {
+      value: 'dashboard',
+      label: 'Дашборд',
+      content: (
+        <DataTable<DashboardDef>
+          data={DASHBOARDS}
+          columns={dashboardColumns}
+          title="Список доступных дашбордов"
+          roomy
+          rowAction={(row) => <RowOpenButton to={row.path} title={row.desc} />}
+        />
+      ),
+    },
+  ];
+
   return (
     <>
       <PageHeader
         title="Отчёты"
-        sub="Выгрузки формируются в фоне: файл скачивается сразу по готовности и на платформе не хранится."
+        sub="Выгрузки формируются в фоне и на платформе не хранятся; дашборды считаются на лету при открытии."
       />
-      <DataTable<ReportTypeDef>
-        data={REPORT_TYPES}
-        columns={columns}
-        title="Список доступных отчётов"
-        roomy
-        rowAction={(row) => (
-          <RowOpenButton to={`/admin/reports/${row.reportType}`} title={row.desc} />
-        )}
-      />
+      <Tabs items={tabs} value={activeTab} onChange={setActiveTab} />
     </>
   );
 }

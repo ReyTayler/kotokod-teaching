@@ -1790,3 +1790,24 @@
   margin-top: var(--space-2);
   font-size: 11px; line-height: 1.4; color: var(--text4);
 }
+
+/* Вкладка «Уроки» карточки ученика: сумма и пометка долга в одной ячейке. */
+.slessons__money {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.slessons__debt {
+  color: var(--text3);
+  font-size: var(--fs-xs);
+}
+
+/* Ряд контролов над таблицей (период дашборда): поля в строку, перенос на узком. */
+.page-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}

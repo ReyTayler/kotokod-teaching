@@ -19,6 +19,7 @@ import { fmtDate, fmtDateTime, fmtAge } from '../../lib/format';
 import type { Student } from '../../lib/types';
 import StudentFormModal from './StudentFormModal';
 import StudentLearningBlock from './StudentLearningBlock';
+import StudentLessonsTable from '../../components/lessons/StudentLessonsTable';
 import StudentKpiRow from './StudentKpiRow';
 import { StudentBalanceBlock } from './StudentBalanceBlock';
 import StudentCommentsBlock from './StudentCommentsBlock';
@@ -86,7 +87,7 @@ function StudentManagerDialog({ student, onClose }: { student: Student; onClose:
   );
 }
 
-const STUDENT_TABS = ['learning', 'finance', 'tasks', 'comments', 'history'] as const;
+const STUDENT_TABS = ['learning', 'lessons', 'finance', 'tasks', 'comments', 'history'] as const;
 type StudentTab = (typeof STUDENT_TABS)[number];
 const DEFAULT_TAB: StudentTab = 'learning';
 
@@ -247,6 +248,11 @@ export default function StudentDetailPage() {
           <EntityCard title="Прочие данные ученика" row={student} fields={otherFields} />
         </div>
       ),
+    },
+    {
+      value: 'lessons',
+      label: 'Уроки',
+      content: <StudentLessonsTable studentId={student.id} />,
     },
     {
       value: 'finance',

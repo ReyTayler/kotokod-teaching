@@ -549,3 +549,50 @@ export interface RevertConflictItem {
   reason: 'row_exists' | 'row_missing' | 'changed_later' | 'no_previous_state';
   fields?: string[];
 }
+
+// ===== Вкладка «Уроки» карточки ученика (спека 2026-09-14) =====
+
+/** Выводимый тип строки. Считает бэкенд из lesson_type + is_free
+ *  (apps/students/lesson_history.py) — это НЕ сырой lessons.lesson_type. */
+export type StudentLessonKind = 'regular' | 'free' | 'extra' | 'burned';
+
+export interface StudentLessonRow {
+  lesson_id: number;
+  /** Номер урока в плане курса, numeric(5,1) строкой («12.0»). У доп.урока и
+   *  сгорания унаследован от пропущенного занятия. Рендерить через fmtLessons. */
+  lesson_number: string;
+  lesson_date: string;
+  submitted_at: string;
+  kind: StudentLessonKind;
+  duration_minutes: number;
+  group_id: number;
+  group_name: string;
+  teacher_id: number;
+  teacher_name: string;
+  direction_id: number;
+  direction_name: string;
+  /** Признанные деньги строкой — точный Decimal с бэка, fmtRub принимает строку. */
+  recognized_amount: string;
+  /** Урок (целиком или частично) прошёл сверх оплаченного остатка. */
+  is_debt: boolean;
+}
+
+// ===== Дашборд «Посещения учеников» (спека 2026-09-15) =====
+
+/** Две цифры экрана. Уроки с весом (45 мин = 0,5) строками — точный Decimal. */
+export interface AttendanceDashboardSummary {
+  all_time_lessons: string;
+  period_lessons: string;
+}
+
+/** Строка ученика: разбивка занятий внутри выбранного периода, всё в уроках. */
+export interface AttendanceDashboardRow {
+  student_id: number;
+  full_name: string;
+  regular: string;
+  extra: string;
+  burned: string;
+  free: string;
+  /** Итого списано = обычные + доп.уроки + сгоревшие. Бесплатные не входят. */
+  billed: string;
+}
