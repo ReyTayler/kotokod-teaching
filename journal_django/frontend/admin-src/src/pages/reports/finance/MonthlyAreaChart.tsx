@@ -8,7 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { fmtRub } from '../../lib/format';
+import { fmtRub } from '../../../lib/format';
 
 export interface ChartRow {
   monthLabel: string;

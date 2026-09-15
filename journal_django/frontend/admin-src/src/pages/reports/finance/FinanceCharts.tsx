@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useMonthlyFinance } from '../../hooks/useMonthlyFinance';
-import { SelectInput } from '../../components/form/SelectInput';
-import { ColorInput } from '../../components/form/ColorInput';
-import { PageLoading } from '../../components/ui/Skeleton';
-import { MONTHS_RU } from '../../lib/slots';
-import { toCsv, downloadCsv } from '../../lib/export-csv';
+import { useMonthlyFinance } from '../../../hooks/useMonthlyFinance';
+import { SelectInput } from '../../../components/form/SelectInput';
+import { ColorInput } from '../../../components/form/ColorInput';
+import { PageLoading } from '../../../components/ui/Skeleton';
+import { MONTHS_RU } from '../../../lib/slots';
+import { toCsv, downloadCsv } from '../../../lib/export-csv';
 import { MonthlyAreaChart, type ChartRow, type ComparisonSeries } from './MonthlyAreaChart';
-import type { MonthlyFinanceData } from '../../lib/types';
+import type { MonthlyFinanceData } from '../../../lib/types';
 
 const CUR_YEAR = new Date().getFullYear();
 // Дефолтные цвета новых линий сравнения (категориальные серии графика, не UI-акценты).

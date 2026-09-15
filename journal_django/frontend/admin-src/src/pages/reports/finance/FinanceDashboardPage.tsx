@@ -1,12 +1,13 @@
 import { lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useDashboard } from '../../hooks/useDashboard';
-import { fmtRub, fmtDate } from '../../lib/format';
-import { PageLoading } from '../../components/ui/Skeleton';
-import { DateInput } from '../../components/form/DateInput';
-import { KpiCard } from './KpiCard';
+import { useDashboard } from '../../../hooks/useDashboard';
+import { fmtRub, fmtDate } from '../../../lib/format';
+import { PageLoading } from '../../../components/ui/Skeleton';
+import { DateInput } from '../../../components/form/DateInput';
+import { PageHeader } from '../../../components/shell/PageHeader';
+import { KpiCard } from '../../dashboard/KpiCard';
 
-// Lazy: Recharts грузится отдельным чанком, не блокирует первый показ дашборда.
+// Lazy: Recharts грузится отдельным чанком, не блокирует первый показ плиток.
 const FinanceCharts = lazy(() =>
   import('./FinanceCharts').then((m) => ({ default: m.FinanceCharts })),
 );
@@ -23,8 +24,12 @@ function signedRub(v: number): string {
   return v > 0 ? `+${fmtRub(v)}` : fmtRub(v);
 }
 
-// Финансовая вкладка дашборда (прежнее тело DashboardPage — без изменений логики).
-export default function FinanceView() {
+/**
+ * Дашборд «Финансы» в разделе «Отчёты»: выручка, отработанное по FIFO, авансы
+ * и остаток за период, ниже — помесячные графики с сравнением по годам.
+ * До 2026-09 жил первой вкладкой страницы «Дашборд»; логика перенесена без изменений.
+ */
+export default function FinanceDashboardPage() {
   const [params, setParams] = useSearchParams();
   const from = params.get('from') || '';
   const to = params.get('to') || '';
@@ -51,14 +56,19 @@ export default function FinanceView() {
     : data ? monthLabel(data.month) : '';
 
   return (
-    <>
+    <div className="finance-dashboard">
+      <PageHeader
+        title="Финансы"
+        sub="Выручка и отработанное по FIFO: без периода — текущий месяц."
+      />
+
       <div className="payroll-range">
         <label>Период:</label>
         <DateInput value={from} onChange={(e) => setParam('from', e.target.value)} placeholder="от" />
         <span className="payroll-range__sep">—</span>
         <DateInput value={to} onChange={(e) => setParam('to', e.target.value)} placeholder="до" />
         <button className="btn-secondary" onClick={reset} disabled={!hasRange}>Сбросить</button>
-        {periodLabel && <span className="dashboard__month">{periodLabel}</span>}
+        {periodLabel && <span className="finance-dashboard__period">{periodLabel}</span>}
       </div>
 
       {isLoading ? (
@@ -84,6 +94,6 @@ export default function FinanceView() {
           </Suspense>
         </>
       )}
-    </>
+    </div>
   );
 }

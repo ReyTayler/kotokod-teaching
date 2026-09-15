@@ -32,10 +32,11 @@ import RenewalStagesSettings from './pages/renewals/RenewalStagesSettings';
 import ReportsPage from './pages/reports/ReportsPage';
 import ReportPage from './pages/reports/ReportPage';
 import AttendanceDashboardPage from './pages/reports/AttendanceDashboardPage';
+import FinanceDashboardPage from './pages/reports/finance/FinanceDashboardPage';
 import KnowledgeListPage from './pages/knowledge/KnowledgeListPage';
 import KnowledgeDocumentPage from './pages/knowledge/KnowledgeDocumentPage';
 
-// Recharts — тяжёлая зависимость, держим её вне основного бандла (как FinanceCharts в дашборде).
+// Recharts — тяжёлая зависимость, держим её вне основного бандла (как FinanceCharts в дашборде финансов).
 const RenewalAnalyticsPage = lazy(() => import('./pages/renewals/RenewalAnalyticsPage'));
 
 export function App() {
@@ -72,6 +73,7 @@ export function App() {
             <Route path="/admin/renewals/stages" element={<RequireRole roles={['superadmin']}><RenewalStagesSettings /></RequireRole>} />
             <Route path="/admin/tasks" element={<RequireRole roles={['manager','admin','superadmin']}><TasksPage /></RequireRole>} />
             <Route path="/admin/reports" element={<RequireRole roles={['manager','admin','superadmin']}><ReportsPage /></RequireRole>} />
+            <Route path="/admin/reports/dashboard/finance" element={<RequireRole roles={['manager','admin','superadmin']}><FinanceDashboardPage /></RequireRole>} />
             <Route path="/admin/reports/dashboard/attendance" element={<RequireRole roles={['manager','admin','superadmin']}><AttendanceDashboardPage /></RequireRole>} />
             <Route path="/admin/reports/:reportType" element={<RequireRole roles={['manager','admin','superadmin']}><ReportPage /></RequireRole>} />
 

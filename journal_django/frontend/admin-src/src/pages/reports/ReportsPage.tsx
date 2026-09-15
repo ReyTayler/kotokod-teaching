@@ -12,8 +12,8 @@ import { REPORT_TYPES, type ReportTypeDef } from '../../lib/reports';
  * настройка и запуск живут на странице отчёта (тот же паттерн «список →
  * карточка», что у учеников, групп и преподавателей).
  *
- * «Дашборд» — живые экраны со сводками. Пока один; список сделан таблицей, а не
- * единственной ссылкой, чтобы второй лёг рядом строкой, а не переделкой раздела.
+ * «Дашборд» — живые экраны со сводками: строка на экран, сам экран — отдельной
+ * страницей под /admin/reports/dashboard/*.
  */
 const columns: Column<ReportTypeDef>[] = [
   { key: 'title', label: 'Отчёт', cell: (row) => <span className="report-list__name">{row.title}</span> },
@@ -27,6 +27,12 @@ interface DashboardDef {
 }
 
 const DASHBOARDS: DashboardDef[] = [
+  {
+    key: 'finance',
+    title: 'Финансы',
+    desc: 'Выручка, отработанное, авансы и остаток за период, графики по месяцам',
+    path: '/admin/reports/dashboard/finance',
+  },
   {
     key: 'attendance',
     title: 'Посещения учеников',
