@@ -190,7 +190,7 @@ def test_half_lesson_counts_as_half(
 def test_free_lesson_debits_nothing(
     group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
 ):
-    """Бесплатное занятие баланс не списывает — строки по оплате не появляется."""
+    """Бесплатное занятие баланс не списывает: посещений 0, оплата не тронута."""
     _add_payment(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
     _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-12',
                 is_free=True)
@@ -198,8 +198,9 @@ def test_free_lesson_debits_nothing(
     rows = _rows('2026-07', student_fixture)
 
     assert len(rows) == 1
-    assert rows[0].payment_id is None       # пустая строка ученика без движения
     assert rows[0].attended_lessons == 0
+    assert rows[0].worked_off == Decimal('0.00')
+    assert rows[0].remaining_lessons == 4   # все 4 урока целы
 
 
 def test_as_of_end_of_month(
@@ -246,3 +247,47 @@ def test_rows_grouped_by_student_in_name_order(student_fixture):
 def test_invalid_month_raises_value_error():
     with pytest.raises(ValueError):
         collect_student_month('2026-13')
+
+def test_untouched_payment_still_shows_its_balance(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """
+    Снимок на конец месяца: остаток виден у КАЖДОЙ живой оплаты, даже если в
+    месяце по ней не было ни движения, ни денег.
+    """
+    pid = _add_payment(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-05-05')
+    _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-05-10')
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.payment_id == pid
+    assert row.attended_lessons == 0          # в июле не занимался
+    assert row.worked_off == Decimal('0.00')
+    assert row.paid_in_month == Decimal('0')  # и не платил
+    assert row.remaining_lessons == 3         # но 3 урока на 31.07 у него есть
+    assert row.remaining_value == Decimal('1500.00')
+
+
+def test_payment_made_after_month_end_does_not_exist_in_snapshot(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """
+    Урок конца месяца, оплаченный уже в следующем месяце, на снимке остаётся
+    долгом: на 31.07 этих денег ещё не было.
+    """
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-08-03')
+    _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-28')
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert len(rows) == 1
+    debt_row = rows[0]
+    assert debt_row.payment_id is None            # августовской оплаты в июле нет
+    assert debt_row.attended_lessons == 1
+    assert debt_row.worked_off == Decimal('0.00')
+    assert debt_row.remaining_lessons == -1
+    # Цены на отчётную дату ещё не существовало — берём тариф ближайшей оплаты.
+    assert debt_row.debt == Decimal('500.00')
+
