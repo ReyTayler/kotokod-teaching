@@ -6,12 +6,15 @@ StudentsView — тонкие APIView для /api/admin/students.
   GET    /api/admin/students/:id       → один ученик → 200 | 404
   GET    /api/admin/students/:id/stats → посещаемость → 200 | 404
   GET    /api/admin/students/:id/balance → баланс → 200
+  GET    /api/admin/students/:id/lessons → уроки ученика → 200 | 404
   POST   /api/admin/students           → создать → 201
   PATCH  /api/admin/students/:id       → обновить → 200 | 404
 
 Права: только manager или admin (IsManagerOrAdmin).
 """
 from __future__ import annotations
+
+from datetime import date
 
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, ValidationError
@@ -22,7 +25,7 @@ from rest_framework.views import APIView
 from apps.core.pagination import StandardPagination
 from apps.core.permissions import IsAdminOrSuperAdmin, IsManagerOrAdmin, ReadStaffWriteAdmin
 from apps.payments import services as payment_services
-from apps.students import services
+from apps.students import lesson_history, services
 from apps.students.models import StudentComment
 from apps.students.serializers import (
     StudentCommentSerializer,
@@ -161,6 +164,75 @@ class StudentBalanceView(APIView):
     def get(self, request: Request, pk: int) -> Response:
         balance = services.get_student_balance(pk)
         return Response(balance)
+
+
+def _parse_optional_period(qp) -> tuple[str | None, str | None]:
+    """
+    Необязательный период вкладки «Уроки»: обе границы включительно.
+
+    Пусто — период не задан (вся история). Невалидная дата — 400, а не тихий
+    прогон в SQL: неразобранная строка там превращается в 500.
+    """
+    raw_from = qp.get('date_from') or ''
+    raw_to = qp.get('date_to') or ''
+    parsed: list[str | None] = []
+    for raw in (raw_from, raw_to):
+        if not raw:
+            parsed.append(None)
+            continue
+        try:
+            parsed.append(date.fromisoformat(raw).isoformat())
+        except ValueError:
+            raise ValidationError({'error': 'date_from/date_to must be YYYY-MM-DD'})
+    if parsed[0] and parsed[1] and parsed[1] < parsed[0]:
+        raise ValidationError({'error': 'date_to must not be earlier than date_from'})
+    return parsed[0], parsed[1]
+
+
+class StudentLessonsView(APIView):
+    """
+    GET /api/admin/students/:id/lessons — уроки ученика (вкладка «Уроки»).
+
+    Строки — записи посещаемости с present=true: обычный / бесплатный /
+    доп.урок / сгоревший. Пропуски не показываются (спека 2026-09-14).
+    Порядок — по убыванию даты сохранения урока.
+
+    «Признано» считается точным FIFO по ВСЕЙ истории ученика независимо от
+    запрошенной страницы: иначе неизвестно, какие абонементы к моменту урока
+    уже погашены.
+
+    Сортировка: sort_by ∈ lesson_history.ORDERING_FIELDS (дата занятия или дата
+    сохранения), sort_dir ∈ asc|desc. Мусор в параметрах → 400, как в списке
+    учеников: молча откатывать на умолчание значит показать не тот порядок,
+    который просили, и не сказать об этом.
+
+    404 если ученик не найден — единообразно со StudentStatsView.
+    """
+
+    permission_classes = [IsManagerOrAdmin]
+
+    def get(self, request: Request, pk: int) -> Response:
+        if not services.student_exists(pk):
+            raise NotFound({'error': 'Not found'})
+
+        qp = request.query_params
+        sort_by = qp.get('sort_by') or lesson_history.DEFAULT_SORT_BY
+        sort_dir = qp.get('sort_dir') or lesson_history.DEFAULT_SORT_DIR
+        allowed = sorted(lesson_history.ORDERING_FIELDS)
+        if sort_by not in lesson_history.ORDERING_FIELDS:
+            raise ValidationError(f"Invalid sort_by '{sort_by}'. Allowed: {allowed}")
+        if sort_dir not in ('asc', 'desc'):
+            raise ValidationError(
+                f"Invalid sort_dir '{sort_dir}'. Must be 'asc' or 'desc'."
+            )
+        date_from, date_to = _parse_optional_period(qp)
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(
+            lesson_history.lesson_rows_queryset(pk, sort_by, sort_dir, date_from, date_to),
+            request, view=self,
+        )
+        return paginator.get_paginated_response(lesson_history.serialize_rows(page, pk))
 
 
 class StudentCommentListView(generics.ListAPIView):

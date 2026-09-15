@@ -13,6 +13,7 @@ from apps.students.views import (
     StudentCommentDetailView,
     StudentCommentListView,
     StudentDetailView,
+    StudentLessonsView,
     StudentListCreateView,
     StudentManagerView,
     StudentRefundView,
@@ -25,6 +26,7 @@ urlpatterns = [
     path('/<int:pk>/manager', StudentManagerView.as_view(), name='students-manager'),
     path('/<int:pk>/stats', StudentStatsView.as_view(), name='students-stats'),
     path('/<int:pk>/balance', StudentBalanceView.as_view(), name='students-balance'),
+    path('/<int:pk>/lessons', StudentLessonsView.as_view(), name='students-lessons'),
     path('/<int:pk>/comments', StudentCommentListView.as_view(), name='students-comments'),
     path(
         '/<int:pk>/comments/<int:comment_id>',
