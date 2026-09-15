@@ -1,5 +1,6 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
-import { type ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
+import { handleShiftWheel } from './shiftWheelScroll';
 
 interface DialogProps {
   open: boolean;
@@ -11,6 +12,16 @@ interface DialogProps {
 }
 
 export function Dialog({ open, onOpenChange, title, children, footer, wide }: DialogProps) {
+  // Shift+колесо внутри модалки: замок прокрутки Radix (react-remove-scroll)
+  // гасит его в Chromium — подробности в shiftWheelScroll.ts. Callback-ref с
+  // очисткой (React 19) надёжно ловит монтирование содержимого через портал.
+  const bodyRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const onWheel = (e: WheelEvent) => handleShiftWheel(e, node);
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, []);
+
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
@@ -29,7 +40,7 @@ export function Dialog({ open, onOpenChange, title, children, footer, wide }: Di
               <RadixDialog.Title className="modal-title">{title}</RadixDialog.Title>
               <RadixDialog.Close className="modal-close" aria-label="Закрыть">×</RadixDialog.Close>
             </div>
-            <div className="modal-body">{children}</div>
+            <div className="modal-body" ref={bodyRef}>{children}</div>
             {footer && <div className="modal-footer">{footer}</div>}
           </RadixDialog.Content>
         </RadixDialog.Overlay>
