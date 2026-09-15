@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCalendar } from '../../hooks/useCalendar';
-import { useTeacherData, useAllData } from '../../hooks/useTeacherData';
+import { useGroupData } from '../../hooks/useGroupData';
 import { CalendarView } from '@shared/shared/calendar/CalendarView';
 import { LessonPopup } from '@shared/shared/calendar/LessonPopup';
 import { Modal } from '../../components/ui/Modal';
@@ -9,7 +9,7 @@ import { LessonForm } from '../../components/lessons/LessonForm';
 import { ExtraLessonRecordModal } from '../../components/lessons/ExtraLessonRecordModal';
 import { OccurrenceMenu } from './OccurrenceMenu';
 import { currentMondayMsk, addDays, isoDate } from '../../lib/dates';
-import type { GroupData, Occurrence } from '../../lib/types';
+import type { Occurrence } from '../../lib/types';
 
 interface MenuState {
   occ: Occurrence;
@@ -44,20 +44,9 @@ export default function CalendarPage() {
   const [details, setDetails] = useState<Occurrence | null>(null);
   const [marking, setMarking] = useState<Occurrence | null>(null);
 
-  const mine = useTeacherData();
-  const needAll = !!marking && marking.extraLessonId == null && !(mine.data?.data ?? {})[marking.group];
-  const all = useAllData(needAll);
-
-  /** GroupData по имени: свои группы из /api/getData, чужие (замена) — из /api/getAllData. */
-  const groupDataOf = (name: string): GroupData | null => {
-    const own = (mine.data?.data ?? {})[name];
-    if (own) return own;
-    if (!all.data) return null;
-    for (const groups of Object.values(all.data.data)) {
-      if (groups[name]) return groups[name];
-    }
-    return null;
-  };
+  // Доп.урок отмечается своим путём (ExtraLessonRecordModal) — данные группы ему не нужны.
+  const markingGroup = marking && marking.extraLessonId == null ? marking.group : null;
+  const marked = useGroupData(markingGroup);
 
   const onVisibleRangeChange = useCallback((from: string, to: string) => {
     setRange((prev) => (prev.from === from && prev.to === to ? prev : { from, to }));
@@ -66,8 +55,6 @@ export default function CalendarPage() {
   const onOccurrenceMenu = useCallback((occ: Occurrence, pos: { x: number; y: number }) => {
     setMenu({ occ, x: pos.x, y: pos.y });
   }, []);
-
-  const markingData = marking ? groupDataOf(marking.group) : null;
 
   return (
     <>
@@ -101,10 +88,10 @@ export default function CalendarPage() {
       {marking && (
         marking.extraLessonId != null ? (
           <ExtraLessonRecordModal assignmentId={marking.extraLessonId} onClose={() => setMarking(null)} />
-        ) : (markingData ? (
+        ) : (marked.data ? (
           <LessonForm
             group={marking.group}
-            groupData={markingData}
+            groupData={marked.data}
             initialDate={marking.date}
             plannedLessonId={marking.id}
             plannedLessonNumber={marking.lessonNumber}
@@ -113,9 +100,13 @@ export default function CalendarPage() {
           />
         ) : (
           <Modal title={marking.group} subtitle="Запись урока" onClose={() => setMarking(null)}>
-            {all.isError
+            {marked.isError
               ? <div className="cal-error">Не удалось загрузить данные группы. Попробуйте ещё раз.</div>
-              : <div className="cal-empty">Загружаем данные группы…</div>}
+              : marked.isLoading
+                ? <div className="cal-empty">Загружаем данные группы…</div>
+                // Группы нет ни среди своих, ни среди чужих: неактивна, без учеников
+                // или снята с преподавателя. Раньше здесь навсегда висело «Загружаем…».
+                : <div className="cal-empty">Группа не найдена среди активных — отметить урок нельзя. Обратитесь к менеджеру.</div>}
           </Modal>
         ))
       )}

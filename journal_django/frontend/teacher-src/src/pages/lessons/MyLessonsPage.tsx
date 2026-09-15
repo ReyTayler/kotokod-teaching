@@ -1,28 +1,29 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useCalendar } from '../../hooks/useCalendar';
-import { useTeacherData } from '../../hooks/useTeacherData';
+import { useGroupData } from '../../hooks/useGroupData';
 import { resolveDirectionColor } from '../../lib/subjects';
 import { todayMsk, isoDate, dayMonth, columnIndexOfIsoDate } from '../../lib/dates';
 import { StatusPill } from '../../components/ui/StatusPill';
 import { LessonForm } from '../../components/lessons/LessonForm';
 import { ExtraLessonRecordModal } from '../../components/lessons/ExtraLessonRecordModal';
+import { Modal } from '../../components/ui/Modal';
 import { LessonPopup } from '../calendar/LessonPopup';
-import type { GroupData, Occurrence } from '../../lib/types';
+import type { Occurrence } from '../../lib/types';
 
 const DAY_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 
 type Selection =
-  | { kind: 'form'; occ: Occurrence; data: GroupData }
-  | { kind: 'extra'; assignmentId: number }
-  | { kind: 'popup'; lesson: Occurrence };
+  | { kind: 'lesson'; occ: Occurrence }
+  | { kind: 'extra'; assignmentId: number };
 
 /**
  * Мои уроки — занятия, запланированные на СЕГОДНЯ у текущего преподавателя.
  * Источник — GET /api/calendar с окном ровно из одного дня (from=to=сегодня
- * по МСК), уже скоуплен на сервере на текущего преподавателя. Клик по
- * строке: если группа есть среди текущих групп преподавателя (useTeacherData)
- * — открывает форму записи урока, иначе — read-only попап (например, урок
- * подмены или у группы, которую он больше не ведёт).
+ * по МСК), уже скоуплен на сервере на текущего преподавателя. Клик по строке
+ * открывает форму записи урока; данные группы резолвит useGroupData — свои
+ * группы из /api/getData, чужие (замена, назначенная админом) из /api/getAllData.
+ * Если группа не нашлась нигде (например, её больше не ведут) — read-only попап,
+ * как раньше.
  */
 export default function MyLessonsPage() {
   const today = useMemo(() => todayMsk(), []);
@@ -32,7 +33,8 @@ export default function MyLessonsPage() {
   const [selection, setSelection] = useState<Selection | null>(null);
 
   const { data, isLoading, isError, isFetching } = useCalendar(todayIso, todayIso);
-  const teacherData = useTeacherData();
+  const selectedGroup = selection?.kind === 'lesson' ? selection.occ.group : null;
+  const selected = useGroupData(selectedGroup);
 
   const colorOf = useCallback(
     (occ: Occurrence): string => resolveDirectionColor(occ.color, occ.direction ?? occ.group),
@@ -52,13 +54,11 @@ export default function MyLessonsPage() {
       setSelection({ kind: 'extra', assignmentId: occ.extraLessonId });
       return;
     }
-    const groupData = teacherData.data?.data?.[occ.group];
     // Занятие кладём целиком: серверу нужен его id (позиция курса) и реальная дата,
     // иначе он вынужден угадывать позицию по дате — на группах с двумя занятиями
     // в день это уводит запись на незащищённый путь.
-    if (groupData) setSelection({ kind: 'form', occ, data: groupData });
-    else setSelection({ kind: 'popup', lesson: occ });
-  }, [teacherData.data]);
+    setSelection({ kind: 'lesson', occ });
+  }, []);
 
   return (
     <div className="ml-page">
@@ -106,25 +106,32 @@ export default function MyLessonsPage() {
         </div>
       )}
 
-      {selection?.kind === 'form' && (
-        <LessonForm
-          group={selection.occ.group}
-          groupData={selection.data}
-          initialDate={selection.occ.date}
-          plannedLessonId={selection.occ.id}
-          plannedLessonNumber={selection.occ.lessonNumber}
-          isSubstitution={!!selection.occ.teacherOverride}
-          onClose={() => setSelection(null)}
-        />
+      {selection?.kind === 'lesson' && (
+        selected.data ? (
+          <LessonForm
+            group={selection.occ.group}
+            groupData={selected.data}
+            initialDate={selection.occ.date}
+            plannedLessonId={selection.occ.id}
+            plannedLessonNumber={selection.occ.lessonNumber}
+            isSubstitution={!!selection.occ.teacherOverride}
+            onClose={() => setSelection(null)}
+          />
+        ) : selected.isLoading ? (
+          <Modal title={selection.occ.group} subtitle="Запись урока" onClose={() => setSelection(null)}>
+            <div className="cal-empty">Загружаем данные группы…</div>
+          </Modal>
+        ) : (
+          // Группы нет ни среди своих, ни среди чужих (больше не ведут / неактивна) —
+          // отмечать нечего, показываем подробности занятия как раньше.
+          <LessonPopup lesson={selection.occ} onClose={() => setSelection(null)} />
+        )
       )}
       {selection?.kind === 'extra' && (
         <ExtraLessonRecordModal
           assignmentId={selection.assignmentId}
           onClose={() => setSelection(null)}
         />
-      )}
-      {selection?.kind === 'popup' && (
-        <LessonPopup lesson={selection.lesson} onClose={() => setSelection(null)} />
       )}
     </div>
   );

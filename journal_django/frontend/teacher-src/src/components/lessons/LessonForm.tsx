@@ -20,21 +20,30 @@ function looksLikeUrl(value: string): boolean {
   }
 }
 
-/** Причина, по которой ученика нельзя отметить: неоплачиваемый пропуск (менеджер
- *  пометил, ученик этот урок не посещает), нет оплаты, либо перевод-в-ожидании. */
+type BlockReason = 'skip' | 'unpaid' | 'locked';
+
+/**
+ * Причина, по которой ученика нельзя отметить НА ЭТОМ уроке: неоплачиваемый пропуск
+ * (менеджер пометил, ученик этот урок не посещает), перевод-в-ожидании (группа ещё не
+ * догнала его прогресс) либо нет оплаты.
+ *
+ * Две из трёх зависят от НОМЕРА урока, поэтому считаются здесь, а не приезжают
+ * готовыми флагами с сервера: срез данных (/api/getData) знает только «следующий по
+ * прогрессу» номер — max(lessonsDone)+шаг, — а урок записывается по номеру ИЗ ПЛАНА
+ * занятия. Расходятся они штатно (переведённый ученик тянет max вверх, сожжённый
+ * пропуск даёт +1 без занятия, перенос двигает план), и тогда флаг с сервера отвечал
+ * бы про другой урок, чем заполняемый: помеченный ученик выглядел бы обычным, а
+ * record_lesson всё равно исключил бы его — молча и с другой суммой в превью.
+ */
 function blockedReason(
-  s: { remaining: number; locked: boolean; lockedThrough: number | null; skip?: boolean },
-): 'skip' | 'unpaid' | 'locked' | null {
-  if (s.skip) return 'skip';
-  if (s.locked) return 'locked';
+  s: { name: string; remaining: number; lockedThrough: number | null },
+  lessonNum: number,
+  skipNames: ReadonlySet<string>,
+): BlockReason | null {
+  if (skipNames.has(s.name)) return 'skip';
+  if (s.lockedThrough !== null && lessonNum <= s.lockedThrough) return 'locked';
   if (s.remaining <= 0) return 'unpaid';
   return null;
-}
-
-function isBlocked(
-  s: { remaining: number; locked: boolean; lockedThrough: number | null; skip?: boolean },
-): boolean {
-  return blockedReason(s) !== null;
 }
 
 /**
@@ -81,8 +90,11 @@ export function LessonForm({
   const todayIso = useMemo(() => isoDate(todayMsk()), []);
   const [date, setDate] = useState(initialDate ?? todayIso);
   const [recordUrl, setRecordUrl] = useState('');
+  // По умолчанию «пришли все»; заблокированных гасит presentOf (ниже), а не это
+  // состояние: номер урока, от которого зависят блокировки, может приехать позже
+  // самого первого рендера (карта направлений грузится асинхронно).
   const [present, setPresent] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(groupData.students.map((s) => [s.name, !isBlocked(s)])),
+    Object.fromEntries(groupData.students.map((s) => [s.name, true])),
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -101,12 +113,28 @@ export function LessonForm({
   const next = plannedLessonNumber ?? nextByProgress;
   const limit = dir ? dir.totalLessons : getCourseLimit(group);
 
+  // Маркеры «неоплачиваемый пропуск» — для ТОГО номера урока, который заполняется
+  // (тот же, что показан преподавателю и под которым сервер запишет урок).
+  const skipNames = useMemo(
+    () => new Set(groupData.skips?.[String(next)] ?? []),
+    [groupData.skips, next],
+  );
+  const reasonOf = useMemo(() => {
+    const m = new Map<string, BlockReason | null>();
+    for (const s of groupData.students) m.set(s.name, blockedReason(s, next, skipNames));
+    return m;
+  }, [groupData.students, next, skipNames]);
+  const isBlocked = (s: { name: string }) => reasonOf.get(s.name) != null;
+  // Отметка «пришёл» у заблокированного ученика силы не имеет — гасим её при чтении,
+  // а не правкой состояния: блокировка может появиться уже после первого рендера.
+  const presentOf = (name: string) => reasonOf.get(name) == null && !!present[name];
+
   const blockedStudents = groupData.students.filter((s) => isBlocked(s));
   // Разделяем по причине: неоплата (→ к менеджеру) vs перевод-в-ожидании vs
   // неоплачиваемый пропуск (менеджер пометил — ученик этот урок не посещает).
-  const unpaidStudents = blockedStudents.filter((s) => blockedReason(s) === 'unpaid');
-  const lockedStudents = blockedStudents.filter((s) => blockedReason(s) === 'locked');
-  const skipStudents = blockedStudents.filter((s) => blockedReason(s) === 'skip');
+  const unpaidStudents = blockedStudents.filter((s) => reasonOf.get(s.name) === 'unpaid');
+  const lockedStudents = blockedStudents.filter((s) => reasonOf.get(s.name) === 'locked');
+  const skipStudents = blockedStudents.filter((s) => reasonOf.get(s.name) === 'skip');
 
   // Переведённого ученика, ждущего, пока группа догонит его прогресс, на этом уроке
   // как будто нет: record_lesson выкидывает его из attendance ДО подсчёта
@@ -118,7 +146,7 @@ export function LessonForm({
   // total_students (фильтруется только перевод), они лишь не могут быть «пришёл».
   // Неоплачиваемый пропуск (skip) сервер исключает из зарплаты — вычитаем из total.
   const total = groupData.students.length - lockedStudents.length - skipStudents.length;
-  const presentCount = groupData.students.reduce((n, s) => n + (present[s.name] ? 1 : 0), 0);
+  const presentCount = groupData.students.reduce((n, s) => n + (presentOf(s.name) ? 1 : 0), 0);
   const absentCount = total - presentCount;
   const payment = calcPayment(total, presentCount, isHalf);
   const eligibleStudents = groupData.students.filter((s) => !isBlocked(s));
@@ -153,7 +181,7 @@ export function LessonForm({
     const payload: SubmitPayload = {
       group,
       date,
-      students: groupData.students.map((s) => ({ name: s.name, present: !!present[s.name] })),
+      students: groupData.students.map((s) => ({ name: s.name, present: presentOf(s.name) })),
       ...(recordUrl.trim() ? { recordUrl: recordUrl.trim() } : {}),
       ...(plannedLessonId != null ? { plannedLessonId } : {}),
     };
@@ -232,18 +260,18 @@ export function LessonForm({
         </div>
         <div className="lf-students">
           {groupData.students.map((s) => {
-            const reason = blockedReason(s);
+            const reason = reasonOf.get(s.name) ?? null;
             const blocked = reason !== null;
             return (
               <button
                 type="button"
                 key={s.name}
-                className={`lf-student${present[s.name] ? ' is-present' : ''}${blocked ? ' is-blocked' : ''}`}
+                className={`lf-student${presentOf(s.name) ? ' is-present' : ''}${blocked ? ' is-blocked' : ''}`}
                 onClick={() => {
                   if (blocked) return;
                   setPresent((p) => ({ ...p, [s.name]: !p[s.name] }));
                 }}
-                aria-pressed={!!present[s.name]}
+                aria-pressed={presentOf(s.name)}
                 disabled={blocked}
                 title={
                   reason === 'skip'
@@ -257,7 +285,7 @@ export function LessonForm({
               >
                 <span className="lf-student-name">{s.name}</span>
                 <span className="lf-student-state">
-                  {reason === 'skip' ? 'Не участвует' : reason === 'locked' ? 'Ожидает перевода' : reason === 'unpaid' ? 'Нет оплаты' : present[s.name] ? 'Пришёл' : 'Не пришёл'}
+                  {reason === 'skip' ? 'Не участвует' : reason === 'locked' ? 'Ожидает перевода' : reason === 'unpaid' ? 'Нет оплаты' : presentOf(s.name) ? 'Пришёл' : 'Не пришёл'}
                 </span>
               </button>
             );
@@ -272,6 +300,14 @@ export function LessonForm({
         <div className="lf-warn">
           Нет оплаченных уроков: {unpaidStudents.map((s) => s.name).join(', ')}. Отметить их нельзя
           {groupData.pm ? ` — сообщите менеджеру ${groupData.pm}.` : ' — сообщите менеджеру.'}
+        </div>
+      )}
+
+      {skipStudents.length > 0 && (
+        <div className="lf-warn">
+          Неоплачиваемый пропуск на этом уроке (отметил менеджер):{' '}
+          {skipStudents.map((s) => s.name).join(', ')}. Этот урок они не посещают —
+          отмечать их не нужно, на выплату они не влияют.
         </div>
       )}
 

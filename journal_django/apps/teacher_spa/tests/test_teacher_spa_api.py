@@ -167,6 +167,38 @@ class TestGetData:
         assert isinstance(body['data'], dict)
         assert teacher_name in body['data']
 
+    def test_get_all_data_gives_substitute_skips_for_planned_number(
+        self, teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """
+        Заменяющий преподаватель открывает форму записи через getAllData (своей эта
+        группа не является). Маркеры «неоплачиваемый пропуск» должны приехать картой
+        по номерам уроков — включая номер ИЗ ПЛАНА (№3), который здесь НЕ равен
+        «следующему по прогрессу» (прогресс группы 0 → №1).
+
+        Регрессия: срез отдавал один флаг skip, посчитанный по прогрессу, поэтому на
+        таком расхождении заменщик не видел блокера вовсе — отмечал ученика «Пришёл»,
+        а record_lesson молча ставил ему unpaid_skip и считал другую выплату.
+        """
+        _, owner_name = teacher_fixture
+        group_name = '__spa_test_group__ пн 10:00'
+        with connection.cursor() as cur:
+            cur.execute('UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
+                        [membership_fixture])
+            cur.execute('INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) '
+                        'VALUES (%s, %s, 3, now())', [group_fixture, student_fixture])
+        try:
+            resp = _client('teacher', sub_account_fixture).post('/api/getAllData', {}, format='json')
+            assert resp.status_code == 200
+            grp = resp.json()['data'][owner_name][group_name]
+            assert grp['lessonsDone'] == 0
+            assert grp['skips'] == {'3': ['__spa_test_student__']}
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
+
 
 # ---------------------------------------------------------------------------
 # submitLesson

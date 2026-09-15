@@ -46,6 +46,17 @@ def fmt_date_ru(d) -> str:
     return str(d)
 
 
+def fmt_lesson_number(value) -> str:
+    """
+    Номер урока → строка-ключ: 3 → '3', 3.5 → '3.5' (half-lesson).
+
+    Формат обязан совпадать с тем, что даёт JS `String(number)` на фронте: по этому
+    ключу LessonForm ищет маркеры «неоплачиваемый пропуск» для заполняемого урока.
+    """
+    f = float(value)
+    return str(int(f)) if f == int(f) else str(f)
+
+
 def fmt_fixed_at(d) -> str:
     """timestamptz → МСК (UTC+3, без DST) → 'DD.MM HH:MM'. Пустая строка если невалидно."""
     if not d:
@@ -143,6 +154,11 @@ def _build_from_rows(rows: list[dict]) -> dict:
     БАЙТ тот же формат: две параллельные сборки неизбежно разъехались бы, а на
     этом формате стоит вся запись урока — владелец группы, признак замены,
     прогресс учеников, маркеры «неоплачиваемый пропуск».
+
+    Блокировки ученика в форме записи (перевод, неоплачиваемый пропуск) зависят от
+    НОМЕРА заполняемого урока, а его знает только форма (номер из плана занятия, по
+    которому кликнули). Поэтому отсюда уходят ФАКТЫ, а не готовые флаги:
+    `lockedThrough` у ученика и `skips` {номер урока: [имена]} у группы.
     """
     balances = balances_for_students({r['student_id'] for r in rows})
 
@@ -210,26 +226,38 @@ def _build_from_rows(rows: list[dict]) -> dict:
             }
 
     # Маркеры «неоплачиваемый пропуск» (LessonSkip) по всем группам выборки — один
-    # батч-запрос. skips[(group_id, lesson_number)] = {student_id}. Нужно, чтобы
-    # преподаватель НЕ мог отметить помеченного ученика и превью зарплаты его не
-    # считало (record_lesson всё равно исключит на бэке, но форма должна совпадать).
+    # батч-запрос. Отдаём ВСЕ номера уроков группы, а не «тот, который следующий»:
+    # форма записи заполняет урок с номером ИЗ ПЛАНА (planned_lessons.lesson_number),
+    # а он не обязан совпадать с номером, выведенным из прогресса учеников
+    # (max(lessons_done)+шаг). Расходятся они штатно — переведённый ученик тянет
+    # max вверх, сожжённый пропуск даёт +1 без занятия, перенос двигает план. Выбери
+    # мы номер здесь, подсказка для формы отвечала бы про ДРУГОЙ урок, чем тот, что
+    # запишется: помеченный ученик выглядел бы обычным, преподаватель ставил бы ему
+    # «Пришёл», а record_lesson всё равно форсил бы unpaid_skip — молча и с другой
+    # суммой в превью зарплаты. Номер-ключ выбирает фронт — ровно тот, что показывает.
     from apps.lessons.models import LessonSkip
     skips: dict = {}
     for sr in LessonSkip.objects.filter(
         group_id__in={r['group_id'] for r in rows},
     ).values('group_id', 'student_id', 'lesson_number'):
-        skips.setdefault((sr['group_id'], float(sr['lesson_number'])), set()).add(sr['student_id'])
+        (skips.setdefault(sr['group_id'], {})
+              .setdefault(fmt_lesson_number(sr['lesson_number']), set())
+              .add(sr['student_id']))
 
     for teacher_groups in data.values():
         for grp in teacher_groups.values():
-            step = 0.5 if grp['durationMinutes'] == 45 else 1
-            next_number = float(grp['lessonsDone'] + step)
             gid = grp.pop('_group_id')
-            skip_ids = skips.get((gid, next_number), set())
-            for s in grp['students']:
-                s['locked'] = s['lockedThrough'] is not None and next_number <= s['lockedThrough']
-                # skip — «неоплачиваемый пропуск» на СЛЕДУЮЩИЙ урок группы.
-                s['skip'] = s.pop('_student_id') in skip_ids
+            # Имена, а не id: ученик в этом ответе живёт под именем (present, index,
+            # submitLesson — всё по имени), id наружу не отдаём.
+            names_by_id = {s.pop('_student_id'): s['name'] for s in grp['students']}
+            group_skips = skips.get(gid, {})
+            # locked здесь НЕ считаем по той же причине: блокировка переведённого —
+            # это «номер урока <= lockedThrough», и номер опять же знает только форма.
+            # Отдаём факт (lockedThrough), решение принимает фронт.
+            grp['skips'] = {
+                num: sorted(names_by_id[sid] for sid in sids if sid in names_by_id)
+                for num, sids in sorted(group_skips.items(), key=lambda kv: float(kv[0]))
+            }
 
     return {'data': data, 'index': index}
 
