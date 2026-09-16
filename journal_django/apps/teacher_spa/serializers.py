@@ -71,6 +71,20 @@ class SubmitLessonSerializer(serializers.Serializer):
         return attrs
 
 
+def my_lesson_student_status(lesson_type: str, attendance) -> str:
+    """
+    Статус ученика в истории «Мои уроки».
+
+    Тип урока проверяется РАНЬШЕ флагов посещения: у сгорания посещение в базе
+    отмечено present=true, но занятия не было — показывать «был» было бы неправдой.
+    """
+    if lesson_type == 'burned':
+        return 'burned'
+    if attendance.present:
+        return 'free' if attendance.is_free else 'present'
+    return 'skip' if attendance.unpaid_skip else 'absent'
+
+
 class MyLessonSerializer(serializers.Serializer):
     """
     Read-only элемент истории «Мои уроки» (GET /api/lessons).
@@ -97,6 +111,7 @@ class MyLessonSerializer(serializers.Serializer):
     totalCount = serializers.SerializerMethodField()
     payment = serializers.SerializerMethodField()
     penalty = serializers.SerializerMethodField()
+    students = serializers.SerializerMethodField()
 
     def _payroll(self, obj):
         try:
@@ -139,3 +154,15 @@ class MyLessonSerializer(serializers.Serializer):
     def get_penalty(self, obj):
         pr = self._payroll(obj)
         return str(pr.penalty) if pr else None
+
+    def get_students(self, obj):
+        # Посещения приходят из prefetch (MyLessonsView) уже по алфавиту —
+        # без него здесь был бы запрос на каждый урок выдачи.
+        return [
+            {
+                'id': att.student_id,
+                'name': att.student.full_name,
+                'status': my_lesson_student_status(obj.lesson_type, att),
+            }
+            for att in obj.attendance.all()
+        ]

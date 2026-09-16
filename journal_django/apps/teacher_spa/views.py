@@ -28,7 +28,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from django.db.models import F
+from django.db.models import F, Prefetch
 
 from apps.core.pagination import StandardPagination
 from apps.core.permissions import IsTeacher
@@ -36,7 +36,7 @@ from apps.core.utils.dates import msk_now
 from apps.groups.course_length import effective_total_lessons_expr
 from apps.groups.models import Group
 from apps.lessons.exceptions import CoursePositionVanished, LessonAlreadyRecorded
-from apps.lessons.models import Lesson
+from apps.lessons.models import Lesson, LessonAttendance
 from apps.teacher_spa import repository, services
 from apps.teacher_spa.serializers import MyLessonSerializer, SubmitLessonSerializer
 
@@ -490,6 +490,7 @@ class MyLessonsView(ListAPIView):
     иначе RBAC-дыра. Пагинация StandardPagination ({rows,total,page,page_size}).
     Порядок: свежие сверху (-lesson_date, -id). Опциональные фильтры:
       ?from=YYYY-MM-DD  ?to=YYYY-MM-DD  ?group=<точное имя>
+    Каждый урок несёт students — ученики с статусом посещения (prefetch, без запроса на урок).
     """
 
     permission_classes = [IsTeacher]
@@ -501,6 +502,14 @@ class MyLessonsView(ListAPIView):
             Lesson.objects
             .filter(teacher_id=self.request.user.teacher_id)
             .select_related('group', 'group__direction', 'original_teacher', 'payroll')
+            .prefetch_related(
+                Prefetch(
+                    'attendance',
+                    queryset=LessonAttendance.objects
+                    .select_related('student')
+                    .order_by('student__full_name', 'student_id'),
+                )
+            )
             .order_by('-lesson_date', '-id')
         )
         p = self.request.query_params
