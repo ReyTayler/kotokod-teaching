@@ -1,17 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useMyPayroll } from '../../hooks/useMyPayroll';
-import { addMonths, firstOfMonthMsk, isoMonth, monthLabel, weekdayShortOfIso } from '../../lib/dates';
+import { MonthNav } from '../../components/ui/MonthNav';
+import { dayMonthOfIso, firstOfMonthMsk, isoMonth, weekdayShortOfIso } from '../../lib/dates';
+import { LESSON_KIND_LABEL } from '../../lib/lessonKinds';
 import { formatDeduction, formatMoney, isPositive } from '../../lib/money';
 import { resolveDirectionColor } from '../../lib/subjects';
-import type { PayrollEntry, PayrollLessonKind } from '../../lib/types';
-
-/** Подпись типа урока. Обычный урок бейджа не получает — это шум. */
-const KIND_LABEL: Partial<Record<PayrollLessonKind, string>> = {
-  substitution: 'Замена',
-  reschedule: 'Перенос',
-  extra: 'Доп. занятие',
-  burned: 'Сгоревшее занятие',
-};
+import type { PayrollEntry } from '../../lib/types';
 
 const PLURAL_LESSONS = ['урок', 'урока', 'уроков'];
 const PLURAL_PRESENCES = ['присутствие', 'присутствия', 'присутствий'];
@@ -25,13 +19,8 @@ function plural(count: number, forms: string[]): string {
   return forms[2];
 }
 
-/** «03.07» из 'YYYY-MM-DD' — год в списке за месяц избыточен. */
-function dayMonthOfIso(iso: string): string {
-  return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
-}
-
 function PayrollRow({ entry }: { entry: PayrollEntry }) {
-  const kindLabel = KIND_LABEL[entry.kind];
+  const kindLabel = LESSON_KIND_LABEL[entry.kind];
   const hasPenalty = isPositive(entry.penalty);
 
   return (
@@ -90,7 +79,6 @@ function PayrollRow({ entry }: { entry: PayrollEntry }) {
 export default function PayrollPage() {
   const [month, setMonth] = useState<Date>(() => firstOfMonthMsk());
   const currentMonth = useMemo(() => firstOfMonthMsk(), []);
-  const isCurrentMonth = month.getTime() >= currentMonth.getTime();
 
   const { data, isLoading, isError, isFetching } = useMyPayroll(isoMonth(month));
 
@@ -99,35 +87,7 @@ export default function PayrollPage() {
 
   return (
     <div className="pr-page">
-      <div className="cal-head">
-        <div className="cal-title">Зарплата</div>
-        <div className="cal-week-nav">
-          <button
-            type="button"
-            className="cal-nav-btn"
-            onClick={() => setMonth((m) => addMonths(m, -1))}
-            aria-label="Предыдущий месяц"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-          </button>
-          <span className="cal-week-label">{monthLabel(month)}</span>
-          <button
-            type="button"
-            className="cal-nav-btn"
-            onClick={() => setMonth((m) => addMonths(m, 1))}
-            disabled={isCurrentMonth}
-            aria-label="Следующий месяц"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-          </button>
-          {!isCurrentMonth && (
-            <button type="button" className="cal-today-btn" onClick={() => setMonth(currentMonth)}>
-              Текущий месяц
-            </button>
-          )}
-        </div>
-        {isFetching && <span className="ml-updating">обновление…</span>}
-      </div>
+      <MonthNav title="Зарплата" month={month} currentMonth={currentMonth} onChange={setMonth} isFetching={isFetching} />
 
       {isLoading ? (
         <div className="cal-skel" style={{ height: 320 }} />

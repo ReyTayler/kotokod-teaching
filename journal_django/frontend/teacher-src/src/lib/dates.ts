@@ -171,3 +171,8 @@ export function weekdayShortOfIso(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   return DAY_SHORT_MON_FIRST[(new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7];
 }
+
+/** «03.07» из 'YYYY-MM-DD' — год в списке за месяц избыточен. */
+export function dayMonthOfIso(iso: string): string {
+  return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+}

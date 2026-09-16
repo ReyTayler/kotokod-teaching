@@ -1,137 +1,117 @@
-import { useCallback, useMemo, useState } from 'react';
-import { useCalendar } from '../../hooks/useCalendar';
-import { useGroupData } from '../../hooks/useGroupData';
+import { useMemo, useState, type CSSProperties } from 'react';
+import { useMyLessons } from '../../hooks/useMyLessons';
+import { MonthNav } from '../../components/ui/MonthNav';
+import { addDays, addMonths, dayMonthOfIso, firstOfMonthMsk, isoDate, weekdayShortOfIso } from '../../lib/dates';
+import { LESSON_KIND_LABEL, STUDENT_STATUS_LABEL } from '../../lib/lessonKinds';
 import { resolveDirectionColor } from '../../lib/subjects';
-import { todayMsk, isoDate, dayMonth, columnIndexOfIsoDate } from '../../lib/dates';
-import { StatusPill } from '../../components/ui/StatusPill';
-import { LessonForm } from '../../components/lessons/LessonForm';
-import { ExtraLessonRecordModal } from '../../components/lessons/ExtraLessonRecordModal';
-import { Modal } from '../../components/ui/Modal';
-import { LessonPopup } from '../calendar/LessonPopup';
-import type { Occurrence } from '../../lib/types';
+import type { MyLesson } from '../../lib/types';
 
-const DAY_FULL = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
-
-type Selection =
-  | { kind: 'lesson'; occ: Occurrence }
-  | { kind: 'extra'; assignmentId: number };
+/** Уроков за месяц у преподавателя ~20–40; 500 — потолок пагинатора с запасом. */
+const MONTH_PAGE_SIZE = 500;
 
 /**
- * Мои уроки — занятия, запланированные на СЕГОДНЯ у текущего преподавателя.
- * Источник — GET /api/calendar с окном ровно из одного дня (from=to=сегодня
- * по МСК), уже скоуплен на сервере на текущего преподавателя. Клик по строке
- * открывает форму записи урока; данные группы резолвит useGroupData — свои
- * группы из /api/getData, чужие (замена, назначенная админом) из /api/getAllData.
- * Если группа не нашлась нигде (например, её больше не ведут) — read-only попап,
- * как раньше.
+ * Строка посещаемости: считается по ученикам урока, а не по строке зарплаты —
+ * это экран «кто был», а не расчёт оплаты. «Не посещает» (неоплачиваемый пропуск)
+ * в знаменатель не входит: ученик этот урок и не должен был посещать.
  */
-export default function MyLessonsPage() {
-  const today = useMemo(() => todayMsk(), []);
-  const todayIso = useMemo(() => isoDate(today), [today]);
-  const todayCol = useMemo(() => columnIndexOfIsoDate(todayIso), [todayIso]);
+function attendanceLine(lesson: MyLesson): string {
+  if (lesson.lessonType === 'burned') return 'пропуск сгорел';
+  const came = lesson.students.filter((s) => s.status === 'present' || s.status === 'free').length;
+  const expected = lesson.students.filter((s) => s.status !== 'skip').length;
+  // «пришли 0 из 0» читается как сбой счёта. На dev у 53 уроков нет отметок
+  // учеников вовсе, а «не посещает» у всех ставится вручную и тоже бывает.
+  if (expected === 0) return 'учеников не отмечено';
+  return `пришли ${came} из ${expected}`;
+}
 
-  const [selection, setSelection] = useState<Selection | null>(null);
-
-  const { data, isLoading, isError, isFetching } = useCalendar(todayIso, todayIso);
-  const selectedGroup = selection?.kind === 'lesson' ? selection.occ.group : null;
-  const selected = useGroupData(selectedGroup);
-
-  const colorOf = useCallback(
-    (occ: Occurrence): string => resolveDirectionColor(occ.color, occ.direction ?? occ.group),
-    [],
-  );
-
-  const todayLessons = useMemo(() => {
-    const rows = data?.occurrences ?? [];
-    return [...rows].sort((a, b) => (a.time ?? '99:99').localeCompare(b.time ?? '99:99'));
-  }, [data]);
-
-  const handleSelect = useCallback((occ: Occurrence) => {
-    // Доп.урок — своя сущность и свой путь отметки (/api/extra-lessons/:id/record).
-    // Без этой ветки форма обычного урока создала бы лишний курсовой урок с деньгами,
-    // а назначение доп.урока осталось бы невыполненным.
-    if (occ.extraLessonId != null) {
-      setSelection({ kind: 'extra', assignmentId: occ.extraLessonId });
-      return;
-    }
-    // Занятие кладём целиком: серверу нужен его id (позиция курса) и реальная дата,
-    // иначе он вынужден угадывать позицию по дате — на группах с двумя занятиями
-    // в день это уводит запись на незащищённый путь.
-    setSelection({ kind: 'lesson', occ });
-  }, []);
+function LessonRow({ lesson }: { lesson: MyLesson }) {
+  const [open, setOpen] = useState(false);
+  const kindLabel = LESSON_KIND_LABEL[lesson.lessonType];
+  const color = resolveDirectionColor(lesson.directionColor, lesson.direction ?? lesson.group);
 
   return (
-    <div className="ml-page">
-      <div className="cal-head">
-        <div>
-          <div className="cal-title">Мои уроки</div>
-          <div className="ml-subtitle">Сегодня, {DAY_FULL[todayCol]} · {dayMonth(today)}</div>
-        </div>
-        {isFetching && <span className="ml-updating">обновление…</span>}
-      </div>
+    <div className={`mlh-row${open ? ' is-open' : ''}`} style={{ '--subject-color': color } as CSSProperties}>
+      <button
+        type="button"
+        className="mlh-toggle"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        {/* Внутри <button> допустим только phrasing content — поэтому <span>,
+            а не <div>. Раскладку задают классы .pr-*, тег на неё не влияет. */}
+        <span className="pr-date">
+          <span className="pr-date-day">{dayMonthOfIso(lesson.date)}</span>
+          <span className="pr-date-dow">{weekdayShortOfIso(lesson.date)}</span>
+        </span>
+        <span className="pr-main">
+          <span className="pr-title">
+            <span className="pr-group">{lesson.group}</span>
+            {kindLabel && <span className={`pr-badge pr-badge--${lesson.lessonType}`}>{kindLabel}</span>}
+          </span>
+          <span className="pr-formula">{attendanceLine(lesson)}</span>
+        </span>
+        <svg className="mlh-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {open && (
+        lesson.students.length === 0 ? (
+          <div className="mlh-students mlh-students--empty">Ученики урока не отмечены.</div>
+        ) : (
+          <ul className="mlh-students">
+            {lesson.students.map((s) => (
+              <li key={s.id} className="mlh-student">
+                <span className="mlh-name">{s.name}</span>
+                <span className={`mlh-mark mlh-mark--${s.status}`}>{STUDENT_STATUS_LABEL[s.status]}</span>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+    </div>
+  );
+}
+
+/**
+ * Мои уроки — история проведённых уроков текущего преподавателя по месяцам.
+ *
+ * Список за месяц совпадает со списком «Зарплаты» строка в строку (закреплено
+ * тестом на бэке), но денег здесь нет: задача экрана — показать, кто был на
+ * уроке. Записывать урок отсюда нельзя — вход в запись живёт в «Календаре».
+ */
+export default function MyLessonsPage() {
+  const [month, setMonth] = useState<Date>(() => firstOfMonthMsk());
+  const currentMonth = useMemo(() => firstOfMonthMsk(), []);
+
+  const from = isoDate(month);
+  const to = isoDate(addDays(addMonths(month, 1), -1));
+  const { data, isLoading, isError, isFetching } = useMyLessons({
+    page: 1, pageSize: MONTH_PAGE_SIZE, from, to,
+  });
+
+  const rows = data?.rows ?? [];
+  const truncated = data ? data.total > rows.length : false;
+
+  return (
+    <div className="pr-page">
+      <MonthNav title="Мои уроки" month={month} currentMonth={currentMonth} onChange={setMonth} isFetching={isFetching} />
 
       {isLoading ? (
         <div className="cal-skel" style={{ height: 320 }} />
       ) : isError ? (
         <div className="cal-error">Не удалось загрузить уроки.</div>
-      ) : todayLessons.length === 0 ? (
-        <div className="cal-empty">На сегодня уроков нет.</div>
+      ) : rows.length === 0 ? (
+        <div className="cal-empty">В этом месяце проведённых уроков нет.</div>
       ) : (
-        <div className="day-list">
-          <div className="day-block">
-            <div className="day-hdr today">
-              <span className="day-hdr-name">{DAY_FULL[todayCol]}</span>
-              <span className="day-hdr-date">{dayMonth(today)}</span>
-              <span className="day-hdr-cnt">{todayLessons.length}</span>
-            </div>
-            {todayLessons.map((occ, i) => (
-              <div
-                key={`${occ.group}-${occ.time}-${i}`}
-                className={`lrow${occ.status === 'cancelled' ? ' cancelled' : ''}`}
-                style={{ ['--subject-color' as any]: colorOf(occ) }}
-                onClick={() => handleSelect(occ)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSelect(occ); }}
-              >
-                <div className="lrow-time">{occ.time ?? '—'}</div>
-                <div style={{ minWidth: 0 }}>
-                  <div className="lrow-title">{occ.groupDisplay}</div>
-                  <div className="lrow-meta">{occ.isGroup ? `${occ.students.length} уч.` : occ.teacher}</div>
-                </div>
-                <StatusPill status={occ.status} label={occ.label} />
-              </div>
-            ))}
+        <>
+          <div className="pr-list">
+            {rows.map((lesson) => <LessonRow key={lesson.id} lesson={lesson} />)}
           </div>
-        </div>
-      )}
-
-      {selection?.kind === 'lesson' && (
-        selected.data ? (
-          <LessonForm
-            group={selection.occ.group}
-            groupData={selected.data}
-            initialDate={selection.occ.date}
-            plannedLessonId={selection.occ.id}
-            plannedLessonNumber={selection.occ.lessonNumber}
-            isSubstitution={!!selection.occ.teacherOverride}
-            onClose={() => setSelection(null)}
-          />
-        ) : selected.isLoading ? (
-          <Modal title={selection.occ.group} subtitle="Запись урока" onClose={() => setSelection(null)}>
-            <div className="cal-empty">Загружаем данные группы…</div>
-          </Modal>
-        ) : (
-          // Группы нет ни среди своих, ни среди чужих (больше не ведут / неактивна) —
-          // отмечать нечего, показываем подробности занятия как раньше.
-          <LessonPopup lesson={selection.occ} onClose={() => setSelection(null)} />
-        )
-      )}
-      {selection?.kind === 'extra' && (
-        <ExtraLessonRecordModal
-          assignmentId={selection.assignmentId}
-          onClose={() => setSelection(null)}
-        />
+          {truncated && (
+            <div className="pr-note">Показаны не все уроки месяца: {rows.length} из {data!.total}.</div>
+          )}
+        </>
       )}
     </div>
   );

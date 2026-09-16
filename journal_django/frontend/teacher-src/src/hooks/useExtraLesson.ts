@@ -36,6 +36,10 @@ export function useRecordExtraLesson() {
   const invalidate = (id: number) => {
     qc.invalidateQueries({ queryKey: ['calendar'] });
     qc.invalidateQueries({ queryKey: ['extra-lesson', id] });
+    // Доп.урок попадает в «Мои уроки» и «Зарплату» — сбрасываем и их, иначе
+    // записанный доп.урок до минуты не появится в истории.
+    qc.invalidateQueries({ queryKey: ['myLessons'] });
+    qc.invalidateQueries({ queryKey: ['myPayroll'] });
   };
 
   return useMutation({

@@ -19,6 +19,11 @@ export function useSubmitLesson() {
     qc.invalidateQueries({ queryKey: ['schedule'] });
     qc.invalidateQueries({ queryKey: ['calendar'] });
     qc.invalidateQueries({ queryKey: ['groupProgress'] });
+    // История «Мои уроки» и «Зарплата» показывают записанные уроки: без сброса
+    // они до минуты держали бы старый список — а LessonForm при таймауте прямо
+    // отправляет проверять запись в «Мои уроки».
+    qc.invalidateQueries({ queryKey: ['myLessons'] });
+    qc.invalidateQueries({ queryKey: ['myPayroll'] });
   };
 
   return useMutation<SubmitResult, unknown, SubmitPayload>({

@@ -102,6 +102,16 @@ export type SubmitResult =
   | { success: true; payment: number; penalty: number; lessonNumber: number }
   | { success: false; error: string };
 
+/** Статус ученика в истории «Мои уроки» — выводит сервер
+ *  (teacher_spa/serializers.py::my_lesson_student_status). */
+export type MyLessonStudentStatus = 'present' | 'free' | 'absent' | 'skip' | 'burned';
+
+export interface MyLessonStudent {
+  id: number;
+  name: string;
+  status: MyLessonStudentStatus;
+}
+
 /**
  * Форма элемента ответа GET /api/lessons (заморожена; см.
  * teacher_spa/serializers.py::MyLessonSerializer). ВНИМАНИЕ: lessonNumber/
@@ -113,7 +123,7 @@ export interface MyLesson {
   date: string; // 'YYYY-MM-DD'
   group: string;
   lessonNumber: string;
-  lessonType: 'regular' | 'substitution' | 'reschedule';
+  lessonType: 'regular' | 'substitution' | 'reschedule' | 'extra' | 'burned';
   isSubstitution: boolean;
   originalTeacher: string | null;
   recordUrl: string | null;
@@ -124,6 +134,8 @@ export interface MyLesson {
   penalty: string | null;
   direction: string | null;
   directionColor: string | null;
+  /** Ученики урока по алфавиту с пометкой посещения. */
+  students: MyLessonStudent[];
 }
 
 /** GET /api/lessons — StandardPagination envelope. */
