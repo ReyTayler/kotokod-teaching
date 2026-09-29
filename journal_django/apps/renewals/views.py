@@ -126,7 +126,10 @@ class RenewalMoveView(APIView):
                 pk, ser.validated_data['to_stage_id'],
                 ser.validated_data.get('reason_code'),
                 author_id=getattr(request.user, 'id', None),
-                frozen_until_month=ser.validated_data.get('frozen_until_month'))
+                frozen_until_month=ser.validated_data.get('frozen_until_month'),
+                # Admin/superadmin могут отметить «Продлён» при балансе <= 0
+                # (продление договорено, оплата придёт позже); менеджер — нет.
+                allow_nonpositive_balance=IsAdminOrSuperAdmin().has_permission(request, self))
         except InvalidTransition as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if result is None:

@@ -247,13 +247,17 @@ def snapshot_directions(deal) -> bool:
 
 
 def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
-              author_id: int | None, frozen_until_month=None) -> dict | None:
+              author_id: int | None, frozen_until_month=None,
+              allow_nonpositive_balance: bool = False) -> dict | None:
     """Переместить сделку в стадию, записать активность, синхронизировать outcome.
 
     frozen_until_month («до какого месяца заморозка») пишется только при
     переходе НА стадию key='frozen'; при переходе с неё — обнуляется, чтобы
     мёртвый месяц не «прилипал» к сделке. Обязательность поля проверяет
     MoveSerializer (у него есть to_stage_id, значит и ключ стадии).
+
+    allow_nonpositive_balance снимает гейт «Продлён только при балансе > 0»
+    (право admin/superadmin решает вьюха по роли; гейт цикла остаётся).
     """
     from django.db import transaction
     from django.utils import timezone
@@ -274,7 +278,8 @@ def move_deal(deal_id: int, to_stage_id: int, reason_code: str | None,
                        from_is_auto=from_stage.is_auto, to_is_auto=to_stage.is_auto,
                        from_key=from_stage.key, to_allow_mid_cycle=to_stage.allow_mid_cycle,
                        cycle_completed=engine.cycle_completed(deal),
-                       balance=float(balance_for_student(deal.student_id)))
+                       balance=float(balance_for_student(deal.student_id)),
+                       allow_nonpositive_balance=allow_nonpositive_balance)
 
         to_frozen = to_stage.key == FROZEN_KEY
         deal.frozen_until_month = frozen_until_month if to_frozen else None

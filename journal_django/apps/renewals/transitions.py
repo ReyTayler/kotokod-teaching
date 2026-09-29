@@ -47,7 +47,8 @@ def _is_auto_exit_target(to_kind: str, to_allow_mid_cycle: bool) -> bool:
 def is_allowed(*, from_kind: str, to_kind: str,
                from_is_auto: bool = False, to_is_auto: bool = False,
                from_key: str | None = None, to_allow_mid_cycle: bool = False,
-               cycle_completed: bool = True, balance: float = 1) -> bool:
+               cycle_completed: bool = True, balance: float = 1,
+               allow_nonpositive_balance: bool = False) -> bool:
     """
     Авто-стадии (is_auto) двигает движок по событиям. Руками:
     - на авто-стадию встать нельзя (to_is_auto) — прогресс, «Ждём оплату»,
@@ -62,7 +63,9 @@ def is_allowed(*, from_kind: str, to_kind: str,
     С «Ждём продление» (kind='decision') работают обычные ворота decision-стадий:
     в другую ручную decision / «Продлён» — при завершённом цикле; «Ушёл» — всегда.
     В «Продлён» — дополнительно только при положительном балансе (> 0 уроков):
-    без него продление не подкреплено оплатой на следующий цикл.
+    без него продление не подкреплено оплатой на следующий цикл. Admin/superadmin
+    этот гейт снимают (allow_nonpositive_balance; решение пользователя 2026-09-28:
+    продление договорено, оплата придёт позже). Гейт цикла остаётся для всех.
 
     Решение пользователя 2026-07-19 (послабляет прежний тотальный from_is_auto→False
     от 2026-07-17: без выхода со стадии «Ждём продление» сделку нельзя было закрыть
@@ -85,7 +88,7 @@ def is_allowed(*, from_kind: str, to_kind: str,
         return False
     if not cycle_completed:
         return to_kind == 'lost' or _is_pause_target(to_kind, to_allow_mid_cycle)
-    if to_kind == 'won' and balance <= 0:
+    if to_kind == 'won' and balance <= 0 and not allow_nonpositive_balance:
         return False
     return to_kind in {'decision', 'won', 'lost'}
 
@@ -93,12 +96,14 @@ def is_allowed(*, from_kind: str, to_kind: str,
 def assert_allowed(*, from_kind: str, to_kind: str,
                    from_is_auto: bool = False, to_is_auto: bool = False,
                    from_key: str | None = None, to_allow_mid_cycle: bool = False,
-                   cycle_completed: bool = True, balance: float = 1) -> None:
+                   cycle_completed: bool = True, balance: float = 1,
+                   allow_nonpositive_balance: bool = False) -> None:
     if not is_allowed(from_kind=from_kind, to_kind=to_kind,
                       from_is_auto=from_is_auto, to_is_auto=to_is_auto,
                       from_key=from_key, to_allow_mid_cycle=to_allow_mid_cycle,
-                      cycle_completed=cycle_completed, balance=balance):
-        if to_kind == 'won' and balance <= 0:
+                      cycle_completed=cycle_completed, balance=balance,
+                      allow_nonpositive_balance=allow_nonpositive_balance):
+        if to_kind == 'won' and balance <= 0 and not allow_nonpositive_balance:
             raise InvalidTransition(
                 'Нельзя отметить как «Продлён»: на балансе ученика должно быть больше 0 уроков')
         raise InvalidTransition(f'Переход {from_kind} → {to_kind} запрещён')

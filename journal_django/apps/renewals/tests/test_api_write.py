@@ -87,11 +87,12 @@ def test_move_to_won_before_cycle_completed_409(admin_client, make_student, make
 
 
 @pytest.mark.django_db
-def test_move_to_won_blocked_when_balance_not_positive(admin_client, make_student, make_direction):
-    """Цикл отработан, но баланс <= 0 (долг или ровно 0) — «Продлён» запрещён:
-    без положительного баланса продление не подкреплено оплатой на следующий
-    цикл. Ставим сделку на ручную decision-стадию («Думает»), цикл мокаем
-    завершённым — проверяем именно балансовый гейт, отдельно от cycle_completed."""
+def test_move_to_won_blocked_when_balance_not_positive(manager_client, make_student, make_direction):
+    """Цикл отработан, но баланс <= 0 (долг или ровно 0) — менеджеру «Продлён»
+    запрещён: без положительного баланса продление не подкреплено оплатой на
+    следующий цикл. Ставим сделку на ручную decision-стадию («Думает»), цикл
+    мокаем завершённым — проверяем именно балансовый гейт, отдельно от
+    cycle_completed. Admin/superadmin этот гейт обходят (тест ниже)."""
     from unittest.mock import patch
     sid, did = make_student(), make_direction()
     deal = engine.ensure_deal(sid, cycle_no=1)
@@ -99,16 +100,39 @@ def test_move_to_won_blocked_when_balance_not_positive(admin_client, make_studen
     deal.save(update_fields=['stage'])
     with patch('apps.renewals.engine.cycle_completed', return_value=True), \
          patch('apps.finances.repository.balance_for_student', return_value=0):
-        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+        resp = manager_client.post(f'{BASE}/{deal.id}/move',
                                  {'to_stage_id': _stage_id('renewed')}, format='json')
     assert resp.status_code == 409
     assert 'баланс' in resp.json()['error'].lower()
 
     with patch('apps.renewals.engine.cycle_completed', return_value=True), \
          patch('apps.finances.repository.balance_for_student', return_value=-3):
-        resp = admin_client.post(f'{BASE}/{deal.id}/move',
+        resp = manager_client.post(f'{BASE}/{deal.id}/move',
                                  {'to_stage_id': _stage_id('renewed')}, format='json')
     assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('client_fixture', ['admin_client', 'superadmin_client'])
+@pytest.mark.parametrize('balance', [0, -3])
+def test_move_to_won_allowed_for_admins_when_balance_not_positive(
+        request, client_fixture, balance, make_student, make_direction):
+    """Admin и superadmin могут отметить «Продлён» при нулевом балансе или долге
+    (решение пользователя 2026-09-28: продление договорено, оплата придёт позже).
+    Гейт завершённого цикла для них остаётся — отдельный тест выше."""
+    from unittest.mock import patch
+    client = request.getfixturevalue(client_fixture)
+    sid, did = make_student(), make_direction()
+    deal = engine.ensure_deal(sid, cycle_no=1)
+    deal.stage = RenewalStage.objects.get(key='thinking', pipeline=deal.pipeline)
+    deal.save(update_fields=['stage'])
+    with patch('apps.renewals.engine.cycle_completed', return_value=True),          patch('apps.finances.repository.balance_for_student', return_value=balance):
+        resp = client.post(f'{BASE}/{deal.id}/move',
+                           {'to_stage_id': _stage_id('renewed')}, format='json')
+    assert resp.status_code == 200, resp.content
+    deal.refresh_from_db()
+    assert deal.stage.key == 'renewed'
+    assert deal.outcome_at is not None
 
 
 @pytest.mark.django_db
