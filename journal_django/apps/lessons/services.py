@@ -18,7 +18,7 @@ from django.db import IntegrityError, transaction
 from apps.groups.models import Group
 from apps.lessons import repository
 from apps.lessons.exceptions import (
-    AttendanceCompensatedElsewhere, CoursePositionVanished, LessonAlreadyRecorded,
+    CoursePositionVanished, LessonAlreadyRecorded,
     LessonHasMakeupResolutions, SystemLessonProtected,
 )
 from apps.core.utils.decimal import to_decimal
@@ -439,18 +439,6 @@ def delete_lesson_full(lesson_id: int) -> bool:
     return deleted
 
 
-def _assert_not_compensated(lesson_id: int, student_id: int) -> None:
-    """Нельзя вручную отметить ученика присутствовавшим на исходном уроке, если
-    его пропуск уже компенсирован (makeup_done) или сожжён (burned) — потребление
-    уже списано отдельным фактом, флип исходной ячейки задвоил бы списание."""
-    from apps.extra_lessons.models import BURNED, MAKEUP_DONE, AbsenceResolution
-    if AbsenceResolution.objects.filter(
-        missed_lesson_id=lesson_id, student_id=student_id,
-        status__in=[MAKEUP_DONE, BURNED],
-    ).exists():
-        raise AttendanceCompensatedElsewhere()
-
-
 def update_attendance_cell(
     lesson_id: int, student_id: int, present: bool, is_free: bool = False,
     allow_debt: bool = False,
@@ -466,18 +454,23 @@ def update_attendance_cell(
 
     Снятие present (флип в «не был») порождает pending-резолюцию так же, как если
     бы ученика отметили отсутствующим сразу при записи урока — см.
-    _autocreate_pending_for_cell."""
+    _autocreate_pending_for_cell.
+
+    Отметка «был» (present=true, в т.ч. free) разбирает заявку на этот пропуск —
+    см. apps.extra_lessons.services.release_absence_for_present: нерешённая
+    удаляется, назначенный доп.урок блокирует (AttendanceHasScheduledMakeup),
+    проведённый/сожжённый — тоже (AttendanceCompensatedElsewhere)."""
     _assert_not_system_lesson(lesson_id)
-    # Флип В present компенсированного пропуска = двойной учёт (см. гард).
-    # Снятие present (absent) — безопасно, не гейтим. free — тоже present=true,
-    # поэтому под тем же запретом.
-    if present:
-        _assert_not_compensated(lesson_id, student_id)
-    # Одна транзакция на правку ячейки и постановку в очередь: иначе флип
-    # закоммитился бы, а падение autocreate оставило бы пропуск без заявки —
-    # ровно тот тихий исход, который здесь и чинится. Вложенный atomic внутри
-    # repository становится SAVEPOINT'ом.
+    # Одна транзакция на правку ячейки и судьбу заявки на пропуск: иначе флип
+    # закоммитился бы, а заявка осталась (или наоборот) — ровно так урок ВДГ18
+    # учёлся дважды. Вложенный atomic внутри repository становится SAVEPOINT'ом.
     with transaction.atomic():
+        if present:
+            # Заявку лочим и разбираем ДО флипа. Это же гард двойного учёта
+            # (компенсированный/сожжённый пропуск нельзя отметить «был»), но под
+            # блокировкой — гонку с параллельным burn()/record() он закрывает.
+            from apps.extra_lessons import services as extra_lessons_services
+            extra_lessons_services.release_absence_for_present(lesson_id, student_id)
         changed = repository.update_attendance_cell(
             lesson_id, student_id, present, is_free, skip_balance_check=allow_debt)
         if changed and not present:

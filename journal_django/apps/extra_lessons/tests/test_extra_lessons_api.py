@@ -840,3 +840,20 @@ def test_delete_pending_allowed_for_superadmin(
 
     assert resp.status_code == 204
     assert _resolution_exists(rid) is False
+
+
+def test_burn_returns_409_when_student_was_present(
+    manager_client, missed_lesson_fixture, student_fixture, cleanup_resolutions,
+):
+    """Заявка жива, а ученик на пропущенном уроке отмечен «был» (ВДГ18, Ларина,
+    №32) — сжигать нечего, иначе урок спишется дважды."""
+    with connection.cursor() as cur:
+        cur.execute('SELECT id FROM absence_resolutions WHERE missed_lesson_id=%s '
+                    'AND student_id=%s', [missed_lesson_fixture, student_fixture])
+        rid = cur.fetchone()[0]
+        cur.execute('UPDATE lesson_attendance SET present=true '
+                    'WHERE lesson_id=%s AND student_id=%s',
+                    [missed_lesson_fixture, student_fixture])
+    resp = manager_client.post(f'{ADMIN_URL}/{rid}/burn', format='json')
+    assert resp.status_code == 409
+    assert 'не были отмечены отсутствующими' in resp.json()['error']

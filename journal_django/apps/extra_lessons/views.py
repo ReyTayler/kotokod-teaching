@@ -18,14 +18,16 @@ Admin (IsManagerOrAdmin, менеджер/админ/суперадмин — я
       открывается, пункт меню виден, но неактивен — см. frontend
       permissions.canRollbackExtraLesson).
   POST /api/admin/extra-lessons/:id/cancel  → 200 | 404 | 409 (не scheduled)
-  POST /api/admin/extra-lessons/:id/burn    → 200 | 404 | 409 (не pending) |
+  POST /api/admin/extra-lessons/:id/burn    → 200 | 404 | 409 (не pending, ИЛИ
+                                               ученик на уроке не отсутствовал) |
                                                400 (balance<=0)
 
 Teacher (IsTeacher, скоуп — своё назначение):
   GET  /api/extra-lessons/:id         → 200 | 404 (чужое = 404, не 403 — не
                                          раскрываем существование чужих назначений)
   POST /api/extra-lessons/:id/record  → 200 | 404 | 403 (чужое) | 409 (не
-                                         scheduled) | 400 (present, но у ученика
+                                         scheduled, ИЛИ ученик на пропущенном
+                                         уроке не отсутствовал) | 400 (present, но у ученика
                                          balance<=0, ИЛИ present=false — неявку
                                          оформляют «Отменой», а не записью)
 """
@@ -194,6 +196,9 @@ class ExtraLessonBurnView(APIView):
             result = services.burn(pk, request=request, burn_date=msk_today())
         except UnpaidAttendanceBlocked as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except StudentNotAbsent as e:
+            # Ученик на том уроке отмечен присутствовавшим — пропуска нет, жечь нечего.
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         if result is None:
@@ -232,6 +237,10 @@ class TeacherExtraLessonRecordView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_403_FORBIDDEN)
         except (AbsentStudentNotRecordable, UnpaidAttendanceBlocked) as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except StudentNotAbsent as e:
+            # Пропуска нет (ученик отмечен присутствовавшим) — не путать с веткой
+            # ValueError ниже: там код «уже проведено», здесь настоящий отказ.
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
         except ValueError as e:
             # Статус резолюции уже не «назначен» — почти всегда повторная отправка
             # после потерянного ответа: доп.урок записан, деньги начислены. Код

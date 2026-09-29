@@ -234,8 +234,10 @@ def lock_for_delete(resolution_id) -> Optional[dict]:
 
 
 def lock_for_assign(missed_lesson_id, student_id) -> Optional[dict]:
-    """SELECT ... FOR UPDATE резолюции перед переводом в makeup_scheduled.
-    None → строки нет (сервис создаст напрямую create_scheduled_direct)."""
+    """SELECT ... FOR UPDATE резолюции пропуска (урок × ученик). Два потребителя:
+    назначение доп.урока (перевод в makeup_scheduled; None → строки нет, сервис
+    создаст напрямую create_scheduled_direct) и отметка «был» задним числом
+    (services.release_absence_for_present)."""
     return (AbsenceResolution.objects.select_for_update()
             .filter(missed_lesson_id=missed_lesson_id, student_id=student_id)
             .values('id', 'status').first())

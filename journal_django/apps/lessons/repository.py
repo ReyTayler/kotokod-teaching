@@ -306,7 +306,7 @@ def get_lesson_full(lesson_id: int) -> Optional[dict]:
     # тогда строки нет, и флаг выше вешать не на что. Редактор урока рисует карточки
     # по составу группы, поэтому без этого списка такой ученик выглядел красным и
     # кликабельным, хотя пропуск отработан (а сервер флип всё равно отклонял 409 —
-    # _assert_not_compensated). Матрица прогресса группы учитывает этот случай
+    # extra_lessons.services.release_absence_for_present). Матрица прогресса группы учитывает этот случай
     # отдельной веткой (apps/groups/repository.py, key not in att_map).
     lesson['compensated_student_ids'] = sorted(compensated)
 

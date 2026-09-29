@@ -6,7 +6,9 @@ import pytest
 from django.db import connection
 
 from apps.lessons import services
-from apps.lessons.exceptions import AttendanceCompensatedElsewhere, LessonHasMakeupResolutions
+from apps.lessons.exceptions import (
+    AttendanceCompensatedElsewhere, AttendanceHasScheduledMakeup, LessonHasMakeupResolutions,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -724,4 +726,67 @@ def test_lesson_full_reports_compensated_for_student_without_attendance_row(
                 cur.execute('DELETE FROM absence_resolutions WHERE student_id=%s', [late_id])
                 cur.execute('DELETE FROM group_memberships WHERE student_id=%s', [late_id])
                 cur.execute('DELETE FROM students WHERE id=%s', [late_id])
+        _cleanup(lesson_id)
+
+
+@pytest.mark.parametrize('status', ['pending', 'waived'])
+def test_retro_present_drops_undecided_resolution(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture, status,
+):
+    """Инцидент ВДГ18 (Ларина, №32, 2026-09-19): ячейку исправили на «был», а
+    заявка на пропуск осталась в «Доп.уроках» — её потом сожгли, урок учёлся
+    дважды. Пропуска больше нет → заявка без факта и денег (pending/waived)
+    удаляется в той же транзакции, что и флип."""
+    res = _record(group_fixture, teacher_id_fixture, student_fixture, '2026-05-26')
+    lesson_id = res['lesson_id']
+    try:
+        with connection.cursor() as cur:
+            cur.execute('UPDATE absence_resolutions SET status=%s WHERE missed_lesson_id=%s',
+                        [status, lesson_id])
+        assert services.update_attendance_cell(lesson_id, student_fixture, True) is True
+        assert _count_for_lesson(lesson_id) == 0
+    finally:
+        _cleanup(lesson_id)
+
+
+def test_retro_present_blocked_when_makeup_scheduled(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """За назначенным доп.уроком стоят преподаватель и время — снимать его молча
+    нельзя. Отметка отклоняется, ячейка и назначение не меняются."""
+    res = _record(group_fixture, teacher_id_fixture, student_fixture, '2026-05-27')
+    lesson_id = res['lesson_id']
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "UPDATE absence_resolutions SET status='makeup_scheduled', "
+                "assigned_teacher_id=%s, scheduled_date='2026-05-30', duration_minutes=60 "
+                'WHERE missed_lesson_id=%s', [teacher_id_fixture, lesson_id])
+        with pytest.raises(AttendanceHasScheduledMakeup):
+            services.update_attendance_cell(lesson_id, student_fixture, True)
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT present FROM lesson_attendance WHERE lesson_id=%s AND student_id=%s',
+                [lesson_id, student_fixture])
+            assert cur.fetchone()[0] is False
+            cur.execute('SELECT status FROM absence_resolutions WHERE missed_lesson_id=%s',
+                        [lesson_id])
+            assert cur.fetchone()[0] == 'makeup_scheduled'
+    finally:
+        _cleanup(lesson_id)
+
+
+def test_retro_present_then_absent_recreates_pending(
+    group_fixture, teacher_id_fixture, student_fixture, membership_fixture,
+):
+    """Туда-обратно: «был» удалил заявку, повторное «не был» заводит её заново —
+    ровно одну."""
+    res = _record(group_fixture, teacher_id_fixture, student_fixture, '2026-05-28')
+    lesson_id = res['lesson_id']
+    try:
+        services.update_attendance_cell(lesson_id, student_fixture, True)
+        assert _count_for_lesson(lesson_id) == 0
+        services.update_attendance_cell(lesson_id, student_fixture, False)
+        assert _pending_students(lesson_id) == [student_fixture]
+    finally:
         _cleanup(lesson_id)

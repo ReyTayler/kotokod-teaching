@@ -20,6 +20,7 @@ from apps.extra_lessons.exceptions import (
 from apps.extra_lessons.models import BURNED, EXTRA, MAKEUP_DONE, MAKEUP_SCHEDULED, PENDING
 from apps.groups.models import Group
 from apps.lessons import repository as lessons_repository
+from apps.lessons.exceptions import AttendanceCompensatedElsewhere, AttendanceHasScheduledMakeup
 from apps.lessons.models import Lesson
 from apps.memberships.models import GroupMembership
 from apps.payroll.calculator import (
@@ -53,6 +54,19 @@ def _to_time(value: str) -> datetime.time:
 def _step(duration_minutes) -> Decimal:
     """half-lesson инвариант: 45 мин → 0.5 урока, иначе 1 (как apps.lessons)."""
     return Decimal('0.5') if duration_minutes == 45 else Decimal('1')
+
+
+def _assert_still_absent(locked: dict) -> None:
+    """StudentNotAbsent, если на пропущенном уроке ученик отмечен присутствовавшим
+    (или строки посещаемости нет). Сжечь/отработать можно только реальный пропуск —
+    иначе урок спишется дважды: и исходным «был», и фактом (ВДГ18, Ларина, №32).
+    Вызывать ПОД lock_for_record: отметка «был» задним числом берёт ту же
+    блокировку (release_absence_for_present), так что здесь видна её
+    закоммиченная версия."""
+    if repository.students_not_absent(locked['missed_lesson_id'], [locked['student_id']]):
+        name = (Student.objects.filter(id=locked['student_id'])
+                .values_list('full_name', flat=True).first()) or ''
+        raise StudentNotAbsent([name])
 
 
 def _notify_makeup(resolution_id: int, kind: str) -> None:
@@ -446,6 +460,7 @@ def record(
             # extra на ученика в один день/номер иначе схлопнулись бы.
             fact_token = f'extra:{resolution_id}'
         else:
+            _assert_still_absent(locked)
             missed_lesson = Lesson.objects.get(id=locked['missed_lesson_id'])
             fact_group_id = locked['missed_lesson_group_id']
             # Длительность = длительность ИСХОДНОГО пропущенного урока: вес
@@ -544,7 +559,8 @@ def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
 
     None → резолюции нет (view → 404). ValueError → не в статусе pending
     (view → 409). UnpaidAttendanceBlocked → у ученика balance<=0 (view → 400):
-    сжигать нечего.
+    сжигать нечего. StudentNotAbsent → на пропущенном уроке ученик отмечен
+    присутствовавшим, пропуска нет (view → 409).
     """
     full = repository.get_resolution_full(resolution_id)
     if full is None:
@@ -566,6 +582,7 @@ def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
             return None
         if locked['status'] != PENDING:
             raise ValueError('Сжечь можно только нерешённый (pending) пропуск.')
+        _assert_still_absent(locked)
 
         missed_lesson = Lesson.objects.get(id=locked['missed_lesson_id'])
         payment_teacher_id = _burn_payment_teacher_id(missed_lesson)
@@ -728,6 +745,35 @@ def autocreate_pending_for_lesson(missed_lesson_id, absent_student_ids) -> int:
     adopted = repository.adopt_extra_for_lesson(missed_lesson_id, absent_student_ids)
     remaining = [sid for sid in absent_student_ids if sid not in adopted]
     return repository.autocreate_pending(missed_lesson_id, remaining)
+
+
+def release_absence_for_present(lesson_id: int, student_id: int) -> bool:
+    """Ученика задним числом отметили присутствовавшим — пропуска больше нет.
+    Вызывается из apps.lessons.services.update_attendance_cell ВНУТРИ её
+    транзакции и ДО флипа ячейки.
+
+    Судьба заявки на этот пропуск решается по статусу под блокировкой строки —
+    той же, что берут burn()/record() (lock_for_record), поэтому параллельные
+    «был» и «сжечь» сериализуются, а не расходятся:
+      - pending / waived — удаляется: ни факта, ни денег за ней нет. Иначе заявка
+        так и висит в «Доп.уроках», и её можно сжечь — урок спишется дважды
+        (инцидент ВДГ18, Ларина, №32, 2026-09-19);
+      - makeup_scheduled — AttendanceHasScheduledMakeup: за назначением стоят
+        преподаватель и время, молча не снимаем;
+      - makeup_done / burned — AttendanceCompensatedElsewhere: потребление уже
+        списано отдельным фактом.
+
+    Возвращает True, если заявка удалена."""
+    locked = repository.lock_for_assign(lesson_id, student_id)
+    if locked is None:
+        return False
+    if locked['status'] in (MAKEUP_DONE, BURNED):
+        raise AttendanceCompensatedElsewhere()
+    if locked['status'] == MAKEUP_SCHEDULED:
+        raise AttendanceHasScheduledMakeup()
+    # pending или legacy waived — факта и денег нет.
+    repository.delete_resolution(locked['id'])
+    return True
 
 
 def drop_extra_for_present_students(lesson_id, present_student_ids) -> int:
