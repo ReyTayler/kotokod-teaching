@@ -121,8 +121,8 @@ export function useLessonMutations() {
     // необязателен (по умолчанию сервер трактует как false). Позволяет менять
     // исход ячейки уже проведённого урока (в т.ч. проставить бесплатный постфактум).
     // allow_debt — «отметить, невзирая на долг»: только суперадмин, бэк проверяет
-    // роль и отвечает 403 остальным. Занятие остаётся платным (спишется с баланса,
-    // зарплата начислится) — это НЕ is_free.
+    // роль и отвечает 403 остальным. Занятие остаётся платным (спишется с
+    // баланса) — это НЕ is_free.
     toggleAttendance: useMutation({
       mutationFn: ({ lessonId, studentId, present, is_free, allow_debt }:
         { lessonId: number; studentId: number; present: boolean; is_free?: boolean;

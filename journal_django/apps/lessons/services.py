@@ -131,10 +131,10 @@ def record_lesson(*,
                 a['is_free'] = False
 
     # Исход «бесплатное занятие»: ученик присутствовал (present=true), прогресс и
-    # сделка продления идут (present=true), НО занятие бесплатно И для ученика
-    # (баланс/FIFO не списывают по флагу is_free, это делает finances), И для школы
-    # (преподавателю за него зарплата НЕ начисляется — из headcount исключён, см.
-    # ниже; решение 2026-07-24). Баланса для free не требуется. См. lesson-outcomes-spec.
+    # сделка продления идут (present=true), занятие бесплатно ТОЛЬКО для ученика
+    # (баланс/FIFO не списывают по флагу is_free, это делает finances). Преподаватель
+    # получает за него зарплату как за обычного присутствующего (решение 2026-09-28).
+    # Баланса для free не требуется. См. lesson-outcomes-spec.
     free_ids = {a['student_id'] for a in attendance if a.get('is_free')}
     # Исход «неоплачиваемый пропуск»: ученика на этом уроке как будто нет — из
     # зарплаты исключён, pending-резолюцию НЕ порождает (в отличие от обычного
@@ -152,23 +152,13 @@ def record_lesson(*,
 
     is_half = lesson_duration_minutes == 45
     step = _step(lesson_duration_minutes)
-    # Зарплата (правило 2026-08-02):
+    # Зарплата (правило 2026-09-28):
     #   • unpaid_skip — ученика на этом уроке как будто нет: вне total И вне present;
-    #   • is_free — место в группе ЗАНИМАЕТ (входит в total), но пришедшим НЕ считается.
-    #
-    # Почему free остаётся в total: ставка малой группы плоская (до 2 человек и все
-    # пришли — 500). Если убрать free и оттуда, группа из двоих с одним бесплатным
-    # схлопывается в «1 из 1, все пришли» и стоит те же 500 — бесплатный ученик не
-    # удешевляет занятие вовсе. Оставляя его в total, получаем «2, пришёл 1» → 300:
-    # за бесплатного ребёнка преподаватель денег не получает.
-    #
-    # Если free — единственный присутствующий, present_count = 0 → payment = 0.
+    #   • is_free — оплачивается преподавателю как обычное присутствие (в total и в
+    #     present). Бесплатность касается только денег ученика.
     payroll_attendance = [a for a in attendance if a['student_id'] not in skip_ids]
     total_students = len(payroll_attendance)
-    present_count = len([
-        a for a in payroll_attendance
-        if a['present'] and a['student_id'] not in free_ids
-    ])
+    present_count = len([a for a in payroll_attendance if a['present']])
 
     payment = calculate_payment(total_students, present_count, is_half)
     penalty = calculate_penalty(lesson_date, submit_date, present_count)
@@ -466,12 +456,13 @@ def update_attendance_cell(
     allow_debt: bool = False,
 ) -> bool:
     """Точечная правка исхода ученика на проведённом уроке. present — был/не был;
-    is_free — «бесплатное занятие» (present=true, денег ноль). is_free при
-    present=false игнорируется. Пересчитывает Payroll (см. repository).
+    is_free — «бесплатное занятие» (present=true, с ученика не списывается,
+    зарплата преподавателю начисляется). is_free при present=false игнорируется.
+    Пересчитывает Payroll (см. repository).
 
     allow_debt — снять запрет по отрицательному балансу («записать в долг»).
     Право на него проверяет вьюха: только superadmin. Урок остаётся ПЛАТНЫМ
-    (спишется с баланса, зарплата начислится) — в отличие от is_free.
+    (спишется с баланса) — в отличие от is_free.
 
     Снятие present (флип в «не был») порождает pending-резолюцию так же, как если
     бы ученика отметили отсутствующим сразу при записи урока — см.

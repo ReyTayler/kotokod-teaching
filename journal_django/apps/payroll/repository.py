@@ -234,14 +234,17 @@ def teacher_month_entries(teacher_id: int, date_from: str, date_to: str) -> list
 
 def excluded_headcount(lesson_ids: list[int]) -> dict[int, dict]:
     """
-    Сколько учеников исключено из headcount зарплаты по каждому уроку:
-    {lesson_id: {'free': n, 'skip': n}}.
+    Отметки, влияющие на headcount зарплаты, по каждому уроку:
+    {lesson_id: {'free': n, 'skip': n, 'attended': n}}.
 
     Нужно, чтобы объяснить преподавателю, почему в оплате «4 из 4», хотя в
-    группе пятеро (is_free и unpaid_skip из headcount исключены, см.
-    apps.lessons.services.record_lesson).
+    группе пятеро. unpaid_skip из headcount исключён всегда. is_free исключался
+    только до 2026-09-28 (теперь оплачивается как обычное присутствие), а
+    исторические уроки не пересчитывались — поэтому 'attended' (присутствовавшие
+    без unpaid_skip) нужен, чтобы по present_count строки payroll понять,
+    учтены ли бесплатные в оплате (см. services.my_payroll_month).
 
-    Один запрос на все уроки месяца; уроки без исключений в результат не
+    Один запрос на все уроки месяца; уроки без отметок в результат не
     попадают (HAVING) — словарь остаётся компактным.
     """
     if not lesson_ids:
@@ -252,7 +255,8 @@ def excluded_headcount(lesson_ids: list[int]) -> dict[int, dict]:
             """
             SELECT lesson_id,
                    COUNT(*) FILTER (WHERE is_free)     AS free_count,
-                   COUNT(*) FILTER (WHERE unpaid_skip) AS skip_count
+                   COUNT(*) FILTER (WHERE unpaid_skip) AS skip_count,
+                   COUNT(*) FILTER (WHERE present AND NOT unpaid_skip) AS attended_count
               FROM lesson_attendance
              WHERE lesson_id = ANY(%s)
              GROUP BY lesson_id
@@ -262,7 +266,7 @@ def excluded_headcount(lesson_ids: list[int]) -> dict[int, dict]:
             [list(lesson_ids)],
         )
         return {
-            row[0]: {'free': row[1], 'skip': row[2]}
+            row[0]: {'free': row[1], 'skip': row[2], 'attended': row[3]}
             for row in cur.fetchall()
         }
 

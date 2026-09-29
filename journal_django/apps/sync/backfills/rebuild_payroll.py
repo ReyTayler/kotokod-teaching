@@ -23,14 +23,14 @@ def run(dry_run: bool = False) -> dict:
             SELECT l.id, l.teacher_id, l.lesson_duration_minutes,
                    to_char(l.lesson_date, 'YYYY-MM-DD') AS lesson_date_str,
                    to_char((l.submitted_at AT TIME ZONE 'Europe/Moscow'), 'YYYY-MM-DD') AS submit_msk_date,
-                   -- Headcount как боевой путь record_lesson (правило 2026-08-02):
-                   -- unpaid_skip вне total И вне present; is_free занимает место в
-                   -- группе (входит в total), но пришедшим не считается. la.present
-                   -- IS NOT NULL = реальная строка (LEFT JOIN даёт NULL без посещаемости).
+                   -- Headcount как боевой путь record_lesson (правило 2026-09-28):
+                   -- unpaid_skip вне total И вне present; is_free оплачивается как
+                   -- обычное присутствие. la.present IS NOT NULL = реальная строка
+                   -- (LEFT JOIN даёт NULL без посещаемости).
                    COALESCE(SUM(CASE WHEN la.present IS NOT NULL AND NOT la.unpaid_skip
                                      THEN 1 ELSE 0 END), 0)::int AS total_students,
                    COALESCE(SUM(CASE WHEN la.present AND NOT la.unpaid_skip
-                                     AND NOT la.is_free THEN 1 ELSE 0 END), 0)::int AS present_count
+                                     THEN 1 ELSE 0 END), 0)::int AS present_count
             FROM lessons l
             LEFT JOIN lesson_attendance la ON la.lesson_id = l.id
             GROUP BY l.id

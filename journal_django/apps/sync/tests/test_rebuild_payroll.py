@@ -63,10 +63,10 @@ def test_run_computes_payment_from_attendance():
 
 
 @pytest.mark.django_db
-def test_run_excludes_free_and_skip_from_headcount():
-    """Пересчёт исключает is_free (бесплатное занятие) и unpaid_skip из headcount —
-    как боевой record_lesson (за free/skip преподавателю не платят). Два present-ученика,
-    один free → в зачёт идёт только платный: total=1/present=1 → 500 (не 2/2)."""
+def test_run_pays_free_as_present():
+    """Пересчёт считает is_free (бесплатное занятие) обычным присутствием — как
+    боевой record_lesson (правило 2026-09-28). Два present-ученика, один free →
+    total=2/present=2 → 500."""
     with connection.cursor() as cur:
         cur.execute("INSERT INTO teachers (name) VALUES ('__test_sync_teacher_rpf__') RETURNING id")
         teacher_id = cur.fetchone()[0]
@@ -112,10 +112,10 @@ def test_run_excludes_free_and_skip_from_headcount():
             cur.execute("SELECT total_students, present_count, payment FROM payroll WHERE lesson_id = %s",
                         [lesson_id])
             total, present, payment = cur.fetchone()
-            # free занимает место в группе, но пришедшим не считается (2026-08-02):
-            # total=2, present=1 → «малая группа, пришли не все» = 300.
-            assert total == 2 and present == 1
-            assert payment == 300
+            # free оплачивается как обычное присутствие (2026-09-28):
+            # total=2, present=2 → «малая группа, все пришли» = 500.
+            assert total == 2 and present == 2
+            assert payment == 500
     finally:
         with connection.cursor() as cur:
             cur.execute("DELETE FROM payroll WHERE lesson_id = %s", [lesson_id])

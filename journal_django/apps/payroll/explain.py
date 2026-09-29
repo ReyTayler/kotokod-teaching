@@ -197,10 +197,11 @@ def explain_excluded(*, free: int, skip: int) -> Optional[str]:
     """
     Почему «пришли 4 из 4», когда в группе пятеро.
 
-    total_students в payroll — это НЕ размер группы: бесплатные занятия
-    (is_free) и неоплачиваемые пропуски (unpaid_skip) из headcount исключены
-    (apps.lessons.services.record_lesson). Без этой подписи расхождение
-    выглядит как ошибка системы.
+    total_students в payroll — это НЕ размер группы: неоплачиваемые пропуски
+    (unpaid_skip) из headcount исключены (apps.lessons.services.record_lesson).
+    free — бесплатные занятия, не учтённые в оплате: так считалось до
+    2026-09-28, исторические уроки не пересчитывались. Без этой подписи
+    расхождение выглядит как ошибка системы.
     """
     if not free and not skip:
         return None

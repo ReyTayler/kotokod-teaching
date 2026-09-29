@@ -30,8 +30,8 @@ VALID_LESSON_TYPES = COURSE_LESSON_TYPES
 class AttendanceItemSerializer(serializers.Serializer):
     """Элемент посещаемости (attendanceItemSchema): student_id + present + is_free.
 
-    is_free — исход «бесплатное занятие» (present=true, но денег ноль: из зарплаты
-    исключён, баланс/FIFO не трогаются, прогресс/продление идут). Опционален,
+    is_free — исход «бесплатное занятие» (present=true, баланс/FIFO ученика не
+    трогаются, зарплата преподавателю начисляется, прогресс/продление идут). Опционален,
     по умолчанию False. См. lesson-outcomes-spec.
     """
 
@@ -64,7 +64,7 @@ class LessonCreateSerializer(serializers.Serializer):
     attendance = AttendanceItemSerializer(many=True, required=False)
     # allow_debt — «записать, невзирая на отрицательный баланс». Право проверяет
     # вьюха (только superadmin), здесь только приём значения. Занятие остаётся
-    # ПЛАТНЫМ: спишется с баланса, зарплата начислится — это не is_free.
+    # ПЛАТНЫМ: спишется с баланса — это не is_free.
     allow_debt = serializers.BooleanField(required=False, default=False)
 
 
@@ -90,7 +90,7 @@ class AttendanceUpdateSerializer(serializers.Serializer):
     """Вход для toggle посещаемости (updateAttendanceSchema): present + is_free.
 
     is_free — исход «бесплатное занятие» на уже проведённом уроке (present=true,
-    но денег ноль). Опционален, по умолчанию False; при present=false игнорируется
+    с ученика не списывается). Опционален, по умолчанию False; при present=false игнорируется
     (отсутствовавший не может быть «бесплатным»). Позволяет проставить бесплатный
     урок постфактум — типовой результат разрешения спора после занятия.
     """

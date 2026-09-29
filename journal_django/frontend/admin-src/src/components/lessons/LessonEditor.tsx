@@ -56,8 +56,8 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
   const [date, setDate] = useState('');
   const [url, setUrl] = useState('');
   const [present, setPresent] = useState<Record<number, boolean>>({});
-  // Исход «бесплатное занятие» (present=true, но денег ноль: из зарплаты исключён,
-  // баланс не списывается). Задаётся только при создании нового урока. См.
+  // Исход «бесплатное занятие» (present=true, баланс ученика не списывается,
+  // зарплата преподавателю начисляется как обычно). Задаётся только при создании нового урока. См.
   // docs/superpowers/specs/2026-07-23-lesson-outcomes-spec.md.
   const [free, setFree] = useState<Record<number, boolean>>({});
   // Исход «неоплачиваемый пропуск» (present=false, ученик этот урок не посещает).
@@ -290,7 +290,7 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
                     compensated ? 'Пропуск уже закрыт доп.уроком/сгоранием — исход не меняем (двойной учёт)'
                     : lockedByTransfer ? 'Переведён: этот урок ему не засчитывается'
                     : isSkip ? 'Неоплачиваемый пропуск — снимите его, чтобы менять исход'
-                    : isFree ? 'Бесплатное занятие — ученик не платит (баланс не списывается) и преподавателю за него не начисляется зарплата; прогресс курса при этом идёт'
+                    : isFree ? 'Бесплатное занятие — ученик не платит (баланс не списывается), преподавателю зарплата начисляется как обычно; прогресс курса идёт'
                     : undefined
                   }
                 >
@@ -361,7 +361,7 @@ export function LessonEditor({ group, slot, lessonId, color, onClose }: Props) {
           <p className="lesson-editor__debt-text">
             Занятие запишется как обычное платное: баланс ученика уйдёт глубже в
             минус, преподавателю зарплата за него начислится. Это не «бесплатное
-            занятие» — там денег ноль с обеих сторон.
+            занятие» — там с ученика не списывается ничего.
           </p>
         </Dialog>
       )}

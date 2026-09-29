@@ -91,6 +91,13 @@ def my_payroll_month(teacher_id: int, month: str) -> dict:
         )
         submitted_at = e['submitted_at']
         marks = excluded.get(e['lesson_id'], {})
+        # Бесплатные не учтены в оплате только на уроках до 2026-09-28 (тогда
+        # is_free исключался из present_count). Признак — present_count меньше
+        # числа реально присутствовавших; на новых уроках разницы нет.
+        free_unpaid = min(
+            marks.get('free', 0),
+            max(0, marks.get('attended', 0) - e['present_count']),
+        )
 
         rows.append({
             'lessonId': e['lesson_id'],
@@ -116,7 +123,7 @@ def my_payroll_month(teacher_id: int, month: str) -> dict:
                 submitted_at=timezone.localtime(submitted_at) if submitted_at else None,
             ),
             'excludedNote': explain_excluded(
-                free=marks.get('free', 0), skip=marks.get('skip', 0),
+                free=free_unpaid, skip=marks.get('skip', 0),
             ),
             'adjusted': rule['code'] == 'adjusted',
         })

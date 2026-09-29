@@ -264,10 +264,11 @@ def test_manual_correction_is_flagged(client, make_lesson):
 
 def test_excluded_students_are_explained(client, make_lesson, student_fixture):
     """
-    В группе 5 человек, один занимался бесплатно → в оплате его нет.
-    Преподаватель должен видеть, почему headcount меньше группы.
+    Исторический урок (до 2026-09-28): ученик занимался бесплатно, в оплате его
+    нет (present_count=0 при одном присутствовавшем). Преподаватель должен видеть,
+    почему.
     """
-    lesson_id = make_lesson(date='2026-07-03', payment='800.00', total=4, present=4)
+    lesson_id = make_lesson(date='2026-07-03', payment='0', total=1, present=0)
     with connection.cursor() as cur:
         cur.execute(
             'INSERT INTO lesson_attendance (lesson_id, student_id, present, is_free) '
@@ -278,6 +279,24 @@ def test_excluded_students_are_explained(client, make_lesson, student_fixture):
     row = client.get(f'{URL}?month=2026-07').json()['rows'][0]
 
     assert row['excludedNote'] == '1 ученик не учтён в оплате: бесплатное занятие'
+
+
+def test_paid_free_student_is_not_explained_as_excluded(client, make_lesson, student_fixture):
+    """
+    Урок по правилу 2026-09-28: бесплатный ученик оплачен преподавателю
+    (present_count=1) — подписи «не учтён в оплате» быть не должно.
+    """
+    lesson_id = make_lesson(date='2026-07-03', payment='500.00', total=1, present=1)
+    with connection.cursor() as cur:
+        cur.execute(
+            'INSERT INTO lesson_attendance (lesson_id, student_id, present, is_free) '
+            'VALUES (%s, %s, true, true)',
+            [lesson_id, student_fixture],
+        )
+
+    row = client.get(f'{URL}?month=2026-07').json()['rows'][0]
+
+    assert row['excludedNote'] is None
 
 
 def test_lesson_without_payroll_row_is_absent(client, group_fixture, teacher_id_fixture):

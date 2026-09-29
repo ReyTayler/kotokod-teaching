@@ -421,10 +421,9 @@ def update_attendance_cell(
     пересчёт Payroll.present_count/payment (не penalty — она про своевременность
     исходной записи урока, не должна меняться от последующей правки посещаемости).
 
-    is_free — исход «бесплатное занятие»: present=true; денег «ноль» и у УЧЕНИКА
-    (баланс/FIFO не трогают по флагу is_free, см. finances), и у преподавателя
-    (из headcount зарплаты исключён — за бесплатное занятие выплаты нет, решение
-    2026-07-24). Позволяет проставить бесплатный урок ПОСТФАКТУМ (типовой результат
+    is_free — исход «бесплатное занятие»: present=true; денег «ноль» только у
+    УЧЕНИКА (баланс/FIFO не трогают по флагу is_free, см. finances). Преподавателю
+    зарплата начисляется как за обычное присутствие (решение 2026-09-28). Позволяет проставить бесплатный урок ПОСТФАКТУМ (типовой результат
     разрешения спора после занятия). is_free при present=false принудительно
     сбрасывается (отсутствовавший «бесплатным» быть не может). Прогресс (lessons_done)
     и сделку продления бесплатный урок двигает как обычное присутствие (следует present).
@@ -527,16 +526,14 @@ def update_attendance_cell(
         # и последний commit тихо затёр бы вклад первого (lost update).
         payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
         if payroll is not None:
-            # Headcount (правило 2026-08-02): unpaid_skip вне total И вне present;
-            # is_free занимает место в группе (входит в total), но пришедшим не
-            # считается. Иначе группа из двоих с одним бесплатным схлопывается в
-            # «1 из 1, все пришли» и стоит те же 500 — бесплатный не удешевляет
-            # занятие. См. record_lesson и lesson-outcomes-spec.
+            # Headcount (правило 2026-09-28): unpaid_skip вне total И вне present;
+            # is_free оплачивается как обычное присутствие. См. record_lesson и
+            # lesson-outcomes-spec.
             total_students = LessonAttendance.objects.filter(
                 lesson_id=lesson_id, unpaid_skip=False,
             ).count()
             present_total = LessonAttendance.objects.filter(
-                lesson_id=lesson_id, present=True, unpaid_skip=False, is_free=False,
+                lesson_id=lesson_id, present=True, unpaid_skip=False,
             ).count()
             is_half = ctx['lesson_duration_minutes'] == 45
             payroll.total_students = total_students
@@ -585,12 +582,12 @@ def set_unpaid_skip(lesson_id: int, student_id: int, value: bool) -> bool:
 
         payroll = Payroll.objects.select_for_update().filter(lesson_id=lesson_id).first()
         if payroll is not None:
-            # Headcount как в update_attendance_cell (правило 2026-08-02): unpaid_skip
-            # вне total И вне present; is_free остаётся в total, но не в present.
+            # Headcount как в update_attendance_cell (правило 2026-09-28): unpaid_skip
+            # вне total И вне present; is_free оплачивается как обычное присутствие.
             total_students = LessonAttendance.objects.filter(
                 lesson_id=lesson_id, unpaid_skip=False).count()
             present_total = LessonAttendance.objects.filter(
-                lesson_id=lesson_id, present=True, unpaid_skip=False, is_free=False).count()
+                lesson_id=lesson_id, present=True, unpaid_skip=False).count()
             is_half = ctx['lesson_duration_minutes'] == 45
             payroll.total_students = total_students
             payroll.present_count = present_total
