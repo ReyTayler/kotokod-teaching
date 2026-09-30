@@ -123,18 +123,49 @@ def build_variants(sha256: str, source_rel_path: str) -> Variants:
 
     EXIF срезается: в нём геотеги и модель устройства. Ориентация при этом
     применяется до сброса — иначе фото с телефона осталось бы лежать боком.
+
+    Прозрачность сохраняется (WebP её умеет). Раньше всё переводилось в RGB,
+    и прозрачный фон PNG превращался в чёрный: у прозрачных пикселей цвет
+    обычно (0, 0, 0), и без альфа-канала он проступал.
     """
     source = absolute_path(source_rel_path)
-    optimized_rel = variant_path(sha256, f'w{OPTIMIZED_WIDTH}')
-    thumb_rel = variant_path(sha256, f'w{THUMB_WIDTH}')
 
     with Image.open(source) as im:
         im = ImageOps.exif_transpose(im)
-        im = im.convert('RGB')
+        alpha = _has_transparency(im)
+        im = im.convert('RGBA' if alpha else 'RGB')
+        # Вариант с прозрачностью — под своим именем. Картинки, у которых
+        # вариант уже построен по-старому (чёрный фон), браузеры держат в кэше
+        # по имени файла и ETag; новое имя гарантирует, что они увидят новый
+        # файл. Непрозрачные картинки сохраняют прежние имена — пересобирать и
+        # перекачивать их незачем.
+        mark = 'a' if alpha else ''
+        optimized_rel = variant_path(sha256, f'w{OPTIMIZED_WIDTH}{mark}')
+        thumb_rel = variant_path(sha256, f'w{THUMB_WIDTH}{mark}')
         _save_resized(im, absolute_path(optimized_rel), OPTIMIZED_WIDTH)
         _save_resized(im, absolute_path(thumb_rel), THUMB_WIDTH)
 
     return Variants(optimized_path=optimized_rel, thumb_path=thumb_rel)
+
+
+def has_transparency(rel_path: str) -> bool:
+    """Есть ли в картинке хоть один прозрачный пиксель."""
+    with Image.open(absolute_path(rel_path)) as im:
+        return _has_transparency(im)
+
+
+def _has_transparency(im: Image.Image) -> bool:
+    """
+    Прозрачность бывает двух видов: альфа-канал (RGBA, LA, PA) и номер
+    прозрачного цвета в палитре или в RGB/L-картинке (info['transparency']).
+    Альфа-канал, где все пиксели непрозрачны, прозрачностью не считается:
+    такие PNG сохраняют многие редакторы, и тащить для них лишний канал в
+    WebP — пустая трата байтов.
+    """
+    if im.mode not in ('RGBA', 'LA', 'PA') and 'transparency' not in im.info:
+        return False
+    low, _high = im.convert('RGBA').getchannel('A').getextrema()
+    return low < 255
 
 
 def _save_resized(im: Image.Image, target: Path, max_width: int) -> None:

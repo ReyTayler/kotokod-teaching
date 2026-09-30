@@ -465,6 +465,16 @@ def pending_image_ids(limit: int = 100) -> list[int]:
     )
 
 
+def ready_images_in_formats(mimes) -> list[tuple[int, str, str]]:
+    """(id, путь оригинала, путь варианта) готовых картинок указанных форматов."""
+    return list(
+        KnowledgeImage.objects
+        .filter(optimize_state=KnowledgeImage.OptimizeState.READY, mime__in=list(mimes))
+        .order_by('id')
+        .values_list('id', 'original_path', 'optimized_path')
+    )
+
+
 # ---------------------------------------------------------------------------
 # Прикреплённые файлы и использования
 # ---------------------------------------------------------------------------

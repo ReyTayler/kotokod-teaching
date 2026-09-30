@@ -18,6 +18,20 @@ def _png_bytes(width: int = 20, height: int = 10, color=(255, 0, 0)) -> bytes:
     return buf.getvalue()
 
 
+def _rgba_png_bytes(width: int = 40, height: int = 20, *, transparent: bool = True) -> bytes:
+    """
+    Левая половина — красная и непрозрачная, правая — фон. Прозрачный фон
+    намеренно (0, 0, 0, 0): так его отдаёт большинство редакторов, и именно
+    этот чёрный проступал после отбрасывания прозрачности.
+    """
+    background = (0, 0, 0, 0) if transparent else (0, 0, 255, 255)
+    im = Image.new('RGBA', (width, height), background)
+    im.paste((255, 0, 0, 255), (0, 0, width // 2, height))
+    buf = io.BytesIO()
+    im.save(buf, format='PNG')
+    return buf.getvalue()
+
+
 # --- пути ------------------------------------------------------------------
 
 def test_relative_path_shards_by_first_hex_pairs():
@@ -88,6 +102,53 @@ def test_build_variants_creates_webp_files(tmp_path):
         assert im.format == 'WEBP'
     with Image.open(thumb) as im:
         assert im.width == 400
+
+
+def test_build_variants_keeps_transparency(tmp_path):
+    """Прозрачный фон остаётся прозрачным, а не становится чёрным."""
+    with override_settings(KNOWLEDGE_MEDIA_ROOT=str(tmp_path)):
+        meta = images.store_upload(io.BytesIO(_rgba_png_bytes()), 'logo.png')
+        result = images.build_variants(meta.sha256, meta.relative_path)
+
+    for rel in (result.optimized_path, result.thumb_path):
+        with Image.open(tmp_path / rel) as out:
+            assert out.mode == 'RGBA'
+            assert out.getpixel((39, 0))[3] == 0         # фон прозрачен
+            assert out.getpixel((0, 0))[3] == 255        # рисунок непрозрачен
+    # Своё имя файла у варианта с прозрачностью — иначе браузер, закэшировавший
+    # прежний чёрный вариант по тому же адресу и ETag, так бы его и показывал.
+    assert result.optimized_path.endswith('.w1600a.webp')
+    assert result.thumb_path.endswith('.w400a.webp')
+
+
+def test_build_variants_opaque_rgba_stays_rgb(tmp_path):
+    """Альфа-канал без единого прозрачного пикселя — обычная картинка."""
+    with override_settings(KNOWLEDGE_MEDIA_ROOT=str(tmp_path)):
+        meta = images.store_upload(
+            io.BytesIO(_rgba_png_bytes(transparent=False)), 'flat.png',
+        )
+        result = images.build_variants(meta.sha256, meta.relative_path)
+
+    with Image.open(tmp_path / result.optimized_path) as out:
+        assert out.mode == 'RGB'
+    assert result.optimized_path.endswith('.w1600.webp')
+
+
+def test_build_variants_keeps_palette_transparency(tmp_path):
+    """PNG с палитрой хранит прозрачность не каналом, а номером цвета."""
+    im = Image.new('P', (20, 10), 0)
+    im.putpalette([0, 0, 0, 255, 0, 0] + [0] * (256 * 3 - 6))
+    im.paste(1, (0, 0, 10, 10))
+    buf = io.BytesIO()
+    im.save(buf, format='PNG', transparency=0)
+
+    with override_settings(KNOWLEDGE_MEDIA_ROOT=str(tmp_path)):
+        meta = images.store_upload(io.BytesIO(buf.getvalue()), 'icon.png')
+        result = images.build_variants(meta.sha256, meta.relative_path)
+
+    with Image.open(tmp_path / result.optimized_path) as out:
+        assert out.mode == 'RGBA'
+        assert out.getpixel((19, 0))[3] == 0
 
 
 def test_build_variants_strips_exif(tmp_path):
@@ -287,6 +348,80 @@ def _sha_and_path(image_id: int) -> tuple[str, str]:
             [image_id],
         )
         return cur.fetchone()
+
+
+@pytest.mark.django_db
+def test_etag_changes_when_variant_file_changes(admin_client, tmp_path, kb_clean):
+    """
+    Пересобранный вариант — новый файл, и ETag обязан смениться вместе с ним.
+    Иначе браузер на проверке получил бы «не изменилось» и навсегда остался со
+    старыми байтами — так застрял бы чёрный фон у прозрачных картинок.
+    """
+    with override_settings(
+        KNOWLEDGE_MEDIA_ROOT=str(tmp_path), KNOWLEDGE_X_ACCEL_PREFIX='/internal-media',
+    ):
+        image = _upload(admin_client, tmp_path).json()
+        etags = []
+        for rel in ('knowledge/aa/bb/x.w1600.webp', 'knowledge/aa/bb/x.w1600a.webp'):
+            with connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE knowledge_images SET optimize_state='ready',"
+                    ' optimized_path=%s WHERE id = %s', [rel, image['id']],
+                )
+            etags.append(admin_client.get(f"{IMAGES}/{image['id']}")['ETag'])
+
+    assert etags[0] != etags[1]
+
+
+@pytest.mark.django_db
+def test_rebuild_transparent_command(admin_client, tmp_path, kb_clean):
+    """
+    --rebuild-transparent пересобирает варианты только у картинок с
+    прозрачностью и убирает с диска прежние, испорченные.
+    """
+    from django.core.management import call_command
+
+    with override_settings(KNOWLEDGE_MEDIA_ROOT=str(tmp_path)):
+        clear = _upload(admin_client, tmp_path, '__test_kb_clear.png', _rgba_png_bytes()).json()
+        flat = _upload(admin_client, tmp_path, '__test_kb_flat.png', _png_bytes(30, 30)).json()
+        # Состояние «до починки»: варианты построены по-старому, без прозрачности.
+        stale = {}
+        for image_id in (clear['id'], flat['id']):
+            sha, _original = _sha_and_path(image_id)
+            old = {
+                'optimized': images.variant_path(sha, f'w{images.OPTIMIZED_WIDTH}'),
+                'thumb': images.variant_path(sha, f'w{images.THUMB_WIDTH}'),
+            }
+            for rel in old.values():
+                target = tmp_path / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b'old')
+            with connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE knowledge_images SET optimize_state='ready',"
+                    ' optimized_path=%s, thumb_path=%s WHERE id = %s',
+                    [old['optimized'], old['thumb'], image_id],
+                )
+            stale[image_id] = old
+
+        call_command('knowledge_optimize_pending', '--rebuild-transparent', stdout=io.StringIO())
+
+        with connection.cursor() as cur:
+            cur.execute(
+                'SELECT id, optimized_path, thumb_path FROM knowledge_images'
+                ' WHERE id IN (%s, %s)', [clear['id'], flat['id']],
+            )
+            paths = {row[0]: row[1:] for row in cur.fetchall()}
+
+        assert paths[clear['id']][0].endswith('.w1600a.webp')
+        assert paths[clear['id']][1].endswith('.w400a.webp')
+        assert not (tmp_path / stale[clear['id']]['optimized']).exists()
+        assert not (tmp_path / stale[clear['id']]['thumb']).exists()
+        with Image.open(tmp_path / paths[clear['id']][0]) as im:
+            assert im.mode == 'RGBA'
+        # Непрозрачная не тронута.
+        assert paths[flat['id']] == (stale[flat['id']]['optimized'], stale[flat['id']]['thumb'])
+        assert (tmp_path / stale[flat['id']]['optimized']).read_bytes() == b'old'
 
 
 @pytest.mark.django_db

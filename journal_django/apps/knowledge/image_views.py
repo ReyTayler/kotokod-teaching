@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+
 from django.conf import settings
 from django.http import FileResponse, HttpResponse
 from rest_framework import status
@@ -121,7 +123,7 @@ class ImageServeView(APIView):
             raise NotFound()
 
         rel_path, mime, served = _resolve_variant(image, variant)
-        return _file_response(rel_path, mime, image.sha256, served, served == variant)
+        return _file_response(rel_path, mime, served == variant)
 
 
 def _resolve_variant(image: KnowledgeImage, variant: str) -> tuple[str, str, str]:
@@ -137,7 +139,7 @@ def _resolve_variant(image: KnowledgeImage, variant: str) -> tuple[str, str, str
     return image.original_path, image.mime, 'original'
 
 
-def _file_response(rel_path: str, mime: str, sha256: str, served: str, exact: bool):
+def _file_response(rel_path: str, mime: str, exact: bool):
     prefix = settings.KNOWLEDGE_X_ACCEL_PREFIX
     if prefix:
         response = HttpResponse(content_type=mime)
@@ -154,11 +156,14 @@ def _file_response(rel_path: str, mime: str, sha256: str, served: str, exact: bo
     # поэтому кэш безопасен. private, а не public: файл не должен осесть в общем
     # прокси в обход проверки прав.
     #
-    # ETag включает вариант, а не только хеш оригинала: у одного адреса
-    # ?variant=optimized байты меняются ровно один раз — когда Celery дожал
-    # WebP и фолбэк на оригинал больше не нужен. С одинаковым ETag браузер
-    # ответил бы на проверку «не изменилось» и остался с оригиналом навсегда.
-    response['ETag'] = f'"{sha256}.{served}"'
+    # ETag — имя отданного файла, а не только хеш оригинала: байты по адресу
+    # ?variant=optimized меняются, когда Celery дожал WebP (до этого отдаётся
+    # оригинал) и когда вариант пересобран под новым именем (прозрачность, см.
+    # images.build_variants). С неизменным ETag браузер на проверке получал
+    # бы «не изменилось» и навсегда оставался со старыми байтами. Имя файла
+    # построено от хеша содержимого и суффикса варианта — оно меняется ровно
+    # тогда, когда меняются байты.
+    response['ETag'] = f'"{PurePosixPath(rel_path).name}"'
     # Пока отдан фолбэк, долгий кэш вреден по той же причине: готовый WebP
     # появится через секунды, а картинка висела бы в кэше сутки.
     response['Cache-Control'] = (

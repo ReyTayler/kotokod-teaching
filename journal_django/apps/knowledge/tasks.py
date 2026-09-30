@@ -41,6 +41,16 @@ def optimize_image(image_id: int) -> str:
         thumb_path=variants.thumb_path,
         optimize_state=KnowledgeImage.OptimizeState.READY,
     )
+    # Пересборка под новым именем (см. build_variants) оставила бы прежние
+    # файлы сиротами на диске: уборка осиротевших картинок смотрит на записи в
+    # базе, а не на каталоги. Имена построены от хеша содержимого, и одной
+    # картинке соответствует одна запись — чужой файл здесь удалить нельзя.
+    for old, new in (
+        (image.optimized_path, variants.optimized_path),
+        (image.thumb_path, variants.thumb_path),
+    ):
+        if old and old != new:
+            images.absolute_path(old).unlink(missing_ok=True)
     return 'ready'
 
 
