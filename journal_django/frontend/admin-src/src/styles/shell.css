@@ -387,9 +387,12 @@
 /* ── ХЛЕБНЫЕ КРОШКИ ── */
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: var(--fs-xs); color: var(--text3); }
 .crumbs__item { display: inline-flex; align-items: center; gap: 4px; }
-.crumbs__link { color: var(--text3); text-decoration: none; border-radius: 3px; transition: color var(--t-fast) var(--ease); }
-.crumbs__link:hover { color: var(--accent); }
-.crumbs__sep { color: var(--text4); }
+/* Ссылки пути — акцентом: по ним уходят наверх, и они должны читаться как
+   ссылки. Текущая страница — основным цветом и полужирным, это «вы здесь». */
+.crumbs__link { color: var(--accent); text-decoration: none; border-radius: 3px; transition: color var(--t-fast) var(--ease); }
+.crumbs__link:hover { color: var(--accent-hover); text-decoration: underline; }
+.crumbs__sep { color: var(--text4); font-size: var(--fs-sm); line-height: 1; }
+.crumbs [aria-current="page"] { color: var(--text); font-weight: 600; }
 
 /* Крошки на карточке сущности: стрелка «назад» + путь. */
 .detail-crumbs { padding: var(--space-2) 0 var(--space-4); }

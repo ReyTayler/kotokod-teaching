@@ -81,7 +81,7 @@ export function PageHeader({ title, count, crumbs, actions, sub, dense }: Props)
                     {c.to && !last
                       ? <Link to={c.to} className="crumbs__link">{c.label}</Link>
                       : <span aria-current={last ? 'page' : undefined}>{c.label}</span>}
-                    {!last && <span className="crumbs__sep" aria-hidden="true">/</span>}
+                    {!last && <span className="crumbs__sep" aria-hidden="true">›</span>}
                   </span>
                 );
               })}

@@ -13,6 +13,7 @@
   color: var(--text);
   /* Кегль и интерлиньяж статьи — из --kb-*: интерфейс живёт на 14px и плотно,
      а текст, который читают подряд, требует 16px и воздуха между строк. */
+  font-family: var(--kb-font);
   font-size: var(--kb-fs-body);
   line-height: var(--kb-lh-body);
 }
@@ -34,12 +35,13 @@
 .kb-doc h2,
 .kb-doc h3 {
   color: var(--text);
-  font-weight: 700;
-  line-height: 1.25;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
-/* Шкала заголовков статьи шире интерфейсной: при базе 14px разница в один шаг
-   не читается как иерархия, и текст выглядит однородной простынёй. */
+/* Шкала заголовков статьи — ступенью над текстом, а не вдвое крупнее: при
+   h2 в 28px заголовок раздела спорил с названием страницы, а статья из
+   десятка разделов читалась как набор плакатов. */
 .kb-doc h1 { font-size: var(--kb-fs-h1); letter-spacing: -0.02em; }
 .kb-doc h2 { font-size: var(--kb-fs-h2); letter-spacing: -0.01em; }
 .kb-doc h3 { font-size: var(--kb-fs-h3); }
@@ -51,7 +53,7 @@
 .kb-doc h3,
 .kb-doc > .ProseMirror > h2,
 .kb-doc > .ProseMirror > h3 {
-  margin-top: var(--space-8);
+  margin-top: var(--space-6);
 }
 
 .kb-doc ul,
@@ -98,20 +100,12 @@
    renderWrapper: true }) (см. DocumentView.tsx / DocumentEditor.tsx). Раньше
    на нём висела горизонтальная прокрутка по ширине КОЛОНКИ текста: таблица
    упиралась в меру строки и дальше обрезалась, хотя по бокам листа оставалось
-   пустое место. Теперь таблица выходит за поля документа — узкая колонка
-   хороша для текста и мешает таблице. Прокрутка остаётся запасным выходом для
-   таблиц, которые шире всего листа, и в редакторе живёт на поле (.kb-editor-
-   field), а при чтении — на самом обёртке, растянутой до краёв листа. */
+   пустое место. В редакторе таблица выходит за поля листа, а прокрутка живёт
+   на поле (.kb-editor-field). При чтении листа нет, таблица стоит в колонке
+   текста, и прокрутка — на самой обёртке: запасной выход для таблиц шире
+   колонки. */
 .kb-doc .tableWrapper {
   overflow-x: auto;
-}
-
-/* Чтение: обёртка растянута на поля листа (отрицательные внешние отступы), а
-   внутренние возвращают содержимому прежнее выравнивание по колонке текста.
-   Итог — таблица занимает всю ширину листа, а не колонку. */
-.kb-doc-paper .kb-doc .tableWrapper {
-  margin-inline: calc(-1 * var(--kb-doc-pad));
-  padding-inline: var(--kb-doc-pad);
 }
 
 .kb-doc table {
@@ -197,24 +191,25 @@
    Radix закрывает окно по нажатию ВНЕ элемента содержимого, поэтому подложка
    обязана быть кликабельной площадью, а не частью самого окна. */
 .kb-lightbox__overlay {
+  --kb-lightbox-close: 36px;
   position: fixed;
   inset: 0;
   z-index: var(--z-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-8);
+  /* Боковые поля — не меньше, чем занимает крестик в углу с отступами: иначе
+     широкая картинка упиралась бы в край экрана прямо под кнопку. */
+  padding: var(--space-8) calc(var(--kb-lightbox-close) + var(--space-4) * 2);
   background: rgba(15, 23, 42, 0.72);
   backdrop-filter: blur(4px);
   animation: overlayIn .15s ease;
 }
 
 .kb-lightbox {
-  position: relative;
   display: block;
   max-width: 100%;
   max-height: 100%;
-  animation: modalIn .18s cubic-bezier(.34,1.4,.64,1);
 }
 
 .kb-lightbox__img {
@@ -227,14 +222,23 @@
   height: auto;
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-modal);
+  /* Анимация появления — на картинке, а не на окне (.kb-lightbox): transform
+     на окне сделал бы его точкой отсчёта для кнопки закрытия, и на время
+     анимации крестик прыгал бы с угла экрана на угол картинки. */
+  animation: modalIn .18s cubic-bezier(.34,1.4,.64,1);
 }
 
+/* Крестик — в правом верхнем углу всего слоя, а не на картинке: там он не
+   закрывает её содержимое и находится на привычном месте. Кнопка остаётся
+   внутри окна Radix (иначе ей не достанется фокус-ловушка), а отсчитывается
+   от подложки: у окна нет position, и ближайший позиционированный предок —
+   .kb-lightbox__overlay (position: fixed на весь экран). */
 .kb-lightbox__close {
   position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  width: 36px;
-  height: 36px;
+  top: var(--space-4);
+  right: var(--space-4);
+  width: var(--kb-lightbox-close);
+  height: var(--kb-lightbox-close);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -251,6 +255,17 @@
 }
 .kb-lightbox__close:hover { background: var(--bg3); color: var(--text); }
 .kb-lightbox__close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* На телефоне боковые поля под крестик съели бы треть ширины картинки —
+   там кнопке отдаётся полоса сверху, а картинка идёт почти от края до края. */
+@media (max-width: 640px) {
+  .kb-lightbox__overlay {
+    padding: calc(var(--kb-lightbox-close) + var(--space-4) * 2) var(--space-3) var(--space-4);
+  }
+  .kb-lightbox__img {
+    max-height: calc(100vh - var(--kb-lightbox-close) - var(--space-4) * 3);
+  }
+}
 
 /*
  * Карточка редактора/чтения документа.
@@ -320,7 +335,9 @@
 }
 
 .kb-editor-sheet {
-  max-width: 860px;
+  /* Колонка текста внутри листа — ровно --kb-doc-width, как при чтении:
+     строка переносится на тех же словах, что увидит читатель. */
+  max-width: calc(var(--kb-doc-width) + 2 * var(--space-10));
   margin: 0 auto;
   padding: var(--space-10) var(--space-10);
   background: var(--bg2);
@@ -333,10 +350,8 @@
 
 .kb-editor-sheet:focus-within { box-shadow: var(--shadow-modal); }
 
-/* Мера строки при правке чуть шире, чем при чтении (76ch), но не «во всю
-   ширину листа»: без потолка строка доходила до сотни с лишним символов, и
-   набранный текст выглядел иначе, чем увидит читатель. */
-.kb-editor .kb-doc { max-width: 68ch; }
+/* Меру строки при правке держит сам лист (см. .kb-editor-sheet). */
+.kb-editor .kb-doc { max-width: none; }
 
 /* Брейкпоинт 900px — тот же, на котором .app-page и .page-header переключают
    свои отступы на --space-4. Разойдись они, редактор снова полез бы за край. */
@@ -508,7 +523,7 @@
     transition: none;
   }
   .kb-tool-tip,
-  .kb-lightbox,
+  .kb-lightbox__img,
   .kb-lightbox__overlay { animation: none; }
   .kb-spin { animation-duration: 2.4s; }
 }
@@ -1003,31 +1018,29 @@ button.kb-tree__twist:hover { color: var(--text2); }
 }
 
 /* ==========================================================================
- * Экран чтения документа: белый лист по центру, справа оглавление и свойства.
+ * Экран чтения документа: текст прямо на странице, от левого края под
+ * заголовком, справа — оглавление вплотную к тексту.
  * ========================================================================== */
 
 .kb-reader {
   display: grid;
-  /* Правая колонка фиксированной ширины: оглавление — это список коротких
-     строк, растягивать его не на что. */
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: var(--space-8);
+  /* Обе колонки фиксированной ширины и прижаты влево. При 1fr под текст
+     оглавление уезжало к краю монитора и отрывалось от статьи, к которой
+     относится. Оглавление — список коротких строк, растягивать его не на что. */
+  grid-template-columns: minmax(0, var(--kb-doc-width)) 240px;
+  justify-content: start;
+  gap: var(--space-10);
   align-items: start;
 }
 
-/* Лист статьи. Ширина и поля — из токенов (--kb-doc-width/--kb-doc-pad):
-   документ читают подряд, и мера строки важнее плотности экрана. */
+/* Колонка статьи. Карточки с рамкой и полями больше нет: текст стоит на
+   странице, как в эталоне, а лист остаётся только у редактора. Мера строки —
+   --kb-doc-width: документ читают подряд, и она важнее плотности экрана. */
 .kb-doc-paper {
-  max-width: var(--kb-doc-width);
-  margin: 0 auto;
-  padding: var(--kb-doc-pad);
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow-panel);
+  min-width: 0;
+  padding-bottom: var(--space-10);
 }
 
-/* Внутри листа мера строки уже не нужна — её держит сам лист. */
 .kb-doc-paper .kb-doc { max-width: none; }
 
 /* Боковая колонка статьи остаётся на месте при прокрутке: оглавление нужно
@@ -1079,36 +1092,13 @@ button.kb-tree__twist:hover { color: var(--text2); }
               border-color var(--t-fast) var(--ease-out);
 }
 .kb-toc__link:hover { color: var(--text); }
-.kb-toc__link.is-active { color: var(--accent); border-left-color: var(--accent); }
+.kb-toc__link.is-active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
 .kb-toc__link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* Вложенность заголовков — отступом, а не кеглем: иначе третий уровень
    становится нечитаемо мелким. */
 .kb-toc__link--h2 { padding-left: var(--space-4); }
 .kb-toc__link--h3 { padding-left: var(--space-6); }
-
-/* --- Свойства ------------------------------------------------------------- */
-
-.kb-props__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.kb-props__row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-
-.kb-props__label {
-  color: var(--text4);
-  font-size: var(--fs-xs);
-}
-
-.kb-props__value {
-  margin: 0;
-  color: var(--text2);
-  font-size: var(--kb-fs-caption);
-  overflow-wrap: anywhere;
-}
 
 /* --- Мета-строка документа ------------------------------------------------ */
 
@@ -1301,21 +1291,15 @@ button.kb-tree__twist:hover { color: var(--text2); }
  * Адаптив экрана чтения.
  * ========================================================================== */
 
-/* Правая панель уходит первой: оглавление — помощь, а не содержимое. */
+/* Правая панель уходит первой: оглавление — помощь, а не содержимое. Порог —
+   ширина, на которой колонка текста и оглавление ещё помещаются рядом с
+   раскрытой боковой панелью: 272 + 800 + 40 + 240 + поля 2×20 = 1392. */
 @media (max-width: 1400px) {
   .kb-reader { grid-template-columns: minmax(0, 1fr); }
   .kb-side { display: none; }
 }
 
 @media (max-width: 900px) {
-  /* 72px полей на узком экране съедают половину строки. */
-  .kb-doc-paper { padding: var(--space-6) var(--space-5); border-radius: var(--r-lg); }
-  /* Выпуск таблицы на поля обязан совпадать с полями листа: иначе она вылезла
-     бы за его край на величину разницы. */
-  .kb-doc-paper .kb-doc .tableWrapper {
-    margin-inline: calc(-1 * var(--space-5));
-    padding-inline: var(--space-5);
-  }
   .kb-history { grid-template-columns: minmax(0, 1fr); }
   .kb-history__list { max-height: 200px; }
 }

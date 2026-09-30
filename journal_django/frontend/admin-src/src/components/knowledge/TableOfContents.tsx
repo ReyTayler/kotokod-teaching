@@ -16,8 +16,8 @@ export function TableOfContents({ entries }: { entries: TocEntry[] }) {
   if (entries.length < 2) return null;
 
   return (
-    <nav className="kb-toc" aria-label="Содержание документа">
-      <p className="kb-side__title">Содержание</p>
+    <nav className="kb-toc" aria-label="На этой странице">
+      <p className="kb-side__title">На этой странице</p>
       <ul className="kb-toc__list">
         {entries.map((entry) => (
           <li key={entry.id}>

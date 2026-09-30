@@ -9,8 +9,8 @@ import { DocumentStatusBadge } from '../../components/ui/StatusBadge';
 import { DocumentView } from '../../components/knowledge/DocumentView';
 import { TableOfContents } from '../../components/knowledge/TableOfContents';
 import { collectHeadings } from '../../components/knowledge/headingAnchors';
-import { DocumentSide, PropertyPanel } from '../../components/knowledge/PropertyPanel';
-import { StarIcon } from '../../components/knowledge/knowledgeIcons';
+import { DocumentSide } from '../../components/knowledge/DocumentSide';
+import { PencilIcon, StarIcon } from '../../components/knowledge/knowledgeIcons';
 import { ReaderRolesField } from '../../components/knowledge/ReaderRolesField';
 import { ConfirmDialog } from './KnowledgeDialogs';
 import { AccessDialog } from './AccessDialog';
@@ -209,7 +209,11 @@ export default function KnowledgeDocumentPage() {
               />
               {canWrite && (
                 <>
-                  <Button variant="primary" onClick={enterEditing}>Редактировать</Button>
+                  <IconButton
+                    label="Редактировать"
+                    icon={<PencilIcon size={18} />}
+                    onClick={enterEditing}
+                  />
                   <ActionMenu
                     label="Ещё действия с документом"
                     items={[
@@ -263,17 +267,6 @@ export default function KnowledgeDocumentPage() {
           </div>
           <DocumentSide>
             <TableOfContents entries={headings.entries} />
-            <PropertyPanel
-              items={[
-                { label: 'Автор', value: data.author_name || '—' },
-                { label: 'Раздел', value: sectionTitle || '—' },
-                { label: 'Обновлён', value: fmtDateTimeShort(data.updated_at) },
-                {
-                  label: 'Кто читает',
-                  value: data.reader_roles.length ? data.reader_roles.join(', ') : 'Только администраторы',
-                },
-              ]}
-            />
           </DocumentSide>
         </div>
       )}

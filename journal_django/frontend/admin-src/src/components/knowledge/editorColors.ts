@@ -53,6 +53,30 @@ export const HIGHLIGHT_COLORS: ColorChoice[] = [
   { value: 'var(--accent-soft)', label: 'Акцентное' },
 ];
 
+/**
+ * Как сохранённый цвет букв выглядит на экране.
+ *
+ * Значение в документе и цвет при показе разведены намеренно. Документ
+ * хранит то, что принимает сервер (ALLOWED_TEXT_COLORS) и что уже записано в
+ * существующих документах, а оттенок задаёт токен статьи. Поэтому оттенок
+ * можно поменять одной строкой в tokens.css, не трогая ни сервер, ни документы.
+ * Переопределить сам --text3 внутри статьи нельзя: на нём держатся цитаты,
+ * выполненные задачи, карточки файлов.
+ */
+const TEXT_COLOR_DISPLAY: Record<string, string> = {
+  'var(--text3)': 'var(--kb-text-muted)',
+};
+
+export function displayTextColor(value: string): string {
+  return TEXT_COLOR_DISPLAY[value] ?? value;
+}
+
+/** Обратное преобразование — для HTML, который редактор нарисовал сам. */
+export function storedTextColor(value: string): string {
+  const entry = Object.entries(TEXT_COLOR_DISPLAY).find(([, shown]) => shown === value);
+  return entry ? entry[0] : value;
+}
+
 /** Значения, которые редактор согласен принять из вставленной разметки. */
 export const KNOWN_TEXT_COLORS = new Set(TEXT_COLORS.map((c) => c.value).filter(Boolean));
 export const KNOWN_HIGHLIGHTS = new Set(HIGHLIGHT_COLORS.map((c) => c.value).filter(Boolean));

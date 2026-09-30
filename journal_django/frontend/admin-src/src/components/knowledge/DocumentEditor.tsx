@@ -20,6 +20,8 @@ import {
   removeUploadPlaceholder,
   updateUploadProgress,
 } from './uploadPlaceholder';
+import { extractPastedImages, resolvePastedImages } from './pastedImages';
+import type { ExtractedPaste, UploadedImage } from './pastedImages';
 import type { TipTapDoc } from '../../lib/knowledge';
 
 /**
@@ -52,6 +54,7 @@ export default function DocumentEditor({
   const insertImagesRef = useRef<(files: File[], at?: number) => void>(() => {});
   const insertFilesRef = useRef<(files: File[], at?: number) => void>(() => {});
   const rejectFilesRef = useRef<(reasons: string[]) => void>(() => {});
+  const pasteWithImagesRef = useRef<(paste: ExtractedPaste) => void>(() => {});
   const pickImageRef = useRef<() => void>(() => {});
   const pickFileRef = useRef<() => void>(() => {});
   const askLinkRef = useRef<() => void>(() => {});
@@ -112,11 +115,19 @@ export default function DocumentEditor({
       // страницу с «The editor view is not available».
       handlePaste: (_view, event) => {
         const { images, attachments, rejected } = splitFiles(event.clipboardData?.files);
-        if (images.length === 0 && attachments.length === 0 && rejected.length === 0) return false;
-        if (images.length > 0) insertImagesRef.current(images);
-        if (attachments.length > 0) insertFilesRef.current(attachments);
-        rejectFilesRef.current(rejected);
-        return true; // событие обработано — обычную вставку не выполняем
+        if (images.length > 0 || attachments.length > 0 || rejected.length > 0) {
+          if (images.length > 0) insertImagesRef.current(images);
+          if (attachments.length > 0) insertFilesRef.current(attachments);
+          rejectFilesRef.current(rejected);
+          return true; // событие обработано — обычную вставку не выполняем
+        }
+        // Текст с картинками (Google Docs и т. п.): файлов в буфере нет,
+        // картинки лежат внутри HTML. Без этой ветки их выбрасывал парсер.
+        const html = event.clipboardData?.getData('text/html');
+        const extracted = html ? extractPastedImages(html) : null;
+        if (!extracted) return false;
+        pasteWithImagesRef.current(extracted);
+        return true;
       },
       handleDrop: (view, event, _slice, moved) => {
         // moved — тащат существующий узел внутри документа. Это работа
@@ -236,7 +247,76 @@ export default function DocumentEditor({
     }
   }, [toast]);
 
+  /**
+   * Вставка разметки с картинками внутри (Google Docs и т. п.).
+   *
+   * Сначала картинки грузятся на сервер, потом разметка вставляется целиком —
+   * уже с нашими картинками — штатной вставкой ProseMirror, со всеми её
+   * правилами разбора. Пока идёт загрузка, место вставки держит временный
+   * блок (та же декорация, что у файлов): он сдвигается вместе с правками, и
+   * текст ляжет туда, где его вставили, даже если автор успел печатать дальше.
+   */
+  const pasteWithImages = useCallback(
+    async ({ html, images, lost }: ExtractedPaste) => {
+      if (!editor || editor.isDestroyed) return;
+      if (images.length === 0) {
+        editor.view.pasteHTML(html);
+        reportLostImages(toast, lost);
+        return;
+      }
+
+      // Вставка заменяет выделенное — убираем его сразу, чтобы место под
+      // загрузку встало туда же, куда потом ляжет текст.
+      editor.commands.deleteSelection();
+      const id = `paste-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      addUploadPlaceholder(
+        editor, id,
+        images.length === 1 ? 'Картинка из вставки' : `Картинки из вставки: ${images.length}`,
+      );
+
+      const uploaded = new Map<string, UploadedImage>();
+      let failed = 0;
+      let placed = false;
+      try {
+        // Последовательно: порядок и так задан разметкой, а десяток
+        // параллельных загрузок по мегабайту забил бы канал и сервер.
+        for (const [index, item] of images.entries()) {
+          try {
+            const image = await uploadImage.mutateAsync(item.file);
+            if (editor.isDestroyed) return;
+            uploaded.set(item.token, {
+              id: image.id,
+              alt: item.alt,
+              ...pastedSize(editor, image.width, image.height, item.sourceWidth),
+            });
+          } catch (err) {
+            failed += 1;
+            // Причину показываем один раз; сколько всего не перенесено —
+            // скажет итоговое сообщение.
+            if (failed === 1) showError(err);
+          }
+          updateUploadProgress(id, ((index + 1) / images.length) * 100);
+        }
+        if (editor.isDestroyed) return;
+
+        const pos = findUploadPlaceholder(editor, id);
+        removeUploadPlaceholder(editor, id);
+        placed = true;
+        // Место удалили вместе с куском текста, пока шла загрузка, —
+        // вставлять некуда, и это решение автора.
+        if (pos === null) return;
+        editor.chain().focus().setTextSelection(pos).run();
+        editor.view.pasteHTML(resolvePastedImages(html, uploaded));
+        reportLostImages(toast, lost + failed);
+      } finally {
+        if (!placed && !editor.isDestroyed) removeUploadPlaceholder(editor, id);
+      }
+    },
+    [editor, uploadImage, showError, toast],
+  );
+
   insertImagesRef.current = (files: File[], at?: number) => { void insertImages(files, at); };
+  pasteWithImagesRef.current = (paste: ExtractedPaste) => { void pasteWithImages(paste); };
   insertFilesRef.current = (files: File[], at?: number) => { void insertFiles(files, at); };
   rejectFilesRef.current = showRejected;
   pickImageRef.current = () => fileInput.current?.click();
@@ -343,6 +423,33 @@ function BlockHandles({ editor }: { editor: Editor }) {
  * файла. Потолок высоты — тот же, что у показа (--kb-image-max-h): без него
  * вертикальный снимок занимал бы экран целиком и разрывал чтение пополам.
  */
+/**
+ * Размер вставленной картинки: как у загруженной вручную, но не шире, чем она
+ * стояла в исходном документе. Уменьшенная автором картинка иначе
+ * раздувалась бы до ширины колонки.
+ */
+function pastedSize(editor: Editor, width: number, height: number, sourceWidth: number | null) {
+  const size = displaySize(editor, width, height);
+  if (!sourceWidth || !size.width || sourceWidth >= size.width) return size;
+  return {
+    width: sourceWidth,
+    height: Math.max(1, Math.round((sourceWidth * size.height) / size.width)),
+  };
+}
+
+/**
+ * Сказать, сколько картинок из вставки не перенесено. Без сообщения потеря
+ * незаметна: текст на месте, и отсутствие картинки видно, только если помнить
+ * оригинал.
+ */
+function reportLostImages(toast: (message: string, kind?: 'ok' | 'error' | 'info') => void, lost: number) {
+  if (lost <= 0) return;
+  toast(
+    `Не удалось перенести картинок: ${lost}. Скопируйте их по одной (правой кнопкой → «Копировать изображение») и вставьте.`,
+    'error',
+  );
+}
+
 function displaySize(editor: Editor, width: number, height: number): {
   width: number; height: number;
 } {

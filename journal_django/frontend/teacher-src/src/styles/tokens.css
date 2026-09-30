@@ -65,6 +65,36 @@
   font-style: normal; font-weight: 600; font-display: swap;
   src: url('/admin/fonts/jetbrains-mono-v24-cyrillic_latin-600.woff2') format('woff2');
 }
+/* Lato 2.0 (SIL OFL, лицензия — public/fonts/Lato-OFL.txt) — шрифт текста
+   документов базы знаний (--kb-font). Версия 2.0, а не Google Fonts: у той
+   нет кириллицы, и русский текст падал бы на Arial вперемешку с Lato.
+   Файлы урезаны до латиницы+кириллицы без хинтинга (~40 КБ на начертание);
+   браузер качает их только там, где шрифт реально применён, — в Wiki. */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/admin/fonts/lato-v2-cyrillic_latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: italic; font-weight: 400; font-display: swap;
+  src: url('/admin/fonts/lato-v2-cyrillic_latin-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/admin/fonts/lato-v2-cyrillic_latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/admin/fonts/lato-v2-cyrillic_latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: italic; font-weight: 700; font-display: swap;
+  src: url('/admin/fonts/lato-v2-cyrillic_latin-700italic.woff2') format('woff2');
+}
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -181,15 +211,21 @@
      Типографика документа. Значения совпадают с admin намеренно: один и тот
      же документ обязан читаться одинаково в обоих кабинетах, иначе автор
      верстает статью вслепую. */
-  --kb-fs-h1: 34px;
-  --kb-fs-h2: 28px;
-  --kb-fs-h3: 22px;
+  --kb-fs-h1: 26px;
+  --kb-fs-h2: 20px;
+  --kb-fs-h3: 17px;
   --kb-fs-body: 16px;
   --kb-fs-small: 14px;
   --kb-fs-caption: 13px;
-  --kb-lh-body: 1.7;
-  --kb-doc-width: 900px;
-  --kb-doc-pad: 72px;
+  --kb-lh-body: 1.55;
+  /* Шрифт текста документа. Шрифт, выбранный в редакторе явно, хранится в
+     самом документе (style у текста) и перекрывает этот. */
+  --kb-font: 'Lato', 'Helvetica Neue', Arial, Helvetica, sans-serif;
+  /* Цвет «Приглушённый» из палитры редактора. В документе он хранится как
+     var(--text3) (так его принимает сервер), а при показе подменяется этим
+     токеном — см. displayTextColor в editorColors.ts. */
+  --kb-text-muted: rgb(67, 67, 67);
+  --kb-doc-width: 800px;
 
   /* Цветовая карта предметов (subject-* — как --dir-color в admin) */
   --subject-python:     #4F59F9;  /* RISD Blue */
@@ -201,6 +237,9 @@
 
 /* ── DARK THEME ── */
 [data-theme="dark"] {
+  /* Тёмно-серый rgb(67,67,67) на тёмном фоне не читается — в тёмной теме
+     «Приглушённый» остаётся обычным приглушённым цветом темы. */
+  --kb-text-muted: var(--text3);
   --bg:  #10131c;
   --bg2: #171b26;
   --bg3: #1e2432;

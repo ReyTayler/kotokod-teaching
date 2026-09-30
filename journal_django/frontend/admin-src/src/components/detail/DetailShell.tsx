@@ -124,7 +124,7 @@ export function DetailShell<T>({
         {backTo && (
           <span className="crumbs__item">
             <Link to={backTo} className="crumbs__link">{parentLabel ?? 'Назад'}</Link>
-            <span className="crumbs__sep" aria-hidden="true">/</span>
+            <span className="crumbs__sep" aria-hidden="true">›</span>
           </span>
         )}
         <span className="crumbs__item"><span aria-current="page">{title}</span></span>

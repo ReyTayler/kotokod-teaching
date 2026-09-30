@@ -6,7 +6,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { FONT_CHOICES, DEFAULT_FONT_LABEL } from './editorFonts';
 import { CODE_LANGUAGES } from './codeLanguages';
-import { HIGHLIGHT_COLORS, TEXT_COLORS } from './editorColors';
+import { HIGHLIGHT_COLORS, TEXT_COLORS, displayTextColor } from './editorColors';
 import { askLink } from './linkPrompt';
 import {
   AlignCenterIcon,
@@ -408,7 +408,7 @@ function ColorPicker({
         <span
           className="kb-colorpick__bar"
           aria-hidden="true"
-          style={active ? { background: color || highlight } : undefined}
+          style={active ? { background: color ? displayTextColor(color) : highlight } : undefined}
         />
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -424,7 +424,7 @@ function ColorPicker({
               >
                 <span
                   className="kb-colors__chip kb-colors__chip--text"
-                  style={item.value ? { color: item.value } : undefined}
+                  style={item.value ? { color: displayTextColor(item.value) } : undefined}
                 >
                   A
                 </span>

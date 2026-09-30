@@ -12,7 +12,7 @@ import { UploadPlaceholderExtension } from './uploadPlaceholder';
 import { CalloutExtension } from './CalloutExtension';
 import { BlockBackgroundExtension } from './BlockBackgroundExtension';
 import { FONT_CHOICES } from './editorFonts';
-import { KNOWN_HIGHLIGHTS, KNOWN_TEXT_COLORS } from './editorColors';
+import { KNOWN_HIGHLIGHTS, KNOWN_TEXT_COLORS, displayTextColor, storedTextColor } from './editorColors';
 import type { Lowlight } from './codeLanguages';
 
 /**
@@ -56,7 +56,23 @@ const KNOWN_FONTS = new Set(FONT_CHOICES.map((f) => f.value));
  */
 type AnyExtension = { extend: (config: object) => unknown };
 
-function restrictToKnown<T extends AnyExtension>(extension: T, attribute: string, known: Set<string>): T {
+/**
+ * Разные значения в документе и на экране (см. displayTextColor). Показ —
+ * через renderHTML, а parseHTML переводит показанное обратно, иначе
+ * копирование внутри самого редактора теряло бы цвет: нарисованное значение
+ * не входит в закрытый список.
+ */
+interface DisplayAlias {
+  toDisplay: (value: string) => string;
+  toStored: (value: string) => string;
+}
+
+function restrictToKnown<T extends AnyExtension>(
+  extension: T,
+  attribute: string,
+  known: Set<string>,
+  alias?: DisplayAlias,
+): T {
   return (extension as AnyExtension).extend({
     addGlobalAttributes(this: { parent?: () => { attributes?: Record<string, unknown> }[] }) {
       const parent = this.parent?.() ?? [];
@@ -65,15 +81,31 @@ function restrictToKnown<T extends AnyExtension>(extension: T, attribute: string
         attributes: Object.fromEntries(
           Object.entries(group.attributes ?? {}).map(([name, attr]) => {
             if (name !== attribute) return [name, attr];
-            const original = attr as { parseHTML?: (el: HTMLElement) => unknown };
+            const original = attr as {
+              parseHTML?: (el: HTMLElement) => unknown;
+              renderHTML?: (attributes: Record<string, unknown>) => unknown;
+            };
             return [
               name,
               {
                 ...(attr as object),
                 parseHTML: (element: HTMLElement) => {
-                  const value = original.parseHTML?.(element);
+                  const raw = original.parseHTML?.(element);
+                  const value = typeof raw === 'string' && alias ? alias.toStored(raw) : raw;
                   return typeof value === 'string' && known.has(value) ? value : null;
                 },
+                ...(alias && original.renderHTML
+                  ? {
+                      renderHTML: (attributes: Record<string, unknown>) => {
+                        const value = attributes[attribute];
+                        return original.renderHTML!(
+                          typeof value === 'string' && value
+                            ? { ...attributes, [attribute]: alias.toDisplay(value) }
+                            : attributes,
+                        );
+                      },
+                    }
+                  : {}),
               },
             ];
           }),
@@ -122,7 +154,10 @@ const AlignedTableCell = withCellAlign(TableCell);
 const AlignedTableHeader = withCellAlign(TableHeader);
 
 const SafeFontFamily = restrictToKnown(FontFamily, 'fontFamily', KNOWN_FONTS);
-const SafeColor = restrictToKnown(Color, 'color', KNOWN_TEXT_COLORS);
+const SafeColor = restrictToKnown(Color, 'color', KNOWN_TEXT_COLORS, {
+  toDisplay: displayTextColor,
+  toStored: storedTextColor,
+});
 const SafeBackgroundColor = restrictToKnown(BackgroundColor, 'backgroundColor', KNOWN_HIGHLIGHTS);
 
 /**

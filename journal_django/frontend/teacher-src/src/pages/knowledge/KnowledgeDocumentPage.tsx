@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { DocumentView } from '@shared/components/knowledge/DocumentView';
 import { TableOfContents } from '@shared/components/knowledge/TableOfContents';
 import { collectHeadings } from '@shared/components/knowledge/headingAnchors';
-import { DocumentSide, PropertyPanel } from '@shared/components/knowledge/PropertyPanel';
+import { DocumentSide } from '@shared/components/knowledge/DocumentSide';
 import { StarIcon } from '@shared/components/knowledge/knowledgeIcons';
 import { IconButton } from '@shared/components/ui/IconButton';
 import {
@@ -62,7 +62,7 @@ export default function KnowledgeDocumentPage() {
             <Link to={KB_BASE}>Wiki</Link>
             {sectionTitle && (
               <>
-                <span aria-hidden="true">/</span>
+                <span aria-hidden="true">›</span>
                 <Link to={`${KB_BASE}?section=${data.section_id}`}>{sectionTitle}</Link>
               </>
             )}
@@ -89,13 +89,6 @@ export default function KnowledgeDocumentPage() {
         </div>
         <DocumentSide>
           <TableOfContents entries={headings.entries} />
-          <PropertyPanel
-            items={[
-              { label: 'Автор', value: data.author_name || '—' },
-              { label: 'Раздел', value: sectionTitle || '—' },
-              { label: 'Обновлён', value: fmtDateTimeShort(data.updated_at) },
-            ]}
-          />
         </DocumentSide>
       </div>
     </div>

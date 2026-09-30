@@ -30,12 +30,13 @@
   color: var(--text4);
 }
 
+/* Ссылки пути — акцентом, как в крошках admin (.crumbs__link). */
 .kb-teacher__crumbs a {
-  color: var(--text3);
+  color: var(--accent);
   text-decoration: none;
 }
 
-.kb-teacher__crumbs a:hover { color: var(--accent); text-decoration: underline; }
+.kb-teacher__crumbs a:hover { color: var(--accent-hover); text-decoration: underline; }
 
 /* Панель поиска у преподавателя одна кнопка в ширину меньше, чем у админа
    (нет фильтра по статусу и переключателя вида), — поэтому поиск занимает

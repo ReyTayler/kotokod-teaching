@@ -127,6 +127,16 @@ export function StarIcon({ filled, ...props }: IconProps & { filled?: boolean })
   );
 }
 
+/** Карандаш — правка документа. */
+export function PencilIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" />
+      <line x1="13.5" y1="6.5" x2="17.5" y2="10.5" />
+    </Icon>
+  );
+}
+
 /** Коробка архива. */
 export function ArchiveIcon(props: IconProps) {
   return (

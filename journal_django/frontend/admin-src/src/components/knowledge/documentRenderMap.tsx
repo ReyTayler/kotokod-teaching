@@ -7,6 +7,7 @@ import { useHeadingAnchor } from './headingAnchors';
 import { CodeBlockView } from './CodeBlockView';
 import { FileCard } from './FileCard';
 import { CALLOUT_LABELS, DEFAULT_CALLOUT_TONE, isCalloutTone } from './calloutMeta';
+import { displayTextColor } from './editorColors';
 
 /**
  * Таблица соответствий «тип узла/марки TipTap → React-разметка» для чтения
@@ -164,7 +165,7 @@ function TextStyle({ mark, children }: MProps) {
   const attrs = mark.attrs ?? {};
   const style: { fontFamily?: string; color?: string; backgroundColor?: string } = {};
   if (typeof attrs.fontFamily === 'string' && attrs.fontFamily) style.fontFamily = attrs.fontFamily;
-  if (typeof attrs.color === 'string' && attrs.color) style.color = attrs.color;
+  if (typeof attrs.color === 'string' && attrs.color) style.color = displayTextColor(attrs.color);
   if (typeof attrs.backgroundColor === 'string' && attrs.backgroundColor) {
     style.backgroundColor = attrs.backgroundColor;
   }
