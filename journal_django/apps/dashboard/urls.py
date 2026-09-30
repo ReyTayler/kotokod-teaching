@@ -5,15 +5,15 @@ URL маршруты для раздела dashboard.
   path('api/admin/dashboard', include('apps.dashboard.urls'))
 
 APPEND_SLASH=False — пути без trailing slash (зеркало Express).
-/monthly — литеральный путь, не конфликтует с корнем '' (точное совпадение).
+Литеральные пути (/revenue, /unfilled-lessons) не конфликтуют с корнем ''.
 """
 from django.urls import path
 
 from apps.dashboard.fill_views import UnfilledLessonsView
-from apps.dashboard.views import DashboardMonthlyView, DashboardView
+from apps.dashboard.views import DashboardRevenueView, DashboardView
 
 urlpatterns = [
     path('', DashboardView.as_view(), name='dashboard'),
-    path('/monthly', DashboardMonthlyView.as_view(), name='dashboard-monthly'),
+    path('/revenue', DashboardRevenueView.as_view(), name='dashboard-revenue'),
     path('/unfilled-lessons', UnfilledLessonsView.as_view(), name='dashboard-unfilled-lessons'),
 ]

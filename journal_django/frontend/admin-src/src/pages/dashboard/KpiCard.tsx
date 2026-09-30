@@ -6,13 +6,15 @@ interface Props {
   /** Если задан — карточка становится кнопкой-фильтром (реестр). */
   onClick?: () => void;
   active?: boolean;
+  className?: string;
 }
 
-export function KpiCard({ label, value, hint, tone = 'default', onClick, active }: Props) {
+export function KpiCard({ label, value, hint, tone = 'default', onClick, active, className }: Props) {
   const cls =
     `kpi-card kpi-card--${tone}` +
     (onClick ? ' kpi-card--clickable' : '') +
-    (active ? ' kpi-card--active' : '');
+    (active ? ' kpi-card--active' : '') +
+    (className ? ` ${className}` : '');
 
   const inner = (
     <>

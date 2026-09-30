@@ -28,7 +28,8 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None,
 
 Возврат (Decimal, округлены до копеек):
   worked_off_total, worked_off_month, remaining_value, over_consumed_lessons,
-  worked_off_by_month: { 'YYYY-MM': Decimal }, worked_off_by_direction: { direction_id: Decimal },
+  worked_off_by_month: { 'YYYY-MM': Decimal }, worked_off_by_date: { 'YYYY-MM-DD': Decimal }
+  (тот же факт по дню урока, точные Decimal без округления, пожизненный), worked_off_by_direction: { direction_id: Decimal },
   worked_off_unit_prices_month: [Decimal, ...] — цены за 1 урок партий, реально
   затронутых списаниями внутри [month_start, month_end); порядок = порядок FIFO
   (партии гасятся монотонно, поэтому цена не повторяется дважды не подряд);
@@ -143,6 +144,10 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     # один раз на строку.
     by_lesson: dict[int, Decimal] = {}
     over_consumed_by_lesson: dict[int, Decimal] = {}
+    # Тот же факт признания выручки, что by_month, но с точностью до ДНЯ урока
+    # (график «Recognized revenue daily», спека 2026-09-18). Пожизненный, как
+    # by_lesson: полуинтервал месяца его не ограничивает — период режет потребитель.
+    by_date: dict[str, Decimal] = {}
 
     for c in consumptions:
         need = to_decimal(c['units'])
@@ -167,6 +172,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                     by_lesson[lesson_id] = by_lesson.get(lesson_id, _ZERO) + value
                 ym = c['date'][:7]
                 by_month[ym] = by_month.get(ym, _ZERO) + value
+                by_date[c['date']] = by_date.get(c['date'], _ZERO) + value
                 if direction_id is not None:
                     by_direction[direction_id] = by_direction.get(direction_id, _ZERO) + value
                 lot_bucket = by_month_lot_direction.setdefault(
@@ -260,6 +266,10 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
             over_consumed_lessons * to_decimal(lots[-1]['price_per_lesson']) if lots else _ZERO
         ),
         'worked_off_by_month': {k: round_kopecks(v) for k, v in by_month.items()},
+        # { 'YYYY-MM-DD': Decimal } — признанная выручка по дню урока. Разрез
+        # by_month с точностью до дня; значения ТОЧНЫЕ, без округления (суммирует
+        # и округляет потребитель — дашборд «Recognized revenue»).
+        'worked_off_by_date': dict(by_date),
         'worked_off_by_direction': {k: round_kopecks(v) for k, v in by_direction.items()},
         'worked_off_unit_prices_month': [round_kopecks(p) for p in unit_prices_month],
         # Кол-во уроков (units, half-lesson=0.5), отработанных по каждой цене выше —

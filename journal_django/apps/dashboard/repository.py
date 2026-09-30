@@ -1,5 +1,6 @@
 """
-DashboardRepository — данные дашборда (revenue, годы, имена). FIFO — через apps/finances.
+DashboardRepository — данные дашборда (поступления по периоду и по дням).
+FIFO — через apps/finances.
 
 ORM-порт services/repo/dashboard.js (раздел 09). Сам FIFO-движок и загрузка
 партий/посещений живут в apps/finances (не дублируем).
@@ -11,10 +12,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import DecimalField, Sum, Value
-from django.db.models.functions import Coalesce, ExtractMonth, ExtractYear
+from django.db.models import Count, DecimalField, Min, Q, Sum, Value
+from django.db.models.functions import Coalesce
 
-from apps.lessons.models import Lesson
 from apps.payments.models import Payment
 
 
@@ -28,25 +28,24 @@ def revenue_for_period(period_start: str, period_end: str):
     ).aggregate(total=Coalesce(Sum('total_amount'), _ZERO))['total']
 
 
-def revenue_by_year_month(min_year: int, max_year: int) -> dict[str, Any]:
+def revenue_by_day(date_from: str, date_to: str) -> list[dict[str, Any]]:
     """
-    Revenue по (год, месяц) за [min_year-01-01, (max_year+1)-01-01).
-    Ключ карты 'YYYY-MM' → Decimal.
+    Оплаты по дням paid_at в [date_from, date_to] (включительно): сумма всех видов
+    (возвраты с минусом) и число заказов — оплат с total_amount > 0.
+    Только дни, где были оплаты; ASC по дате. Индекс payments_paid_at_idx.
     """
-    rows = (
+    return list(
         Payment.objects
-        .filter(paid_at__gte=f'{min_year}-01-01', paid_at__lt=f'{max_year + 1}-01-01')
-        .annotate(yy=ExtractYear('paid_at'), m=ExtractMonth('paid_at'))
-        .values('yy', 'm')
-        .annotate(rev=Coalesce(Sum('total_amount'), _ZERO))
+        .filter(paid_at__gte=date_from, paid_at__lte=date_to)
+        .values('paid_at')
+        .annotate(
+            rev=Coalesce(Sum('total_amount'), _ZERO),
+            orders=Count('id', filter=Q(total_amount__gt=0)),
+        )
+        .order_by('paid_at')
     )
-    return {f"{r['yy']}-{r['m']:02d}": r['rev'] for r in rows}
 
 
-def distinct_source_years() -> list[int]:
-    """DISTINCT годы из payments.paid_at и lessons.lesson_date (UNION, без NULL, ASC)."""
-    y1 = Payment.objects.annotate(yy=ExtractYear('paid_at')).values_list('yy', flat=True)
-    y2 = Lesson.objects.annotate(yy=ExtractYear('lesson_date')).values_list('yy', flat=True)
-    return sorted({y for y in set(y1).union(set(y2)) if y is not None})
-
-
+def first_payment_date():
+    """Самая ранняя paid_at в базе (date) или None, если оплат нет."""
+    return Payment.objects.aggregate(d=Min('paid_at'))['d']

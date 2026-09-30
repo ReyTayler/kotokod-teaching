@@ -2,7 +2,7 @@
 E2E тесты для /api/admin/dashboard (DRF APIClient, реальная БД managed=False).
 
 Дашборд агрегирует всю базу — точные суммы сверяет e2e-diff с Express (golden).
-Здесь: auth, валидация (invalid_date/invalid_year), форма ответа и ТИПЫ (числа, не строки).
+Здесь: auth, валидация (invalid_date), форма ответа и ТИПЫ (числа, не строки).
 """
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def test_dashboard_shape_and_types(role):
     # полей debts/debts_total в ответе больше нет.
     assert set(body.keys()) == {
         'month', 'from', 'to', 'revenue_month', 'worked_off_month',
-        'carryover_month', 'deferred_total',
+        'carryover_month', 'deferred_total', 'recognized_daily', 'recognized_monthly',
     }
     # Денежные значения — JSON-числа, не строки (как Express Number()).
     for k in ('revenue_month', 'worked_off_month', 'carryover_month', 'deferred_total'):
@@ -113,52 +113,32 @@ def test_dashboard_valid_range_echoes_params():
     assert body['to'] == '2026-12-31'
 
 
-# ---------------------------------------------------------------------------
-# Monthly
-# ---------------------------------------------------------------------------
-
-def test_monthly_shape():
-    resp = _client('manager').get(f'{BASE}/monthly', {'year': '2026'})
-    assert resp.status_code == 200
+def test_recognized_series_cover_period():
+    """Ряды «Recognized revenue»: день на каждую дату периода + свёртка по месяцам."""
+    resp = _client('manager').get(BASE, {'from': '2026-01-01', 'to': '2026-02-10'})
     body = resp.json()
-    assert set(body.keys()) == {'years', 'available_years', 'byYear'}
-    assert body['years'] == [2026]
-    assert '2026' in body['byYear']         # JSON-ключ года — строка
-    months = body['byYear']['2026']
-    assert len(months) == 12
-    assert months[0]['month'] == 1
-    for cell in months:
-        assert isinstance(cell['revenue'], (int, float))
-        assert isinstance(cell['worked_off'], (int, float))
+    daily, monthly = body['recognized_daily'], body['recognized_monthly']
+
+    assert len(daily) == 41                       # 31 января + 10 февраля
+    assert daily[0]['date'] == '2026-01-01'
+    assert daily[-1]['date'] == '2026-02-10'
+    assert all(isinstance(d['recognized'], (int, float)) for d in daily)
+
+    assert [m['month'] for m in monthly] == ['2026-01', '2026-02']
+    # Свёртка месяца = сумма его дней (сравниваем в копейках, без float-дрейфа).
+    for m in monthly:
+        days = sum(round(d['recognized'] * 100) for d in daily if d['date'][:7] == m['month'])
+        assert days == round(m['recognized'] * 100)
 
 
-def test_monthly_years_list():
-    resp = _client('manager').get(f'{BASE}/monthly', {'years': '2025,2026'})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body['years'] == [2025, 2026]
-    assert set(body['byYear'].keys()) == {'2025', '2026'}
+def test_recognized_daily_sums_to_worked_off():
+    """Сумма дневного ряда = KPI «Отработано за период» (тот же FIFO-проход)."""
+    body = _client('manager').get(BASE, {'from': '2026-01-01', 'to': '2026-03-31'}).json()
+    total = sum(round(d['recognized'] * 100) for d in body['recognized_daily'])
+    assert total == round(body['worked_off_month'] * 100)
 
 
-def test_monthly_invalid_year():
-    resp = _client('manager').get(f'{BASE}/monthly', {'year': 'abcd'})
-    assert resp.status_code == 400
-    assert resp.json() == {'error': 'invalid_year'}
-
-
-def test_monthly_invalid_years_list():
-    resp = _client('manager').get(f'{BASE}/monthly', {'years': '2025,xx'})
-    assert resp.status_code == 400
-    assert resp.json() == {'error': 'invalid_year'}
-
-
-def test_monthly_empty_years_is_invalid():
-    # ?years= (пусто) → split → [] → invalid_year (как Express).
-    resp = _client('manager').get(f'{BASE}/monthly', {'years': ''})
-    assert resp.status_code == 400
-
-
-def test_monthly_no_params_defaults_current_year():
-    resp = _client('manager').get(f'{BASE}/monthly')
-    assert resp.status_code == 200
-    assert len(resp.json()['years']) == 1
+def test_dashboard_default_period_is_last_three_months():
+    from apps.dashboard.services import default_period
+    body = _client('manager').get(BASE).json()
+    assert (body['from'], body['to']) == default_period()

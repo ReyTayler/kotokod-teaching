@@ -434,25 +434,34 @@ export interface AuditEntry {
 // ===== Dashboard =====
 
 export interface DashboardData {
-  month: string;            // 'YYYY-MM' (текущий МСК-месяц, для дефолтной подписи)
-  from: string | null;      // эхо периода 'YYYY-MM-DD' (null = дефолтный месяц)
-  to: string | null;        // эхо периода 'YYYY-MM-DD'
+  month: string;            // 'YYYY-MM' — текущий МСК-месяц
+  from: string | null;      // применённый период 'YYYY-MM-DD' (дефолт — последние 3 месяца)
+  to: string | null;        // null — открытый конец при заданном только from
   revenue_month: number;    // собрано за период
   worked_off_month: number; // отработано за месяц (FIFO)
   carryover_month: number;  // revenue_month − worked_off_month (может быть < 0)
   deferred_total: number;   // снимок несписанных партий, ≥ 0
+  // Признанная выручка (FIFO) по дням и месяцам периода — график «Recognized revenue».
+  // Сумма ряда равна worked_off_month (считаются одним проходом).
+  recognized_daily: { date: string; recognized: number }[];
+  recognized_monthly: { month: string; recognized: number }[];
 }
 
-export interface MonthlyFinancePoint {
-  month: number;      // 1..12
-  revenue: number;    // собрано за месяц
-  worked_off: number; // отработано за месяц (FIFO)
+/** GET /api/admin/dashboard/revenue — поступления за период (обе границы включительно). */
+export interface RevenuePoint {
+  revenue: number;          // сумма оплат, возвраты с минусом
+  orders: number;           // число оплат с суммой > 0
+  aov: number | null;       // средний чек = revenue / orders; null, если оплат нет
 }
 
-export interface MonthlyFinanceData {
-  years: number[];                              // запрошенные года (sorted asc)
-  available_years: number[];                    // годы с данными (для дропдауна)
-  byYear: Record<string, MonthlyFinancePoint[]>; // ключ = год-строка → 12 точек (Янв..Дек)
+export interface RevenueData {
+  from: string;             // применённый период 'YYYY-MM-DD'
+  to: string;
+  revenue: number;
+  orders: number;
+  aov: number | null;
+  daily: (RevenuePoint & { date: string })[];    // каждый день периода, пустые — нули
+  monthly: (RevenuePoint & { month: string })[]; // 'YYYY-MM', месяцы периода
 }
 
 // ===== Changelog (журнал изменений данных) =====

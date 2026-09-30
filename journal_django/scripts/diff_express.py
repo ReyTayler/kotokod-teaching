@@ -95,15 +95,11 @@ if __name__ == '__main__':
         ('manager', '/api/admin/payroll?filter[lesson_type]=regular'),
         ('manager', '/api/admin/payroll/summary'),
         ('manager', '/api/admin/payroll/summary?date_from=2026-01-01&date_to=2026-12-31'),
-        # Phase 8 — dashboard (FIFO read-model). ВНИМАНИЕ: monthly может расходиться
-        # с Express на ≤1 коп в исторических ячейках (решение по Decimal — ожидаемо).
+        # Phase 8 — dashboard (FIFO read-model). ВНИМАНИЕ: суммы могут расходиться
+        # с Express на ≤1 коп (решение по Decimal — ожидаемо).
         ('manager', '/api/admin/dashboard'),
         ('manager', '/api/admin/dashboard?from=2026-01-01&to=2026-06-30'),
         ('manager', '/api/admin/dashboard?from=2026-13-99'),
-        ('manager', '/api/admin/dashboard/monthly'),
-        ('manager', '/api/admin/dashboard/monthly?year=2026'),
-        ('manager', '/api/admin/dashboard/monthly?years=2025,2026'),
-        ('manager', '/api/admin/dashboard/monthly?year=abcd'),
         # Phase 9 — accounts (admin-only, БЕЗ секретов). Только READ-кейсы.
         ('admin',   '/api/admin/accounts'),
         ('admin',   '/api/admin/accounts?page=1&page_size=5'),

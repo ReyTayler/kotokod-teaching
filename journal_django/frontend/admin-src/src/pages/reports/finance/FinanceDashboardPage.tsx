@@ -1,33 +1,33 @@
 import { lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useDashboard } from '../../../hooks/useDashboard';
-import { fmtRub, fmtDate } from '../../../lib/format';
+import { useRevenue } from '../../../hooks/useRevenue';
+import { fmtRub } from '../../../lib/format';
 import { PageLoading } from '../../../components/ui/Skeleton';
 import { DateInput } from '../../../components/form/DateInput';
 import { PageHeader } from '../../../components/shell/PageHeader';
 import { KpiCard } from '../../dashboard/KpiCard';
 
 // Lazy: Recharts грузится отдельным чанком, не блокирует первый показ плиток.
-const FinanceCharts = lazy(() =>
-  import('./FinanceCharts').then((m) => ({ default: m.FinanceCharts })),
+const RevenueChart = lazy(() =>
+  import('./RevenueChart').then((m) => ({ default: m.RevenueChart })),
 );
-
-const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-
-function monthLabel(month: string): string {
-  const [y, m] = month.split('-').map(Number);
-  return `${MONTHS_RU[m - 1]} ${y}`;
-}
+const RecognizedChart = lazy(() =>
+  import('./RecognizedChart').then((m) => ({ default: m.RecognizedChart })),
+);
 
 function signedRub(v: number): string {
   return v > 0 ? `+${fmtRub(v)}` : fmtRub(v);
 }
 
 /**
- * Дашборд «Финансы» в разделе «Отчёты»: выручка, отработанное по FIFO, авансы
- * и остаток за период, ниже — помесячные графики с сравнением по годам.
- * До 2026-09 жил первой вкладкой страницы «Дашборд»; логика перенесена без изменений.
+ * Дашборд «Финансы» в разделе «Отчёты». Фильтр по дате оплаты общий для всей
+ * страницы; без него сервер берёт последние 3 месяца по сегодня и возвращает
+ * применённые границы — ими и заполняются поля дат.
+ * Сверху — Revenue / Orders / AOV и график поступлений, ниже — Recognized
+ * revenue (отработанное по FIFO) тем же видом. Графики «Выручка/Отработано по
+ * месяцам» со сравнением годов убраны 2026-09-30: их заменили ряды за период. поступлений по дням и месяцам
+ * (спека 2026-09-18-revenue-dashboard-design), ниже — FIFO-сводка и сравнение по годам.
  */
 export default function FinanceDashboardPage() {
   const [params, setParams] = useSearchParams();
@@ -48,51 +48,93 @@ export default function FinanceDashboardPage() {
     setParams(next, { replace: true });
   };
 
-  const { data, isLoading, isError } = useDashboard({ from: from || undefined, to: to || undefined });
+  const range = { from: from || undefined, to: to || undefined };
+  const revenue = useRevenue(range);
+  const summary = useDashboard(range);
 
-  const suffix = hasRange ? 'за период' : 'за месяц';
-  const periodLabel = hasRange
-    ? `${from ? fmtDate(from) : '…'} — ${to ? fmtDate(to) : '…'}`
-    : data ? monthLabel(data.month) : '';
+  // Поля дат показывают фактический период (дефолт тоже), пока пользователь не задал свой.
+  const shownFrom = from || (hasRange ? '' : revenue.data?.from ?? '');
+  const shownTo = to || (hasRange ? '' : revenue.data?.to ?? '');
 
   return (
     <div className="finance-dashboard">
       <PageHeader
         title="Финансы"
-        sub="Выручка и отработанное по FIFO: без периода — текущий месяц."
+        sub="Поступления и отработанное по FIFO. По умолчанию — последние 3 месяца."
       />
 
       <div className="payroll-range">
-        <label>Период:</label>
-        <DateInput value={from} onChange={(e) => setParam('from', e.target.value)} placeholder="от" />
+        <label>Дата оплаты:</label>
+        <DateInput value={shownFrom} onChange={(e) => setParam('from', e.target.value)} placeholder="от" />
         <span className="payroll-range__sep">—</span>
-        <DateInput value={to} onChange={(e) => setParam('to', e.target.value)} placeholder="до" />
+        <DateInput value={shownTo} onChange={(e) => setParam('to', e.target.value)} placeholder="до" />
         <button className="btn-secondary" onClick={reset} disabled={!hasRange}>Сбросить</button>
-        {periodLabel && <span className="finance-dashboard__period">{periodLabel}</span>}
       </div>
 
-      {isLoading ? (
+      {revenue.isLoading ? (
         <PageLoading />
-      ) : isError || !data ? (
-        <div className="page-error">Не удалось загрузить дашборд</div>
+      ) : revenue.isError || !revenue.data ? (
+        <div className="page-error">Не удалось загрузить поступления</div>
       ) : (
-        <>
-          <div className="dashboard__kpis">
-            <KpiCard label={`Выручка ${suffix}`} value={fmtRub(data.revenue_month)} hint="собрано" />
-            <KpiCard label={`Отработано ${suffix}`} value={fmtRub(data.worked_off_month)} hint="FIFO" />
+        <div className={`finance-overview${revenue.isPlaceholderData ? ' finance-overview--stale' : ''}`}>
+          <div className="finance-overview__totals">
             <KpiCard
-              label={`Авансы ${suffix}`}
-              value={signedRub(data.carryover_month)}
-              hint="выручка − отработано"
-              tone={data.carryover_month < 0 ? 'warning' : 'info'}
+              className="finance-overview__revenue"
+              label="Revenue"
+              value={fmtRub(revenue.data.revenue)}
+              hint="сумма оплат за период"
             />
-            <KpiCard label="Остаток всего" value={fmtRub(data.deferred_total)} hint="сейчас, не отработано" />
+            <div className="finance-overview__pair">
+              <KpiCard label="Orders" value={String(revenue.data.orders)} hint="оплат за период" tone="info" />
+              <KpiCard
+                className="finance-overview__aov"
+                label="AOV"
+                value={revenue.data.aov === null ? '—' : fmtRub(revenue.data.aov)}
+                hint="средний чек: Revenue / Orders"
+              />
+            </div>
           </div>
+          <section className="chart-card finance-overview__chart">
+            <Suspense fallback={<PageLoading />}>
+              <RevenueChart data={revenue.data} />
+            </Suspense>
+          </section>
+        </div>
+      )}
 
-          <Suspense fallback={<PageLoading />}>
-            <FinanceCharts />
-          </Suspense>
-        </>
+      {summary.isLoading ? (
+        <PageLoading />
+      ) : summary.isError || !summary.data ? (
+        <div className="page-error">Не удалось загрузить сводку</div>
+      ) : (
+        <div className="finance-overview">
+          <div className="finance-overview__totals">
+            <KpiCard
+              className="finance-overview__recognized"
+              label="Recognized revenue"
+              value={fmtRub(summary.data.worked_off_month)}
+              hint="отработано за период, FIFO"
+            />
+            <div className="finance-overview__pair">
+              <KpiCard
+                label="Авансы за период"
+                value={signedRub(summary.data.carryover_month)}
+                hint="Revenue − Recognized"
+                tone={summary.data.carryover_month < 0 ? 'warning' : 'info'}
+              />
+              <KpiCard
+                label="Остаток всего"
+                value={fmtRub(summary.data.deferred_total)}
+                hint="сейчас, не отработано"
+              />
+            </div>
+          </div>
+          <section className="chart-card finance-overview__chart">
+            <Suspense fallback={<PageLoading />}>
+              <RecognizedChart data={summary.data} />
+            </Suspense>
+          </section>
+        </div>
       )}
     </div>
   );

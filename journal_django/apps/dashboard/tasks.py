@@ -23,5 +23,5 @@ def refresh_registry_summary() -> str:
 
 @shared_task(name='apps.dashboard.tasks.refresh_finance_dashboard')
 def refresh_finance_dashboard() -> str:
-    """Пересчитать финансовую сводку (текущий месяц) и положить в кэш."""
+    """Пересчитать финансовую сводку (дефолт — последние 3 месяца) и положить в кэш."""
     return services.refresh_dashboard()

@@ -1,18 +1,18 @@
 """
-DashboardService — порт services/repo/dashboard.js (getDashboard, getMonthlyFinance).
+DashboardService — сводка и ряды дашборда «Финансы» (порт getDashboard).
 
 FIFO через единый apps/finances (fifo_inputs + compute_fifo) — не дублируем.
 Денежные значения отдаются как JSON-числа (js_number: целое→int, дробное→float),
 ровно как Express (Number + JSON.stringify), а не строкой. Округление до 2 знаков —
 js_round2 (Math.round(x*100)/100), не round_kopecks.
 
-ИЗВЕСТНОЕ РАСХОЖДЕНИЕ (решение пользователя): worked_off в getMonthlyFinance и
-worked_off_month/deferred_total в getDashboard суммируют точные Decimal из FIFO,
-тогда как Express копит во float — отсюда ≤1 копейка разницы в нескольких
-ИСТОРИЧЕСКИХ ячейках. См. apps/finances/fifo.py и память project_fifo_decimal_decision.
+ИЗВЕСТНОЕ РАСХОЖДЕНИЕ (решение пользователя): worked_off_month/deferred_total
+суммируют точные Decimal из FIFO, тогда как Express копил во float — отсюда
+≤1 копейка разницы. См. apps/finances/fifo.py и память project_fifo_decimal_decision.
 """
 from __future__ import annotations
 
+import calendar
 import datetime
 import time
 from decimal import Decimal
@@ -20,7 +20,7 @@ from typing import Optional
 
 from django.core.cache import cache
 
-from apps.core.utils.dates import msk_month_range_triple
+from apps.core.utils.dates import msk_month_range_triple, msk_today
 from apps.core.utils.decimal import js_number, js_round2
 from apps.dashboard import repository
 from apps.finances.fifo import compute_fifo
@@ -34,19 +34,66 @@ def _add_day(d: str) -> str:
     return (datetime.date.fromisoformat(d) + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
 
+DEFAULT_PERIOD_MONTHS = 3
+
+
+def default_period(today: Optional[str] = None) -> tuple[str, str]:
+    """
+    Период страницы «Финансы» по умолчанию: последние 3 месяца по сегодня (МСК),
+    обе границы включительно. День зажимается в короткий месяц (31.05 → 28/29.02).
+    """
+    end = datetime.date.fromisoformat(today or msk_today())
+    y, m = end.year, end.month - DEFAULT_PERIOD_MONTHS
+    while m < 1:
+        y, m = y - 1, m + 12
+    start = datetime.date(y, m, min(end.day, calendar.monthrange(y, m)[1]))
+    return start.isoformat(), end.isoformat()
+
+
+def _iter_days(from_: str, to: str):
+    """Даты периода включительно, 'YYYY-MM-DD'. Общий обход для дневных рядов графиков."""
+    day = datetime.date.fromisoformat(from_)
+    end = datetime.date.fromisoformat(to)
+    while day <= end:
+        yield day.isoformat()
+        day += datetime.timedelta(days=1)
+
+
+def _daily_monthly(from_: str, to: str, by_date: dict[str, Decimal], field: str) -> tuple[list, list]:
+    """
+    Ряды для графика daily/monthly из карты «дата → сумма»: каждый день периода
+    (пустые — ноль, чтобы линия не рвалась) и свёртка по календарным месяцам.
+    Округление до копеек — один раз, на выходе.
+    """
+    daily, monthly = [], []
+    for iso in _iter_days(from_, to):
+        value = by_date.get(iso, _ZERO)
+        daily.append({'date': iso, field: js_number(js_round2(value))})
+        if not monthly or monthly[-1]['month'] != iso[:7]:
+            monthly.append({'month': iso[:7], field: _ZERO})
+        monthly[-1][field] += value
+    for m in monthly:
+        m[field] = js_number(js_round2(m[field]))
+    return daily, monthly
+
+
 def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
     """
-    Сводка: revenue_month, worked_off_month, carryover, deferred_total, top-долги.
+    Сводка: revenue_month, worked_off_month, carryover, deferred_total + ряды
+    признанной выручки по дням и месяцам периода.
 
     Порт dashboard.js getDashboard. Период [period_start, period_end):
-    с from/to — заданный диапазон (to эксклюзивно через _add_day), иначе текущий МСК-месяц.
+    с from/to — заданный диапазон (to эксклюзивно через _add_day), иначе
+    default_period() — последние 3 месяца (до 2026-09 был текущий МСК-месяц).
+    В ответе from/to — фактически применённые границы (дефолт тоже).
     Долги считаются по student_id (общий пул, без разбивки по направлению —
     см. docs/superpowers/specs/2026-07-08-student-balance-pooling-design.md).
     """
-    month, month_start, month_end = msk_month_range_triple()
-    has_range = bool(from_ or to)
-    period_start = (from_ or '0001-01-01') if has_range else month_start
-    period_end = (_add_day(to) if to else '9999-12-31') if has_range else month_end
+    month = msk_month_range_triple()[0]
+    if not (from_ or to):
+        from_, to = default_period()
+    period_start = from_ or '0001-01-01'
+    period_end = _add_day(to) if to else '9999-12-31'
 
     revenue_month = js_round2(repository.revenue_for_period(period_start, period_end))
 
@@ -54,14 +101,31 @@ def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict
     lots_by_key = inp['lots_by_key']
     cons_by_key = inp['cons_by_key']
 
-    worked_off_month = _ZERO
     deferred_total = _ZERO
+    recognized_by_date: dict[str, Decimal] = {}
     for key in inp['keys']:
         fifo = compute_fifo(
             lots_by_key.get(key, []), cons_by_key.get(key, []), period_start, period_end
         )
-        worked_off_month += fifo['worked_off_month']
         deferred_total += fifo['remaining_value']
+        # Разрез по дням пожизненный — оставляем только дни периода. Предикат тот
+        # же, что у worked_off_month внутри FIFO, поэтому сумма ряда и есть
+        # «Отработано за период» — считаем её здесь, из ТОЧНЫХ Decimal.
+        # (fifo['worked_off_month'] округлён покопеечно на каждом ученике: сумма
+        # таких значений даёт дрейф в пару копеек против ряда графика.)
+        for iso, value in fifo['worked_off_by_date'].items():
+            if period_start <= iso < period_end:
+                recognized_by_date[iso] = recognized_by_date.get(iso, _ZERO) + value
+
+    worked_off_month = sum(recognized_by_date.values(), _ZERO)
+
+    # Без from период открыт слева ('0001-01-01') — ряд по дням начинаем с первого
+    # дня, где выручка реально признана, иначе список тянулся бы с первого года.
+    series_to = to or msk_today()
+    series_from = from_ or (min(recognized_by_date) if recognized_by_date else series_to)
+    recognized_daily, recognized_monthly = _daily_monthly(
+        series_from, series_to, recognized_by_date, 'recognized',
+    )
 
     worked_off_month = js_round2(worked_off_month)
     deferred_total = js_round2(deferred_total)
@@ -75,68 +139,80 @@ def get_dashboard(from_: Optional[str] = None, to: Optional[str] = None) -> dict
         'worked_off_month': js_number(worked_off_month),
         'carryover_month': js_number(carryover_month),
         'deferred_total': js_number(deferred_total),
+        # Признанная выручка (FIFO) по дням и месяцам периода — график
+        # «Recognized revenue». Ряды едут вместе со сводкой, а не отдельным
+        # адресом: FIFO по всей базе считается один раз на запрос, второй вызов
+        # удвоил бы самый тяжёлый расчёт системы.
+        'recognized_daily': recognized_daily,
+        'recognized_monthly': recognized_monthly,
     }
 
 
-def get_monthly_finance(years: Optional[list[int]] = None) -> dict:
+def _aov(revenue: Decimal, orders: int):
+    """Средний чек: точное деление Decimal, округление до копеек; нет заказов → None."""
+    return js_number(js_round2(revenue / orders)) if orders else None
+
+
+def get_revenue(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
     """
-    Year-over-year помесячно: revenue (по paid_at) + worked_off (FIFO по месяцу урока).
+    Revenue / Orders за период + разбивка по дням и месяцам (графики
+    «Revenue daily / monthly»). Обе границы включительно, по paid_at.
 
-    Порт dashboard.js getMonthlyFinance. years — список запрошенных лет (или None → текущий).
+    Revenue — сумма всех оплат (возвраты с минусом, как revenue_month сводки);
+    Orders — число оплат с total_amount > 0; AOV = Revenue / Orders (средний чек).
+    Пустые дни/месяцы — нули, чтобы линия графика не рвалась; AOV там null
+    (делить не на что — это отсутствие значения, а не ноль; на графике фронт
+    рисует его нулём). Без from/to — default_period(); без from — с первой
+    оплаты в базе; без to — по сегодня (МСК). Даты валидирует view.
     """
-    cur_year = int(msk_month_range_triple()[0][:4])
+    if not (from_ or to):
+        from_, to = default_period()
+    to = to or msk_today()
+    if not from_:
+        first = repository.first_payment_date()
+        from_ = min(first.isoformat(), to) if first else to
 
-    raw_years = years if years is not None else [cur_year]
-    req_years = sorted({
-        y for y in (int(x) for x in raw_years) if 1970 <= y <= 9999
-    })[-6:]
-    if not req_years:
-        req_years = [cur_year]
+    by_day = {r['paid_at'].isoformat(): r for r in repository.revenue_by_day(from_, to)}
 
-    available_years = [yy for yy in repository.distinct_source_years() if 2015 <= yy <= cur_year + 1]
-    for y in req_years:
-        if y not in available_years:
-            available_years.append(y)
-    available_years.sort()
+    daily: list[dict] = []
+    monthly: list[dict] = []
+    revenue_total, orders_total = _ZERO, 0
+    for iso in _iter_days(from_, to):
+        row = by_day.get(iso)
+        rev = row['rev'] if row else _ZERO
+        orders = row['orders'] if row else 0
+        daily.append({
+            'date': iso, 'revenue': js_number(js_round2(rev)), 'orders': orders,
+            'aov': _aov(rev, orders),
+        })
+        if not monthly or monthly[-1]['month'] != iso[:7]:
+            monthly.append({'month': iso[:7], 'revenue': _ZERO, 'orders': 0})
+        monthly[-1]['revenue'] += rev
+        monthly[-1]['orders'] += orders
+        revenue_total += rev
+        orders_total += orders
 
-    min_y, max_y = req_years[0], req_years[-1]
-    rev_by_ym = repository.revenue_by_year_month(min_y, max_y)
+    for m in monthly:
+        m['aov'] = _aov(m['revenue'], m['orders'])
+        m['revenue'] = js_number(js_round2(m['revenue']))
 
-    inp = fifo_inputs()
-    lots_by_key = inp['lots_by_key']
-    cons_by_key = inp['cons_by_key']
-    worked_by_ym: dict[str, Decimal] = {}
-    for key in inp['keys']:
-        fifo = compute_fifo(
-            lots_by_key.get(key, []), cons_by_key.get(key, []), '0001-01-01', '9999-12-31'
-        )
-        for ym, val in fifo['worked_off_by_month'].items():
-            worked_by_ym[ym] = worked_by_ym.get(ym, _ZERO) + val
-
-    by_year: dict[int, list] = {}
-    for y in req_years:
-        arr = []
-        for m in range(1, 13):
-            ym = f'{y}-{m:02d}'
-            rev = rev_by_ym.get(ym)
-            worked = worked_by_ym.get(ym)
-            arr.append({
-                'month': m,
-                'revenue': js_number(js_round2(rev if rev is not None else _ZERO)),
-                'worked_off': js_number(js_round2(worked if worked is not None else _ZERO)),
-            })
-        by_year[y] = arr
-
-    return {'years': req_years, 'available_years': available_years, 'byYear': by_year}
+    return {
+        'from': from_,
+        'to': to,
+        'revenue': js_number(js_round2(revenue_total)),
+        'orders': orders_total,
+        'aov': _aov(revenue_total, orders_total),
+        'daily': daily,
+        'monthly': monthly,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Кэш финансового дашборда (Celery-спека 2026-07-13, фаза B).
 #
-# get_dashboard/get_monthly_finance — самый тяжёлый расчёт системы (fifo_inputs
+# get_dashboard — самый тяжёлый расчёт системы (fifo_inputs
 # читает ВСЕ payments+attendance, FIFO по каждому ученику). Views читают только
-# кэшированные обёртки ниже; расчётные функции выше не меняются (их сверяет
-# golden-diff с Express).
+# кэшированные обёртки ниже; расчётные функции выше остаются чистыми.
 #
 # Инвалидация — generation-ключ: все ключи включают finance:{gen}:…, сброс =
 # запись нового gen (timestamp), старые ключи умирают по TTL. Работает одинаково
@@ -147,7 +223,7 @@ def get_monthly_finance(years: Optional[list[int]] = None) -> dict:
 # ---------------------------------------------------------------------------
 
 DASHBOARD_TTL = 120   # default-ключ; beat греет каждые 60с → всегда тёплый
-RANGE_TTL = 300       # произвольные диапазоны/годы — реже, живут дольше
+RANGE_TTL = 300       # произвольные диапазоны — реже, живут дольше
 
 _GEN_KEY = 'finance:gen'
 _GEN_TTL = 7 * 24 * 3600   # страховка от вечного ключа; данные живут ≤ RANGE_TTL
@@ -169,11 +245,6 @@ def _dashboard_key(from_: Optional[str], to: Optional[str]) -> str:
     if not (from_ or to):
         return f'finance:{_generation()}:dashboard:default'
     return f'finance:{_generation()}:dashboard:{from_ or ""}:{to or ""}'
-
-
-def _monthly_key(years: Optional[list[int]]) -> str:
-    suffix = 'default' if years is None else ','.join(str(y) for y in years)
-    return f'finance:{_generation()}:monthly:{suffix}'
 
 
 def _cached(key: str, ttl: int, compute):
@@ -199,15 +270,22 @@ def get_dashboard_cached(from_: Optional[str] = None, to: Optional[str] = None) 
                    lambda: get_dashboard(from_=from_, to=to))
 
 
-def get_monthly_cached(years: Optional[list[int]] = None) -> dict:
-    """Year-over-year с кэшем. Вызывать ПОСЛЕ валидации годов во view."""
-    return _cached(_monthly_key(years), RANGE_TTL,
-                   lambda: get_monthly_finance(years=years))
+def _revenue_key(from_: Optional[str], to: Optional[str]) -> str:
+    return f'finance:{_generation()}:revenue:{from_ or ""}:{to or ""}'
+
+
+def get_revenue_cached(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
+    """Revenue/Orders с кэшем. Дефолт завязан на сегодняшнюю дату → в ключ идёт
+    фактический период, а не пустые параметры (иначе ключ пережил бы полночь)."""
+    if not (from_ or to):
+        from_, to = default_period()
+    return _cached(_revenue_key(from_, to), RANGE_TTL,
+                   lambda: get_revenue(from_=from_, to=to))
 
 
 def refresh_dashboard() -> str:
     """Пересчитать default-сводку и положить в кэш (точка входа Celery-прогрева).
-    Возвращает месяц сводки (для лога воркера)."""
+    Возвращает текущий месяц (для лога воркера)."""
     data = get_dashboard()
     try:
         cache.set(_dashboard_key(None, None), data, DASHBOARD_TTL)

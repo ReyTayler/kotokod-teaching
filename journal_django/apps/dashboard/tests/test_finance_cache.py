@@ -1,8 +1,8 @@
 """
 Кэш финансового дашборда (Celery-спека 2026-07-13, фаза B).
 
-get_dashboard/get_monthly_finance читают ВСЕ payments+attendance и считают FIFO
-по каждому ученику — самый тяжёлый расчёт системы. Кэшируем результат:
+get_dashboard читает ВСЕ payments+attendance и считает FIFO по каждому
+ученику — самый тяжёлый расчёт системы. Кэшируем результат:
   • ключи включают generation (finance:{gen}:…) — инвалидация = смена generation,
     старые ключи умирают по TTL; работает одинаково на LocMem и Redis,
     без delete_pattern;
@@ -57,24 +57,12 @@ def test_range_and_default_use_distinct_keys():
     assert cache.get(range_key) is not None
 
 
-@override_settings(CACHES=_LOCMEM)
-def test_monthly_is_cached_per_years():
-    cache.clear()
-    with mock.patch.object(
-            svc, 'get_monthly_finance', wraps=svc.get_monthly_finance) as spy:
-        svc.get_monthly_cached()
-        svc.get_monthly_cached()            # хит
-        svc.get_monthly_cached(years=[2025])  # другой ключ → промах
-    assert spy.call_count == 2
-
-
 @override_settings(CACHES={
     'default': {'BACKEND': 'django.core.cache.backends.dummy.DummyCache'},
 })
 def test_dashboard_survives_dead_cache():
     body = svc.get_dashboard_cached()
     assert 'revenue_month' in body and 'deferred_total' in body
-    assert 'byYear' in svc.get_monthly_cached()
 
 
 # ---------------------------------------------------------------------------

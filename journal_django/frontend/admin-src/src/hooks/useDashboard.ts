@@ -7,7 +7,7 @@ export interface DashboardParams {
   to?: string;
 }
 
-function buildQuery(p: DashboardParams): string {
+export function buildQuery(p: DashboardParams): string {
   const params = new URLSearchParams();
   if (p.from) params.set('from', p.from);
   if (p.to) params.set('to', p.to);

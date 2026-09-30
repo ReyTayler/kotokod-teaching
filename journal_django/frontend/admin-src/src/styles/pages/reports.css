@@ -86,148 +86,67 @@
   gap: var(--section-gap);
 }
 
-.finance-dashboard__period {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  color: var(--text3);
-  text-transform: lowercase;
+/* ── Revenue / Orders + график поступлений (спека 2026-09-18) ── */
+.finance-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 2.4fr);
+  gap: var(--space-4);
+  transition: opacity 0.15s ease;
+}
+
+/* Пока грузится новый период — старые цифры приглушены. */
+.finance-overview--stale {
+  opacity: 0.6;
+}
+
+.finance-overview__totals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.finance-overview__totals .kpi-card {
+  flex: 1;
+  justify-content: center;
+}
+
+/* Orders и AOV — рядом, под крупной Revenue. */
+.finance-overview__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  flex: 1;
+}
+
+.finance-overview__aov .kpi-card__value {
+  color: var(--chart-aov);
+}
+
+.finance-overview__recognized .kpi-card__value {
+  font-size: var(--fs-6xl);
+  color: var(--accent);
+}
+
+.finance-overview__revenue .kpi-card__value {
+  font-size: var(--fs-6xl);
+  color: var(--success);
+}
+
+.finance-overview__chart {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .finance-overview {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ============================================================
- *  FINANCE CHARTS SECTION
- *  Two monthly area-charts (revenue + worked-off).
- *  Surface: same borders-only + shadow-modal as kpi-cards.
+ *  КАРТОЧКА ГРАФИКА И ПОДСКАЗКА
+ *  Оболочка графиков за период («Финансы») и аналитики продлений.
+ *  Recharts наследует цвета из CSS-переменных через inline-стили.
  * ============================================================ */
-
-.finance-charts {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
-
-/* Controls: основной год + опциональные строки сравнения */
-.finance-charts__controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.finance-charts__row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.finance-charts__year-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text3);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.finance-charts__compare-label {
-  font-size: 12px;
-  color: var(--text4);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* Keep the year selector compact — no need to stretch full width */
-.finance-charts__year-select {
-  min-width: 96px;
-}
-
-/* «+ сравнить» — текстовая кнопка-действие */
-.finance-charts__add {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 var(--space-3);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--accent);
-  background: transparent;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
-}
-
-.finance-charts__add:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-
-/* «CSV» — вторичная кнопка экспорта, прижата вправо */
-.finance-charts__export {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  height: 28px;
-  padding: 0 var(--space-3);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text2);
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
-}
-
-.finance-charts__export:hover:not(:disabled) {
-  background: var(--bg3);
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-
-.finance-charts__export:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* Кастомный native color input — компактный квадрат-свотч */
-.finance-charts__color {
-  width: 28px;
-  height: 28px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--bg2);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.finance-charts__remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  font-size: 18px;
-  line-height: 1;
-  color: var(--text3);
-  background: transparent;
-  border: none;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
-}
-
-.finance-charts__remove:hover {
-  background: var(--danger-soft, var(--bg3));
-  color: var(--danger);
-}
-
-/* Two charts stacked vertically */
-.finance-charts__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
 
 /* ── Individual chart card ── */
 .chart-card {
@@ -253,51 +172,6 @@
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
-}
-
-/* ── Year-over-year legend ── */
-.chart-legend {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-shrink: 0;
-}
-
-.chart-legend__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  color: var(--text2);
-}
-
-.chart-legend__item--muted {
-  color: var(--text3);
-}
-
-.chart-legend__swatch {
-  width: 14px;
-  height: 0;
-  border-top: 2px solid var(--accent);
-  border-radius: 1px;
-}
-
-.chart-legend__swatch--primary {
-  border-top-color: var(--accent);
-}
-
-.chart-legend__swatch--muted {
-  border-top: 0;
-  border-bottom: 1.5px dashed var(--text3);
-}
-
-/* Note next to the year selector */
-.finance-charts__compare-note {
-  font-size: 12px;
-  color: var(--text4);
-  white-space: nowrap;
 }
 
 /* ── Recharts SVG text already themed via inline tick fill — no overrides needed ── */
@@ -336,13 +210,6 @@
   margin-top: 2px;
 }
 
-.chart-tooltip__swatch {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
 .chart-tooltip__year {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -353,4 +220,80 @@
 
 .chart-tooltip__row .chart-tooltip__value {
   font-size: 13px;
+}
+
+/* ============================================================
+ *  ЛЕГЕНДА-ФИЛЬТР ГРАФИКА ПОСТУПЛЕНИЙ
+ *  Цвет и штрих засечки повторяют линию серии. Эти же засечки использует
+ *  подсказка при наведении — чтобы легенда и тултип не разъезжались.
+ * ============================================================ */
+
+.revenue-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* Кнопка: клик оставляет на графике только эту серию, повторный — возвращает все. */
+.revenue-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.revenue-legend__item:hover {
+  background: var(--bg3);
+}
+
+.revenue-legend__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Серия скрыта выбором другой — приглушаем подпись, но засечку оставляем цветной. */
+.revenue-legend__item--dimmed {
+  color: var(--text4);
+}
+
+.revenue-legend__item--active {
+  background: var(--bg3);
+  font-weight: 600;
+}
+
+.revenue-legend__swatch {
+  width: 14px;
+  height: 0;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.revenue-legend__swatch--revenue {
+  border-top: 2px solid var(--success);
+}
+
+.revenue-legend__swatch--orders {
+  border-top: 2px dashed var(--info);
+}
+
+.revenue-legend__swatch--aov {
+  border-top: 2px solid var(--chart-aov);
+}
+
+/* Признанная выручка — единственная серия своего графика; засечка нужна подсказке. */
+.revenue-legend__swatch--recognized {
+  border-top: 2px solid var(--accent);
+}
+
+.revenue-legend__item--dimmed .revenue-legend__swatch {
+  opacity: 0.45;
 }
