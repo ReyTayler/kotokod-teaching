@@ -9,7 +9,7 @@
 ✅ `submitLesson` атомарен через `db.tx()` (insertLesson + incrementCounters + insertAttendance + insertPayroll)  
 ✅ `services/cache.js` удалён  
 ✅ Запись в Google Sheets отключена (`sheets.js` остаётся только для backfill-скриптов до Phase 5)  
-✅ Baseline/post-cutover snapshots: `docs/baseline/` ↔ `docs/post-cutover/`  
+✅ Baseline/post-cutover snapshots сняты и сверены (сами файлы удалены из репозитория 2026-09-30: содержали ФИО учеников)  
 ✅ Тесты: 73/73 pass  
 
 ## Diff summary (baseline vs post-cutover)

@@ -388,7 +388,7 @@ def test_classify_and_aggregate_sums_repeated_direction():
 
     rows = [
         _row(
-            'Столярова Анастасия',
+            'Примерова Анна',
             ('Питон', 20, 'Закончил и перешёл'),
             ('Веб-разработка', 15, 'Продолжает учиться'),
             ('Питон', 10, 'Ожидание перехода'),  # повторный заход на то же направление
@@ -397,8 +397,8 @@ def test_classify_and_aggregate_sums_repeated_direction():
 
     aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
 
-    assert aggregated[('Столярова Анастасия', 'Python')] == 30
-    assert ('Столярова Анастасия', 'Web-разработка') not in aggregated
+    assert aggregated[('Примерова Анна', 'Python')] == 30
+    assert ('Примерова Анна', 'Web-разработка') not in aggregated
     assert len(skipped) == 1
     assert skipped[0].course_raw == 'Веб-разработка'
     assert unrecognized == []
@@ -430,13 +430,13 @@ def test_classify_and_aggregate_skips_frozen_status_variants():
 def test_classify_and_aggregate_reports_unrecognized_status():
     from apps.groups.importers.direction_history import classify_and_aggregate
 
-    rows = [_row('Кокорин Владимир', ('Веб-дизайн', 12, 'Что с ним'))]
+    rows = [_row('Образцов Пётр', ('Веб-дизайн', 12, 'Что с ним'))]
     aggregated, skipped, unrecognized, unmatched = classify_and_aggregate(rows)
 
     assert aggregated == {}
     assert skipped == []
     assert len(unrecognized) == 1
-    assert unrecognized[0].full_name == 'Кокорин Владимир'
+    assert unrecognized[0].full_name == 'Образцов Пётр'
     assert unrecognized[0].status == 'Что с ним'
 
 

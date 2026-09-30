@@ -196,13 +196,13 @@ def test_search_by_student_name(board):
 
     b, _ = board
     student = Student.objects.create(
-        full_name='__tb_Абдульманов Амир__', created_at=timezone.now())
+        full_name='__tb_Образцов Пётр__', created_at=timezone.now())
     try:
         target = services.create_task(
             board_id=b.id, title='Позвонить', author_id=None, student_id=student.id)
         services.create_task(board_id=b.id, title='Другая', author_id=None)
 
-        ids = [t['id'] for t in repository.list_tasks({'board_id': b.id, 'q': 'Абдульманов'})]
+        ids = [t['id'] for t in repository.list_tasks({'board_id': b.id, 'q': 'Образцов'})]
         assert ids == [target.id]
     finally:
         Task.objects.filter(student=student).update(student=None)

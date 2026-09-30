@@ -33,7 +33,7 @@ def _link(name: str, chat_id: int) -> Teacher:
 @pytest.fixture
 def two_teachers(db) -> tuple[Teacher, Teacher]:
     """Первый — со сломанным письмом, второй — с обычным."""
-    return _link('Чевилева Елизавета', 733), _link('Бахтина Светлана', 814)
+    return _link('Примерова Анна', 733), _link('Образцова Мария', 814)
 
 
 def _unfilled_row(teacher: Teacher, group: str) -> dict:

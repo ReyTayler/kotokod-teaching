@@ -444,7 +444,7 @@ git commit -m "fix(payments): backfill subscriptions_count=1 for legacy directio
 
 ⚠️ Этот таск меняет реальную dev-БД (`journal`, не `journal_test`). Изменение обратимо (есть `revert_backfill` + `RemoveConstraint` можно откатить через `migrate payments 0002`), но перед стартом стоит ещё раз свериться с пользователем, если что-то в шагах ниже не сходится с ожиданиями.
 
-- [ ] **Step 1: Снимок «до» — сколько легаси-строк и какой баланс у Дуброва Макара**
+- [ ] **Step 1: Снимок «до» — сколько легаси-строк и какой баланс у ученика id=150**
 
 Run:
 ```bash
@@ -459,7 +459,7 @@ with connection.cursor() as cur:
     cur.execute('SELECT COUNT(*) FROM payments WHERE direction_id IS NULL AND subscriptions_count IS NULL')
     print('legacy rows before:', cur.fetchone()[0])
 from apps.finances.repository import balance_for_student
-print('Дубров Макар (id=150) balance before:', balance_for_student(150))
+print('Ученик id=150 balance before:', balance_for_student(150))
 "
 ```
 Expected: `legacy rows before: 2176`, `balance before: -122` (или близко — баланс мог чуть измениться, если после прошлой сессии были новые уроки/оплаты; главное, что число отрицательное и большое).
@@ -490,10 +490,10 @@ with connection.cursor() as cur:
     cur.execute('SELECT COUNT(*) FROM payments WHERE direction_id IS NULL AND subscriptions_count = 1')
     print('legacy rows now subscriptions_count=1:', cur.fetchone()[0])
 from apps.finances.repository import balance_for_student
-print('Дубров Макар (id=150) balance after:', balance_for_student(150))
+print('Ученик id=150 balance after:', balance_for_student(150))
 "
 ```
-Expected: `legacy rows after (should be 0): 0`, `legacy rows now subscriptions_count=1: 2176`, баланс Дуброва Макара — заметно лучше, близко к небольшому положительному/near-zero числу (не −122).
+Expected: `legacy rows after (should be 0): 0`, `legacy rows now subscriptions_count=1: 2176`, баланс ученика id=150 — заметно лучше, близко к небольшому положительному/near-zero числу (не −122).
 
 - [ ] **Step 4: Полный прогон бэкенд-тестов (финальная регрессия)**
 
@@ -502,4 +502,4 @@ Expected: без новых failures относительно текущего b
 
 - [ ] **Step 5: Показать сводку пользователю**
 
-Это шаг для контроллера/пользователя, не для чистого автоматического исполнения: собрать и показать пользователю итоговую сводку — сколько строк исправлено, как изменился баланс у Дуброва Макара и ещё нескольких студентов из списка «баланс < −20» (см. переписку, там был список из 129 студентов) — чтобы пользователь подтвердил, что цифры теперь выглядят разумно, прежде чем считать задачу закрытой.
+Это шаг для контроллера/пользователя, не для чистого автоматического исполнения: собрать и показать пользователю итоговую сводку — сколько строк исправлено, как изменился баланс у ученика id=150 и ещё нескольких студентов из списка «баланс < −20» (см. переписку, там был список из 129 студентов) — чтобы пользователь подтвердил, что цифры теперь выглядят разумно, прежде чем считать задачу закрытой.
