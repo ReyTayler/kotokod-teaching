@@ -2,8 +2,8 @@
 TeacherSpaRepository — единственное место доступа к данным раздела teacher_spa.
 
 ORM-порт services/teacher-repo.js (раздел 09):
-  - read_all_students  — главный срез данных (data[teacher][group])
-  - read_filled_lessons — заполненные уроки за неделю (для report)
+  - read_own_students / read_teacher_students / read_group_students — срез данных
+    (data[teacher][group]) по своим группам, своим + назначенным, одной группе
   - resolve_ids / resolve_students — разрешение id перед записью урока
 
 Запись самого урока (insert_lesson/insert_attendance/insert_payroll/
@@ -29,7 +29,7 @@ from apps.teachers.models import Teacher
 
 
 # ---------------------------------------------------------------------------
-# Форматтеры (порт fmtDateRu / fmtFixedAt — чистый Python, без SQL)
+# Форматтеры (порт fmtDateRu — чистый Python, без SQL)
 # ---------------------------------------------------------------------------
 
 def fmt_date_ru(d) -> str:
@@ -57,69 +57,83 @@ def fmt_lesson_number(value) -> str:
     return str(int(f)) if f == int(f) else str(f)
 
 
-def fmt_fixed_at(d) -> str:
-    """timestamptz → МСК (UTC+3, без DST) → 'DD.MM HH:MM'. Пустая строка если невалидно."""
-    if not d:
-        return ''
-    if isinstance(d, str):
-        try:
-            d = datetime.datetime.fromisoformat(d.replace('Z', '+00:00'))
-        except ValueError:
-            return ''
-    if not isinstance(d, datetime.datetime):
-        return ''
-    if d.tzinfo is not None:
-        d = d.astimezone(datetime.timezone.utc)
-    msk = d + datetime.timedelta(hours=3)
-    dd = str(msk.day).zfill(2)
-    mm = str(msk.month).zfill(2)
-    hh = str(msk.hour).zfill(2)
-    mi = str(msk.minute).zfill(2)
-    return f'{dd}.{mm} {hh}:{mi}'
-
-
 # ---------------------------------------------------------------------------
 # Чтение данных
 # ---------------------------------------------------------------------------
 
-def read_all_students() -> dict:
-    """
-    Возвращает {'data': {teacher: {group: groupData}}, 'index': {...}}.
+# Срез данных teacher SPA: {'data': {teacher: {group: groupData}}, 'index': {...}}.
+# Только активные membership/группы/преподаватели, ORDER te.name, g.name, s.full_name.
+# remaining — вычисляемый общий баланс ученика (apps.finances), не хранимая колонка;
+# считается одним батч-запросом на всех учеников выборки (без N+1).
+#
+# Выборки «вся школа» здесь НЕТ, и заводить её не надо. Раньше была read_all_students:
+# getData читала всю школу и выбирала из неё свои группы, а getAllData, /api/report и
+# /api/schedule отдавали её преподавателю целиком — с ФИО, датами рождения и остатком
+# оплаченных уроков всех учеников (аудит ПДн 2026-09-30). Каждый читатель ниже узок
+# уже в SQL; формат у всех один (_build_from_rows), вызывающий их не различает.
 
-    Только активные membership/группы/преподаватели. ORDER te.name, g.name, s.full_name.
-    remaining — вычисляемый общий баланс ученика (apps.finances), не хранимая колонка;
-    считается одним батч-запросом на всех учеников выборки (без N+1).
-
-    Для страниц (расписание, отчёт) полная выборка по смыслу. На пути ЗАПИСИ урока
-    её быть не должно — там read_group_students (см. ниже).
+def read_own_students(teacher_id: int) -> dict:
     """
-    return _build_from_rows(_membership_rows())
+    Группы, где преподаватель — владелец. Источник POST /api/getData: зовётся на
+    каждый вход в кабинет, поэтому фильтр стоит в запросе, а не после чтения.
+    """
+    return _build_from_rows(_membership_rows(owner_id=teacher_id))
+
+
+def read_teacher_students(teacher_id: int) -> dict:
+    """
+    Группы, до которых преподавателю есть дело: свои + чужие, где ему назначено ещё
+    не проведённое занятие (см. _membership_rows). Источник POST /api/getAllData —
+    форма записи урока чужой группы ищет её здесь по имени.
+    """
+    return _build_from_rows(_membership_rows(teacher_id=teacher_id))
 
 
 def read_group_students(group_name: str) -> dict:
     """
-    То же самое, но только по ОДНОЙ группе (по имени). Формат ответа идентичен
-    read_all_students — вызывающий не различает, откуда пришли данные.
+    ОДНА группа (по имени) — путь ЗАПИСИ урока (submit_lesson).
 
-    Зачем: read_all_students стояла на пути записи урока (submit_lesson) и тянула
-    все активные membership всей школы плюс баланс по каждому ученику. На странице
-    это терпимо, но запись урока — самое критичное действие, а sync-воркеров на всю
-    школу единицы: три одновременные отправки занимали сервер целиком (инцидент
-    ПГ215).
+    Запись урока — самое критичное действие, а sync-воркеров на всю школу единицы:
+    когда здесь читалась вся школа с балансом по каждому ученику, три одновременные
+    отправки занимали сервер целиком (инцидент ПГ215).
 
     Имя, а не id: группу teacher SPA знает по имени (клиент присылает его), и
     разрешение имени в id — отдельный шаг ниже по submit_lesson. Если имя носят
-    группы двух преподавателей, вернутся обе ветки — ровно как в полной выборке,
-    и вызывающий выбирает владельца той же логикой.
+    группы двух преподавателей, вернутся обе ветки, и вызывающий выбирает владельца.
     """
     return _build_from_rows(_membership_rows(group_name=group_name))
 
 
-def _membership_rows(group_name: str | None = None) -> list[dict]:
+def _effective_teacher_q(teacher_id: int) -> Q:
     """
-    Строки активных membership. Единственное место, где живёт этот запрос:
-    полная выборка и выборка по группе отличаются ТОЛЬКО фильтром, чтобы набор
-    полей и порядок не могли разъехаться.
+    Условие «занятие ведёт этот преподаватель»: эффективный преподаватель планового
+    занятия — разовая замена, если она задана, иначе преподаватель занятия.
+
+    Одно определение на всех: скоуп ОБЯЗАН совпадать с календарём
+    (scheduling.repository.planned_lessons_in_window), иначе преподаватель видит
+    занятие у себя, а открыть форму или сохранить урок не может.
+    """
+    return (
+        Q(substitute_teacher_id=teacher_id)
+        | Q(substitute_teacher_id__isnull=True, teacher_id=teacher_id)
+    )
+
+
+def _membership_rows(
+    group_name: str | None = None,
+    owner_id: int | None = None,
+    teacher_id: int | None = None,
+) -> list[dict]:
+    """
+    Строки активных membership. Единственное место, где живёт этот запрос: выборки
+    по группе, по владельцу и по преподавателю отличаются ТОЛЬКО фильтром, чтобы
+    набор полей и порядок не могли разъехаться.
+
+    owner_id — только группы, где преподаватель владелец.
+    teacher_id — группы самого преподавателя плюс чужие, где ему назначено
+    НЕотменённое и ещё НЕ проведённое плановое занятие (любая дата). Проведённое
+    (fact_lesson задан) права не даёт: состав чужой группы нужен только чтобы
+    записать урок, и после записи доступ не должен оставаться навсегда.
     """
     qs = (
         GroupMembership.objects
@@ -127,6 +141,16 @@ def _membership_rows(group_name: str | None = None) -> list[dict]:
     )
     if group_name is not None:
         qs = qs.filter(group__name=group_name)
+    if owner_id is not None:
+        qs = qs.filter(group__teacher_id=owner_id)
+    if teacher_id is not None:
+        assigned_group_ids = (
+            PlannedLesson.objects
+            .filter(_effective_teacher_q(teacher_id), fact_lesson__isnull=True)
+            .exclude(status='cancelled')
+            .values('group_id')
+        )
+        qs = qs.filter(Q(group__teacher_id=teacher_id) | Q(group_id__in=assigned_group_ids))
     return list(
         qs
         .order_by('group__teacher__name', 'group__name', 'student__full_name')
@@ -150,8 +174,8 @@ def _build_from_rows(rows: list[dict]) -> dict:
     """
     Сборка ответа из уже выбранных строк membership.
 
-    Вынесено из read_all_students, чтобы выборка по одной группе давала БАЙТ В
-    БАЙТ тот же формат: две параллельные сборки неизбежно разъехались бы, а на
+    Одна сборка на все выборки, чтобы узкая выборка по группе давала БАЙТ В БАЙТ
+    тот же формат, что и остальные: две параллельные сборки неизбежно разъехались бы, а на
     этом формате стоит вся запись урока — владелец группы, признак замены,
     прогресс учеников, маркеры «неоплачиваемый пропуск».
 
@@ -326,10 +350,15 @@ def teacher_has_any_planned_lesson(group_id: int, teacher_id: int) -> bool:
     """
     Назначено ли преподавателю хотя бы одно НЕотменённое плановое занятие группы
     (любая дата) — доступ заменщика к странице группы в teacher SPA.
+
+    «Назначено» — в обоих видах, как в календаре и в submitLesson («Сменить
+    преподавателя» и разовая замена на дату, см. _effective_teacher_q). Пока здесь
+    смотрели только teacher_id, разово заменяющий видел занятие у себя и мог его
+    записать, а «Карточка группы» из того же меню отдавала 403.
     """
     return (
         PlannedLesson.objects
-        .filter(group_id=group_id, teacher_id=teacher_id)
+        .filter(_effective_teacher_q(teacher_id), group_id=group_id)
         .exclude(status='cancelled')
         .exists()
     )
@@ -371,10 +400,7 @@ def has_assigned_planned_lesson(group_id: int, lesson_date: str, teacher_id: int
     return (
         PlannedLesson.objects
         .filter(group_id=group_id, scheduled_date=lesson_date)
-        .filter(
-            Q(substitute_teacher_id=teacher_id)
-            | Q(substitute_teacher_id__isnull=True, teacher_id=teacher_id)
-        )
+        .filter(_effective_teacher_q(teacher_id))
         .exclude(status='cancelled')
         .exists()
     )

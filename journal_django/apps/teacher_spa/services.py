@@ -73,30 +73,37 @@ def get_current_teacher(account_id: int) -> Optional[str]:
 
 def get_data(account_id: int) -> dict:
     """
-    Порт POST /api/getData из routes/teacher.js.
+    POST /api/getData — группы, где преподаватель владелец.
 
     Возвращает {'teacher': str, 'data': groupDict} или {'_error': str, '_status': int}.
     """
-    teacher = get_current_teacher(account_id)
+    acc = get_by_id_with_teacher(account_id)
+    teacher = acc['teacher_name'] if acc else None
     if not teacher:  # порт JS if(!teacher): None и пустая строка → не привязан
         return {'_error': 'Аккаунт не привязан к преподавателю', '_status': 403}
 
-    unified = repository.read_all_students()
-    teacher_data = unified['data'].get(teacher, {})
-    return {'teacher': teacher, 'data': teacher_data}
+    unified = repository.read_own_students(acc['teacher_id'])
+    return {'teacher': teacher, 'data': unified['data'].get(teacher, {})}
 
 
 def get_all_data(account_id: int) -> dict:
     """
-    Порт POST /api/getAllData из routes/teacher.js.
+    POST /api/getAllData — данные для формы записи урока ЧУЖОЙ группы (замена).
 
-    Возвращает {'teacher': str, 'data': все данные} или {'_error': ..., '_status': 403}.
+    Несмотря на имя (осталось от routes/teacher.js), это НЕ срез всей школы: только
+    группы самого преподавателя и чужие, где ему назначено ещё не проведённое
+    занятие. Скоуп — на сервере (repository.read_teacher_students), клиент сузить
+    или расширить его не может.
+
+    Возвращает {'teacher': str, 'data': {преподаватель: {группа: ...}}} или
+    {'_error': ..., '_status': 403}.
     """
-    teacher = get_current_teacher(account_id)
+    acc = get_by_id_with_teacher(account_id)
+    teacher = acc['teacher_name'] if acc else None
     if not teacher:  # порт JS if(!teacher): None и пустая строка → не привязан
         return {'_error': 'Аккаунт не привязан к преподавателю', '_status': 403}
 
-    unified = repository.read_all_students()
+    unified = repository.read_teacher_students(acc['teacher_id'])
     return {'teacher': teacher, 'data': unified['data']}
 
 
@@ -168,12 +175,10 @@ def submit_lesson(account_id: int, validated: dict) -> dict:
     #    ВСЕХ преподавателей: своя → обычный урок; чужая допустима только если
     #    занятие назначено этому преподавателю админом (проверка в шаге 3).
     #
-    #    read_group_students, а не read_all_students: полная выборка тянет все
-    #    активные membership всей школы плюс баланс по каждому ученику. Здесь она
-    #    стояла на пути ЗАПИСИ урока — самого критичного действия, при том что
-    #    sync-воркеров на всю школу единицы и три одновременные отправки занимают
-    #    сервер целиком (инцидент ПГ215). Формат ответа идентичен — код ниже не
-    #    различает, откуда пришли данные.
+    #    Выборка по одной группе, а не по школе: раньше на пути ЗАПИСИ урока —
+    #    самого критичного действия — читались все активные membership школы плюс
+    #    баланс по каждому ученику, при том что sync-воркеров на всю школу единицы
+    #    и три одновременные отправки занимали сервер целиком (инцидент ПГ215).
     unified = repository.read_group_students(group)
     own_groups = unified['data'].get(teacher) or {}
     if group in own_groups:

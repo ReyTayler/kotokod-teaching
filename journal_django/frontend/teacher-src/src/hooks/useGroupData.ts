@@ -7,8 +7,9 @@ import type { GroupData } from '../lib/types';
  *
  * Свои группы приходят из /api/getData. Чужой группы там нет — а отметить чужой урок
  * преподаватель вправе, когда админ назначил ему занятие («Сменить преподавателя» /
- * разовая замена): для этого случая догружаем /api/getAllData. Отдельный запрос, а не
- * getAllData всегда, — чтобы не тянуть данные всей школы ради своих же групп.
+ * разовая замена): для этого случая догружаем /api/getAllData — сервер отдаёт там
+ * свои группы и чужие, где преподавателю назначено ещё не проведённое занятие (не всю
+ * школу). Отдельный запрос, а не getAllData всегда, — ради своих групп он не нужен.
  *
  * Общий для календаря и «Моих уроков»: до этого резолв жил только в CalendarPage, и
  * заменяющий преподаватель из «Моих уроков» формы не получал вовсе — там открывался
@@ -25,7 +26,7 @@ export function useGroupData(groupName: string | null): {
   const mine = useTeacherData();
   const own = groupName ? (mine.data?.data ?? {})[groupName] : undefined;
 
-  // Чужая группа (замена) — только тогда идём за полным срезом.
+  // Чужая группа (замена) — только тогда идём за срезом с назначенными группами.
   const needAll = !!groupName && !own && !mine.isLoading;
   const all = useAllData(needAll);
 
@@ -40,7 +41,10 @@ export function useGroupData(groupName: string | null): {
 
   return {
     data,
-    isLoading: !!groupName && !data && (mine.isLoading || (needAll && all.isLoading)),
+    // isFetching, а не isLoading: при повторном открытии формы в кэше лежит прежний
+    // срез без только что назначенной группы — пока идёт обновление, это «загрузка»,
+    // а не «группа не найдена».
+    isLoading: !!groupName && !data && (mine.isLoading || (needAll && all.isFetching)),
     isError: mine.isError || (needAll && all.isError),
   };
 }

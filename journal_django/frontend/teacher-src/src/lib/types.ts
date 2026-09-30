@@ -1,4 +1,7 @@
-/** Форма ответа /api/report (заморожена parity-тестами; см. teacher_spa/views.py). */
+/**
+ * Базовая форма занятия. Осталась от /api/report (эндпоинт удалён 2026-09-30) — на ней
+ * держатся статусы и определение предмета по группе (lib/subjects.ts).
+ */
 
 export type LessonStatus = 'done' | 'pending' | 'overdue' | 'notime';
 
@@ -22,13 +25,6 @@ export interface ReportLesson {
   sortKey?: number;
   status: LessonStatus;
   label: string;
-}
-
-export interface ReportResponse {
-  lessons: ReportLesson[];
-  noTime: ReportLesson[];
-  weekStart: string;        // 'YYYY-MM-DD' (понедельник)
-  cachedAt: string;
 }
 
 /** Формы ответов /api/getData, /api/getAllData, /api/submitLesson (заморожены). */
@@ -73,7 +69,7 @@ export interface GetDataResponse {
   data: GroupMap;
 }
 
-/** POST /api/getAllData — вложено по преподавателю (для замен). */
+/** POST /api/getAllData — свои группы + чужие с назначенным занятием, вложено по преподавателю. */
 export interface GetAllDataResponse {
   teacher: string;
   data: Record<string, GroupMap>;

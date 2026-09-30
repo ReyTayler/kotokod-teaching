@@ -223,8 +223,8 @@ def balances_for_students(student_ids: Iterable[int]) -> dict[int, int | float]:
     """
     Общий баланс (purchased − attended) сразу для набора учеников — без N+1.
 
-    Используется там, где строк много за один раз (teacher_spa.read_all_students
-    тянет всю школу разом на 2 CPU/2 ГБ VPS). Каждый переданный student_id
+    Используется там, где строк много за один раз (срез групп преподавателя в
+    teacher_spa, сводки по школе) — на 2 CPU/2 ГБ VPS. Каждый переданный student_id
     гарантированно есть в результате (0, если нет ни оплат, ни посещений).
 
     purchased = SUM(lessons_count) (включает отрицательные строки возврата → net).

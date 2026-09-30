@@ -102,10 +102,6 @@ def main():
         cases = [
             ('POST /api/getData (rich)', '/api/getData', ck_rich, 'POST', {}, True, canon),
             ('POST /api/getAllData (rich)', '/api/getAllData', ck_rich, 'POST', {}, True, canon),
-            ('GET /api/report', '/api/report', ck_any, 'GET', None, True, strip_cached),
-            ('GET /api/schedule', '/api/schedule', ck_any, 'GET', None, True, strip_cached),
-            ('GET /api/report/refresh (302)', '/api/report/refresh', ck_any, 'GET', None, False, canon),
-            ('GET /api/schedule/refresh (302)', '/api/schedule/refresh', ck_any, 'GET', None, False, canon),
             ('POST /api/refreshData', '/api/refreshData', ck_any, 'POST', {}, True, canon),
         ]
         for label, path, ck, method, body, follow, norm in cases:

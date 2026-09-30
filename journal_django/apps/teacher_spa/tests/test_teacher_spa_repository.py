@@ -2,10 +2,8 @@
 test_teacher_spa_repository.py — интеграционные тесты repository слоя teacher_spa.
 
 Покрытие:
-  - read_all_students: структура data[teacher][group], поля студента,
+  - read_own_students: структура data[teacher][group], поля студента,
     lessonsDone (max), startDate формат 'DD.MM.YYYY'.
-  - read_filled_lessons: пустая карта если нет уроков за неделю;
-    заполненная после INSERT урока.
 """
 from __future__ import annotations
 
@@ -23,17 +21,17 @@ def _set_secret(settings):
 
 
 # ---------------------------------------------------------------------------
-# read_all_students
+# read_own_students — формат среза (общая сборка _build_from_rows)
 # ---------------------------------------------------------------------------
 
-class TestReadAllStudents:
+class TestReadOwnStudents:
 
     def test_returns_data_and_index(
         self, teacher_fixture, group_fixture, student_fixture, membership_fixture
     ):
         """Базовая структура: data[teacher][group] = {students, lessonsDone, ...}."""
         _, teacher_name = teacher_fixture
-        result = repository.read_all_students()
+        result = repository.read_own_students(teacher_fixture[0])
         assert 'data' in result
         assert 'index' in result
         assert teacher_name in result['data']
@@ -43,7 +41,7 @@ class TestReadAllStudents:
     ):
         """Поля группы: students, lessonsDone, pm, vkChat, startDate, isGroup."""
         _, teacher_name = teacher_fixture
-        result = repository.read_all_students()
+        result = repository.read_own_students(teacher_fixture[0])
         teacher_data = result['data'][teacher_name]
         # Ищем нашу тестовую группу
         assert len(teacher_data) >= 1
@@ -64,7 +62,7 @@ class TestReadAllStudents:
     ):
         """Поля студента: name, lessonsDone, remaining, birthDate, sheetName, sheetRow."""
         _, teacher_name = teacher_fixture
-        result = repository.read_all_students()
+        result = repository.read_own_students(teacher_fixture[0])
         group_name = '__spa_test_group__ пн 10:00'
         grp = result['data'][teacher_name][group_name]
         assert len(grp['students']) >= 1
@@ -114,7 +112,7 @@ class TestReadAllStudents:
 
         try:
             _, teacher_name = teacher_fixture
-            result = repository.read_all_students()
+            result = repository.read_own_students(teacher_fixture[0])
             group_name = '__spa_test_group__ пн 10:00'
             grp = result['data'][teacher_name][group_name]
             # lessonsDone группы = 5 (max)
@@ -125,7 +123,7 @@ class TestReadAllStudents:
                 cur.execute('DELETE FROM students WHERE id = %s', [stu2_id])
 
 
-def test_read_all_students_marks_locked_transferred_student(
+def test_read_own_students_marks_locked_transferred_student(
     teacher_fixture, direction_fixture, group_fixture, student_fixture, membership_fixture,
 ):
     """Ученик с B=5 (source membership lessons_done=5) — отдаём lockedThrough=5.0.
@@ -156,7 +154,7 @@ def test_read_all_students_marks_locked_transferred_student(
             [src_membership_id, membership_fixture],
         )
     try:
-        result = repository.read_all_students()
+        result = repository.read_own_students(teacher_fixture[0])
         group_data = result['data'][teacher_name]['__spa_test_group__ пн 10:00']
         student_row = next(s for s in group_data['students'] if s['name'] == '__spa_test_student__')
         assert student_row['lockedThrough'] == 5.0
@@ -169,7 +167,7 @@ def test_read_all_students_marks_locked_transferred_student(
             cur.execute('DELETE FROM groups WHERE id = %s', [src_group_id])
 
 
-def test_read_all_students_returns_skips_by_lesson_number(
+def test_read_own_students_returns_skips_by_lesson_number(
     teacher_fixture, group_fixture, student_fixture, membership_fixture,
 ):
     """Маркеры LessonSkip уходят на фронт картой {номер урока: [имена]}, чтобы форма
@@ -181,7 +179,7 @@ def test_read_all_students_returns_skips_by_lesson_number(
         cur.execute("INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) "
                     "VALUES (%s, %s, 3, now())", [group_fixture, student_fixture])
     try:
-        result = repository.read_all_students()
+        result = repository.read_own_students(teacher_fixture[0])
         grp = result['data'][teacher_name]['__spa_test_group__ пн 10:00']
         assert '_group_id' not in grp
         assert grp['skips'] == {'3': ['__spa_test_student__']}
@@ -193,7 +191,7 @@ def test_read_all_students_returns_skips_by_lesson_number(
             cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
 
 
-def test_read_all_students_keeps_skip_off_the_progress_number(
+def test_read_own_students_keeps_skip_off_the_progress_number(
     teacher_fixture, group_fixture, student_fixture, membership_fixture,
 ):
     """Регрессия: пропуск на уроке №5 при прогрессе группы 0 («следующий по прогрессу»
@@ -207,7 +205,7 @@ def test_read_all_students_keeps_skip_off_the_progress_number(
         cur.execute("INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) "
                     "VALUES (%s, %s, 5, now())", [group_fixture, student_fixture])
     try:
-        result = repository.read_all_students()
+        result = repository.read_own_students(teacher_fixture[0])
         grp = result['data'][teacher_name]['__spa_test_group__ пн 10:00']
         assert grp['lessonsDone'] == 0
         assert grp['skips'] == {'5': ['__spa_test_student__']}
@@ -216,7 +214,7 @@ def test_read_all_students_keeps_skip_off_the_progress_number(
             cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
 
 
-def test_read_all_students_skips_half_lesson_number_key(
+def test_read_own_students_skips_half_lesson_number_key(
     teacher_fixture, half_group_fixture, student_fixture,
 ):
     """Half-lesson: номер урока дробный, ключ карты — '2.5' (как даёт JS String(2.5))."""
@@ -230,56 +228,10 @@ def test_read_all_students_skips_half_lesson_number_key(
         cur.execute("INSERT INTO lesson_skips (group_id, student_id, lesson_number, created_at) "
                     "VALUES (%s, %s, 2.5, now())", [half_group_fixture, student_fixture])
     try:
-        result = repository.read_all_students()
+        result = repository.read_own_students(teacher_fixture[0])
         grp = result['data'][teacher_name]['__spa_half_group__ 45 минут вт 11:00']
         assert grp['skips'] == {'2.5': ['__spa_test_student__']}
     finally:
         with connection.cursor() as cur:
             cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [half_group_fixture])
             cur.execute('DELETE FROM group_memberships WHERE id = %s', [membership_id])
-
-
-# ---------------------------------------------------------------------------
-# read_filled_lessons
-# ---------------------------------------------------------------------------
-
-class TestReadFilledLessons:
-
-    def test_empty_map_no_lessons(self):
-        """Нет уроков за неделю → пустой map."""
-        result = repository.read_filled_lessons('2020-01-06')  # старая дата
-        assert isinstance(result, dict)
-        # Может содержать что угодно из реальной БД, но нас интересует структура
-        assert all(isinstance(k, str) for k in result)
-        assert all(isinstance(v, str) for v in result.values())
-
-    def test_filled_lesson_appears(
-        self, teacher_fixture, group_fixture, student_fixture, membership_fixture
-    ):
-        """После вставки урока за неделю — group_name появляется в map."""
-        week_start = '2020-03-09'  # понедельник (уникальная старая дата)
-        lesson_date = '2020-03-10'  # внутри недели
-        teacher_id, _ = teacher_fixture
-
-        with connection.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO lessons (lesson_date, teacher_id, group_id, lesson_number,
-                                     lesson_duration_minutes, lesson_type, submitted_by_token)
-                VALUES (%s, %s, %s, 99.0, 60, 'regular', '__spa_test__')
-                RETURNING id
-                """,
-                [lesson_date, teacher_id, group_fixture],
-            )
-            lesson_id = cur.fetchone()[0]
-
-        try:
-            result = repository.read_filled_lessons(week_start)
-            group_name = '__spa_test_group__ пн 10:00'
-            key = group_name + '|||' + week_start
-            assert key in result
-            # Значение — строка вида 'DD.MM HH:MM' или пустая
-            assert isinstance(result[key], str)
-        finally:
-            with connection.cursor() as cur:
-                cur.execute('DELETE FROM lessons WHERE id = %s', [lesson_id])

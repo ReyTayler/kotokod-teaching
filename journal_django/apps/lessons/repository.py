@@ -83,7 +83,7 @@ def assert_students_paid(present_student_ids: list[int]) -> None:
     """
     Бросает UnpaidAttendanceBlocked, если у кого-то из перечисленных учеников
     остаток оплаченных уроков <= 0. Баланс считается СЕРВЕРОМ (батч, тот же
-    расчёт, что read_all_students в teacher_spa) — не принимает клиентский вход.
+    расчёт, что в срезе данных teacher_spa) — не принимает клиентский вход.
     No-op для пустого списка. Общая проверка для create/attendance-toggle путей
     (apps.lessons.services.record_lesson, apps.lessons.repository.update_attendance_cell).
     """

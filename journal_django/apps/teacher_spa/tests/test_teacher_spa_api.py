@@ -11,7 +11,7 @@ _client(role, account_id) создаёт JWT-клиент для реально�
     - role=teacher, account_id не существует → 401 (token_version mismatch)
     - role=teacher, account привязан → 200
 
-  submitLesson, report, schedule, refresh, refreshData — без изменений по смыслу.
+  submitLesson, refreshData — без изменений по смыслу.
 """
 from __future__ import annotations
 
@@ -103,18 +103,6 @@ class TestAuthRequirements:
         resp = _client(None).post('/api/submitLesson', {}, format='json')
         assert resp.status_code == 401
 
-    def test_report_no_cookie_401(self):
-        resp = _client(None).get('/api/report')
-        assert resp.status_code == 401
-
-    def test_report_manager_403(self, manager_client):
-        resp = manager_client.get('/api/report')
-        assert resp.status_code == 403
-
-    def test_schedule_no_cookie_401(self):
-        resp = _client(None).get('/api/schedule')
-        assert resp.status_code == 401
-
     def test_refresh_data_no_cookie_401(self):
         resp = _client(None).post('/api/refreshData', {}, format='json')
         assert resp.status_code == 401
@@ -158,7 +146,8 @@ class TestGetData:
     def test_get_all_data_returns_all(
         self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
     ):
-        """getAllData → {teacher, data}."""
+        """getAllData → {teacher, data}; свои группы в срезе есть (граница видимости
+        чужих — test_get_all_data_scope.py)."""
         _, teacher_name = teacher_fixture
         resp = _client('teacher', account_fixture).post('/api/getAllData', {}, format='json')
         assert resp.status_code == 200
@@ -174,7 +163,7 @@ class TestGetData:
     ):
         """
         Заменяющий преподаватель открывает форму записи через getAllData (своей эта
-        группа не является). Маркеры «неоплачиваемый пропуск» должны приехать картой
+        группа не является, но занятие №3 ему назначено). Маркеры «неоплачиваемый пропуск» должны приехать картой
         по номерам уроков — включая номер ИЗ ПЛАНА (№3), который здесь НЕ равен
         «следующему по прогрессу» (прогресс группы 0 → №1).
 
@@ -183,7 +172,9 @@ class TestGetData:
         а record_lesson молча ставил ему unpaid_skip и считал другую выплату.
         """
         _, owner_name = teacher_fixture
+        sub_id, _ = sub_teacher_fixture
         group_name = '__spa_test_group__ пн 10:00'
+        planned_id = _make_position(group_fixture, sub_id, 3, 3, '2026-06-10')
         with connection.cursor() as cur:
             cur.execute('UPDATE group_memberships SET lessons_done = 0 WHERE id = %s',
                         [membership_fixture])
@@ -198,6 +189,7 @@ class TestGetData:
         finally:
             with connection.cursor() as cur:
                 cur.execute('DELETE FROM lesson_skips WHERE group_id = %s', [group_fixture])
+                cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
 
 
 # ---------------------------------------------------------------------------
@@ -1330,156 +1322,25 @@ class TestLessonNumberFromPlan:
 
 
 # ---------------------------------------------------------------------------
-# report
+# Удалённые legacy-эндпоинты
 # ---------------------------------------------------------------------------
 
-class TestReport:
+class TestRemovedLegacyEndpoints:
+    """
+    GET /api/report и /api/schedule (+ их /refresh-редиректы) удалены 2026-09-30.
 
-    def test_report_structure(self, teacher_fixture, account_fixture):
-        """GET /api/report → {lessons, noTime, weekStart, cachedAt}."""
-        resp = _client('teacher', account_fixture).get('/api/report')
-        assert resp.status_code == 200
-        body = resp.json()
-        assert 'lessons' in body
-        assert 'noTime' in body
-        assert 'weekStart' in body
-        assert 'cachedAt' in body
-        week_start = body['weekStart']
-        assert len(week_start) == 10
-        assert week_start[4] == '-' and week_start[7] == '-'
+    Порты routes/teacher.js, у которых не осталось потребителей: календарь давно на
+    /api/calendar. При этом оба отдавали любому преподавателю группы ВСЕЙ школы —
+    /api/schedule ещё и с датой рождения и остатком оплаченных уроков каждого ученика
+    (аудит ПДн 2026-09-30). Тест держит их удалёнными: вернуть такой маршрут
+    «для совместимости» = вернуть утечку.
+    """
 
-    def test_report_week_start_is_monday(self, teacher_fixture, account_fixture):
-        """weekStart — это понедельник."""
-        import datetime
-        resp = _client('teacher', account_fixture).get('/api/report')
-        body = resp.json()
-        d = datetime.date.fromisoformat(body['weekStart'])
-        assert d.weekday() == 0
-
-    def test_report_group_with_time_in_lessons(
-        self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
-    ):
-        """Группа с временем в названии попадает в lessons."""
-        resp = _client('teacher', account_fixture).get('/api/report')
-        body = resp.json()
-        group_names_in_lessons = [item['group'] for item in body['lessons']]
-        assert '__spa_test_group__ пн 10:00' in group_names_in_lessons
-
-    def test_report_week_param_valid_monday(self, teacher_fixture, account_fixture):
-        """?week=<понедельник> → weekStart совпадает с переданным (навигация по неделям)."""
-        resp = _client('teacher', account_fixture).get('/api/report?week=2026-06-01')
-        assert resp.status_code == 200
-        assert resp.json()['weekStart'] == '2026-06-01'  # 2026-06-01 — понедельник
-
-    def test_report_week_param_non_monday_400(self, teacher_fixture, account_fixture):
-        """?week=<не понедельник> → 400."""
-        resp = _client('teacher', account_fixture).get('/api/report?week=2026-06-03')
-        assert resp.status_code == 400
-
-    def test_report_week_param_invalid_format_400(self, teacher_fixture, account_fixture):
-        """?week=<мусор> → 400."""
-        resp = _client('teacher', account_fixture).get('/api/report?week=not-a-date')
-        assert resp.status_code == 400
-
-    def test_report_no_week_param_defaults_to_current(self, teacher_fixture, account_fixture):
-        """Без ?week — weekStart остаётся текущим понедельником (parity)."""
-        import datetime
-        resp = _client('teacher', account_fixture).get('/api/report')
-        assert resp.status_code == 200
-        d = datetime.date.fromisoformat(resp.json()['weekStart'])
-        assert d.weekday() == 0
-
-    def test_report_mine_scopes_to_own_teacher(
-        self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
-    ):
-        """?mine=true → в ответе ТОЛЬКО уроки текущего преподавателя (серверный скоуп)."""
-        _, teacher_name = teacher_fixture
-        resp = _client('teacher', account_fixture).get('/api/report?mine=true')
-        assert resp.status_code == 200
-        body = resp.json()
-        for item in body['lessons'] + body['noTime']:
-            assert item['teacher'] == teacher_name
-        assert '__spa_test_group__ пн 10:00' in [i['group'] for i in body['lessons']]
-
-
-# ---------------------------------------------------------------------------
-# schedule
-# ---------------------------------------------------------------------------
-
-class TestSchedule:
-
-    def test_schedule_structure(self, teacher_fixture, account_fixture):
-        """GET /api/schedule → {lessons, noTime, cachedAt}."""
-        resp = _client('teacher', account_fixture).get('/api/schedule')
-        assert resp.status_code == 200
-        body = resp.json()
-        assert 'lessons' in body
-        assert 'noTime' in body
-        assert 'cachedAt' in body
-        assert 'weekStart' not in body
-
-    def test_schedule_students_have_full_info(
-        self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
-    ):
-        """В schedule students содержат {name, lessonsDone, remaining, birthDate}."""
-        resp = _client('teacher', account_fixture).get('/api/schedule')
-        body = resp.json()
-        group_lessons = [
-            item for item in body['lessons']
-            if item.get('group') == '__spa_test_group__ пн 10:00'
-        ]
-        assert len(group_lessons) >= 1
-        stu_list = group_lessons[0]['students']
-        assert len(stu_list) >= 1
-        stu = stu_list[0]
-        assert 'name' in stu
-        assert 'lessonsDone' in stu
-        assert 'remaining' in stu
-        assert 'birthDate' in stu
-
-    def test_schedule_no_time_sort_key(self, teacher_fixture, account_fixture):
-        """noTime items имеют sortKey=99999."""
-        resp = _client('teacher', account_fixture).get('/api/schedule')
-        body = resp.json()
-        for item in body['noTime']:
-            assert item.get('sortKey') == 99999
-
-    def test_schedule_has_all_times(
-        self, teacher_fixture, account_fixture, group_fixture, student_fixture, membership_fixture
-    ):
-        """lessons items содержат allTimes (список строк)."""
-        resp = _client('teacher', account_fixture).get('/api/schedule')
-        body = resp.json()
-        lesson_items = [
-            item for item in body['lessons']
-            if item.get('group') == '__spa_test_group__ пн 10:00'
-        ]
-        assert len(lesson_items) >= 1
-        assert 'allTimes' in lesson_items[0]
-        assert isinstance(lesson_items[0]['allTimes'], list)
-
-
-# ---------------------------------------------------------------------------
-# refresh redirects
-# ---------------------------------------------------------------------------
-
-class TestRefreshRedirects:
-
-    def test_report_refresh_302(self, teacher_fixture, account_fixture):
-        """GET /api/report/refresh → 302 → /api/report."""
-        resp = _client('teacher', account_fixture).get(
-            '/api/report/refresh', follow=False
-        )
-        assert resp.status_code == 302
-        assert resp['Location'] == '/api/report'
-
-    def test_schedule_refresh_302(self, teacher_fixture, account_fixture):
-        """GET /api/schedule/refresh → 302 → /api/schedule."""
-        resp = _client('teacher', account_fixture).get(
-            '/api/schedule/refresh', follow=False
-        )
-        assert resp.status_code == 302
-        assert resp['Location'] == '/api/schedule'
+    @pytest.mark.parametrize('url', [
+        '/api/report', '/api/report/refresh', '/api/schedule', '/api/schedule/refresh',
+    ])
+    def test_endpoint_is_gone(self, teacher_fixture, account_fixture, url):
+        assert _client('teacher', account_fixture).get(url).status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -1698,6 +1559,34 @@ class TestGroupProgress:
                 'scheduled_time, teacher_id, status, created_at, updated_at) '
                 "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, 'pending', NOW(), NOW()) RETURNING id",
                 [group_fixture, sub_id],
+            )
+            planned_id = cur.fetchone()[0]
+        try:
+            assert _client('teacher', sub_account_fixture).get(self._url()).status_code == 200
+        finally:
+            with connection.cursor() as cur:
+                cur.execute('DELETE FROM planned_lessons WHERE id = %s', [planned_id])
+
+    def test_one_off_substitute_200(
+        self, teacher_fixture, account_fixture,
+        sub_teacher_fixture, sub_account_fixture,
+        group_fixture, student_fixture, membership_fixture,
+    ):
+        """
+        Разовая замена на дату (substitute_teacher_id, преподаватель занятия прежний)
+        тоже открывает страницу группы. Раньше проверка смотрела только teacher_id:
+        заменяющий видел занятие в календаре и мог записать урок, а «Карточка группы»
+        из того же меню отдавала 403.
+        """
+        owner_id, _ = teacher_fixture
+        sub_id, _ = sub_teacher_fixture
+        with connection.cursor() as cur:
+            cur.execute(
+                'INSERT INTO planned_lessons (group_id, seq, lesson_number, scheduled_date, '
+                'scheduled_time, teacher_id, substitute_teacher_id, status, created_at, updated_at) '
+                "VALUES (%s, 1, 1, '2026-06-10', '10:00', %s, %s, 'pending', NOW(), NOW()) "
+                'RETURNING id',
+                [group_fixture, owner_id, sub_id],
             )
             planned_id = cur.fetchone()[0]
         try:
