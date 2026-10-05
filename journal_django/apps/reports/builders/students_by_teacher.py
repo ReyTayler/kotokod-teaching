@@ -15,15 +15,16 @@
     посещённым.
   • Единица — УРОК, не занятие: инвариант half-lesson (45 минут → 0.5). Вес
     берётся с самого занятия, не с группы: у отработок длительность своя.
-  • «Уроков у группы за месяц» — только курсовые занятия (COURSE_LESSON_TYPES).
-    Доп.урок и сгорание адресные: они принадлежат ученику, а не сетке группы.
-    Поэтому у ученика посещений может оказаться больше, чем провела группа, —
-    это отработка пропуска, и так и должно быть.
-  • Из сетки группы вычитаются неоплачиваемые пропуски ЭТОГО ученика
-    (`unpaid_skip`): такие занятия он не посещает и не оплачивает (перевод,
-    заморозка), спрашивать с него их нельзя. Поэтому колонка считается на пару
-    «ученик × группа», а не на группу: у двух учеников одной группы числа
-    законно разойдутся, а у пропустившего весь месяц будет 0.
+  • «Уроков у группы за месяц» — личная норма пары «ученик × группа»: курсовые
+    занятия (COURSE_LESSON_TYPES), на которых ученик был в списке отметок.
+    Занятия до прихода в группу и после выхода из неё сюда не входят — иначе
+    ушедшему в середине месяца отчёт засчитывал бы пропуски уроков, на которые
+    он уже не ходит. Доп.урок и сгорание адресные и норму не удлиняют, поэтому
+    посещений может оказаться больше нормы — это отработка пропуска.
+  • Из нормы вычитаются неоплачиваемые пропуски ЭТОГО ученика (`unpaid_skip`):
+    такие занятия он не посещает и не оплачивает (перевод, заморозка). У двух
+    учеников одной группы числа законно разойдутся, у пропустившего весь месяц
+    будет 0.
 
 См. docs/superpowers/specs/2026-09-03-students-by-teacher-report-design.md
 """
@@ -70,36 +71,23 @@ class StudentTeacherRow:
     direction_name: str
 
 
-def _group_month_lessons(month_start: datetime.date, month_end: datetime.date) -> dict:
-    """Сколько уроков провела каждая группа за месяц: group_id → сумма весов.
+def _personal_norm_pairs(month_start: datetime.date, month_end: datetime.date) -> dict:
+    """Личная норма месяца: (ученик, группа) → сумма весов уроков.
 
-    Только курсовые занятия: доп.урок и сгорание — адресные факты ученика, сетку
-    группы они не удлиняют (см. модуль-docstring).
-    """
-    rows = (
-        Lesson.objects
-        .filter(
-            lesson_date__gte=month_start,
-            lesson_date__lte=month_end,
-            lesson_type__in=COURSE_LESSON_TYPES,
-        )
-        .values('group_id')
-        .annotate(lessons=_lesson_weight('lesson_duration_minutes'))
-    )
-    return {r['group_id']: r['lessons'] or ZERO for r in rows}
+    Норма — курсовые занятия группы, на которых ученик был в списке отметок
+    (есть строка посещаемости — «был» или «не был»), за вычетом неоплачиваемых
+    пропусков. Строка посещаемости при записи урока создаётся на каждого
+    ученика группы, поэтому занятия до прихода в группу и после выхода из неё
+    в норму не попадают: сетку группы целиком с ученика спрашивать нельзя.
 
-
-def _unpaid_skip_pairs(month_start: datetime.date, month_end: datetime.date) -> dict:
-    """Неоплачиваемые пропуски месяца: (ученик, группа) → сумма весов уроков.
-
-    Эти занятия ученик не посещает и не оплачивает (перевод, заморозка) — из его
-    личной нормы они вычитаются, иначе отчёт требовал бы с него уроки, которых
-    для него не было.
+    Только курсовые занятия: доп.урок и сгорание — адресные факты ученика, норму
+    они не удлиняют (см. модуль-docstring). Неоплачиваемый пропуск (перевод,
+    заморозка) — занятие, которого для ученика не было.
     """
     rows = (
         LessonAttendance.objects
         .filter(
-            unpaid_skip=True,
+            unpaid_skip=False,
             lesson__lesson_date__gte=month_start,
             lesson__lesson_date__lte=month_end,
             lesson__lesson_type__in=COURSE_LESSON_TYPES,
@@ -160,8 +148,7 @@ def collect_month(month: str) -> list[StudentTeacherRow]:
     month_start = datetime.date.fromisoformat(start_str)
     month_end = datetime.date.fromisoformat(end_str)
 
-    group_lessons = _group_month_lessons(month_start, month_end)
-    unpaid_skips = _unpaid_skip_pairs(month_start, month_end)
+    norms = _personal_norm_pairs(month_start, month_end)
     by_pair = _attended_pairs(month_start, month_end)
 
     # Активные членства — чтобы ученик, не появившийся за месяц ни разу, тоже
@@ -183,13 +170,8 @@ def collect_month(month: str) -> list[StudentTeacherRow]:
             direction_name=m['group__direction__name'],
         )
 
-    # Личная норма ученика: сетка группы минус его неоплачиваемые пропуски.
-    # max(..., 0) — страховка от расхождений в данных (пропусков помечено больше,
-    # чем занятий в сетке): отрицательная «норма» в отчёте была бы бессмыслицей.
-    for (student_id, group_id), row in by_pair.items():
-        norm = group_lessons.get(group_id, ZERO) - unpaid_skips.get(
-            (student_id, group_id), ZERO)
-        row.group_lessons = norm if norm > ZERO else ZERO
+    for key, row in by_pair.items():
+        row.group_lessons = norms.get(key, ZERO)
 
     return sorted(
         by_pair.values(),

@@ -321,6 +321,51 @@ def test_unpaid_skip_subtracted_with_half_lesson_weight(data):
     assert (row.group_lessons, row.lessons) == (Decimal('0.5'), Decimal('0.5'))
 
 
+def test_lessons_after_leaving_group_are_not_in_norm(data):
+    """Ушёл из группы в середине месяца — дальнейшие её занятия с него не спрашиваются.
+
+    После выхода ученик в отметки группы не попадает, строк посещаемости у него
+    нет — норма считается только по занятиям, где он был в списке.
+    """
+    t = data.teacher('__sbt_tL__')
+    g = data.group('__sbt_gL__', t)
+    s_left, s_stay = data.student('__sbt_sL1__'), data.student('__sbt_sL2__')
+    data.membership(s_left, g, active=False)
+    data.membership(s_stay, g)
+    for i, day in enumerate(('2026-07-07', '2026-07-14', '2026-07-21', '2026-07-28'),
+                            start=1):
+        lesson = data.lesson(g, day, i)
+        data.attend(lesson, s_stay, present=True)
+        if i == 1:
+            data.attend(lesson, s_left, present=True)
+
+    rows = _rows()
+
+    assert (_row(rows, '__sbt_sL1__').group_lessons,
+            _row(rows, '__sbt_sL1__').lessons) == (Decimal('1'), Decimal('1'))
+    assert _row(rows, '__sbt_sL2__').group_lessons == Decimal('4')
+
+
+def test_lessons_before_joining_group_are_not_in_norm(data):
+    """Пришёл в группу в середине месяца — занятия до прихода в норму не входят,
+    а пропуск после прихода — входит."""
+    t = data.teacher('__sbt_tM__')
+    g = data.group('__sbt_gM__', t)
+    s_old, s_new = data.student('__sbt_sM1__'), data.student('__sbt_sM2__')
+    data.membership(s_old, g)
+    data.membership(s_new, g)
+    for i, day in enumerate(('2026-07-07', '2026-07-14', '2026-07-21', '2026-07-28'),
+                            start=1):
+        lesson = data.lesson(g, day, i)
+        data.attend(lesson, s_old, present=True)
+        if i >= 3:
+            data.attend(lesson, s_new, present=(i == 3))
+
+    row = _row(_rows(), '__sbt_sM2__')
+
+    assert (row.group_lessons, row.lessons) == (Decimal('2'), Decimal('1'))
+
+
 def test_group_without_lessons_in_month_has_zero_group_lessons(data):
     """Группа не занималась в месяце — 0 уроков у группы, не пустая ячейка."""
     t = data.teacher('__sbt_tG__')
