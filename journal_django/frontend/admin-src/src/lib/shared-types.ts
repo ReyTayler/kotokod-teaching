@@ -449,7 +449,7 @@ export interface DashboardData {
 
 /** GET /api/admin/dashboard/revenue — поступления за период (обе границы включительно). */
 export interface RevenuePoint {
-  revenue: number;          // сумма оплат, возвраты с минусом
+  revenue: number;          // поступления за день/месяц, без возвратов
   orders: number;           // число оплат с суммой > 0
   aov: number | null;       // средний чек = revenue / orders; null, если оплат нет
 }

@@ -81,23 +81,33 @@ def test_totals_daily_and_monthly(admin_client, student_id):
     body = resp.json()
 
     assert body['from'] == '2099-01-30' and body['to'] == '2099-02-02'
-    # Возврат вычитается из суммы, но заказом не считается.
-    assert body['revenue'] == 20000.5
+    # Дашборд показывает поступления: возврат на 3000 ₽ сумму НЕ уменьшает
+    # (решение пользователя 2026-10-05) и заказом не считается.
+    assert body['revenue'] == 23000.5
     assert body['orders'] == 3
-    assert body['aov'] == 6666.83                           # 20000.50 / 3, до копеек
+    assert body['aov'] == 7666.83                           # 23000.50 / 3, до копеек
     assert body['daily'] == [
         {'date': '2099-01-30', 'revenue': 15000.5, 'orders': 2, 'aov': 7500.25},
         # пустой день: сумма и заказы — ноль, средний чек — нет значения
         {'date': '2099-01-31', 'revenue': 0, 'orders': 0, 'aov': None},
         {'date': '2099-02-01', 'revenue': 8000, 'orders': 1, 'aov': 8000},
-        # только возврат: заказов нет → AOV не считается
-        {'date': '2099-02-02', 'revenue': -3000, 'orders': 0, 'aov': None},
+        # в этот день был только возврат — для дашборда день пустой, не минусовой
+        {'date': '2099-02-02', 'revenue': 0, 'orders': 0, 'aov': None},
     ]
     assert body['monthly'] == [
         {'month': '2099-01', 'revenue': 15000.5, 'orders': 2, 'aov': 7500.25},
-        # AOV = Revenue / Orders: возврат уменьшает средний чек месяца
-        {'month': '2099-02', 'revenue': 5000, 'orders': 1, 'aov': 5000},
+        {'month': '2099-02', 'revenue': 8000, 'orders': 1, 'aov': 8000},
     ]
+
+
+def test_refund_only_period_is_empty(manager_client, student_id):
+    """Период, где был только возврат: ноль, а не минус (возвраты в Revenue не идут)."""
+    _pay(student_id, '2099-04-10', -5000, kind='refund')
+    body = manager_client.get(URL, {'from': '2099-04-01', 'to': '2099-04-30'}).json()
+    assert body['revenue'] == 0
+    assert body['orders'] == 0
+    assert body['aov'] is None
+    assert all(d['revenue'] == 0 for d in body['daily'])
 
 
 def test_aov_null_without_orders(manager_client):
