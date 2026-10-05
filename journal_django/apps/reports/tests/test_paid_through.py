@@ -142,18 +142,18 @@ def test_inactive_membership_or_inactive_group_is_not_current_course(data):
 
 
 def test_student_without_groups_and_payments_is_in_report(data):
-    """Отчёт по всем ученикам базы: без групп и оплат — строка есть, срока нет."""
+    """Отчёт по всем ученикам базы: без групп и оплат — 0 месяцев, даты нет."""
     data.student('__pt_s4__')
 
     row = _rows()['__pt_s4__']
 
     assert (row.courses, row.balance, row.months, row.paid_until) == (
-        '', Decimal('0'), None, None)
+        '', Decimal('0'), Decimal('0'), None)
 
 
 def test_paid_lessons_without_current_course_give_no_date(data):
-    """Закончил или ушёл и нигде не учится: остаток виден, а срока нет —
-    оплата никуда не «идёт», дата была бы выдуманной."""
+    """Закончил или ушёл и нигде не учится: месяцы из остатка считаются
+    (уточнение пользователя 2026-10-05), а даты нет — оплата не расходуется."""
     d = data.direction('__pt_Done__')
     s = data.student('__pt_s8__')
     data.member(s, data.group('__pt_g8__', d), active=False)
@@ -162,7 +162,7 @@ def test_paid_lessons_without_current_course_give_no_date(data):
     row = _rows()['__pt_s8__']
 
     assert (row.courses, row.balance, row.months, row.paid_until) == (
-        '', Decimal('8'), None, None)
+        '', Decimal('8'), Decimal('2'), None)
 
 
 @pytest.mark.parametrize('key, kind', [('frozen', 'decision'), ('churned', 'lost')])
@@ -183,7 +183,7 @@ def test_frozen_or_churned_in_active_group_give_no_date(data, renewals_fixture, 
     row = _rows()[f'__pt_s9_{key}__']
 
     assert (row.courses, row.balance, row.months, row.paid_until) == (
-        f'__pt_{key}__', Decimal('8'), None, None)
+        f'__pt_{key}__', Decimal('8'), Decimal('2'), None)
 
 
 def test_studying_with_open_deal_keeps_date(data, renewals_fixture):
@@ -246,7 +246,7 @@ def test_build_writes_sheet_with_headers(data):
     assert row[0] == s.id and row[1] == 'P-7' and row[4] == 4 and row[5] == 1
     assert isinstance(row[6], datetime.datetime)
     gone = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[2] == '__pt_s7_gone__')
-    assert gone[5] is None and gone[6] is None  # не учится — пустые ячейки, не «0»
+    assert gone[5] == 0 and gone[6] is None  # не учится: месяцы есть всегда, даты нет
 
 
 def test_service_dispatches_report_type(data):

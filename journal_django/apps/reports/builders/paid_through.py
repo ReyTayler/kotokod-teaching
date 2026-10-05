@@ -15,11 +15,11 @@
     отработки денег): месяцев = остаток / 4; дата = сегодня + целые
     календарные месяцы + по неделе на каждый оставшийся урок. Остаток ≤ 0 —
     обучение не оплачено: 0 месяцев, даты нет.
-  • Срок считается ТОЛЬКО тем, кто сейчас учится (уточнение пользователя
-    2026-10-05): есть курс сейчас И последняя сделка продления не на стадии
-    «Заморожен» и не в исходе «Ушёл». Заморозка и уход членства не снимают
-    (спека 2026-07-25), поэтому одной группы мало. Остальным — пусто, а не
-    «0»: остаток у них есть, но оплата никуда не идёт, дата была бы выдуманной.
+  • «Месяцев обучения» — у ВСЕХ (уточнение пользователя 2026-10-05).
+    «Оплачено до» — ТОЛЬКО тем, кто сейчас учится: есть курс сейчас И
+    последняя сделка продления не на стадии «Заморожен» и не в исходе «Ушёл».
+    Заморозка и уход членства не снимают (спека 2026-07-25), поэтому одной
+    группы мало. Остальным дата пустая: оплата не расходуется, срок неизвестен.
 """
 from __future__ import annotations
 
@@ -52,8 +52,8 @@ class PaidThroughRow:
     full_name: str
     courses: str
     balance: Decimal
-    months: Decimal | None       # None — сейчас не учится, срок не считается
-    paid_until: datetime.date | None
+    months: Decimal
+    paid_until: datetime.date | None  # None — не оплачено или сейчас не учится
 
 
 def paid_until(balance: Decimal, today: datetime.date) -> tuple[Decimal, datetime.date | None]:
@@ -113,10 +113,9 @@ def collect(today: datetime.date) -> list[PaidThroughRow]:
         # balances_for_students отдаёт int|float — в Decimal через str, без хвостов float.
         balance = Decimal(str(balances[s['id']]))
         course = courses.get(s['id'], '')
-        if _is_studying(bool(course), s['stage_key'], s['stage_kind']):
-            months, until = paid_until(balance, today)
-        else:
-            months, until = None, None
+        months, until = paid_until(balance, today)
+        if not _is_studying(bool(course), s['stage_key'], s['stage_kind']):
+            until = None
         rows.append(PaidThroughRow(
             student_id=s['id'],
             platform_id=s['platform_id'],
@@ -160,8 +159,7 @@ def build_workbook(rows: list[PaidThroughRow], today: datetime.date):
         values = [
             row.student_id, row.platform_id or '', row.full_name, row.courses,
             # float, а не Decimal: иначе Excel не посчитает по колонке сам.
-            float(row.balance), float(row.months) if row.months is not None else None,
-            row.paid_until,
+            float(row.balance), float(row.months), row.paid_until,
         ]
         for c_idx, value in enumerate(values, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=value)
