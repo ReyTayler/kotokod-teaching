@@ -19,3 +19,4 @@ class ReportType(models.TextChoices):
     RETENTION = 'retention', 'Отчёт по переходимости (за месяц)'
     STUDENTS_BY_TEACHER = 'students_by_teacher', 'Ученики по преподавателям (за месяц)'
     ACCOUNTING_STUDENTS = 'accounting_students', 'Бухгалтерский отчёт (за месяц)'
+    PAID_THROUGH = 'paid_through', 'Оплачено до (на сегодня)'

@@ -28,6 +28,7 @@ from apps.reports.serializers import (
     AccountingReportParamsSerializer,
     AccountingStudentsParamsSerializer,
     AttendanceReportParamsSerializer,
+    PaidThroughParamsSerializer,
     RenewalsReportParamsSerializer,
     RetentionReportParamsSerializer,
     RevenueForecastParamsSerializer,
@@ -48,6 +49,7 @@ _PARAM_SERIALIZERS = {
     ReportType.RETENTION: RetentionReportParamsSerializer,
     ReportType.STUDENTS_BY_TEACHER: StudentsByTeacherParamsSerializer,
     ReportType.ACCOUNTING_STUDENTS: AccountingStudentsParamsSerializer,
+    ReportType.PAID_THROUGH: PaidThroughParamsSerializer,
 }
 
 

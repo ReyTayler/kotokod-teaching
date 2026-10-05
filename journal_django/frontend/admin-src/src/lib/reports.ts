@@ -22,6 +22,7 @@ export const REVENUE_FORECAST = 'revenue_forecast';
 export const RETENTION = 'retention';
 export const STUDENTS_BY_TEACHER = 'students_by_teacher';
 export const ACCOUNTING_STUDENTS = 'accounting_students';
+export const PAID_THROUGH = 'paid_through';
 
 // Месяцы для селекта.
 export const MONTHS_RU = [
@@ -47,6 +48,8 @@ export interface ReportTypeDef {
   toggles?: ReportToggleDef[];
   /** Подпись к селектору месяца, если «за месяц» неточно (у прогноза это старт раскладки). */
   monthLabel?: string;
+  /** Отчёт строится на сегодня — выбора месяца и года нет. */
+  noPeriod?: boolean;
   buildParams: (
     year: number,
     month: number,
@@ -120,6 +123,15 @@ export const REPORT_TYPES: ReportTypeDef[] = [
       + 'был. Неоплачиваемые пропуски из нормы вычитаются. Ученик из двух групп даёт '
       + 'две строки — по одной на преподавателя. 45-минутное занятие = 0,5 урока.',
     buildParams: (year, month) => ({ month: ym(year, month) }),
+  },
+  {
+    reportType: PAID_THROUGH,
+    title: 'Оплачено до',
+    desc: 'По каждому ученику базы на сегодня: на каком курсе учится сейчас, сколько '
+      + 'оплаченных уроков осталось и до какого числа хватит оплаты — по правилу '
+      + '«4 урока = 1 месяц». Два курса одновременно — через запятую в одной строке.',
+    noPeriod: true,
+    buildParams: () => ({}),
   },
 ];
 

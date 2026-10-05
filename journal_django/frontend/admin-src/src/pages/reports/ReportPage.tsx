@@ -33,7 +33,8 @@ function ReportForm({ def }: { def: ReportTypeDef }) {
   }, [status?.state, status?.filename, taskId]);
 
   // Не даём выбрать будущий месяц (бэк тоже валидирует).
-  const isFuture = year > CURRENT_YEAR || (year === CURRENT_YEAR && month > now.getMonth() + 1);
+  const isFuture = !def.noPeriod
+    && (year > CURRENT_YEAR || (year === CURRENT_YEAR && month > now.getMonth() + 1));
   const errorMessage =
     triggerError?.message ?? statusError?.message ?? (status?.state === 'FAILURE' ? status.error : null);
 
@@ -56,22 +57,26 @@ function ReportForm({ def }: { def: ReportTypeDef }) {
           onSubmit={(e) => { e.preventDefault(); start(); }}
         >
           <div className="report-form__fields">
-            <Field label={def.monthLabel ?? 'Месяц'}>
-              <SelectInput
-                value={month}
-                onChange={(e) => { setMonth(Number(e.target.value)); setDownloaded(false); }}
-                options={MONTHS_RU.map((label, i) => ({ value: i + 1, label }))}
-                disabled={isBusy}
-              />
-            </Field>
-            <Field label="Год">
-              <SelectInput
-                value={year}
-                onChange={(e) => { setYear(Number(e.target.value)); setDownloaded(false); }}
-                options={YEARS.map((y) => ({ value: y, label: String(y) }))}
-                disabled={isBusy}
-              />
-            </Field>
+            {!def.noPeriod && (
+              <>
+                <Field label={def.monthLabel ?? 'Месяц'}>
+                  <SelectInput
+                    value={month}
+                    onChange={(e) => { setMonth(Number(e.target.value)); setDownloaded(false); }}
+                    options={MONTHS_RU.map((label, i) => ({ value: i + 1, label }))}
+                    disabled={isBusy}
+                  />
+                </Field>
+                <Field label="Год">
+                  <SelectInput
+                    value={year}
+                    onChange={(e) => { setYear(Number(e.target.value)); setDownloaded(false); }}
+                    options={YEARS.map((y) => ({ value: y, label: String(y) }))}
+                    disabled={isBusy}
+                  />
+                </Field>
+              </>
+            )}
             {def.toggles?.map((t) => (
               <div key={t.key} className="report-form__toggle">
                 <Checkbox

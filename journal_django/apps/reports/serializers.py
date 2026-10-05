@@ -65,3 +65,7 @@ class StudentsByTeacherParamsSerializer(_MonthStringSerializer):
 
 class AccountingStudentsParamsSerializer(_MonthStringSerializer):
     """Параметры «Бухгалтерского отчёта» (по ученикам): месяц строкой YYYY-MM."""
+
+
+class PaidThroughParamsSerializer(serializers.Serializer):
+    """Параметры отчёта «Оплачено до»: их нет — отчёт строится на сегодня (МСК)."""
