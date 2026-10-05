@@ -15,6 +15,11 @@
     отработки денег): месяцев = остаток / 4; дата = сегодня + целые
     календарные месяцы + по неделе на каждый оставшийся урок. Остаток ≤ 0 —
     обучение не оплачено: 0 месяцев, даты нет.
+  • Срок считается ТОЛЬКО тем, кто сейчас учится (уточнение пользователя
+    2026-10-05): есть курс сейчас И последняя сделка продления не на стадии
+    «Заморожен» и не в исходе «Ушёл». Заморозка и уход членства не снимают
+    (спека 2026-07-25), поэтому одной группы мало. Остальным — пусто, а не
+    «0»: остаток у них есть, но оплата никуда не идёт, дата была бы выдуманной.
 """
 from __future__ import annotations
 
@@ -26,9 +31,13 @@ from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
 from dateutil.relativedelta import relativedelta
 
+from django.db.models import OuterRef, Subquery
+
 from apps.core.utils.dates import msk_now
 from apps.finances.repository import balances_for_students
 from apps.memberships.models import GroupMembership
+from apps.renewals.models import RenewalDeal, RenewalStage
+from apps.renewals.transitions import FROZEN_KEY
 from apps.students.models import Student
 
 LESSONS_PER_MONTH = Decimal('4')
@@ -43,7 +52,7 @@ class PaidThroughRow:
     full_name: str
     courses: str
     balance: Decimal
-    months: Decimal
+    months: Decimal | None       # None — сейчас не учится, срок не считается
     paid_until: datetime.date | None
 
 
@@ -76,9 +85,26 @@ def _current_courses() -> dict[int, str]:
     return {sid: ', '.join(sorted(names)) for sid, names in by_student.items()}
 
 
+def _is_studying(has_course: bool, stage_key: str | None, stage_kind: str | None) -> bool:
+    """Учится сейчас: есть курс сейчас и последняя сделка не «Заморожен»/«Ушёл».
+    Нет сделок вовсе (новичок) — решает только курс."""
+    return has_course and stage_key != FROZEN_KEY and stage_kind != RenewalStage.Kind.LOST
+
+
 def collect(today: datetime.date) -> list[PaidThroughRow]:
-    """Все ученики базы, по возрастанию ID. Три запроса: ученики, членства, баланс."""
-    students = list(Student.objects.order_by('id').values('id', 'full_name', 'platform_id'))
+    """Все ученики базы, по возрастанию ID. Три запроса: ученики (со стадией
+    последней сделки), членства, баланс."""
+    # Стадия ПОСЛЕДНЕЙ сделки (max cycle_no) — «статус» ученика; тот же
+    # коррелированный подзапрос, что в apps.students.repository (Index Scan по
+    # UNIQUE (student_id, cycle_no)).
+    latest = RenewalDeal.objects.filter(student_id=OuterRef('pk')).order_by('-cycle_no')
+    students = list(
+        Student.objects
+        .annotate(stage_key=Subquery(latest.values('stage__key')[:1]),
+                  stage_kind=Subquery(latest.values('stage__kind')[:1]))
+        .order_by('id')
+        .values('id', 'full_name', 'platform_id', 'stage_key', 'stage_kind')
+    )
     courses = _current_courses()
     balances = balances_for_students([s['id'] for s in students])
 
@@ -86,12 +112,16 @@ def collect(today: datetime.date) -> list[PaidThroughRow]:
     for s in students:
         # balances_for_students отдаёт int|float — в Decimal через str, без хвостов float.
         balance = Decimal(str(balances[s['id']]))
-        months, until = paid_until(balance, today)
+        course = courses.get(s['id'], '')
+        if _is_studying(bool(course), s['stage_key'], s['stage_kind']):
+            months, until = paid_until(balance, today)
+        else:
+            months, until = None, None
         rows.append(PaidThroughRow(
             student_id=s['id'],
             platform_id=s['platform_id'],
             full_name=s['full_name'],
-            courses=courses.get(s['id'], ''),
+            courses=course,
             balance=balance,
             months=months,
             paid_until=until,
@@ -130,7 +160,8 @@ def build_workbook(rows: list[PaidThroughRow], today: datetime.date):
         values = [
             row.student_id, row.platform_id or '', row.full_name, row.courses,
             # float, а не Decimal: иначе Excel не посчитает по колонке сам.
-            float(row.balance), float(row.months), row.paid_until,
+            float(row.balance), float(row.months) if row.months is not None else None,
+            row.paid_until,
         ]
         for c_idx, value in enumerate(values, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=value)

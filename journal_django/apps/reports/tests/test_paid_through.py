@@ -142,13 +142,67 @@ def test_inactive_membership_or_inactive_group_is_not_current_course(data):
 
 
 def test_student_without_groups_and_payments_is_in_report(data):
-    """Отчёт по всем ученикам базы: без групп и оплат — строка с нулями."""
+    """Отчёт по всем ученикам базы: без групп и оплат — строка есть, срока нет."""
     data.student('__pt_s4__')
 
     row = _rows()['__pt_s4__']
 
     assert (row.courses, row.balance, row.months, row.paid_until) == (
-        '', Decimal('0'), Decimal('0'), None)
+        '', Decimal('0'), None, None)
+
+
+def test_paid_lessons_without_current_course_give_no_date(data):
+    """Закончил или ушёл и нигде не учится: остаток виден, а срока нет —
+    оплата никуда не «идёт», дата была бы выдуманной."""
+    d = data.direction('__pt_Done__')
+    s = data.student('__pt_s8__')
+    data.member(s, data.group('__pt_g8__', d), active=False)
+    data.pay(s, d, 8)
+
+    row = _rows()['__pt_s8__']
+
+    assert (row.courses, row.balance, row.months, row.paid_until) == (
+        '', Decimal('8'), None, None)
+
+
+@pytest.mark.parametrize('key, kind', [('frozen', 'decision'), ('churned', 'lost')])
+def test_frozen_or_churned_in_active_group_give_no_date(data, renewals_fixture, key, kind):
+    """Заморозка и уход не снимают членства (решение 2026-07-25), поэтому
+    смотрим стадию ПОСЛЕДНЕЙ сделки: такой ученик сейчас не учится."""
+    f = renewals_fixture
+    pipe = f.pipeline()
+    lesson_stage = f.stage(pipe, 'lesson_2', 'Урок 2', 'progress')
+    stop_stage = f.stage(pipe, key, key, kind)
+    d = data.direction(f'__pt_{key}__')
+    s = data.student(f'__pt_s9_{key}__')
+    data.member(s, data.group(f'__pt_g9_{key}__', d))
+    data.pay(s, d, 8)
+    f.deal(s.id, pipe, lesson_stage, cycle_no=1)
+    f.deal(s.id, pipe, stop_stage, cycle_no=2)
+
+    row = _rows()[f'__pt_s9_{key}__']
+
+    assert (row.courses, row.balance, row.months, row.paid_until) == (
+        f'__pt_{key}__', Decimal('8'), None, None)
+
+
+def test_studying_with_open_deal_keeps_date(data, renewals_fixture):
+    """Обычная стадия последней сделки — ученик учится, срок считается.
+    Заморозка в СТАРОЙ сделке роли не играет: смотрим только последнюю."""
+    f = renewals_fixture
+    pipe = f.pipeline()
+    frozen = f.stage(pipe, 'frozen', 'Заморожен', 'decision')
+    lesson_stage = f.stage(pipe, 'lesson_1', 'Урок 1', 'progress')
+    d = data.direction('__pt_Open__')
+    s = data.student('__pt_s10__')
+    data.member(s, data.group('__pt_g10__', d))
+    data.pay(s, d, 4)
+    f.deal(s.id, pipe, frozen, cycle_no=1)
+    f.deal(s.id, pipe, lesson_stage, cycle_no=2)
+
+    row = _rows()['__pt_s10__']
+
+    assert (row.months, row.paid_until) == (Decimal('1'), datetime.date(2026, 11, 5))
 
 
 def test_debt_has_negative_balance_and_no_date(data):
@@ -173,8 +227,11 @@ def test_rows_sorted_by_student_id(data):
 
 
 def test_build_writes_sheet_with_headers(data):
+    d = data.direction('__pt_Scratch__')
     s = data.student('__pt_s7__', platform_id='P-7')
-    data.pay(s, data.direction('__pt_Scratch__'), 4)
+    data.member(s, data.group('__pt_g7__', d))
+    data.pay(s, d, 4)
+    data.student('__pt_s7_gone__')
 
     content, row_count, filename = build()
 
@@ -188,6 +245,8 @@ def test_build_writes_sheet_with_headers(data):
     row = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[2] == '__pt_s7__')
     assert row[0] == s.id and row[1] == 'P-7' and row[4] == 4 and row[5] == 1
     assert isinstance(row[6], datetime.datetime)
+    gone = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[2] == '__pt_s7_gone__')
+    assert gone[5] is None and gone[6] is None  # не учится — пустые ячейки, не «0»
 
 
 def test_service_dispatches_report_type(data):
