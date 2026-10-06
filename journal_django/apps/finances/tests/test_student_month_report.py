@@ -53,6 +53,20 @@ def _add_lesson(created, group_id, teacher_id, student_id, date,
     return lid
 
 
+def _add_refund(created, student_id, direction_id, lessons, amount, paid_at):
+    """Строка возврата: уроки и сумма со знаком минус (CHECK payments_refund_signs)."""
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO payments (student_id, direction_id, lessons_count, kind, "
+            "unit_price, total_amount, paid_at, created_by) "
+            "VALUES (%s,%s,%s,'refund',0,%s,%s,'test') RETURNING id",
+            [student_id, direction_id, -lessons, -amount, paid_at],
+        )
+        pid = cur.fetchone()[0]
+    created['payments'].append(pid)
+    return pid
+
+
 def _rows(month, student_id):
     return [r for r in collect_student_month(month) if r.student_id == student_id]
 
@@ -291,3 +305,40 @@ def test_payment_made_after_month_end_does_not_exist_in_snapshot(
     # Цены на отчётную дату ещё не существовало — берём тариф ближайшей оплаты.
     assert debt_row.debt == Decimal('500.00')
 
+
+
+def test_refund_of_month_is_shown_on_its_payment_row(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Возврат месяца — на строке оплаты, из которой вернули деньги. Строка есть,
+    даже если после возврата остаток нулевой и уроков в месяце не было: иначе
+    сверка аванса за месяц теряет сумму возврата."""
+    pid = _add_payment(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
+    _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-06-10')
+    _add_refund(graph_cleanup, student_fixture, direction_fixture, 3, 1500, '2026-07-15')
+
+    june = _rows('2026-06', student_fixture)
+    july = _rows('2026-07', student_fixture)
+
+    assert [(r.payment_id, r.refunded_in_month, r.remaining_value) for r in june] == [
+        (pid, Decimal('0'), Decimal('1500.00'))]
+    assert [(r.payment_id, r.refunded_in_month, r.remaining_value) for r in july] == [
+        (pid, Decimal('1500.00'), Decimal('0.00'))]
+    # Сверка бухгалтерии: аванс июля = аванс июня − отработано + оплачено − возврат.
+    advance = lambda rows: sum((r.remaining_value for r in rows), Decimal('0'))
+    total = lambda rows, attr: sum((getattr(r, attr) for r in rows), Decimal('0'))
+    assert advance(july) == (advance(june) - total(july, 'worked_off')
+                             + total(july, 'paid_in_month') - total(july, 'refunded_in_month'))
+
+
+def test_refund_after_month_end_is_not_in_snapshot(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Возврат следующего месяца в снимок не входит: аванс на конец месяца целый."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 4, 500, '2026-06-01')
+    _add_refund(graph_cleanup, student_fixture, direction_fixture, 4, 2000, '2026-08-03')
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert [(r.refunded_in_month, r.remaining_value) for r in rows] == [
+        (Decimal('0'), Decimal('2000.00'))]

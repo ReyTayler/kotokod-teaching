@@ -53,6 +53,9 @@ consumptions: [{ 'units': 1|0.5, 'date': 'YYYY-MM-DD', 'direction_id': int|None,
   в разрезе ПЛАТЕЖА (не направления): чьи именно деньги стали выручкой в этом
   месяце. remaining_by_payment / refunded_by_payment: { payment_id: Decimal } —
   тот же разрез для неотработанного остатка и для денег, погашенных возвратом.
+  refunded_by_month_payment: { (ym, payment_id): Decimal } — возврат по месяцу
+  ДАТЫ ВОЗВРАТА: бухгалтерская сверка аванса за месяц («аванс на начало −
+  отработано + оплачено − возвраты = аванс на конец») требует возвратов месяца.
   Все три — ТОЧНЫЕ Decimal без округления (потребитель — реестр признания
   выручки, apps/finances/reports.py — округляет один раз). Партии без
   payment_id в эти разрезы не попадают.
@@ -131,6 +134,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
     remaining_by_payment: dict = {}
     remaining_lessons_by_payment: dict = {}  # хвост оплаты в уроках
     refunded_by_payment: dict = {}
+    refunded_by_month_payment: dict = {}
     # Перерасход ВНУТРИ месяца — отдельно от накопленного за всю историю:
     # строка отчёта рассказывает про месяц, а не про весь долг ученика.
     over_consumed_month = _ZERO
@@ -204,6 +208,10 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
                 # Возврат: деньги партии погашены, но выручкой не стали.
                 refunded_by_payment[payment_id] = (
                     refunded_by_payment.get(payment_id, _ZERO) + value
+                )
+                rm_key = (c['date'][:7], payment_id)
+                refunded_by_month_payment[rm_key] = (
+                    refunded_by_month_payment.get(rm_key, _ZERO) + value
                 )
             lot_remaining -= take
             need -= take
@@ -316,6 +324,7 @@ def compute_fifo(lots, consumptions, month_start: str, month_end: str) -> dict:
         'remaining_by_payment': dict(remaining_by_payment),
         'remaining_lessons_by_payment': dict(remaining_lessons_by_payment),
         'refunded_by_payment': dict(refunded_by_payment),
+        'refunded_by_month_payment': dict(refunded_by_month_payment),
         # { lesson_id: Decimal } — признанные ДЕНЬГИ в разрезе конкретного урока
         # и { lesson_id: Decimal } — сколько УРОКОВ этой записи прошло сверх
         # оплаченного (half-lesson = 0.5; второй разрез — не деньги, через

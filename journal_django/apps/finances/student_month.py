@@ -15,6 +15,10 @@
   • «Стоимость 1 урока» — цена урока этой оплаты (с учётом доплат к абонементу);
   • «Итого оплачено за месяц» — сумма оплаты, ЕСЛИ она пришла в выбранном месяце;
     у давней оплаты здесь 0, но аванс всё равно показывается;
+  • «Возврат за месяц» — деньги этой оплаты, возвращённые клиенту в месяце
+    (по дате возврата). Нужен бухгалтерской сверке (решение пользователя
+    2026-10-05): аванс на конец = аванс на конец прошлого месяца − отработано +
+    оплачено − возврат. Возврат уменьшает аванс, но выручкой не становится;
   • «Остаток оплаченных уроков» / «Остаток аванса» — непогашенный хвост ЭТОЙ
     оплаты на конец месяца. Оплата с остатком даёт строку даже без движения в
     месяце, поэтому колонка суммируется в аванс всей школы на отчётную дату;
@@ -62,6 +66,7 @@ class StudentMonthRow:
     attended_lessons: int | float
     worked_off: Decimal
     paid_in_month: Decimal       # сумма оплаты, если она пришла в этом месяце
+    refunded_in_month: Decimal   # деньги этой оплаты, возвращённые в этом месяце
     remaining_lessons: int | float
     remaining_value: Decimal
     debt: Decimal
@@ -188,13 +193,18 @@ def collect_student_month(month: str) -> list[StudentMonthRow]:
         worked_lessons = fifo.get('worked_off_lessons_by_month_payment', {})
         remaining_money = fifo.get('remaining_by_payment', {})
         remaining_lessons = fifo.get('remaining_lessons_by_payment', {})
+        refunded_money = fifo.get('refunded_by_month_payment', {})
 
         # Строку даёт оплата, если в месяце с неё списывали деньги, ИЛИ деньги по
         # ней пришли в месяце, ИЛИ на конец месяца по ней остался неотработанный
-        # хвост. Последнее — ради снимка: остаток обязан быть виден у каждого
-        # ребёнка, даже если в этом месяце он не занимался и не платил.
+        # хвост, ИЛИ из неё в месяце вернули деньги. Хвост — ради снимка: остаток
+        # обязан быть виден у каждого ребёнка, даже если в этом месяце он не
+        # занимался и не платил. Возврат — ради сверки аванса: полный возврат
+        # обнуляет хвост, и без своей строки сумма возврата пропала бы.
         involved = {
             pid for (ym, pid) in worked_money if ym == month
+        } | {
+            pid for (ym, pid) in refunded_money if ym == month
         } | {
             pid for pid in paid_this_month if meta[pid]['student_id'] == sid
         } | {
@@ -215,6 +225,7 @@ def collect_student_month(month: str) -> list[StudentMonthRow]:
                 attended_lessons=js_number(worked_lessons.get((month, pid), _ZERO)),
                 worked_off=round_kopecks(worked_money.get((month, pid), _ZERO)),
                 paid_in_month=m['cash_in_month'],
+                refunded_in_month=round_kopecks(refunded_money.get((month, pid), _ZERO)),
                 remaining_lessons=js_number(remaining_lessons.get(pid, _ZERO)),
                 remaining_value=round_kopecks(remaining_money.get(pid, _ZERO)),
                 debt=_ZERO,
@@ -227,6 +238,8 @@ def collect_student_month(month: str) -> list[StudentMonthRow]:
         # поэтому обе колонки обязаны сойтись с итогом ученика до копейки.
         _absorb_residual(student_rows, 'worked_off', fifo.get('worked_off_month', _ZERO))
         _absorb_residual(student_rows, 'remaining_value', fifo.get('remaining_value', _ZERO))
+        _absorb_residual(student_rows, 'refunded_in_month', round_kopecks(sum(
+            (v for (ym, _), v in refunded_money.items() if ym == month), _ZERO)))
 
         # Уроки сверх оплаченных: своей оплаты у них нет — отдельная строка.
         # «Долг» — величина НА КОНЕЦ МЕСЯЦА (как и «Аванс»), а не только за месяц:
@@ -260,6 +273,7 @@ def collect_student_month(month: str) -> list[StudentMonthRow]:
                 attended_lessons=js_number(month_lessons),
                 worked_off=_ZERO,
                 paid_in_month=_ZERO,
+                refunded_in_month=_ZERO,
                 # Остаток оплаченных уроков у долга отрицательный: сумма колонки
                 # по ученику даёт его настоящий баланс (аванс минус долг).
                 remaining_lessons=js_number(-debt_lessons),
@@ -278,6 +292,7 @@ def collect_student_month(month: str) -> list[StudentMonthRow]:
                 attended_lessons=0,
                 worked_off=_ZERO,
                 paid_in_month=_ZERO,
+                refunded_in_month=_ZERO,
                 remaining_lessons=0,
                 remaining_value=_ZERO,
                 debt=_ZERO,
@@ -299,7 +314,7 @@ _GRID = 'FFD9D9D9'
 HEADERS = [
     'ФИО ученика', 'Platform ID', 'Посещено уроков за месяц',
     'Отработано деньгами за месяц, ₽', 'Стоимость 1 урока, ₽', 'Дата оплаты',
-    'Итого оплачено за месяц, ₽', 'Остаток оплаченных уроков',
+    'Итого оплачено за месяц, ₽', 'Возврат за месяц, ₽', 'Остаток оплаченных уроков',
     'Остаток аванса, ₽', 'Долг, ₽',
 ]
 
@@ -321,7 +336,7 @@ def build_workbook(rows: list[StudentMonthRow]):
     for col in range(1, last_col + 1):
         if col <= 4:
             colour = _HEADER_WHO
-        elif col <= 7:
+        elif col <= 8:
             colour = _HEADER_PAY
         else:
             colour = _HEADER_TOTAL
@@ -340,6 +355,7 @@ def build_workbook(rows: list[StudentMonthRow]):
             float(row.unit_price) if row.unit_price is not None else '-',
             datetime.date.fromisoformat(row.paid_at) if row.paid_at else '-',
             float(row.paid_in_month),
+            float(row.refunded_in_month),
             row.remaining_lessons,
             float(row.remaining_value),
             float(row.debt),
@@ -354,14 +370,14 @@ def build_workbook(rows: list[StudentMonthRow]):
             cell = ws.cell(row=excel_row, column=col)
             cell.font = body_font
             cell.border = grid
-        for col in (4, 5, 7, 9, 10):
+        for col in (4, 5, 7, 8, 10, 11):
             ws.cell(row=excel_row, column=col).number_format = _MONEY_FMT
         date_cell = ws.cell(row=excel_row, column=6)
         if isinstance(date_cell.value, datetime.date):
             date_cell.number_format = _DATE_FMT
             date_cell.alignment = date_align
 
-    widths = {1: 32, 2: 14, 3: 14, 4: 18, 5: 15, 6: 13, 7: 18, 8: 16, 9: 16, 10: 12}
+    widths = {1: 32, 2: 14, 3: 14, 4: 18, 5: 15, 6: 13, 7: 18, 8: 16, 9: 16, 10: 16, 11: 12}
     for col_idx, width in widths.items():
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 

@@ -362,6 +362,28 @@ def test_refund_fills_refunded_by_payment_and_not_revenue():
     assert r['remaining_by_payment'] == {3: _D(500)}
 
 
+def test_refund_is_split_by_month_and_payment():
+    """Возврат по месяцу ДАТЫ ВОЗВРАТА и по оплате, из партии которой вернули
+    деньги: бухгалтерская сверка «аванс на конец = аванс на начало − отработано
+    + оплачено − возвраты» требует возвратов именно этого месяца."""
+    lots = [
+        {'lessons': 2, 'price_per_lesson': _D(500), 'payment_id': 3},
+        {'lessons': 4, 'price_per_lesson': _D(600), 'payment_id': 4},
+    ]
+    cons = [
+        {'units': 1, 'date': '2026-05-10', 'refund': True},
+        # Июньский возврат гасит остаток первой оплаты и захватывает вторую.
+        {'units': 3, 'date': '2026-06-20', 'refund': True},
+    ]
+    r = compute_fifo(lots, cons, MS, ME)
+    assert r['refunded_by_month_payment'] == {
+        ('2026-05', 3): _D(500),
+        ('2026-06', 3): _D(500),
+        ('2026-06', 4): _D(1200),
+    }
+    assert r['refunded_by_payment'] == {3: _D(1000), 4: _D(1200)}
+
+
 def test_payment_cuts_are_exact_and_reconcile_with_lot_value():
     """Инвариант строки отчёта: стоимость партий = выручка + возврат + остаток."""
     lots = [{'lessons': 3, 'price_per_lesson': _D(1000) / _D(3), 'payment_id': 5}]
