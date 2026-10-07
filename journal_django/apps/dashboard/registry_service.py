@@ -31,7 +31,7 @@ from django.db.models.functions import Coalesce
 
 from apps.core.utils.dates import msk_month_range_triple, msk_now
 from apps.core.utils.decimal import js_number, to_decimal
-from apps.lessons.models import LessonAttendance
+from apps.lessons.models import LessonAttendance, LessonSkip
 from apps.memberships.models import GroupMembership
 from apps.scheduling import repository as sched_repo
 from apps.scheduling.occurrences import OVERDUE, PENDING
@@ -147,6 +147,85 @@ def _membership_sum_subquery(field: str):
     )
 
 
+def _half_weight(duration_field: str) -> Case:
+    """Вес слота курса в уроках: 45 мин = 0.5, иначе 1 (шаг lessons_done)."""
+    return Case(
+        When(**{duration_field: 45}, then=Value(Decimal('0.5'))),
+        default=Value(Decimal('1')),
+        output_field=_DEC,
+    )
+
+
+def _skip_sources() -> tuple[QuerySet, QuerySet]:
+    """
+    «Неоплачиваемый пропуск» в активных группах ученика — два источника.
+
+    Пропуск — терминальный исход «этот урок ученик прошёл в другом месте»
+    (перевод / начал не с 1-го), поэтому в прогресс курса он идёт наравне с
+    посещением. lessons_done его не содержит: счётчик растёт только на
+    present=true (apps.lessons.services.record_lesson), а пропуск — present=false.
+
+    Пропуск хранится в двух местах (apps.lessons.models):
+      • lesson_skips — пометка на СЛОТ группы, в т.ч. на ещё не проведённый
+        урок; вес — по длительности группы (урока ещё нет);
+      • lesson_attendance.unpaid_skip — исход на проведённом уроке, ставится и
+        точечно, без пометки; вес — по длительности урока. Слот, на котором
+        стоит и пометка, отсюда исключён: пометка материализуется в посещаемость
+        (set_lesson_skip), и без исключения слот посчитался бы дважды.
+
+    Слоты ≤ lesson_number_offset не считаются: в группе-продолжении перевода
+    lessons_done уже засеян этим числом уроков (Фаза 1b transfer-progress).
+
+    Возвращает два queryset'а без группировки — список и сводка группируют их
+    по-своему (коррелированно и пакетно), а условия живут в одном месте.
+    """
+    active_membership = GroupMembership.objects.filter(
+        group_id=OuterRef('group_id'), student_id=OuterRef('student_id'), active=True,
+    )
+    slots = LessonSkip.objects.filter(
+        Exists(active_membership),
+        group__active=True,
+        lesson_number__gt=F('group__lesson_number_offset'),
+    )
+    marked_slot = LessonSkip.objects.filter(
+        group_id=OuterRef('lesson__group_id'),
+        student_id=OuterRef('student_id'),
+        lesson_number=OuterRef('lesson__lesson_number'),
+    )
+    attendance = LessonAttendance.objects.filter(
+        Exists(GroupMembership.objects.filter(
+            group_id=OuterRef('lesson__group_id'),
+            student_id=OuterRef('student_id'),
+            active=True,
+        )),
+        ~Exists(marked_slot),
+        unpaid_skip=True,
+        lesson__group__active=True,
+        lesson__lesson_number__gt=F('lesson__group__lesson_number_offset'),
+    ).exclude(lesson__lesson_type__in=('extra', 'burned'))
+    return slots, attendance
+
+
+_SLOT_SKIP_WEIGHT = 'group__lesson_duration_minutes'
+_ATT_SKIP_WEIGHT = 'lesson__lesson_duration_minutes'
+
+
+def _skipped_units_subquery():
+    """Σ неоплачиваемых пропусков ученика в активных группах (в уроках)."""
+    slots, attendance = _skip_sources()
+
+    def per_student(qs: QuerySet, weight_field: str):
+        return Coalesce(Subquery(
+            qs.filter(student_id=OuterRef('pk'))
+            .values('student_id')
+            .annotate(u=Sum(_half_weight(weight_field)))
+            .values('u')[:1],
+            output_field=_DEC,
+        ), _ZERO_DEC)
+
+    return per_student(slots, _SLOT_SKIP_WEIGHT) + per_student(attendance, _ATT_SKIP_WEIGHT)
+
+
 def _last_lesson_subquery():
     """
     Дата последнего посещённого занятия (для idle-флага).
@@ -209,7 +288,13 @@ def base_students_qs(today: datetime.date, *, no_group: bool = False) -> QuerySe
                 - Coalesce(_attended_units_subquery(), _ZERO_DEC),
                 output_field=_DEC,
             ),
-            attended=Coalesce(_membership_sum_subquery('lessons_done'), _ZERO_DEC),
+            # Прогресс курса = пройдено в группах + неоплачиваемые пропуски в них
+            # (уроки, пройденные в другом месте; см. _skip_sources).
+            attended=ExpressionWrapper(
+                Coalesce(_membership_sum_subquery('lessons_done'), _ZERO_DEC)
+                + _skipped_units_subquery(),
+                output_field=_DEC,
+            ),
             planned=Coalesce(
                 _membership_sum_subquery('group__direction__total_lessons'), _ZERO_DEC,
             ),
@@ -319,6 +404,19 @@ def _summary_rows(today: datetime.date) -> list[dict]:
         .values_list('group__memberships__student_id', 'd')
     )
 
+    # Неоплачиваемые пропуски — те же два источника и условия, что в списке
+    # (_skip_sources), только сгруппированные по всем ученикам сразу.
+    skip_slots, skip_attendance = _skip_sources()
+    skipped: dict[int, Decimal] = {}
+    for qs, weight_field in ((skip_slots, _SLOT_SKIP_WEIGHT),
+                             (skip_attendance, _ATT_SKIP_WEIGHT)):
+        for sid, u in (
+            qs.values('student_id')
+            .annotate(u=Sum(_half_weight(weight_field)))
+            .values_list('student_id', 'u')
+        ):
+            skipped[sid] = skipped.get(sid, Decimal('0')) + to_decimal(u)
+
     rows = []
     for m in mem_rows:
         sid = m['student_id']
@@ -329,7 +427,7 @@ def _summary_rows(today: datetime.date) -> list[dict]:
             # (тест test_summary_batch_matches_annotated_queryset) и отладке.
             'student_id': sid,
             'balance': to_decimal(purchased.get(sid, 0)) - to_decimal(units),
-            'attended': m['attended'],
+            'attended': to_decimal(m['attended']) + skipped.get(sid, Decimal('0')),
             'planned': m['planned'],
             'last_lesson': att['last'] if att else None,
             'next_lesson': next_lesson.get(sid),
