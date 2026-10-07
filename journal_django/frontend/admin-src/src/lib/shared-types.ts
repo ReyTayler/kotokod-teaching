@@ -454,6 +454,17 @@ export interface RevenuePoint {
   aov: number | null;       // средний чек = revenue / orders; null, если оплат нет
 }
 
+/** Строка сводной таблицы по курсам (дашборд «Финансы»). */
+export interface ProductRow {
+  direction_id: number | null;   // null — легаси-оплаты без направления
+  direction: string | null;      // имя курса; null у той же легаси-строки
+  purchases: number;             // покупок курса за период
+  months: number;                // оплачено месяцев (поштучный урок = 0.25)
+  revenue: number;               // все поступления курса, без возвратов
+  asp: number | null;            // revenue / purchases; нет покупок → null
+  arpm: number | null;           // среднее по заказам «цена ÷ срок»; нет срока → null
+}
+
 export interface RevenueData {
   from: string;             // применённый период 'YYYY-MM-DD'
   to: string;
@@ -462,6 +473,7 @@ export interface RevenueData {
   aov: number | null;
   daily: (RevenuePoint & { date: string })[];    // каждый день периода, пустые — нули
   monthly: (RevenuePoint & { month: string })[]; // 'YYYY-MM', месяцы периода
+  products: ProductRow[];                        // разрез той же выручки по курсам
 }
 
 // ===== Changelog (журнал изменений данных) =====

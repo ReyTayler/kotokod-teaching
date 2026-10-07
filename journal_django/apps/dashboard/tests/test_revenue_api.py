@@ -40,6 +40,41 @@ def _pay(student_id, paid_at, amount, kind='purchase'):
         )
 
 
+@pytest.fixture
+def direction_id():
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO directions (name, total_lessons, active) "
+            "VALUES ('__revenue_dir__', 16, true) RETURNING id"
+        )
+        return cur.fetchone()[0]
+
+
+def _pay_full(student_id, direction_id, paid_at, amount, *,
+              subscriptions=None, lessons=None, kind='purchase', parent=None):
+    """
+    Оплата с явным сроком: subscriptions — абонементы, lessons — уроки.
+    Для kind='surcharge' БД требует ссылку на абонемент-родителя
+    (CHECK payments_surcharge_shape) — передаём его id в parent.
+    """
+    index = 1 if parent is not None else None
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO payments (student_id, direction_id, kind, subscriptions_count, "
+            "lessons_count, unit_price, total_amount, paid_at, created_by, "
+            "parent_payment_id, subscription_index) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'test',%s,%s) RETURNING id",
+            [student_id, direction_id, kind, subscriptions, lessons,
+             abs(amount), amount, paid_at, parent, index],
+        )
+        return cur.fetchone()[0]
+
+
+def _products(client, date_from, date_to):
+    body = client.get(URL, {'from': date_from, 'to': date_to}).json()
+    return body, {r['direction']: r for r in body['products']}
+
+
 # ---------------------------------------------------------------------------
 # Доступ и валидация
 # ---------------------------------------------------------------------------
@@ -128,6 +163,82 @@ def test_default_period_is_last_three_months(manager_client):
     assert (body['from'], body['to']) == svc.default_period()
     assert body['daily'][0]['date'] == body['from']
     assert body['daily'][-1]['date'] == body['to']
+
+
+# ---------------------------------------------------------------------------
+# Сводка по курсам (products)
+# ---------------------------------------------------------------------------
+
+def test_products_group_by_direction(admin_client, student_id, direction_id):
+    """Строка на направление: покупки, оплаченные месяцы, поступления, ASP."""
+    _pay_full(student_id, direction_id, '2099-07-05', 10000, subscriptions=2, lessons=8)
+    _pay_full(student_id, direction_id, '2099-07-20', 6000, subscriptions=1, lessons=4)
+
+    body, by_name = _products(admin_client, '2099-07-01', '2099-07-31')
+    row = by_name['__revenue_dir__']
+    assert row['purchases'] == 2
+    assert row['months'] == 3
+    assert row['revenue'] == 16000
+    assert row['asp'] == 8000                      # 16000 / 2 покупки
+
+
+def test_products_months_from_lessons(manager_client, student_id, direction_id):
+    """Поштучная покупка без абонементов: месяцы = уроки / 4 (1 урок = 0.25)."""
+    _pay_full(student_id, direction_id, '2099-08-10', 1600, lessons=1)
+    _pay_full(student_id, direction_id, '2099-08-11', 3200, lessons=2)
+
+    _, by_name = _products(manager_client, '2099-08-01', '2099-08-31')
+    row = by_name['__revenue_dir__']
+    assert row['months'] == 0.75                   # 0.25 + 0.5
+    assert row['arpm'] == 6400                     # среднее (1600/0.25, 3200/0.5)
+
+
+def test_products_arpm_is_average_of_orders(manager_client, student_id, direction_id):
+    """ARPM — среднее по заказам «цена ÷ срок», а НЕ revenue / months."""
+    _pay_full(student_id, direction_id, '2099-09-01', 10000, subscriptions=2, lessons=8)
+    _pay_full(student_id, direction_id, '2099-09-02', 3000, subscriptions=1, lessons=4)
+
+    _, by_name = _products(manager_client, '2099-09-01', '2099-09-30')
+    row = by_name['__revenue_dir__']
+    assert row['arpm'] == 4000                     # (5000 + 3000) / 2 заказа
+    assert row['revenue'] / row['months'] == 13000 / 3   # а так было бы 4333.33
+
+
+def test_products_surcharge_is_money_without_order(manager_client, student_id, direction_id):
+    """Доплата к абонементу: деньги в Revenue, но не покупка и не месяц."""
+    parent = _pay_full(student_id, direction_id, '2099-10-01', 8000,
+                       subscriptions=1, lessons=4)
+    _pay_full(student_id, direction_id, '2099-10-02', 1500,
+              kind='surcharge', parent=parent)
+
+    _, by_name = _products(manager_client, '2099-10-01', '2099-10-31')
+    row = by_name['__revenue_dir__']
+    assert row['revenue'] == 9500
+    assert row['purchases'] == 1
+    assert row['months'] == 1
+    assert row['arpm'] == 8000                     # доплата срока не имеет
+
+
+def test_products_legacy_without_direction_is_last(manager_client, student_id, direction_id):
+    """Легаси-оплата без направления — отдельной строкой, в самом низу."""
+    _pay_full(student_id, direction_id, '2099-11-01', 500, subscriptions=1, lessons=4)
+    _pay_full(student_id, None, '2099-11-02', 99000, subscriptions=1, lessons=4)
+
+    body, _ = _products(manager_client, '2099-11-01', '2099-11-30')
+    rows = body['products']
+    assert rows[-1]['direction'] is None           # ниже всех, хотя сумма больше
+    assert rows[-1]['revenue'] == 99000
+    assert rows[0]['direction'] == '__revenue_dir__'
+
+
+def test_products_sum_matches_revenue_tile(manager_client, student_id, direction_id):
+    """Сумма строк таблицы = плитка Revenue за тот же период."""
+    _pay_full(student_id, direction_id, '2099-12-01', 7000, subscriptions=1, lessons=4)
+    _pay_full(student_id, None, '2099-12-02', 2500, subscriptions=1, lessons=4)
+    _pay(student_id, '2099-12-03', -1000, kind='refund')     # возврат не считается
+
+    body, _ = _products(manager_client, '2099-12-01', '2099-12-31')
+    assert sum(r['revenue'] for r in body['products']) == body['revenue'] == 9500
 
 
 # ---------------------------------------------------------------------------

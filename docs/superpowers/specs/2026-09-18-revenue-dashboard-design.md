@@ -32,7 +32,23 @@
   линия по дням, столбики по месяцам, цвет бренда (не зелёный — чтобы не путался
   с поступлениями). Рядом плитка «Recognized revenue» = прежнее «Отработано за период».
 
-Отложено по решению пользователя: Users, Courses, ASP, ARPM.
+- **Таблица «Курсы»** (добавлено 2026-10-07, по ТЗ пользователя со скриншотом BI-панели)
+  — блок во всю ширину ПОД блоком Recognized revenue, последним на странице. Строка = направление оплаты, колонки:
+  Purchases (число покупок, `kind='purchase'`), Months paid, Revenue (все
+  поступления направления), ASP = Revenue / Purchases, ARPM.
+  Решения пользователя:
+  - **срок заказа в месяцах**: `subscriptions_count`, а где он не проставлен
+    (поштучные покупки 1–3 уроков) — `lessons_count / 4`, то есть 1 урок = 0,25
+    месяца. Доплата к абонементу (`surcharge`) своего срока не имеет: деньги
+    идут в Revenue, в Purchases/Months/ARPM — нет;
+  - **ARPM = среднее ПО ЗАКАЗАМ отношения «цена ÷ срок»**, НЕ Revenue / Months paid
+    (на боевом примере пользователя это разные числа: 2807 против 2472);
+  - **легаси-оплаты без направления** — отдельной строкой «Без направления»
+    в конце, чтобы сумма столбца сходилась с плиткой Revenue.
+  Сортировка по любому столбцу — на фронте (строк ≤ числа направлений), снизу
+  строка «Итого»; средние в ней пересчитаны от итогов, а не усреднены по строкам.
+
+Отложено по решению пользователя: Users, Courses.
 
 ## Удалено (2026-09-30)
 
@@ -61,7 +77,13 @@
   без `to` — по сегодня (МСК);
 - `invalid_date` (400) на кривую дату, `invalid_range` (400) при `from > to`.
 
-Ответ: `{from, to, revenue, orders, aov, daily: [{date, revenue, orders, aov}], monthly: [{month, revenue, orders, aov}]}`.
+Ответ: `{from, to, revenue, orders, aov, daily: [{date, revenue, orders, aov}],
+monthly: [{month, revenue, orders, aov}], products: [{direction_id, direction,
+purchases, months, revenue, asp, arpm}]}`.
+
+`products` — ещё один GROUP BY по `direction_id` в том же запросе-периоде
+(`repository.revenue_by_direction`): ARPM считает сама СУБД через `Avg` от
+`total_amount / месяцы`, поэтому строки оплат в Python не выгружаются.
 
 ### Recognized revenue
 

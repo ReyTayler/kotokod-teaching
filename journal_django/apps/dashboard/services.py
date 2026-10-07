@@ -160,6 +160,7 @@ def get_revenue(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
 
     Revenue — сумма поступлений: покупки, доплаты к абонементу и доп.уроки;
     возвраты исключены (решение пользователя 2026-10-05, см. repository);
+    products — та же выручка в разрезе курсов (направлений);
     Orders — число оплат с total_amount > 0; AOV = Revenue / Orders (средний чек).
     Пустые дни/месяцы — нули, чтобы линия графика не рвалась; AOV там null
     (делить не на что — это отсутствие значения, а не ноль; на графике фронт
@@ -205,7 +206,35 @@ def get_revenue(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
         'aov': _aov(revenue_total, orders_total),
         'daily': daily,
         'monthly': monthly,
+        'products': _products(from_, to),
     }
+
+
+def _products(from_: str, to: str) -> list[dict]:
+    """
+    Строки сводной таблицы по курсам: направление, покупки, оплаченные месяцы,
+    поступления, ASP и ARPM. Сортировка — по поступлениям убыв., легаси-строка
+    «Без направления» последней (решение пользователя 2026-10-07).
+
+    ASP = revenue / purchases (средняя цена продажи). ARPM приходит из запроса —
+    это среднее по заказам, а не revenue / months.
+    """
+    rows = []
+    for r in repository.revenue_by_direction(from_, to):
+        purchases = r['purchases']
+        revenue = r['revenue'] or _ZERO
+        months = r['months'] or _ZERO
+        rows.append({
+            'direction_id': r['direction_id'],
+            'direction': r['direction__name'],
+            'purchases': purchases,
+            'months': js_number(round(months, 2)),
+            'revenue': js_number(js_round2(revenue)),
+            'asp': js_number(js_round2(revenue / purchases)) if purchases else None,
+            'arpm': js_number(js_round2(r['arpm'])) if r['arpm'] is not None else None,
+        })
+    rows.sort(key=lambda x: (x['direction_id'] is None, -x['revenue']))
+    return rows
 
 
 # ---------------------------------------------------------------------------

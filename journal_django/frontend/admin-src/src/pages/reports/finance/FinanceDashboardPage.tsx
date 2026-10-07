@@ -15,6 +15,9 @@ const RevenueChart = lazy(() =>
 const RecognizedChart = lazy(() =>
   import('./RecognizedChart').then((m) => ({ default: m.RecognizedChart })),
 );
+const ProductsTable = lazy(() =>
+  import('./ProductsTable').then((m) => ({ default: m.ProductsTable })),
+);
 
 function signedRub(v: number): string {
   return v > 0 ? `+${fmtRub(v)}` : fmtRub(v);
@@ -25,7 +28,7 @@ function signedRub(v: number): string {
  * страницы; без него сервер берёт последние 3 месяца по сегодня и возвращает
  * применённые границы — ими и заполняются поля дат.
  * Сверху — Revenue / Orders / AOV и график поступлений, ниже — Recognized
- * revenue (отработанное по FIFO) тем же видом. Графики «Выручка/Отработано по
+ * revenue (отработанное по FIFO) тем же видом, ниже — сводная таблица по курсам. Графики «Выручка/Отработано по
  * месяцам» со сравнением годов убраны 2026-09-30: их заменили ряды за период. поступлений по дням и месяцам
  * (спека 2026-09-18-revenue-dashboard-design), ниже — FIFO-сводка и сравнение по годам.
  */
@@ -135,6 +138,18 @@ export default function FinanceDashboardPage() {
             </Suspense>
           </section>
         </div>
+      )}
+
+      {revenue.data && (
+        <section className="dash-card">
+          <div className="dash-card__head">
+            <h2 className="dash-card__title">Курсы</h2>
+            <span className="products-table__note">за выбранный период</span>
+          </div>
+          <Suspense fallback={<PageLoading />}>
+            <ProductsTable rows={revenue.data.products} />
+          </Suspense>
+        </section>
       )}
     </div>
   );
