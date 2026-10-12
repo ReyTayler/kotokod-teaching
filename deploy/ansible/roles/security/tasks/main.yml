@@ -1,0 +1,60 @@
+# Роль security — межсетевой экран и защита от перебора паролей.
+#
+# SSH роль НАМЕРЕННО не трогает. Вход root по паролю оставлен по решению
+# владельца (2026-10-12): нужен для входа с устройств без ключа. Его включает
+# провайдер (/etc/ssh/sshd_config.d/50-cloud-init.conf). Риск известен — за
+# неделю ~17 тыс. попыток подбора; компенсация — стойкий пароль, fail2ban с
+# удлинением бана, ufw. Отключить пароль = файл 00-*.conf в sshd_config.d
+# с PasswordAuthentication no (читается раньше 50-cloud-init) — только по
+# решению владельца.
+
+- name: Пакеты защиты
+  ansible.builtin.apt:
+    name: [ufw, fail2ban]
+    state: present
+
+# Межсетевой экран: всё входящее запрещено, кроме SSH и веба. Исходящее —
+# разрешено (S3, Telegram, SMTP, apt).
+- name: Разрешённые входящие порты
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default(omit) }}"
+  loop:
+    - { port: "22" }
+    - { port: "80", proto: tcp }
+    - { port: "443", proto: tcp }
+
+- name: Межсетевой экран включён, входящее по умолчанию запрещено
+  community.general.ufw:
+    state: enabled
+    default: deny
+    direction: incoming
+
+- name: fail2ban — правила
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      # Управляется Ansible (deploy/ansible/roles/security).
+      [DEFAULT]
+      bantime     = 600
+      # Повторный нарушитель получает бан вдвое длиннее прежнего
+      # (10 мин → 20 → 40 → …), но не больше недели. Без этого бот
+      # возвращается через 10 минут и продолжает.
+      bantime.increment = true
+      bantime.maxtime   = 1w
+      banaction   = iptables-ipset-proto6
+
+      [sshd]
+      enabled     = true
+      maxretry    = 6
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Перезапустить fail2ban
+
+- name: fail2ban запущен и в автозагрузке
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true

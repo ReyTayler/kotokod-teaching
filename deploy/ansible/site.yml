@@ -28,6 +28,7 @@
 
   roles:
     - base
+    - security
     - postgresql
     - redis
     - app

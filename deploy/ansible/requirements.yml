@@ -7,3 +7,6 @@ collections:
   # мажорная версия вышла в сентябре 2026, 4.x проверена временем.
   - name: community.postgresql
     version: "4.2.0"
+  # Межсетевой экран ufw (роль security). Ветка 12 — под ansible-core 2.17.
+  - name: community.general
+    version: "12.6.5"
