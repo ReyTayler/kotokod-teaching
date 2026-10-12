@@ -26,6 +26,12 @@ django_env:
   DJANGO_SETTINGS_MODULE: config.settings.production
   TZ: Europe/Moscow
 
+# Постоянно работающие сервисы журнала (файлы — deploy/systemd/<имя>.service).
+app_services:
+  - journal-django
+  - journal-celery-worker
+  - journal-celery-beat
+
 # Служебный пользователь, от которого работают gunicorn и Celery.
 # Группа www-data — чтобы nginx читал файлы Wiki (/var/www/journal-media).
 app_user: kotokod

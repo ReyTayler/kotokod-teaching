@@ -31,3 +31,4 @@
     - postgresql
     - redis
     - app
+    - services

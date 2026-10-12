@@ -1,0 +1,37 @@
+# Роль services — постоянно работающие сервисы журнала. Файлы юнитов берутся
+# из deploy/systemd как есть (один источник правды); конфиг gunicorn сервис
+# читает прямо из репозитория. Юниты копий — в роли backup.
+
+- name: Файлы сервисов
+  ansible.builtin.copy:
+    src: "{{ deploy_dir }}/systemd/{{ item }}.service"
+    dest: "/etc/systemd/system/{{ item }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ app_services }}"
+  register: service_units
+
+# Новый файл юнита systemd не видит, пока не перечитает конфигурацию.
+- name: systemd перечитывает изменённые юниты
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: service_units.changed
+
+# Перезапуск точечный: только тот сервис, чей файл изменился. Неизменённые
+# не трогаются — прогон плейбука не роняет сайт без причины.
+- name: Перезапустить изменённые сервисы
+  ansible.builtin.systemd:
+    name: "{{ item.item }}"
+    state: restarted
+  loop: "{{ service_units.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.changed
+
+- name: Сервисы запущены и в автозагрузке
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: "{{ app_services }}"
