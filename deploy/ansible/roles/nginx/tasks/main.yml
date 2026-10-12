@@ -1,0 +1,125 @@
+# Роль nginx — фронт журнала: TLS, раздача SPA, прокси на gunicorn, лимиты,
+# служебный вход для бота. Конфиг сайта — шаблон deploy/nginx/journal-kotokod.conf
+# (домен и путь подставляются), сниппет статики — deploy/nginx/snippets как есть.
+#
+# Защита прода: новые файлы кладутся с резервной копией, затем nginx -t. Не
+# прошёл — прежние файлы возвращаются, reload не делается, сайт живёт на
+# старом конфиге. Прошёл — reload (без разрыва соединений).
+
+- name: nginx и certbot
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - certbot
+      - python3-certbot-nginx  # продление через nginx (authenticator = nginx)
+    state: present
+
+- name: Проверить сертификат Let's Encrypt
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ nginx_domain }}/fullchain.pem"
+  register: tls_cert
+
+# Без сертификата конфиг не пройдёт nginx -t. Выпуск на новом сервере —
+# отдельная процедура (домен сначала должен смотреть на новый IP).
+- name: Сертификат обязателен
+  ansible.builtin.assert:
+    that: tls_cert.stat.exists
+    fail_msg: >-
+      Нет сертификата для {{ nginx_domain }}. Сначала направьте домен на этот
+      сервер и выпустите сертификат (см. deploy/offsite-backup.md).
+    quiet: true
+
+# Содержимое прежнего отдельного файла бота — для отката, если nginx -t упадёт
+# после его удаления.
+- name: Запомнить прежний служебный вход бота
+  ansible.builtin.slurp:
+    src: /etc/nginx/conf.d/journal-bot.conf
+  register: old_bot_conf
+  failed_when: false
+
+- name: Обновить конфигурацию nginx с проверкой
+  block:
+    - name: Общий сниппет раздачи статики
+      ansible.builtin.copy:
+        src: "{{ deploy_dir }}/nginx/snippets/journal-static.conf"
+        dest: /etc/nginx/snippets/journal-static.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      register: nginx_snippet
+
+    - name: Конфиг сайта (шаблон)
+      ansible.builtin.template:
+        src: "{{ deploy_dir }}/nginx/journal-kotokod.conf"
+        dest: /etc/nginx/sites-available/journal-kotokod
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      register: nginx_site
+
+    - name: Сайт включён
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/journal-kotokod
+        dest: /etc/nginx/sites-enabled/journal-kotokod
+        state: link
+
+    # Служебный вход бота (127.0.0.1:8001) теперь в конфиге сайта; второй
+    # такой же server-блок в conf.d был бы дублем.
+    - name: Отдельный файл служебного входа бота не нужен
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/journal-bot.conf
+        state: absent
+      register: nginx_bot_removed
+
+    - name: Проверка конфигурации (nginx -t)
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      when: nginx_snippet.changed or nginx_site.changed or nginx_bot_removed.changed
+
+  rescue:
+    - name: Вернуть прежний конфиг сайта
+      ansible.builtin.copy:
+        src: "{{ nginx_site.backup_file }}"
+        dest: /etc/nginx/sites-available/journal-kotokod
+        remote_src: true
+      when: nginx_site.backup_file is defined
+
+    - name: Вернуть прежний сниппет
+      ansible.builtin.copy:
+        src: "{{ nginx_snippet.backup_file }}"
+        dest: /etc/nginx/snippets/journal-static.conf
+        remote_src: true
+      when: nginx_snippet.backup_file is defined
+
+    - name: Вернуть прежний служебный вход бота
+      ansible.builtin.copy:
+        content: "{{ old_bot_conf.content | b64decode }}"
+        dest: /etc/nginx/conf.d/journal-bot.conf
+        mode: "0644"
+      when: old_bot_conf.content is defined
+
+    - name: Остановиться
+      ansible.builtin.fail:
+        msg: >-
+          nginx -t не прошёл с новым конфигом. Прежние файлы возвращены, reload
+          не выполнялся — сайт работает на старой конфигурации. Ошибка nginx — выше.
+
+- name: Перечитать конфиг nginx (без разрыва соединений)
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+  when: nginx_snippet.changed or nginx_site.changed or nginx_bot_removed.changed
+
+- name: nginx запущен и в автозагрузке
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: Автопродление сертификатов включено
+  ansible.builtin.systemd:
+    name: certbot.timer
+    state: started
+    enabled: true

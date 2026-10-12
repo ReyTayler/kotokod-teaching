@@ -7,6 +7,9 @@
 app_root: /opt/kotokod/journal-backend
 deploy_dir: "{{ app_root }}/deploy"
 
+# Боевой домен: server_name, сертификат Let's Encrypt, Host служебного входа бота.
+nginx_domain: develop-kotokod.ru
+
 # Репозиторий публичный — клонируется без ключей. Станет приватным → нужен
 # deploy key на сервере и SSH-адрес здесь.
 app_repo: https://github.com/ReyTayler/kotokod-teaching.git
