@@ -1,0 +1,33 @@
+# Установка pgBackRest/rclone и их конфигов — всё, что нужно, чтобы читать
+# копии из S3. Вынесено отдельно: роль restore вызывает только это
+# (include_role tasks_from: install), до восстановления базы.
+
+- name: pgBackRest и rclone
+  ansible.builtin.apt:
+    name: [pgbackrest, rclone]
+    state: present
+
+- name: Проверить секреты копий
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/pgbackrest/conf.d/secrets.conf
+    - /etc/kotokod/s3-backup.env
+  register: backup_secrets
+
+- name: Секреты копий обязательны
+  ansible.builtin.assert:
+    that: backup_secrets.results | map(attribute='stat.exists') | min
+    fail_msg: >-
+      Нет файлов с ключами S3 / паролем шифрования. Положите их по шагу
+      «Секреты» из deploy/offsite-backup.md (пароль шифрования — тот, что в
+      менеджере паролей, НЕ новый) и запустите снова.
+    quiet: true
+
+- name: Конфиг pgBackRest
+  ansible.builtin.copy:
+    src: "{{ deploy_dir }}/pgbackrest/pgbackrest.conf"
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: root
+    group: root
+    mode: "0644"

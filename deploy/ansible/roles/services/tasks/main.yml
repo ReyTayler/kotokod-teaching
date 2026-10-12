@@ -2,6 +2,14 @@
 # из deploy/systemd как есть (один источник правды); конфиг gunicorn сервис
 # читает прямо из репозитория. Юниты копий — в роли backup.
 
+# На учениях beat не нужен и опасен: через него идут рассылки в Telegram, и
+# временный сервер с секретами прода слал бы дубли настоящим преподавателям.
+- name: Какие сервисы ставить
+  ansible.builtin.set_fact:
+    services_enabled: >-
+      {{ app_services | reject('equalto', 'journal-celery-beat') | list
+         if drill | bool else app_services }}
+
 - name: Файлы сервисов
   ansible.builtin.copy:
     src: "{{ deploy_dir }}/systemd/{{ item }}.service"
@@ -9,7 +17,7 @@
     owner: root
     group: root
     mode: "0644"
-  loop: "{{ app_services }}"
+  loop: "{{ services_enabled }}"
   register: service_units
 
 # Новый файл юнита systemd не видит, пока не перечитает конфигурацию.
@@ -34,4 +42,4 @@
     name: "{{ item }}"
     state: started
     enabled: true
-  loop: "{{ app_services }}"
+  loop: "{{ services_enabled }}"

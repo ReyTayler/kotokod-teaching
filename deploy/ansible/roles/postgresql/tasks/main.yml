@@ -56,7 +56,11 @@
 # no_password_changes: пароль задаётся только при СОЗДАНИИ роли. Существующую
 # роль (прод) плейбук не трогает — сменить пароль = поменять и .env, это
 # отдельная осознанная операция, а не побочный эффект прогона.
+#
+# При восстановлении (restore) роль и база приходят из копии вместе с данными;
+# пустая база, созданная здесь, заставила бы роль restore отказаться работать.
 - name: Роль базы журнала (минимум прав)
+  when: not restore | bool
   community.postgresql.postgresql_user:
     name: "{{ db_user }}"
     password: "{{ db_password }}"
@@ -67,6 +71,7 @@
   no_log: true
 
 - name: База журнала
+  when: not restore | bool
   community.postgresql.postgresql_db:
     name: "{{ db_name }}"
     owner: "{{ db_user }}"

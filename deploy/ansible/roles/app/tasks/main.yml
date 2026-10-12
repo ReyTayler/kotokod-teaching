@@ -14,6 +14,22 @@
   become: true
   become_user: "{{ app_user }}"
 
+# На новом сервере код клонируют от root (пользователя kotokod ещё нет) —
+# передать его владельцу. Только если владелец не тот: на проде это no-op,
+# рекурсивный обход тысяч файлов при каждом прогоне не нужен.
+- name: Кому принадлежит код
+  ansible.builtin.stat:
+    path: "{{ app_root }}"
+  register: app_root_stat
+
+- name: Код принадлежит служебному пользователю
+  ansible.builtin.file:
+    path: "{{ app_root }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    recurse: true
+  when: app_root_stat.stat.pw_name != app_user
+
 # Наличие .env проверяется в pre_tasks site.yml — до всех ролей.
 - name: .env читает только владелец
   ansible.builtin.file:

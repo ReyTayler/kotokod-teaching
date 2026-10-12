@@ -1,10 +1,10 @@
 # Главный плейбук: каким должен быть сервер журнала.
 #
-# Запуск (на сервере, из папки deploy/ansible):
+# Запуск (на сервере, из папки deploy/ansible) — шпаргалка в README.md рядом:
 #   /opt/ansible/bin/ansible-playbook site.yml --check --diff   # только показать отличия
 #   /opt/ansible/bin/ansible-playbook site.yml                  # привести сервер к описанию
-#
-# Роли добавляются по одной; каждая сначала проверяется на проде в --check.
+#   ... site.yml -e restore=true                 # новый сервер из копий S3 (авария)
+#   ... site.yml -e restore=true -e drill=true   # учения на временном сервере
 
 - name: Сервер журнала KOTOKOD
   hosts: journal
@@ -31,7 +31,18 @@
     - security
     - postgresql
     - redis
+    # До app: миграции и сервисы должны подняться уже на восстановленной базе.
+    - role: restore
+      when: restore | bool
     - app
     - services
-    - nginx
-    - backup
+    # На учениях обеих ролей нет: копии и архив WAL писали бы в бакет прода,
+    # а сертификата боевого домена на временном сервере нет.
+    #
+    # backup — РАНЬШЕ nginx: при аварии первый прогон останавливается на
+    # nginx (сертификата ещё нет, домен смотрит на старый сервер), а копии
+    # к этому моменту уже должны работать.
+    - role: backup
+      when: not drill | bool
+    - role: nginx
+      when: not drill | bool

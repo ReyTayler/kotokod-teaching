@@ -31,6 +31,14 @@ export RCLONE_CONFIG_SELECTEL_REGION=ru-6
 export RCLONE_CONFIG_SELECTEL_FORCE_PATH_STYLE=true
 # RCLONE_CONFIG_SELECTEL_ACCESS_KEY_ID / _SECRET_ACCESS_KEY — из EnvironmentFile юнита.
 
+# --restore: обратное направление, бакет → сервер (восстановление, роль
+# restore). Права файлов после него выставляет вызывающий: rclone пишет от root.
+if [ "${1:-}" = "--restore" ]; then
+    mkdir -p "$MEDIA_ROOT"
+    rclone sync "selectel:$BUCKET/media" "$MEDIA_ROOT" --checksum --stats-one-line -v
+    exit 0
+fi
+
 if [ ! -d "$MEDIA_ROOT" ]; then
     echo "Каталог $MEDIA_ROOT не найден — медиа не синхронизируется (Wiki не развёрнута?)"
     exit 0

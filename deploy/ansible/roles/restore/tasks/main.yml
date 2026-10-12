@@ -1,0 +1,104 @@
+# Роль restore — поднять базу и файлы Wiki из копий в S3 (-e restore=true).
+# Порядок в site.yml: после postgresql (СУБД стоит) и до app (миграции и
+# сервисы работают уже на восстановленной базе).
+#
+# Защиты:
+#   - метка {{ restore_marker }}: восстановление выполняется один раз,
+#     повторные прогоны его пропускают;
+#   - на сервере, где база журнала УЖЕ есть (прод!), роль останавливается,
+#     ничего не тронув: восстановление затирает базу целиком.
+
+- name: Было ли уже восстановление на этом сервере
+  ansible.builtin.stat:
+    path: "{{ restore_marker }}"
+  register: restore_done
+
+- name: Восстановление из копий
+  when: not restore_done.stat.exists
+  block:
+    - name: Есть ли на сервере база журнала
+      ansible.builtin.command:
+        cmd: psql -tAc "select count(*) from pg_database where datname = '{{ db_name }}'"
+      become: true
+      become_user: postgres
+      register: db_exists
+      changed_when: false
+      check_mode: false  # только читает — и защита работает даже в --check
+
+    - name: Восстанавливать только туда, где базы нет
+      ansible.builtin.assert:
+        that: db_exists.stdout | trim == '0'
+        fail_msg: >-
+          На этом сервере уже есть база {{ db_name }}. Восстановление затирает
+          базу целиком, поэтому отменено — ничего не тронуто. Если это и
+          правда нужно (откат прода на момент времени) — делайте вручную по
+          deploy/offsite-backup.md, осознанно.
+        quiet: true
+
+    - name: pgBackRest и конфиги (из роли backup)
+      ansible.builtin.include_role:
+        name: backup
+        tasks_from: install
+
+    - name: Остановить PostgreSQL перед восстановлением
+      ansible.builtin.systemd:
+        name: postgresql
+        state: stopped
+
+    # --delta: каталог данных не пустой (кластер, созданный пакетом), pgBackRest
+    # заменит в нём всё. На учениях archive-mode=off: временный сервер не должен
+    # отправлять свой WAL в бакет прода.
+    - name: "Восстановить базу из S3 (долго: ~10–15 минут)"
+      ansible.builtin.command:
+        argv: >-
+          {{ ['pgbackrest', '--stanza=' ~ pgbackrest_stanza, '--delta']
+             + (['--archive-mode=off'] if drill | bool else [])
+             + (['--type=time', '--target=' ~ restore_target, '--target-action=promote']
+                if restore_target else [])
+             + ['restore'] }}
+      become: true
+      become_user: postgres
+
+    - name: Запустить PostgreSQL
+      ansible.builtin.systemd:
+        name: postgresql
+        state: started
+
+    # После старта PostgreSQL догоняет базу по архиву WAL из S3 и только потом
+    # принимает запись. Ждём конца — до 30 минут.
+    - name: Дождаться конца догонки по архиву WAL
+      ansible.builtin.command:
+        cmd: psql -tAc "select pg_is_in_recovery()"
+      become: true
+      become_user: postgres
+      register: in_recovery
+      until: in_recovery.stdout | trim == 'f'
+      retries: 180
+      delay: 10
+      changed_when: false
+
+    - name: Восстановить файлы Wiki из S3
+      ansible.builtin.shell:
+        cmd: >-
+          set -a && . /etc/kotokod/s3-backup.env && set +a &&
+          bash {{ deploy_dir }}/scripts/backup-media-s3.sh --restore
+        executable: /bin/bash
+
+    # rclone пишет от root; приложению (kotokod) и nginx (www-data) нужны свои
+    # права — как у файлов, созданных самим журналом.
+    - name: Права на файлы Wiki
+      ansible.builtin.shell:
+        cmd: >-
+          chown -R {{ app_user }}:www-data {{ media_root }} &&
+          find {{ media_root }} -mindepth 1 -type d -exec chmod 2770 {} + &&
+          find {{ media_root }} -type f -exec chmod 0640 {} +
+        executable: /bin/bash
+
+    - name: Отметить, что восстановление выполнено
+      ansible.builtin.copy:
+        dest: "{{ restore_marker }}"
+        content: |
+          Восстановлено из копий S3: {{ ansible_date_time.iso8601 }}
+          Цель: {{ restore_target or 'последняя минута архива' }}
+          Учения: {{ drill | bool }}
+        mode: "0644"

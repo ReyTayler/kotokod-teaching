@@ -6,35 +6,8 @@
 # Секреты (S3-ключи, пароль шифрования) роль НЕ создаёт и не читает — только
 # проверяет, что файлы на месте. Их кладёт владелец по шагу «Секреты».
 
-- name: pgBackRest и rclone
-  ansible.builtin.apt:
-    name: [pgbackrest, rclone]
-    state: present
-
-- name: Проверить секреты копий
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - /etc/pgbackrest/conf.d/secrets.conf
-    - /etc/kotokod/s3-backup.env
-  register: backup_secrets
-
-- name: Секреты копий обязательны
-  ansible.builtin.assert:
-    that: backup_secrets.results | map(attribute='stat.exists') | min
-    fail_msg: >-
-      Нет файлов с ключами S3 / паролем шифрования. Положите их по шагу
-      «Секреты» из deploy/offsite-backup.md (пароль шифрования — тот, что в
-      менеджере паролей, НЕ новый) и запустите снова.
-    quiet: true
-
-- name: Конфиг pgBackRest
-  ansible.builtin.copy:
-    src: "{{ deploy_dir }}/pgbackrest/pgbackrest.conf"
-    dest: /etc/pgbackrest/pgbackrest.conf
-    owner: root
-    group: root
-    mode: "0644"
+- name: Установка pgBackRest, rclone и конфигов
+  ansible.builtin.include_tasks: install.yml
 
 # Хранилище pgBackRest в бакете: на новом сервере создаётся один раз, на
 # проде и при восстановлении уже есть. info только читает — выполняется и
