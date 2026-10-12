@@ -1,0 +1,84 @@
+# Роль app — сам журнал: код, .env, Python-окружение, зависимости, хранилище
+# Wiki, миграции. Фронт собран и лежит в репозитории, collectstatic не нужен.
+#
+# Код роль только КЛОНИРУЕТ на чистый сервер и не обновляет: выкатка новой
+# версии — отдельный плейбук. Иначе каждый прогон site.yml тихо выкатывал бы
+# свежий main.
+
+- name: Код журнала (клон, если его ещё нет)
+  ansible.builtin.git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_root }}"
+    version: "{{ app_branch }}"
+    update: false
+  become: true
+  become_user: "{{ app_user }}"
+
+# Наличие .env проверяется в pre_tasks site.yml — до всех ролей.
+- name: .env читает только владелец
+  ansible.builtin.file:
+    path: "{{ app_root }}/.env"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0600"
+
+- name: Python-окружение журнала
+  ansible.builtin.command:
+    cmd: "{{ app_python }} -m venv {{ venv_dir }}"
+    creates: "{{ venv_dir }}/bin/python"
+  become: true
+  become_user: "{{ app_user }}"
+
+# Модуль pip в режиме проверки с requirements-файлом всегда отвечает
+# «изменил бы» — расхождения не видно. pip --dry-run отвечает честно и
+# ничего не меняет, поэтому выполняется и при --check.
+- name: Чего не хватает из зависимостей
+  ansible.builtin.command:
+    cmd: "{{ venv_dir }}/bin/pip install --dry-run --disable-pip-version-check -r requirements.txt"
+    chdir: "{{ django_dir }}"
+  become: true
+  become_user: "{{ app_user }}"
+  register: pip_dry_run
+  check_mode: false
+  changed_when: false
+
+- name: Установить зависимости
+  ansible.builtin.command:
+    cmd: "{{ venv_dir }}/bin/pip install --disable-pip-version-check -r requirements.txt"
+    chdir: "{{ django_dir }}"
+  become: true
+  become_user: "{{ app_user }}"
+  when: "'Would install' in pip_dry_run.stdout"
+
+# setgid (2): подкаталоги, которые создаёт приложение, наследуют группу
+# www-data — nginx отдаёт из них файлы через X-Accel-Redirect.
+- name: Хранилище файлов Wiki
+  ansible.builtin.file:
+    path: "{{ media_root }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: www-data
+    mode: "2750"
+
+# migrate --check: код 1 — есть неприменённые миграции, 0 — нет. Только
+# читает, поэтому выполняется и при --check.
+- name: Есть ли неприменённые миграции
+  ansible.builtin.command:
+    cmd: "{{ venv_dir }}/bin/python manage.py migrate --check"
+    chdir: "{{ django_dir }}"
+  environment: "{{ django_env }}"
+  become: true
+  become_user: "{{ app_user }}"
+  register: migrate_check
+  check_mode: false
+  changed_when: false
+  failed_when: migrate_check.rc not in [0, 1]
+
+- name: Применить миграции
+  ansible.builtin.command:
+    cmd: "{{ venv_dir }}/bin/python manage.py migrate --noinput"
+    chdir: "{{ django_dir }}"
+  environment: "{{ django_env }}"
+  become: true
+  become_user: "{{ app_user }}"
+  when: migrate_check.rc == 1

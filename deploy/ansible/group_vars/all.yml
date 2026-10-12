@@ -7,6 +7,25 @@
 app_root: /opt/kotokod/journal-backend
 deploy_dir: "{{ app_root }}/deploy"
 
+# Репозиторий публичный — клонируется без ключей. Станет приватным → нужен
+# deploy key на сервере и SSH-адрес здесь.
+app_repo: https://github.com/ReyTayler/kotokod-teaching.git
+app_branch: main
+
+django_dir: "{{ app_root }}/journal_django"
+venv_dir: "{{ django_dir }}/.venv"
+# Python журнала. Должен совпадать с версией, под которую собран venv.
+app_python: python3.11
+
+# Хранилище файлов Wiki. Совпадает с KNOWLEDGE_MEDIA_ROOT в .env, с
+# ReadWritePaths юнитов и с alias /internal-media/ в nginx.
+media_root: /var/www/journal-media
+
+# Окружение для manage.py — как у сервиса journal-django.
+django_env:
+  DJANGO_SETTINGS_MODULE: config.settings.production
+  TZ: Europe/Moscow
+
 # Служебный пользователь, от которого работают gunicorn и Celery.
 # Группа www-data — чтобы nginx читал файлы Wiki (/var/www/journal-media).
 app_user: kotokod

@@ -9,7 +9,25 @@
 - name: Сервер журнала KOTOKOD
   hosts: journal
   become: true
+
+  # .env нужен уже роли postgresql (DATABASE_URL), поэтому проверяется до
+  # всех ролей — с понятной подсказкой вместо ошибки разбора в середине прогона.
+  pre_tasks:
+    - name: Проверить .env
+      ansible.builtin.stat:
+        path: "{{ app_root }}/.env"
+      register: app_env
+
+    - name: .env обязателен
+      ansible.builtin.assert:
+        that: app_env.stat.exists
+        fail_msg: >-
+          Нет {{ app_root }}/.env. Это секрет и плейбук его не создаёт: положите
+          файл из менеджера паролей (запись «KOTOKOD прод .env») и запустите снова.
+        quiet: true
+
   roles:
     - base
     - postgresql
     - redis
+    - app
