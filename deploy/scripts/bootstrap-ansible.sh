@@ -18,11 +18,20 @@ ANSIBLE_CORE_VERSION="2.17.14"
 VENV=/opt/ansible
 REQUIREMENTS="$(dirname "$(readlink -f "$0")")/../ansible/requirements.yml"
 
-# venv для системного Python 3.10. Ставится здесь, а не ролью base: без него
-# не создать окружение, в котором Ansible вообще запустится.
-if ! dpkg -s python3-venv >/dev/null 2>&1; then
+# Зависимости самого Ansible, а не журнала, — поэтому здесь, а не в ролях:
+#   python3-venv     — без него не создать окружение, где Ansible запустится;
+#   python3-psycopg2 — через него модули community.postgresql ходят в базу
+#                      (модули выполняются системным Python 3.10);
+#   acl              — Ansible переключается с root на непривилегированного
+#                      пользователя (postgres) и через ACL даёт ему прочитать
+#                      свои временные файлы; без пакета такие задачи падают.
+PKGS=""
+for p in python3-venv python3-psycopg2 acl; do
+    dpkg -s "$p" >/dev/null 2>&1 || PKGS="$PKGS $p"
+done
+if [ -n "$PKGS" ]; then
     apt-get update -q
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -q python3-venv
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q $PKGS
 fi
 
 if [ ! -x "$VENV/bin/python" ]; then

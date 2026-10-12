@@ -1,0 +1,23 @@
+# Роль redis — кэш и брокер Celery. Конфиг пакета не менялся (dpkg --verify
+# на проде чист), поэтому роль фиксирует только инвариант безопасности.
+
+- name: Redis
+  ansible.builtin.apt:
+    name: redis-server
+    state: present
+
+# Redis без пароля, открытый наружу, — классический путь взлома сервера.
+# Сейчас это и так значение пакета по умолчанию; строка закрепляет его явно,
+# чтобы случайная правка конфига не прошла незамеченной (--check её покажет).
+- name: Redis слушает только локальный адрес
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^bind '
+    line: bind 127.0.0.1 ::1
+  notify: Перезапустить Redis
+
+- name: Redis запущен и в автозагрузке
+  ansible.builtin.systemd:
+    name: redis-server
+    state: started
+    enabled: true

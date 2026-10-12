@@ -11,3 +11,5 @@
   become: true
   roles:
     - base
+    - postgresql
+    - redis

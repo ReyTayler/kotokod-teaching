@@ -1,0 +1,78 @@
+# Роль postgresql — PostgreSQL 15 из официального репозитория PGDG, база и
+# роль журнала. Архивирование WAL в pgBackRest — в роли backup: оно часть
+# резервного копирования, а не самой СУБД.
+#
+# Мажорная версия 15 совпадает с локальной разработкой и с копиями pgBackRest:
+# восстановить копию можно только в тот же мажор.
+
+- name: postgresql-common (несёт официальный скрипт подключения PGDG)
+  ansible.builtin.apt:
+    name: postgresql-common
+    state: present
+
+# Способ из документации PostgreSQL для Ubuntu
+# (https://www.postgresql.org/download/linux/ubuntu/): скрипт кладёт ключ и
+# /etc/apt/sources.list.d/pgdg.list. creates — не запускать повторно.
+- name: Репозиторий PGDG подключён
+  ansible.builtin.command:
+    cmd: /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+    creates: /etc/apt/sources.list.d/pgdg.list
+
+- name: PostgreSQL 15
+  ansible.builtin.apt:
+    name: postgresql-15
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: PostgreSQL запущен и в автозагрузке
+  ansible.builtin.systemd:
+    name: postgresql
+    state: started
+    enabled: true
+
+# Имя базы, пользователь и пароль — из DATABASE_URL в .env: один источник
+# правды с приложением, секрет не попадает ни в репозиторий, ни в вывод.
+- name: Прочитать .env приложения
+  ansible.builtin.slurp:
+    src: "{{ app_root }}/.env"
+  register: app_env_file
+  no_log: true
+
+- name: Разобрать DATABASE_URL
+  ansible.builtin.set_fact:
+    db_url: >-
+      {{ (app_env_file.content | b64decode)
+         | regex_search('^DATABASE_URL=(.+)$', '\1', multiline=True) | first | trim }}
+  no_log: true
+
+- name: Параметры подключения журнала
+  ansible.builtin.set_fact:
+    db_name: "{{ (db_url | urlsplit('path'))[1:] }}"
+    db_user: "{{ db_url | urlsplit('username') }}"
+    db_password: "{{ db_url | urlsplit('password') }}"
+  no_log: true
+
+# no_password_changes: пароль задаётся только при СОЗДАНИИ роли. Существующую
+# роль (прод) плейбук не трогает — сменить пароль = поменять и .env, это
+# отдельная осознанная операция, а не побочный эффект прогона.
+- name: Роль базы журнала (минимум прав)
+  community.postgresql.postgresql_user:
+    name: "{{ db_user }}"
+    password: "{{ db_password }}"
+    no_password_changes: true
+    role_attr_flags: LOGIN,NOSUPERUSER,NOCREATEDB,NOCREATEROLE
+  become: true
+  become_user: postgres
+  no_log: true
+
+- name: База журнала
+  community.postgresql.postgresql_db:
+    name: "{{ db_name }}"
+    owner: "{{ db_user }}"
+    encoding: UTF-8
+    lc_collate: en_US.UTF-8
+    lc_ctype: en_US.UTF-8
+    template: template0
+  become: true
+  become_user: postgres
