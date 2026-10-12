@@ -1,0 +1,13 @@
+# Главный плейбук: каким должен быть сервер журнала.
+#
+# Запуск (на сервере, из папки deploy/ansible):
+#   /opt/ansible/bin/ansible-playbook site.yml --check --diff   # только показать отличия
+#   /opt/ansible/bin/ansible-playbook site.yml                  # привести сервер к описанию
+#
+# Роли добавляются по одной; каждая сначала проверяется на проде в --check.
+
+- name: Сервер журнала KOTOKOD
+  hosts: journal
+  become: true
+  roles:
+    - base

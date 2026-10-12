@@ -1,0 +1,7 @@
+# Обработчики роли base: выполняются один раз в конце, и только если
+# задача, которая их вызвала, реально что-то изменила.
+
+- name: Перезапустить journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted

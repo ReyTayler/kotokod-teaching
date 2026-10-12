@@ -1,0 +1,62 @@
+# Роль base — основа сервера: пакеты, служебный пользователь, журналы,
+# автообновления безопасности. Всё, без чего не работают остальные роли.
+
+- name: Системные пакеты
+  ansible.builtin.apt:
+    name:
+      - git                 # код журнала приходит git pull'ом
+      - ca-certificates
+      - curl
+      - gnupg               # ключи сторонних apt-репозиториев (PGDG)
+      - build-essential     # сборка Python-зависимостей без готовых колёс
+      - python3.11          # Python журнала (venv в journal_django/.venv)
+      - python3.11-venv
+      - python3.11-dev
+      - python3-venv        # окружение самого Ansible (/opt/ansible), системный 3.10
+      - unattended-upgrades # автоматические обновления безопасности
+    state: present
+    update_cache: true
+    cache_valid_time: 3600  # не дёргать apt update чаще раза в час
+
+- name: Группа служебного пользователя
+  ansible.builtin.group:
+    name: "{{ app_group }}"
+    system: true
+
+- name: Служебный пользователь (без входа в систему)
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    group: "{{ app_group }}"
+    groups: "{{ app_extra_groups }}"
+    append: true
+    system: true
+    shell: /usr/sbin/nologin
+    home: "/home/{{ app_user }}"
+    create_home: true
+
+- name: Каталог приложения
+  ansible.builtin.file:
+    path: /opt/kotokod
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0755"
+
+- name: Настройки journald (размер и срок хранения логов)
+  ansible.builtin.copy:
+    src: "{{ deploy_dir }}/systemd/journald-kotokod.conf"
+    dest: /etc/systemd/journald.conf.d/10-kotokod.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Перезапустить journald
+
+- name: Автообновления безопасности включены
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: "0644"

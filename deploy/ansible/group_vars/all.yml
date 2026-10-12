@@ -1,0 +1,14 @@
+# Переменные плейбука. Здесь ТОЛЬКО то, что не секрет: секреты живут на
+# сервере в файлах вне репозитория (.env, /etc/pgbackrest/conf.d/secrets.conf,
+# /etc/kotokod/s3-backup.env) и плейбук их не создаёт и не читает.
+
+# Корень репозитория на сервере. Роли берут конфиги прямо из deploy/ —
+# один источник правды, без копий внутри ролей.
+app_root: /opt/kotokod/journal-backend
+deploy_dir: "{{ app_root }}/deploy"
+
+# Служебный пользователь, от которого работают gunicorn и Celery.
+# Группа www-data — чтобы nginx читал файлы Wiki (/var/www/journal-media).
+app_user: kotokod
+app_group: kotokod
+app_extra_groups: [www-data]
