@@ -1,0 +1,103 @@
+# Роль backup — резервные копии (подробно: deploy/offsite-backup.md):
+#   - pgBackRest → Selectel S3: полная/разностная копия + непрерывный архив WAL;
+#   - файлы Wiki → тот же бакет (rclone, ежечасно);
+#   - ночной pg_dump на самом сервере — вторая, независимая копия.
+#
+# Секреты (S3-ключи, пароль шифрования) роль НЕ создаёт и не читает — только
+# проверяет, что файлы на месте. Их кладёт владелец по шагу «Секреты».
+
+- name: pgBackRest и rclone
+  ansible.builtin.apt:
+    name: [pgbackrest, rclone]
+    state: present
+
+- name: Проверить секреты копий
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/pgbackrest/conf.d/secrets.conf
+    - /etc/kotokod/s3-backup.env
+  register: backup_secrets
+
+- name: Секреты копий обязательны
+  ansible.builtin.assert:
+    that: backup_secrets.results | map(attribute='stat.exists') | min
+    fail_msg: >-
+      Нет файлов с ключами S3 / паролем шифрования. Положите их по шагу
+      «Секреты» из deploy/offsite-backup.md (пароль шифрования — тот, что в
+      менеджере паролей, НЕ новый) и запустите снова.
+    quiet: true
+
+- name: Конфиг pgBackRest
+  ansible.builtin.copy:
+    src: "{{ deploy_dir }}/pgbackrest/pgbackrest.conf"
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+# Хранилище pgBackRest в бакете: на новом сервере создаётся один раз, на
+# проде и при восстановлении уже есть. info только читает — выполняется и
+# при --check. Код статуса 1 = «stanza не найдена».
+- name: Состояние хранилища pgBackRest
+  ansible.builtin.command:
+    cmd: pgbackrest --stanza={{ pgbackrest_stanza }} info --output=json
+  become: true
+  become_user: postgres
+  register: pgbr_info
+  check_mode: false
+  changed_when: false
+
+- name: Создать хранилище pgBackRest (только на новом сервере)
+  ansible.builtin.command:
+    cmd: pgbackrest --stanza={{ pgbackrest_stanza }} stanza-create
+  become: true
+  become_user: postgres
+  when: (pgbr_info.stdout | from_json)[0].status.code == 1
+
+# Архивирование WAL включается только РЕСТАРТОМ PostgreSQL. Обработчик
+# срабатывает лишь при изменении файла: на проде — никогда, на новом
+# сервере — один раз. Порядок важен: хранилище создано выше, иначе WAL
+# копился бы на диске, не имея куда уйти.
+- name: Архивирование WAL в pgBackRest
+  ansible.builtin.copy:
+    src: "{{ deploy_dir }}/pgbackrest/postgresql-archive.conf"
+    dest: /etc/postgresql/15/main/conf.d/pgbackrest.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Перезапустить PostgreSQL
+
+- name: Скрипты копий
+  ansible.builtin.copy:
+    src: "{{ deploy_dir }}/scripts/{{ item }}"
+    dest: "/opt/kotokod/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - backup-db.sh
+    - backup-media-s3.sh
+
+- name: Юниты копий
+  ansible.builtin.copy:
+    src: "{{ deploy_dir }}/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ backup_units }}"
+  register: backup_unit_files
+
+- name: systemd перечитывает изменённые юниты
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: backup_unit_files.changed
+
+# Запускаются таймеры; сами копии — oneshot-сервисы, их стартует таймер.
+- name: Таймеры копий включены
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: "{{ backup_units | select('match', '.*\\.timer$') | list }}"

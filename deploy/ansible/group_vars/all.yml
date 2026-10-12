@@ -35,6 +35,17 @@ app_services:
   - journal-celery-worker
   - journal-celery-beat
 
+# Резервные копии (роль backup). Имя stanza — как в deploy/pgbackrest/pgbackrest.conf.
+pgbackrest_stanza: journal
+backup_units:
+  - journal-db-backup.service        # ночной pg_dump на сервере
+  - journal-db-backup.timer
+  - journal-pgbackrest@.service      # копия в S3 (%i = full | diff)
+  - journal-pgbackrest-full.timer
+  - journal-pgbackrest-diff.timer
+  - journal-media-s3.service         # файлы Wiki в S3
+  - journal-media-s3.timer
+
 # Служебный пользователь, от которого работают gunicorn и Celery.
 # Группа www-data — чтобы nginx читал файлы Wiki (/var/www/journal-media).
 app_user: kotokod

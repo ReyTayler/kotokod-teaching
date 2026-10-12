@@ -1,0 +1,6 @@
+# Рестарт PostgreSQL — секунды недоступности журнала. Срабатывает только при
+# изменении настройки архивирования WAL (archive_mode не меняется reload'ом).
+- name: Перезапустить PostgreSQL
+  ansible.builtin.systemd:
+    name: postgresql
+    state: restarted
