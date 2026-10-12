@@ -1,0 +1,25 @@
+# systemd-юнит — синхронизация хранилища файлов Wiki в Selectel S3.
+# Запускается journal-media-s3.timer. Установка: см. deploy/offsite-backup.md.
+#
+# Разовый запуск вручную: sudo systemctl start journal-media-s3.service
+# Проверка: journalctl -u journal-media-s3 -n 50
+
+[Unit]
+Description=KOTOKOD journal — Wiki media sync to S3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/kotokod/s3-backup.env
+ExecStart=/opt/kotokod/backup-media-s3.sh
+# Только читает медиа и ходит в сеть — песочница не мешает. rclone ищет
+# конфиг и кэш в $HOME, а под strict /root только для чтения — уводим HOME
+# в приватный /tmp юнита.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+Environment=HOME=/tmp
+NoNewPrivileges=true
+Nice=10
+IOSchedulingClass=idle

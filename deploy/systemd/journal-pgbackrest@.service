@@ -1,0 +1,21 @@
+# systemd-шаблон — копия PostgreSQL через pgBackRest в Selectel S3.
+# %i — тип копии: full (полная) или diff (изменения с последней полной).
+# Запускается таймерами journal-pgbackrest-full.timer / -diff.timer.
+#
+# Разовый запуск вручную: sudo systemctl start journal-pgbackrest@full.service
+# Проверка: journalctl -u journal-pgbackrest@full -n 50
+# Установка: см. deploy/offsite-backup.md.
+
+[Unit]
+Description=KOTOKOD journal — pgBackRest %i backup to S3
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/usr/bin/pgbackrest --stanza=journal --type=%i backup
+# Копия — фоновая работа, не должна тормозить журнал.
+Nice=10
+IOSchedulingClass=idle

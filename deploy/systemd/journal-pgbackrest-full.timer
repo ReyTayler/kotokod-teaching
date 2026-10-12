@@ -1,0 +1,14 @@
+# Таймер — полная копия pgBackRest раз в неделю: вс 04:00 МСК (01:00 UTC).
+# Через час после ночного pg_dump (00:00 UTC), чтобы не пересекаться по диску.
+
+[Unit]
+Description=KOTOKOD journal — weekly full pgBackRest backup (timer)
+
+[Timer]
+OnCalendar=Sun *-*-* 01:00:00
+Unit=journal-pgbackrest@full.service
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+# Таймер — ежечасная синхронизация файлов Wiki в S3.
+
+[Unit]
+Description=KOTOKOD journal — hourly Wiki media sync to S3 (timer)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+# Таймер — разностная копия pgBackRest: пн–сб 04:00 МСК (01:00 UTC).
+# Между копиями восстановление на любую минуту даёт архив WAL.
+
+[Unit]
+Description=KOTOKOD journal — daily differential pgBackRest backup (timer)
+
+[Timer]
+OnCalendar=Mon..Sat *-*-* 01:00:00
+Unit=journal-pgbackrest@diff.service
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
