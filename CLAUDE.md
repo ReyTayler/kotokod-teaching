@@ -2,7 +2,7 @@
 
 Сервер учёта посещаемости для школы KOTOKOD. Единый вход `/login` с выбором роли + 2FA; teacher SPA `/teacher` и admin SPA `/admin` (React 19 + TanStack Query v5 + React Router v7). Всё на PostgreSQL.
 
-> **⚠️ Бэкенд перенесён на Python Django+DRF (`journal_django/`). Express и Nest-каркас УДАЛЕНЫ** (2026-06-11, раздел 08 миграции). Историческое описание Express/routes/Nest ниже — для справки по доменным инвариантам, но самих файлов (`server.js`, `routes/`, `src/`) больше нет. Актуальный бэкенд — `journal_django/` (см. `docs/python-plan/`, `deploy/`). **Node-инструменты тоже удалены** (2026-08-02): `scripts/*.js`, `services/`, корневые `package.json`/`tsconfig.json` — всё это имело порты в Python и держалось мёртвым грузом. Backfill Sheets→PG живёт в `journal_django/apps/sync/` (`sheets_client.py`, `backfills/`, покрыт pytest), создание учётки — `manage.py bootstrap_admin`. Весь проект — в `journal_django/`; в корне только документация, `db/` (историческая SQL-схема эпохи Express) и `deploy/`.
+> **Бэкенд — Python Django+DRF (`journal_django/`).** Express, Nest-каркас (2026-06-11) и Node-инструменты (2026-08-02) удалены; упоминания `server.js`, `services/*.js`, `computeFifo` и т.п. в комментариях кода — историческая справка о происхождении порта. Backfill Sheets→PG — `journal_django/apps/sync/` (`sheets_client.py`, `backfills/`), создание учётки — `manage.py bootstrap_admin`. В корне: документация, `db/` (историческая SQL-схема эпохи Express), `deploy/` (сервер, Ansible, копии).
 
 ## 🔒 Безопасность — ОБЯЗАТЕЛЬНО
 
@@ -20,9 +20,9 @@
 
 ## Критичные соглашения
 
-**Git**: репозиторий активен, remote — `origin` (GitHub `ReyTayler/kotokod-teaching`), основная ветка `main`. Коммитить/пушить только по явной просьбе. Разработка ведётся локально (dev-БД, runserver), деплой без CI.
+**Git**: репозиторий активен, remote — `origin` (GitHub `ReyTayler/kotokod-teaching`), основная ветка `main`. Репозиторий **публичный** (решение владельца) — секреты, ПДн и дампы в него не попадают ни при каких условиях. Коммитить/пушить только по явной просьбе. Разработка ведётся локально (dev-БД, runserver), CI нет; сервер — см. «Инфраструктура».
 
-**Docker не использовать** — ни локально, ни на проде (Beget VPS, Ubuntu 22.04).
+**Docker не использовать** — ни локально, ни на проде (Beget VPS, Ubuntu 22.04). Решение владельца; плюсы и минусы обсуждены 2026-10-12, вернуться — при втором разработчике или отдельных сервисах платформы.
 
 **Эталонная структура проекта**: так как в основе проекта лежит Python Django+DRF, необходимо строго соблюдать структуру для проекта, которая считается эталонной для такого фреймворка из документации и best practice.
 
@@ -32,23 +32,23 @@
 
 **Быть строгим senior-разработчиком**.
 
-**Порядок mount в server.js**: `/api/auth` → `/api/admin` → `/api`. Admin обязан стоять ДО teacher-guard, иначе 403.
+**Порядок маршрутов** (`config/urls.py`): `/api/auth` → `/api/admin/*` → `/api/integrations/*` → общий `/api` (teacher). Общий `/api` — последним, иначе перехватит более узкие префиксы.
 
-**DATE type-parser**: `setTypeParser(1082, v => v)` — DATE приходит строкой YYYY-MM-DD. Без этого уезжает на день назад на MSK.
+**Часовой пояс**: `TIME_ZONE='Europe/Moscow'`, `USE_TZ=True`; сервисы (gunicorn, Celery) запускаются с `TZ=Europe/Moscow` (юниты `deploy/systemd`). Teacher-отчёт считает статус урока по локальному времени — другой TZ уводит статус на день.
 
 **`payments` immutable**: только POST/DELETE, никакого PATCH. `total_amount = unit_price × subscriptions_count` — CHECK в БД + пересчёт на сервере. `unit_price` округляется до копеек ДО умножения.
 
-**Half-lesson**: `duration=45min → 0.5 урока`, иначе 1.
+**Half-lesson**: `duration=45min → 0.5 урока`, иначе 1. Канон веса — `apps/lessons/weights.py`.
 
-**Балансы выводятся, не хранятся**: `getStudentBalance()` = `purchased - attended` per direction.
+**Балансы выводятся, не хранятся**: `get_student_balance()` (`apps/finances/balance.py` — единственный дом расчёта; одноимённые функции в `students`/`payments` лишь делегируют сюда) = куплено − пройдено **общим пулом по всем направлениям** (с 2026-07-08; `payments.direction_id` — информационная метка, разбивки по направлениям только справочные).
 
-**FIFO-финансы**: `computeFifo` (services/fifo.js). Цена урока = `total_amount/(subscriptions_count×4)` конкретной оплаты. Guard: оплаты с `subscriptions_count=NULL/0` пропускаются (→ Infinity ломает суммы). Подробнее: `docs/finances.md`.
+**FIFO-финансы**: `compute_fifo` (`apps/finances/fifo.py`, точный `Decimal`, округление до копеек один раз на выходе). Партии строит **только** `build_lots` (`apps/finances/lots.py`): цена урока = `total_amount / lessons_count` оплаты; с доплатами (`kind='surcharge'`) оплата дробится на блоки по 4 урока; возвраты — синтетические списания, не партии. Guard: оплаты с `lessons_count=NULL/0` пропускаются (деление на ноль ломает суммы). Подробнее: `docs/finances.md`.
 
 **Журнал изменений (pghistory)**: новые доменные модели ОБЯЗАНЫ получать `@pghistory.track(InsertEvent(), UpdateEvent(), DeleteEvent())` + запись в `apps/changelog/registry.py` (тест `test_registry_covers_all_tracked_models` упадёт, если забыть) + миграцию. Метки операций — `apps/changelog/labels.py` (новый мутирующий URL → новое правило). Секретные поля — в `exclude` декоратора.
 
-**Paginator**: пагинация используется встроенная от фреймворка, никаких постоянных пагинаций от SELECT.
+**Paginator**: пагинация используется встроенная от фреймворка (`apps/core/pagination.StandardPagination`, 50 на страницу), никаких постоянных пагинаций от SELECT.
 
-**Sort-dir bug pattern**: `(val==='asc'||val==='desc') ? val : default` — чинить в обоих местах: `parsePaginationRequest` и `paginate()`.
+**Направление сортировки** из запроса — только из whitelist: `sort_dir not in ('asc', 'desc')` → значение по умолчанию или 400 (как в `apps/accounts/views.py`, `apps/audit/views.py`). Сырое значение в `ORDER BY` не подставлять.
 
 **ErrorBoundary key**: `key={location.pathname}`, NOT `key={location.key}` (последнее ремоунтит на каждый setSearchParams → потеря фокуса инпутов).
 
@@ -64,13 +64,17 @@
 
 ## Конфигурация (.env)
 
+Файл — в корне репозитория; образец с пояснениями — `.env.example`. Прод-режим включает `DJANGO_SETTINGS_MODULE=config.settings.production` (задан в юнитах systemd, не в `.env`).
+
 ```
 DATABASE_URL=postgresql://journal:...@localhost:5432/journal
-ADMIN_COOKIE_SECRET=          # 128-hex, обязателен
+SECRET_KEY=                   # 128-hex, в проде обязателен
+ADMIN_COOKIE_SECRET=          # 128-hex; запасной источник ключа для dev
+ALLOWED_HOSTS=                # домен; в проде пусто = не пустит никого
+CSRF_TRUSTED_ORIGINS_LIST=    # https://<домен> — SPA и API на одном origin
+CORS_ORIGINS=                 # пусто = кросс-ориджин запрещён (так и нужно)
+REDIS_URL=                    # без него — синхронно, LocMemCache, без Celery-задач
 SMTP_HOST/PORT/USER/PASS/FROM # Beget SMTP для email-OTP
-PORT=3000
-NODE_ENV=production           # включает Secure cookie
-PG_POOL_MAX=20                # опц.
 # Telegram-уведомления:
 TELEGRAM_BOT_TOKEN=           # токен того же бота, что крутится в kotocode-bot
 TELEGRAM_GENERAL_CHAT_ID=     # общий чат сотрудников (-100...); пусто → дубли в чат не идут
@@ -87,21 +91,40 @@ JOURNAL_SPREADSHEET_ID=       # нужен для backfill-payments
 
 ## Тесты
 
-`pytest` из `journal_django/` (1500+ тестов). Node-тестов больше нет — вместе с Node-кодом.
+`pytest` из `journal_django/` (~2900 тестов).
 
 ⚠️ Гонять **полный** `pytest -q`, а не по приложениям: часть приложений no-op'ит `django_db_setup` (общая `journal_test`), часть пересоздаёт `test_journal_test`. Прогон по частям даёт ложный результат.
 
 ## Статус фаз
 
-Всё до Phase R2 + Payments/Discounts + Design system + RBAC — **✅**. Phase 5 (удалить Sheets) — ⏳ частично. Phase 7 (teacher SPA на React) — ⏳ опционально.
+Всё до Phase R2 + Payments/Discounts + Design system + RBAC + teacher SPA на React (`frontend/teacher-src`) — **✅**. Прод развёрнут (с 2026-07-13). Phase 5 (удалить Sheets) — ⏳ частично.
 
 ## Производительность (учитывать при любой правке)
 
-VPS 2 CPU / 2 ГБ под 50–100 учителей и 10–15 admin. Не читать «всё» там, где нужна часть. Индексы под реальные предикаты (PG не индексирует FK). Пагинация везде.
+VPS 4 CPU / 6 ГБ под 50–100 учителей и 10–15 admin; на той же машине — бот `kotocode-bot`. Не читать «всё» там, где нужна часть. Индексы под реальные предикаты (PG не индексирует FK). Пагинация везде.
 
 Каждую новую добавляемую или изменяемую фичу проверяй на производительность и способы оптимизации. В проекте уже используется Celery и Redis если что.
 
 
-## Pre-deployment / Backlog
+## Инфраструктура
 
-CORS whitelist (сейчас открыт), rate-limit на `/login`, Beget VPS deploy (Ubuntu 22.04, без Docker), soft-delete payments. Структурированный backlog: `docs/BACKLOG.md`.
+Прод: `develop-kotokod.ru`, Beget VPS (Санкт-Петербург), Ubuntu 22.04, без Docker. Код — `/opt/kotokod/journal-backend` (git-клон `main`), пользователь `kotokod`.
+
+**Сервер описан в Ansible** — `deploy/ansible/` (шпаргалка для владельца — его `README.md`). Запускается **на самом сервере** (`connection: local`), ansible-core 2.17.14 в `/opt/ansible`. Роли: base, security, postgresql, redis, restore, app, services, backup, nginx.
+- Правки сервера — **только через роли** и `deploy/`, не руками: иначе следующий прогон их откатит или покажет расхождением. Роли берут конфиги прямо из `deploy/` (systemd, nginx, pgbackrest, scripts) — копий внутри ролей нет.
+- Перед применением на проде — `ansible-playbook site.yml --check --diff`, показать владельцу, применять с его согласия.
+- `deploy/nginx/journal-kotokod.conf` — **шаблон Jinja** (`{{ nginx_domain }}`, `{{ django_dir }}`), вручную не копировать.
+- Роль `app` код только клонирует и **не обновляет**; выкатка новой версии сейчас — `git pull` + перезапуск сервисов (плейбук выкатки не написан).
+- Секреты (`.env`, `/etc/pgbackrest/conf.d/secrets.conf`, `/etc/kotokod/s3-backup.env`) плейбук не создаёт и не выводит — только проверяет наличие.
+
+**Резервные копии** (`deploy/offsite-backup.md`): pgBackRest → Selectel S3, бакет `kotokod-backoffice-reserve`, пул ru-6 (Москва) — полная вс, разностная пн–сб, архив WAL с `archive_timeout=60` (потеря ≤ 1 мин); файлы Wiki — rclone ежечасно; плюс ночной `pg_dump` на самом сервере. Копии шифруются; пароль шифрования — только у владельца.
+
+**Восстановление**: `site.yml -e restore=true` на чистом сервере (на сервере с базой журнала роль отказывается работать). Учения — `-e restore=true -e drill=true`: без копий/архива (не писать в бакет прода), без Celery beat (не слать рассылки), без nginx. Полный путь на чистом сервере ещё **не проверен учениями**.
+
+**Решения владельца** (не «чинить» без его слова): вход root по SSH с паролем оставлен намеренно; репозиторий публичный; Docker не используется.
+
+**Известное**: на проде Python 3.11.0rc1 (предрелизный пакет Ubuntu 22.04); PostgreSQL на заводских настройках памяти (`shared_buffers` 128 МБ); мониторинга и оповещений нет; DNS домена — у Beget.
+
+## Backlog
+
+Soft-delete payments и прочее — `docs/BACKLOG.md`.
