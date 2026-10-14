@@ -271,20 +271,6 @@
   border-color: var(--accent); color: var(--accent);
   background: var(--accent-soft);
 }
-.prepay-picker { display: flex; gap: 8px; }
-.prepay-cell {
-  width: 44px; height: 44px; border: 2px solid var(--border);
-  border-radius: var(--r-sm); background: var(--bg3); cursor: pointer;
-  font: inherit; font-weight: 600; color: var(--text2);
-  transition: border-color .12s, background .12s, color .12s;
-}
-.prepay-cell:hover:not(.is-on) { border-color: var(--border-strong); }
-.prepay-cell.is-on {
-  border-color: var(--accent); color: #fff; background: var(--accent);
-}
-
-/* nav-btn--cta defined in ── SIDEBAR ── block above */
-
 /* ── КНОПКА ЗАКРЫТИЯ БОКОВОЙ ПАНЕЛИ ──
    Общая для панели сделки и панели задачи (там же, где общая ручка ресайза):
    раньше правило было объявлено дважды — в renewals.css и tasks.css — двумя

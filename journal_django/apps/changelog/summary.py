@@ -312,7 +312,7 @@ def describe_event(ev: dict, lk: Lookups) -> str:
                 lc = _fmt_num(abs(float(data.get('lessons_count') or 0)))
                 return f'Возврат {amount} ₽ ({lc} уроков): {student}'
             lc = data.get('lessons_count')
-            tag = '' if (lc is None or float(lc) % 4 == 0) else f' (предоплата, {_fmt_num(lc)} уроков)'
+            tag = '' if (lc is None or float(lc) % 4 == 0) else f' ({_fmt_num(lc)} уроков)'
             return f'Оплата {amount} ₽{tag}: {student}'
         return f'Оплата {student}: изменено — {_fields_ru(diff.keys())}'
 

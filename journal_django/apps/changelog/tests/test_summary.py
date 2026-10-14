@@ -201,7 +201,7 @@ def test_build_summary_single_payment_unchanged():
     assert out == 'Оплата 4000 ₽: Иванов'
 
 
-def test_describe_event_prepayment_insert():
+def test_describe_event_non_block_insert():
     from apps.changelog.summary import describe_event, Lookups
     ev = {
         'entity': 'payment', 'pgh_label': 'insert',
@@ -210,4 +210,4 @@ def test_describe_event_prepayment_insert():
         'pgh_diff': {},
     }
     out = describe_event(ev, Lookups(students={1: 'Иванов'}))
-    assert 'предоплата' in out
+    assert '(2 уроков)' in out

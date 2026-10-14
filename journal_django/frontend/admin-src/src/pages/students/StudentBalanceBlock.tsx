@@ -152,8 +152,9 @@ function HistoryRow({
               {p.subscriptions_count != null ? (
                 <span className="fin-history__count">{p.subscriptions_count}</span>
               ) : (
-                <span className="fin-tag fin-tag--prepay" title={`Предоплата, ${fmtLessons(p.lessons_count ?? 0)} уроков`}>
-                  предоплата
+                // Уроков не кратно 4 — абонементов нет, показываем число уроков.
+                <span className="fin-tag fin-tag--prepay" title={`Поштучно, ${fmtLessons(p.lessons_count ?? 0)} уроков`}>
+                  {fmtLessons(p.lessons_count ?? 0)} ур.
                 </span>
               )}
               <svg

@@ -219,7 +219,8 @@ def test_post_cap_exceeded_returns_400(admin_client, direction_fixture, student_
 
 @pytest.mark.django_db
 def test_post_invalid_lessons_count_returns_400(admin_client, direction_fixture, student_fixture):
-    payload = _payment_payload(student_fixture, direction_fixture, lessons_count=5)
+    # Любое целое ≥ 1 допустимо (см. test_arbitrary_lessons_count) — невалиден только 0.
+    payload = _payment_payload(student_fixture, direction_fixture, lessons_count=0)
     resp = admin_client.post(BASE_URL, payload, format='json')
     assert resp.status_code == 400
 
@@ -356,6 +357,38 @@ def test_prepayment_two_lessons(admin_client, student_fixture, direction_fixture
     assert str(body['unit_price']) == '1000.00'
     with connection.cursor() as cur:
         cur.execute('DELETE FROM payments WHERE id = %s', [body['id']])
+
+
+@pytest.mark.parametrize('lessons, total, unit', [
+    (5, '5000.00', '1000.00'),
+    (7, '7700.00', '1100.00'),
+])
+def test_arbitrary_lessons_count(admin_client, student_fixture, direction_fixture,
+                                 lessons, total, unit):
+    """Любое целое число уроков в пределах курса — не только блоки по 4 и 1–3."""
+    import json
+    from django.db import connection
+    resp = admin_client.post('/api/admin/payments', json.dumps({
+        'student_id': student_fixture, 'direction_id': direction_fixture,
+        'lessons_count': lessons, 'total_amount': total, 'paid_at': '2026-01-01',
+    }), content_type='application/json')
+    assert resp.status_code == 201, resp.content
+    body = resp.json()
+    assert body['lessons_count'] == lessons
+    assert body['subscriptions_count'] is None  # не кратно 4 — абонементов нет
+    assert str(body['unit_price']) == unit
+    with connection.cursor() as cur:
+        cur.execute('DELETE FROM payments WHERE id = %s', [body['id']])
+
+
+def test_arbitrary_lessons_count_respects_cap(admin_client, student_fixture, direction_fixture):
+    """Курс фикстуры — 8 уроков: 9 поштучно не продаётся."""
+    import json
+    resp = admin_client.post('/api/admin/payments', json.dumps({
+        'student_id': student_fixture, 'direction_id': direction_fixture,
+        'lessons_count': 9, 'total_amount': '9000.00', 'paid_at': '2026-01-01',
+    }), content_type='application/json')
+    assert resp.status_code == 400, resp.content
 
 
 def test_refund_endpoint_admin(admin_client, student_fixture, direction_fixture):

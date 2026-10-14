@@ -3,7 +3,7 @@ Serializers for payments.
 
 PaymentCreateSerializer — порт paymentCreateSchema (shared/schemas.js:239-246):
   student_id / direction_id — int >= 1
-  subscriptions_count       — int >= 1
+  lessons_count             — int >= 1 (любое; потолок — лимит курса)
   unit_price                — DecimalField(min_value=0)
   paid_at                   — DateStringField
   note                      — str max 500, nullable, optional
@@ -23,6 +23,10 @@ class PaymentCreateSerializer(serializers.Serializer):
     # (kind='surcharge') их нет: направление берётся у родителя, уроков не добавляет.
     # required=False на уровне поля + явная проверка в validate() ниже.
     direction_id = serializers.IntegerField(min_value=1, required=False)
+    # Любое целое число уроков ≥ 1 (с 2026-10-14; раньше — кратно 4 или 1–3).
+    # Верхнюю границу задаёт лимит курса в repository.create_payment; некратное 4
+    # количество хранится с subscriptions_count=NULL, а FIFO режет его на блоки
+    # с неполным последним (apps/finances/lots.py).
     lessons_count = serializers.IntegerField(min_value=1, required=False)
     total_amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal('0'))
     paid_at = DateStringField()
@@ -33,12 +37,6 @@ class PaymentCreateSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=['purchase', 'extra', 'surcharge'], required=False, default='purchase')
     parent_payment_id = serializers.IntegerField(min_value=1, required=False)
     subscription_index = serializers.IntegerField(min_value=1, required=False)
-
-    def validate_lessons_count(self, value):
-        # Одна оплата: либо целые блоки (кратно 4), либо предоплата 1|2|3.
-        if value % 4 == 0 or value in (1, 2, 3):
-            return value
-        raise serializers.ValidationError('lessons_count: кратно 4 (блоки) или 1–3 (предоплата)')
 
     def validate(self, attrs):
         if attrs.get('kind') == 'surcharge':

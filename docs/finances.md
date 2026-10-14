@@ -8,6 +8,7 @@
 - **Cap-валидация в транзакции** с `SELECT directions FOR UPDATE`: `(SUM(subscriptions_count) + new) × 4 ≤ direction.total_lessons` → иначе 400 `cap_exceeded`. Race-safe.
 - **ON DELETE RESTRICT** на FK payments→students/directions: нельзя удалить сущность с финансовой историей.
 - `paid_at` — date (не timestamptz), нас интересует день.
+- **Количество уроков** — любое целое ≥ 1 (с 2026-10-14; раньше — кратно 4 или 1–3). Источник правды — `lessons_count`; при некратном 4 `subscriptions_count = NULL`, FIFO режет оплату на блоки по 4 с неполным последним (`apps/finances/lots.py`). Потолок — лимит курса в уроках. В модалке — режим «Поштучно».
 - **Legacy payments** (миграция 009): direction_id и subscriptions_count могут быть NULL — для backfill истории.
 
 ## Half-lesson
