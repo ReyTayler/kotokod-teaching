@@ -49,7 +49,7 @@
 .sidebar-nav .nav-btn > svg,
 .sidebar-nav .nav-group__btn > svg { width: 18px; height: 18px; }
 .nav-sep { height: 1px; background: var(--border2); margin: var(--space-3) var(--space-3); }
-/* Закреплённый блок над группами: «Дашборд» + CTA «Внести оплату». */
+/* Закреплённый блок над группами: «Дашборд». */
 .nav-pinned { display: flex; flex-direction: column; margin-bottom: var(--space-3); }
 
 /* Смысловые группы разделов: строка-кнопка + схлопывающийся список пунктов.
@@ -159,13 +159,6 @@
   font-size: var(--fs-xs); font-weight: 700; line-height: 1;
   flex-shrink: 0;
 }
-.nav-btn--cta {
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-  margin-top: var(--space-2);
-}
-.nav-btn--cta:hover { background: var(--accent-soft-h); color: var(--accent); }
 .sidebar-footer { padding: var(--space-3); border-top: 1px solid var(--border); }
 .user-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
 .user-name { font-size: var(--fs-md); font-weight: 600; color: var(--text); line-height: 1.2; }
@@ -459,7 +452,6 @@
 .sidebar--rail .nav-group__chevron,
 .sidebar--rail .nav-group__panel,
 .sidebar--rail .user-row__text { display: none; }
-.sidebar--rail .nav-btn--cta { margin-top: var(--space-2); }
 /* Счётчик пропусков в рельсе не помещается в строку и садится на угол иконки —
    так же, как значок непрочитанного на иконке приложения. */
 .sidebar--rail .nav-badge {

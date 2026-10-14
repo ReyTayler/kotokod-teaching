@@ -84,12 +84,6 @@ export const NAV_ICONS: Record<string, ReactElement> = {
       <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>
     </svg>
   ),
-  pay: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M12 6v12M9 9h4.5a2 2 0 0 1 0 4H9a2 2 0 0 0 0 4h6"/>
-    </svg>
-  ),
   archive: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="21 8 21 21 3 21 3 8"/>
@@ -219,7 +213,7 @@ export interface NavGroup {
 
 /**
  * Закреплено сверху, вне групп. «Дашборд» — точка входа, прятать его внутрь
- * аккордеона незачем; рядом с ним рендерится CTA «Внести оплату».
+ * аккордеона незачем.
  */
 export const NAV_PINNED: NavItem[] = [
   { key: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' },

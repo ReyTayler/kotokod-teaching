@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { ThemeToggle } from './ThemeToggle';
-import { usePaymentModal } from '../../providers/PaymentModalProvider';
-import { canWritePayments, type Role } from '../../lib/permissions';
+import { type Role } from '../../lib/permissions';
 import { NAV_ICONS, NAV_PINNED, NAV_GROUPS, groupKeyOfPath } from './navConfig';
 import { NavGroup } from './NavGroup';
 import { BrandMark } from './BrandMark';
@@ -26,26 +25,6 @@ function Avatar({ name }: { name: string }) {
     >
       {initials.toUpperCase()}
     </div>
-  );
-}
-
-function PayButton({ rail }: { rail?: boolean }) {
-  const { open } = usePaymentModal();
-  const { me } = useAuth();
-  // Оплаты вносит только админ/суперадмин — менеджеру кнопку не показываем
-  // (бэк отдаст 403 в любом случае, это UX-слой).
-  if (!canWritePayments(me?.role as Role)) return null;
-  return (
-    <button
-      type="button"
-      className="nav-btn nav-btn--cta"
-      onClick={() => open()}
-      title={rail ? 'Внести оплату' : undefined}
-      aria-label={rail ? 'Внести оплату' : undefined}
-    >
-      {NAV_ICONS['pay']}
-      <span className="nav-btn__label">Внести оплату</span>
-    </button>
   );
 }
 
@@ -117,7 +96,6 @@ export function Sidebar({ rail, onToggle, toggleLabel = 'Скрыть боков
               <span className="nav-btn__label">{it.label}</span>
             </NavLink>
           ))}
-          <PayButton rail={rail} />
         </div>
         {NAV_GROUPS.map((group) => {
           const items = group.items.filter((it) => !it.can || it.can(role));
