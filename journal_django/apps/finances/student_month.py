@@ -23,7 +23,10 @@
     оплаты на конец месяца. Оплата с остатком даёт строку даже без движения в
     месяце, поэтому колонка суммируется в аванс всей школы на отчётную дату;
   • «Долг» — деньги за уроки сверх оплаченных. Такие уроки не привязаны ни к
-    одной оплате, поэтому им отводится отдельная строка ученика.
+    одной оплате, поэтому им отводится отдельная строка ученика;
+  • «Дата оплаты» у строки без своей оплаты (долг/пустая) — дата последней
+    оплаты ученика на конец месяца вместо прочерка (решение пользователя
+    2026-10-20). Оплату позже отчётной даты не подставляем никогда.
 
 ОТЧЁТ — СНИМОК НА КОНЕЦ ВЫБРАННОГО МЕСЯЦА (решение пользователя 2026-09-11).
 Ни уроков, ни оплат, датированных позже последнего дня месяца, в нём не
@@ -70,6 +73,11 @@ class StudentMonthRow:
     remaining_lessons: int | float
     remaining_value: Decimal
     debt: Decimal
+    # Дата последней оплаты ученика — у строк без своей оплаты (долг/пустая),
+    # чтобы в колонке «Дата оплаты» не было прочерка (решение пользователя
+    # 2026-10-20). Берётся последняя оплата НА КОНЕЦ МЕСЯЦА; прочерк остаётся
+    # только у ученика, который до отчётной даты не платил ни разу.
+    last_paid_at: str | None = None
 
 
 def _payment_meta(month_start: str, month_end: str) -> dict[int, dict]:
@@ -185,6 +193,14 @@ def collect_student_month(month: str) -> list[StudentMonthRow]:
     # строку даже без единого урока в месяце.
     paid_this_month = {pid for pid, m in meta.items() if m['cash_in_month'] > 0}
 
+    # Дата последней оплаты ученика на конец месяца — для строк без своей оплаты
+    # (долг/пустая). Снимок: оплат позже отчётной даты не существует, поэтому
+    # не плативший до неё ученик остаётся с прочерком.
+    last_paid_at: dict[int, str] = {}
+    for m in meta.values():
+        if m['paid_at'] <= month_end and m['paid_at'] > last_paid_at.get(m['student_id'], ''):
+            last_paid_at[m['student_id']] = m['paid_at']
+
     rows: list[StudentMonthRow] = []
     for s in students:
         sid = s['id']
@@ -297,6 +313,12 @@ def collect_student_month(month: str) -> list[StudentMonthRow]:
                 remaining_value=_ZERO,
                 debt=_ZERO,
             ))
+
+        # Строке долга / пустой строке вместо прочерка показываем, когда ученик
+        # платил в последний раз (у строк оплат дата и так своя).
+        for row in student_rows:
+            if row.payment_id is None:
+                row.last_paid_at = last_paid_at.get(sid)
         rows.extend(student_rows)
     return rows
 
@@ -347,13 +369,14 @@ def build_workbook(rows: list[StudentMonthRow]):
     ws.row_dimensions[1].height = 32
 
     for row in rows:
+        shown_paid_at = row.paid_at or row.last_paid_at
         ws.append([
             row.full_name,
             row.platform_id or '-',
             row.attended_lessons,
             float(row.worked_off),
             float(row.unit_price) if row.unit_price is not None else '-',
-            datetime.date.fromisoformat(row.paid_at) if row.paid_at else '-',
+            datetime.date.fromisoformat(shown_paid_at) if shown_paid_at else '-',
             float(row.paid_in_month),
             float(row.refunded_in_month),
             row.remaining_lessons,

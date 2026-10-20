@@ -342,3 +342,103 @@ def test_refund_after_month_end_is_not_in_snapshot(
 
     assert [(r.refunded_in_month, r.remaining_value) for r in rows] == [
         (Decimal('0'), Decimal('2000.00'))]
+
+
+def test_debt_row_without_month_payment_shows_last_payment_date(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """В месяце ученик не платил: в строке долга — дата последней оплаты, пусть и
+    другого месяца (решение пользователя 2026-10-20)."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-05-03')
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-06-01')
+    for date in ('2026-06-05', '2026-06-06', '2026-06-07'):
+        _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, date)
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert len(rows) == 1
+    debt_row = rows[0]
+    assert debt_row.payment_id is None
+    assert debt_row.paid_at is None                   # своей оплаты у строки нет
+    assert debt_row.last_paid_at == '2026-06-01'      # последняя из оплат ученика
+
+
+def test_empty_row_shows_last_payment_date(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Оплата давно отработана, движения в месяце нет — дата последней оплаты видна."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-05-03')
+    _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-05-10')
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert len(rows) == 1
+    assert rows[0].payment_id is None
+    assert rows[0].last_paid_at == '2026-05-03'
+
+
+def test_last_payment_date_prefers_payments_up_to_month_end(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Снимок: из оплат берём последнюю на конец месяца, а не более позднюю."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-06-01')
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-08-03')
+    for date in ('2026-06-05', '2026-06-06'):
+        _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, date)
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert [(r.payment_id, r.last_paid_at) for r in rows] == [(None, '2026-06-01')]
+
+
+def test_payment_after_month_end_never_fills_the_date(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """До отчётной даты ученик не платил ни разу: оплату следующего месяца не
+    подставляем — на конец месяца её ещё не было, остаётся прочерк."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-08-03')
+    _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, '2026-07-28')
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert [r.last_paid_at for r in rows] == [None]
+
+
+def test_debt_row_gets_date_even_when_student_paid_in_month(
+    group_fixture, teacher_id_fixture, student_fixture, direction_fixture, graph_cleanup,
+):
+    """Прочерков нет и у долга того, кто платил в месяце: дата его последней оплаты."""
+    _add_payment(graph_cleanup, student_fixture, direction_fixture, 1, 500, '2026-07-01')
+    for date in ('2026-07-05', '2026-07-06'):
+        _add_lesson(graph_cleanup, group_fixture, teacher_id_fixture, student_fixture, date)
+
+    rows = _rows('2026-07', student_fixture)
+
+    assert len(rows) == 2
+    assert rows[1].payment_id is None
+    assert rows[1].last_paid_at == '2026-07-01'
+
+
+def test_student_who_never_paid_keeps_no_date(student_fixture):
+    """Оплат нет вовсе — показывать нечего, прочерк остаётся."""
+    rows = _rows('2026-07', student_fixture)
+
+    assert [r.last_paid_at for r in rows] == [None]
+
+
+def test_workbook_writes_last_payment_date_into_date_column(student_fixture):
+    """В Excel дата последней оплаты попадает в колонку «Дата оплаты»."""
+    import datetime
+
+    from apps.finances.student_month import HEADERS, StudentMonthRow, build_workbook
+
+    row = StudentMonthRow(
+        student_id=student_fixture, full_name='Тест', platform_id=None, payment_id=None,
+        paid_at=None, unit_price=None, attended_lessons=0, worked_off=Decimal('0'),
+        paid_in_month=Decimal('0'), refunded_in_month=Decimal('0'), remaining_lessons=0,
+        remaining_value=Decimal('0'), debt=Decimal('0'), last_paid_at='2026-05-03',
+    )
+    ws = build_workbook([row]).active
+    date_col = HEADERS.index('Дата оплаты') + 1
+
+    assert ws.cell(row=2, column=date_col).value == datetime.date(2026, 5, 3)
