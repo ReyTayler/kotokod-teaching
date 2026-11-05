@@ -69,6 +69,18 @@ def _assert_still_absent(locked: dict) -> None:
         raise StudentNotAbsent([name])
 
 
+def _assert_was_not_present(locked: dict) -> None:
+    """StudentNotAbsent, если на пропущенном уроке ученик отмечен присутствовавшим.
+    Гард проведения доп.урока: слабее _assert_still_absent — строки посещаемости
+    может не быть, и это законно. Ученика добавили в группу после урока и назначили
+    отработку вручную (_assign_makeup_for_lesson); на исходном уроке он ничего не
+    потребил, двойного учёта нет. Вызывать ПОД lock_for_record (см. выше)."""
+    if repository.students_present_on(locked['missed_lesson_id'], [locked['student_id']]):
+        name = (Student.objects.filter(id=locked['student_id'])
+                .values_list('full_name', flat=True).first()) or ''
+        raise StudentNotAbsent([name])
+
+
 def _notify_makeup(resolution_id: int, kind: str) -> None:
     """
     Поставить преподавателю уведомление о доп.уроке.
@@ -460,7 +472,7 @@ def record(
             # extra на ученика в один день/номер иначе схлопнулись бы.
             fact_token = f'extra:{resolution_id}'
         else:
-            _assert_still_absent(locked)
+            _assert_was_not_present(locked)
             missed_lesson = Lesson.objects.get(id=locked['missed_lesson_id'])
             fact_group_id = locked['missed_lesson_group_id']
             # Длительность = длительность ИСХОДНОГО пропущенного урока: вес
