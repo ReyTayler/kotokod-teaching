@@ -116,6 +116,9 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   'teacher.telegram_unlink':       'Отвязка Telegram',
   'plan.resync':                   'Починка плана',
   'changelog.revert':              'Откат',
+  'schedule.template':             'График работы: шаблон недели',
+  'schedule.week':                 'График работы: изменения недели',
+  'schedule.override_clear':       'График работы: сброс дня к шаблону',
   other:                           'Другое действие',
 };
 

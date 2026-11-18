@@ -16,6 +16,8 @@ urlpatterns = [
     # Phase 1 — groups
     path('api/admin/groups', include('apps.groups.urls')),
     # Phase 2 — simple reference sections
+    # График работы преподавателя (admin, manager/admin/superadmin) — до общего teachers-include
+    path('api/admin/teachers/<int:teacher_id>/schedule', include('apps.availability.admin_urls')),
     path('api/admin/teachers', include('apps.teachers.urls')),
     path('api/admin/directions', include('apps.directions.urls')),
     path('api/admin/discounts', include('apps.discounts.urls')),
@@ -60,6 +62,8 @@ urlpatterns = [
     # Служебный API Telegram-бота (закрыт секретом + nginx allow 127.0.0.1).
     # ОБЯЗАН стоять ДО общего path('api', ...) ниже — иначе перехватится им.
     path('api/integrations/telegram', include('apps.notifications.integration_urls')),
+    # График работы — кабинет преподавателя (/api/schedule, role=teacher); до общего /api
+    path('api/schedule', include('apps.availability.urls')),
     # Phase 10 — teacher SPA (/api, после /api/admin — admin стоит выше, как в Express)
     path('api', include('apps.teacher_spa.urls')),
     # Планирование занятий — календарь плановых occurrences (/api/calendar, role=teacher)
