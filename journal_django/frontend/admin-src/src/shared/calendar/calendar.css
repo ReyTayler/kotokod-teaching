@@ -307,3 +307,20 @@
 @keyframes t-pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
 .cal-error { border: 1px solid color-mix(in oklab, var(--danger) 35%, transparent); background: color-mix(in oklab, var(--danger) 8%, transparent); color: var(--danger); border-radius: var(--r); padding: var(--space-4); font-size: 13px; }
 .cal-empty { text-align: center; padding: var(--space-10) var(--space-4); color: var(--text3); font-size: 13px; }
+
+/* График работы: колонка с заданным графиком — «закрыто», окна — «открыто».
+   Линии часов рисует background-image колонки, поэтому у колонки меняем только
+   background-color, а окно повторяет те же линии своим градиентом (со сдвигом на
+   --avail-top, чтобы они совпали с линиями колонки). */
+.cal-col.has-availability { background-color: var(--bg4); }
+.cal-col.has-availability.today { background-color: color-mix(in oklab, var(--accent) 8%, var(--bg4)); }
+.cal-avail {
+  position: absolute; left: 0; right: 0; pointer-events: none;
+  background-color: var(--bg2);
+  background-image: repeating-linear-gradient(
+    to bottom, transparent 0, transparent calc(var(--row-h) - 1px),
+    var(--border2) calc(var(--row-h) - 1px), var(--border2) var(--row-h)
+  );
+  background-position: 0 calc(-1 * var(--avail-top, 0px));
+}
+.cal-col.today .cal-avail { background-color: color-mix(in oklab, var(--accent) 4%, var(--bg2)); }
