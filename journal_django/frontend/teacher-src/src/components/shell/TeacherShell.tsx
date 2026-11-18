@@ -12,6 +12,12 @@ const NAV_ICONS: Record<string, ReactElement> = {
       <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
+  schedule: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9.5" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
   groups: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -55,6 +61,7 @@ const NAV_ICONS: Record<string, ReactElement> = {
 
 const SECTIONS = [
   { key: 'calendar', label: 'Календарь', path: '/calendar' },
+  { key: 'schedule', label: 'График работы', path: '/schedule' },
   { key: 'groups', label: 'Мои группы', path: '/groups' },
   { key: 'lessons', label: 'Мои уроки', path: '/lessons' },
   { key: 'report', label: 'Отчёт по уроку', path: '/report' },
