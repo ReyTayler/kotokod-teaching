@@ -1,8 +1,8 @@
 """
 API графика работы. Обработчики — миксины, скоуп преподавателя — отдельный
 миксин, и только конкретные классы внизу файла наследуют APIView:
-- teacher (/api/schedule/…, IsTeacher) — преподаватель ТОЛЬКО из учётки;
-- admin (/api/admin/teachers/<id>/schedule/…, IsManagerOrAdmin).
+- teacher (/api/work-schedule/…, IsTeacher) — преподаватель ТОЛЬКО из учётки;
+- admin (/api/admin/teachers/<id>/work-schedule/…, IsManagerOrAdmin).
 
 Почему миксины, а не базовые APIView: базовый APIView без permission_classes
 получает DRF-default AllowAny, и случайное монтирование его в urls открыло бы
@@ -158,40 +158,40 @@ class _OverrideMixin:
 # ── Конкретные вьюхи: у КАЖДОЙ явные permission_classes ─────────────────────
 
 class TeacherTemplateView(_TeacherScope, _TemplateMixin, APIView):
-    """GET/PUT /api/schedule/template — шаблон недели своего графика."""
+    """GET/PUT /api/work-schedule/template — шаблон недели своего графика."""
     permission_classes = [IsTeacher]
 
 
 class TeacherRangeView(_TeacherScope, _RangeMixin, APIView):
-    """GET /api/schedule?from=&to= — итоговые окна своего графика."""
+    """GET /api/work-schedule?from=&to= — итоговые окна своего графика."""
     permission_classes = [IsTeacher]
 
 
 class TeacherWeekView(_TeacherScope, _WeekMixin, APIView):
-    """PUT /api/schedule/week — изменения конкретной недели."""
+    """PUT /api/work-schedule/week — изменения конкретной недели."""
     permission_classes = [IsTeacher]
 
 
 class TeacherOverrideView(_TeacherScope, _OverrideMixin, APIView):
-    """DELETE /api/schedule/overrides/<date> — сбросить день к шаблону."""
+    """DELETE /api/work-schedule/overrides/<date> — сбросить день к шаблону."""
     permission_classes = [IsTeacher]
 
 
 class AdminTemplateView(_AdminScope, _TemplateMixin, APIView):
-    """GET/PUT /api/admin/teachers/<id>/schedule/template."""
+    """GET/PUT /api/admin/teachers/<id>/work-schedule/template."""
     permission_classes = [IsManagerOrAdmin]
 
 
 class AdminRangeView(_AdminScope, _RangeMixin, APIView):
-    """GET /api/admin/teachers/<id>/schedule?from=&to=."""
+    """GET /api/admin/teachers/<id>/work-schedule?from=&to=."""
     permission_classes = [IsManagerOrAdmin]
 
 
 class AdminWeekView(_AdminScope, _WeekMixin, APIView):
-    """PUT /api/admin/teachers/<id>/schedule/week."""
+    """PUT /api/admin/teachers/<id>/work-schedule/week."""
     permission_classes = [IsManagerOrAdmin]
 
 
 class AdminOverrideView(_AdminScope, _OverrideMixin, APIView):
-    """DELETE /api/admin/teachers/<id>/schedule/overrides/<date>."""
+    """DELETE /api/admin/teachers/<id>/work-schedule/overrides/<date>."""
     permission_classes = [IsManagerOrAdmin]

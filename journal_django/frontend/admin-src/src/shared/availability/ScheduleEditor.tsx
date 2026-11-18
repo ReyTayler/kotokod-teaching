@@ -13,7 +13,7 @@ import { ScheduleSummary } from './ScheduleSummary';
 import './schedule.css';
 
 export interface ScheduleEditorProps {
-  /** '/api/schedule' | `/api/admin/teachers/${id}/schedule` */
+  /** '/api/work-schedule' | `/api/admin/teachers/${id}/work-schedule` */
   basePath: string;
   /** URL календаря для подсказки-уроков недели: (from, to) => string. */
   calendarUrl: (from: string, to: string) => string;
@@ -86,7 +86,10 @@ export function ScheduleEditor({ basePath, calendarUrl, readOnly = false }: Sche
     else fn();
   };
 
+  // Ошибка на экране — одна из трёх мутаций (`??`), поэтому перед каждым действием
+  // гасим ошибки всех: иначе старая ошибка переживает следующее успешное действие.
   const resetErrors = () => { saveTemplate.reset(); saveWeek.reset(); clearOverride.reset(); };
+  const clearDay = (d: string) => { resetErrors(); clearOverride.mutate(d); };
 
   const onSet = (c: number, i: number, value: boolean) => {
     if (locked) return;
@@ -100,6 +103,7 @@ export function ScheduleEditor({ basePath, calendarUrl, readOnly = false }: Sche
   const save = () => {
     if (!draft) return;
     const done = { onSuccess: () => setDraft(null) };
+    resetErrors();
     if (mode === 'template') {
       saveTemplate.mutate(
         Object.fromEntries(WEEK_DOW.map((dow, c) => [String(dow), slotsToIntervals(draft[c])])),
@@ -180,7 +184,7 @@ export function ScheduleEditor({ basePath, calendarUrl, readOnly = false }: Sche
               dirty={dirty}
               busy={pending}
               onSet={onSet}
-              onClearDay={(d) => clearOverride.mutate(d)}
+              onClearDay={clearDay}
             />
           )}
           {ready ? (
@@ -190,7 +194,7 @@ export function ScheduleEditor({ basePath, calendarUrl, readOnly = false }: Sche
               canEdit={!readOnly}
               busy={pending}
               dirty={dirty}
-              onRemoveOverride={(d) => clearOverride.mutate(d)}
+              onRemoveOverride={clearDay}
             />
           ) : (
             <div className="sched-skeleton sched-skeleton--side" aria-busy="true" />

@@ -146,7 +146,10 @@ def windows_payload(teacher_id: int, d_from: datetime.date, d_to: datetime.date)
 
 def _lock_active_teacher(teacher_id: int) -> Teacher:
     """Блокирует строку преподавателя до конца транзакции. DoesNotExist пробрасывается (→404)."""
-    teacher = Teacher.objects.select_for_update().get(pk=teacher_id)
+    # NO KEY UPDATE: сохранения графика одного преподавателя по-прежнему идут
+    # по очереди, но вставки строк с FK на преподавателя (уроки, начисления —
+    # они берут FOR KEY SHARE) этой блокировкой не тормозятся.
+    teacher = Teacher.objects.select_for_update(no_key=True).get(pk=teacher_id)
     if not teacher.active:
         raise ScheduleError('Преподаватель в архиве — график только для просмотра.')
     return teacher

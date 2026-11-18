@@ -1,4 +1,4 @@
-"""Маршруты графика работы в кабинете преподавателя — монтируются на 'api/schedule'."""
+"""Маршруты графика работы в кабинете преподавателя — монтируются на 'api/work-schedule'."""
 from django.urls import path
 
 from apps.availability import views

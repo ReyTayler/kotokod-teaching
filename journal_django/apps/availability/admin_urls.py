@@ -1,4 +1,4 @@
-"""Маршруты графика работы в admin SPA — монтируются на 'api/admin/teachers/<int:teacher_id>/schedule'."""
+"""Маршруты графика работы в admin SPA — монтируются на 'api/admin/teachers/<int:teacher_id>/work-schedule'."""
 from django.urls import path
 
 from apps.availability import views

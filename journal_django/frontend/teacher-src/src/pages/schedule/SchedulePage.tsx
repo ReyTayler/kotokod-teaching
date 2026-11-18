@@ -11,7 +11,7 @@ export default function SchedulePage() {
         Отметьте время, когда вам можно ставить уроки. Шаблон повторяется каждую неделю; конкретную неделю можно поправить отдельно.
       </p>
       <ScheduleEditor
-        basePath="/api/schedule"
+        basePath="/api/work-schedule"
         calendarUrl={(from, to) => `/api/calendar?from=${from}&to=${to}`}
       />
     </div>
