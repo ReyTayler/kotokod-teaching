@@ -173,6 +173,7 @@ _ENTITY_RU = {
     'group': 'Группа', 'schedule_slot': 'Слот расписания', 'membership': 'Членство',
     'planned_lesson': 'Плановое занятие', 'lesson': 'Урок',
     'attendance': 'Посещаемость', 'payment': 'Оплата', 'payroll': 'Начисление',
+    'availability_rule': 'Окно графика', 'availability_override': 'Исключение графика',
 }
 
 

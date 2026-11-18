@@ -141,6 +141,8 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
   payroll:        'Начисление',
   absence_resolution: 'Пропуск (резолюция)',
   lesson_skip:    'Неоплачиваемый пропуск',
+  availability_rule: 'Окно графика',
+  availability_override: 'Исключение графика',
 };
 
 export const CHANGELOG_ENTITY_OPTIONS: { value: string; label: string }[] =
