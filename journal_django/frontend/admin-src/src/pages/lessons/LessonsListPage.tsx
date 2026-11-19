@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useLessons } from '../../hooks/useLessons';
-import { useTableColumns } from '../../hooks/useAdminSettings';
 import { useAuth } from '../../hooks/useAuth';
 import { canWriteLessons, type Role } from '../../lib/permissions';
 import { DataTable, type Column } from '../../components/table/DataTable';
@@ -89,8 +88,6 @@ export default function LessonsListPage() {
     },
   ];
 
-  const visibleColumns = useTableColumns('lessons', columns);
-
   // Шапка рисуется и во время загрузки: раньше страница возвращала
   // скелетон ДО неё, и заголовок пропадал при каждом переходе.
   const header = (
@@ -101,14 +98,14 @@ export default function LessonsListPage() {
     />
   );
 
-  if (isLoading) return <>{header}<TableSkeleton rows={8} cols={visibleColumns.length} /></>;
+  if (isLoading) return <>{header}<TableSkeleton rows={8} cols={columns.length} /></>;
 
   return (
     <>
       {header}
       <DataTable<Lesson>
         data={rows}
-        columns={visibleColumns}
+        columns={columns}
         title="Уроки"
         onRowClick={(row) => navigate(`/admin/lessons/${row.id}`)}
         isLoading={isFetching}

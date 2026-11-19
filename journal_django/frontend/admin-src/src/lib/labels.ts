@@ -101,7 +101,6 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   // Действие снято, но метка остаётся для показа исторических событий в журнале.
   'extra_lesson.waive':            'Закрытие пропуска без денег',
   'payroll.update':                'Правка начисления',
-  'settings.update':               'Настройки',
   'account.create':                'Новая учётка',
   'account.update':                'Правка учётки',
   'account.delete':                'Учётка выключена',
@@ -132,7 +131,6 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
   teacher:        'Преподаватель',
   student:        'Ученик',
   discount:       'Скидка',
-  settings:       'Настройки',
   account:        'Учётка',
   group:          'Группа',
   schedule_slot:  'Слот расписания',

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useTeachers } from '../../hooks/useTeachers';
 import { useGroupsAll } from '../../hooks/useGroups';
-import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { RowOpenButton } from '../../components/table/RowOpenButton';
 import { Avatar } from '../../components/Avatar';
@@ -43,7 +42,6 @@ export default function TeachersListPage() {
         ? <span className="badge badge--ok">Активен</span>
         : <span className="badge badge--muted">Архив</span> },
   ];
-  const visibleColumns = useTableColumns('teachers', columns);
 
   // Шапка рисуется и во время загрузки: раньше страница возвращала
   // скелетон ДО неё, и заголовок пропадал при каждом переходе.
@@ -61,7 +59,7 @@ export default function TeachersListPage() {
       {header}
       <DataTable<Teacher>
         data={rows}
-        columns={visibleColumns}
+        columns={columns}
         title="Преподаватели"
         roomy
         rowAction={(row) => <RowOpenButton to={`/admin/teachers/${row.id}`} />}

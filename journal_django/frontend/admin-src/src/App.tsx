@@ -81,7 +81,7 @@ export function App() {
             <Route path="/admin/knowledge/:id" element={<KnowledgeDocumentPage />} />
 
             <Route path="/admin/archive" element={<RequireRole roles={['superadmin']}><ArchivePage /></RequireRole>} />
-            <Route path="/admin/settings" element={<SettingsPage />} />
+            <Route path="/admin/settings" element={<RequireRole roles={['superadmin']}><SettingsPage /></RequireRole>} />
             <Route path="/admin/audit" element={<RequireRole roles={['superadmin']}><AuditPage /></RequireRole>} />
             <Route path="/admin/accounts" element={<RequireRole roles={['superadmin']}><AccountsPage /></RequireRole>} />
             <Route path="/admin/changelog" element={<RequireRole roles={['manager','admin','superadmin']}><ChangelogListPage /></RequireRole>} />

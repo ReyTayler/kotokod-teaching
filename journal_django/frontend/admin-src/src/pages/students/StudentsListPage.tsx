@@ -4,7 +4,6 @@ import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useStudents } from '../../hooks/useStudents';
 import { useRenewalAssignees } from '../../hooks/useRenewals';
 import { useRenewalStages } from '../../hooks/useRenewalStages';
-import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { RowOpenButton } from '../../components/table/RowOpenButton';
 import { Avatar } from '../../components/Avatar';
@@ -125,7 +124,6 @@ export default function StudentsListPage() {
       cell: (r) => <StudentStageBadge row={r} />,
     },
   ];
-  const visibleColumns = useTableColumns('students', columns);
 
   // Шапка рисуется и во время загрузки: раньше страница возвращала скелетон
   // ДО неё, и при каждом переходе между разделами заголовок пропадал и
@@ -145,7 +143,7 @@ export default function StudentsListPage() {
       {header}
       <DataTable<Student>
         data={rows}
-        columns={visibleColumns}
+        columns={columns}
         title="Ученики"
         roomy
         rowAction={(row) => <RowOpenButton to={`/admin/students/${row.id}`} />}

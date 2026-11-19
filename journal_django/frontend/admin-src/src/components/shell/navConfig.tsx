@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import {
   canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog,
-  canSeeSync, canSeeArchive, type Role,
+  canSeeSync, canSeeArchive, canSeeSettings, type Role,
 } from '../../lib/permissions';
 
 export const NAV_ICONS: Record<string, ReactElement> = {
@@ -267,7 +267,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // терялись.
       { key: 'knowledge', label: 'Wiki', path: '/admin/knowledge' },
       { key: 'reports', label: 'Отчёты', path: '/admin/reports' },
-      { key: 'settings', label: 'Настройки', path: '/admin/settings' },
+      { key: 'settings', label: 'Настройки', path: '/admin/settings', can: canSeeSettings },
       { key: 'archive', label: 'Архив', path: '/admin/archive', can: canSeeArchive },
       { key: 'accounts', label: 'Учётки', path: '/admin/accounts', can: canSeeAccounts },
       { key: 'audit', label: 'Журнал ИБ', path: '/admin/audit', can: canSeeAudit },

@@ -4,7 +4,6 @@ import { useListSearchParams } from '../../hooks/useListSearchParams';
 import { useGroups } from '../../hooks/useGroups';
 import { useDirections } from '../../hooks/useDirections';
 import { useTeachers } from '../../hooks/useTeachers';
-import { useTableColumns } from '../../hooks/useAdminSettings';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { RowOpenButton } from '../../components/table/RowOpenButton';
 import { Avatar } from '../../components/Avatar';
@@ -178,7 +177,6 @@ export default function GroupsListPage() {
         : <span className="badge badge--muted">Архив</span>,
     },
   ];
-  const visibleColumns = useTableColumns('groups', columns);
 
   // Шапка рисуется и во время загрузки: раньше страница возвращала
   // скелетон ДО неё, и заголовок пропадал при каждом переходе.
@@ -197,7 +195,7 @@ export default function GroupsListPage() {
       {header}
       <DataTable<Group>
         data={rows}
-        columns={visibleColumns}
+        columns={columns}
         title="Группы"
         roomy
         rowAction={(row) => <RowOpenButton to={`/admin/groups/${row.id}`} />}
