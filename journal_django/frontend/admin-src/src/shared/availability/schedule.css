@@ -1,7 +1,13 @@
 /* ── РЕДАКТОР ГРАФИКА РАБОТЫ ── (только токены) */
 
 /* Высота строки сетки; ScheduleGrid задаёт ту же величину инлайном (ROW_H) — держать в синхроне. */
-.sched { --sched-row-h: 24px; display: flex; flex-direction: column; gap: var(--space-4); }
+.sched {
+  --sched-row-h: 24px;
+  /* Отступ под сеткой (верхняя панель вычитается отдельно, --topbar-h): заголовок страницы и панель режима над сеткой (~200px, как у
+     .cal-grid-wrap в календаре) + нижний воздух страницы. */
+  --sched-chrome: 232px;
+  --sched-h: max(360px, calc(100dvh - var(--topbar-h, 0px) - var(--sched-chrome)));
+  display: flex; flex-direction: column; gap: var(--space-4); }
 
 .sched-note {
   padding: var(--space-2) var(--space-3);
@@ -54,30 +60,44 @@
 @media (max-width: 900px) { .sched-layout { grid-template-columns: minmax(0, 1fr); } }
 
 .sched-skeleton {
-  /* 28 строк + шапка (~56px: две строки заголовка в режиме недели) — без прыжка при появлении сетки. */
-  height: calc(var(--sched-row-h) * 28 + 56px); border-radius: var(--r-lg);
+  /* Та же высота, что у прокручиваемой сетки, — без прыжка при её появлении. */
+  height: var(--sched-h); border-radius: var(--r-lg);
   background: var(--bg3); border: 1px solid var(--border);
 }
 .sched-skeleton--side { height: 320px; }
 
-/* Сетка */
+/* Сетка: окно фиксированной высоты, внутри — сутки 00:00–24:00 с вертикальной прокруткой.
+   Шапка дней и гаттер времени «прилипают», как в Google Calendar. */
 .sched-wrap {
+  position: relative; height: var(--sched-h); overflow-y: auto; overflow-x: hidden;
   border: 1px solid var(--border); border-radius: var(--r-lg);
-  background: var(--bg2); overflow: hidden;
+  background: var(--bg2);
 }
 .sched-head, .sched-body { display: grid; grid-template-columns: 56px repeat(7, 1fr); }
-.sched-head { border-bottom: 1px solid var(--border); }
+.sched-head {
+  position: sticky; top: 0; z-index: 4;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.sched-corner { background: var(--bg2); }
 .sched-col-head {
-  padding: var(--space-2) var(--space-1); text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: var(--space-2) var(--space-1);
   border-left: 1px solid var(--border2);
 }
-.sched-col-head.is-today { background: var(--accent-soft); }
-.sched-col-day { font-size: var(--fs-xs); font-weight: 600; color: var(--text2); }
+.sched-col-day {
+  font-size: var(--fs-2xs); font-weight: 600; color: var(--text3);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+/* Шаблон недели: даты нет, день — единственный заголовок, поэтому крупнее. */
+.sched-col-day--solo { font-size: var(--fs-md); padding: var(--space-2) 0; }
 .sched-col-head.is-today .sched-col-day { color: var(--accent); }
 .sched-col-date {
-  display: flex; align-items: center; justify-content: center; gap: var(--space-1);
-  font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text4); margin-top: 1px;
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-3xl); font-weight: 500; color: var(--text);
 }
+.sched-col-head.is-today .sched-col-date { background: var(--accent); color: var(--on-accent); }
+.sched-col-tools { display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-height: 14px; }
 .sched-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .sched-reset {
   border: none; background: transparent; padding: 0 var(--space-1); cursor: pointer;
@@ -87,10 +107,12 @@
 .sched-reset:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .sched-body { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
-.sched-gutter { position: relative; }
+.sched-gutter { position: relative; z-index: 2; background: var(--bg2); }
+/* Подпись стоит на линии начала часа и перекрывает её; 00:00 не рисуется. */
 .sched-time {
-  position: absolute; right: var(--space-2); transform: translateY(-6px);
-  font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text4);
+  position: absolute; right: 6px; transform: translateY(-50%);
+  font-family: var(--font-mono); font-size: var(--fs-2xs); line-height: 1; color: var(--text4);
+  background: var(--bg2);
 }
 .sched-col { position: relative; border-left: 1px solid var(--border2); }
 
@@ -102,6 +124,7 @@
   background-color: var(--bg4);
   transition: background-color var(--t-fast) var(--ease);
 }
+/* Конец каждого часа — сплошная линия, середина часа — светлее. */
 .sched-cell:nth-child(2n) { border-bottom-color: var(--border); }
 .sched-cell.is-open { background-color: var(--bg2); }
 .sched-cell:not(.is-locked):hover {
@@ -109,6 +132,18 @@
 }
 .sched-cell.is-locked { cursor: not-allowed; }
 .sched-cell.is-locked:not(.is-open) { opacity: 0.7; }
+
+/* Линия текущего времени (как .cal-now-line в календаре уроков) */
+.sched-now {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 2px solid var(--danger);
+  z-index: 3; pointer-events: none;
+}
+.sched-now-dot {
+  position: absolute; left: -1px; top: -4px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--danger);
+}
 
 /* Уроки недели — подсказка поверх сетки, мыши не мешают */
 .sched-lesson {
