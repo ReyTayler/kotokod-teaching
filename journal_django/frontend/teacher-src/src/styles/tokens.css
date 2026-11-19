@@ -125,6 +125,7 @@
   --success-soft: rgba(126, 237, 0, 0.14);   /* исходный #7EED00 — только тон/точка */
   --warning: #b45309;
   --danger:  #dc2626;
+  --on-accent: #ffffff;   /* текст на заливке --accent */
   --info:    #2f6fed;
   /* Парные заливки к --warning/--info: должны существовать в обоих tokens.css,
      иначе общий компонент теряет фон молча (var() к пустому токену). */
@@ -264,6 +265,7 @@
   --success-soft: rgba(126, 237, 0, 0.16);
   --warning: #f4b740;
   --danger:  #f87171;
+  --on-accent: var(--bg2);   /* --accent в тёмной теме светлый: белый не читается */
   --info:    #7c9bff;
   --warning-soft: rgba(244, 183, 64, 0.14);
   --info-soft:    rgba(124, 155, 255, 0.14);
