@@ -139,3 +139,27 @@ def test_humanize_event_shape():
     assert human['title'] and human['text']
     assert human['changes'][0]['label'] == 'название'
     assert human['changes'][0]['new'] == 'Робототехника'
+
+
+# ---------------------------------------------------------------------------
+# График работы: время окна хранится минутами от полуночи (availability/0002).
+# ---------------------------------------------------------------------------
+
+def test_fmt_minute():
+    from apps.changelog.summary import _fmt_minute
+    assert _fmt_minute(0) == '00:00'
+    assert _fmt_minute(570) == '09:30'
+    assert _fmt_minute(1440) == '24:00'
+
+
+@pytest.mark.django_db
+def test_changes_insert_availability_rule_shows_hhmm():
+    ev = {'entity': 'availability_rule', 'pgh_obj_model': 'availability.AvailabilityRule',
+          'pgh_label': 'insert', 'pgh_obj_id': '4',
+          'pgh_data': {'id': 4, 'teacher_id': 1, 'day_of_week': 1,
+                       'start_minute': 600, 'end_minute': 1440},
+          'pgh_diff': {}}
+    changes = {c['label']: c['new'] for c in humanize.humanize_changes(ev, _LK)}
+    assert changes['время начала'] == '10:00'
+    assert changes['время окончания'] == '24:00'
+    assert changes['день недели'] == 'Пн'
