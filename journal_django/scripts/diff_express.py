@@ -79,7 +79,6 @@ if __name__ == '__main__':
         ('manager', '/api/admin/discounts'),
         ('admin',   '/api/admin/audit-log'),
         ('admin',   '/api/admin/audit-log?page=1&page_size=5'),
-        ('manager', '/api/admin/settings'),
         # Phase 6 — lessons (read-only список + фильтры/сорт/пагинация)
         ('manager', '/api/admin/lessons'),
         ('manager', '/api/admin/lessons?page=1&page_size=5'),

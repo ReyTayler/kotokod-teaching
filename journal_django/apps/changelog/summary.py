@@ -169,7 +169,7 @@ def _generic_phrase(ev: dict, entity_label: str) -> str:
 
 _ENTITY_RU = {
     'direction': 'Направление', 'teacher': 'Преподаватель', 'student': 'Ученик',
-    'discount': 'Скидка', 'settings': 'Настройки', 'account': 'Учётка',
+    'discount': 'Скидка', 'account': 'Учётка',
     'group': 'Группа', 'schedule_slot': 'Слот расписания', 'membership': 'Членство',
     'planned_lesson': 'Плановое занятие', 'lesson': 'Урок',
     'attendance': 'Посещаемость', 'payment': 'Оплата', 'payroll': 'Начисление',

@@ -205,8 +205,6 @@ def humanize_title(ev: dict, lk: summary.Lookups) -> str:
         return f'Начисление {lk.teacher(data.get("teacher_id"))}'
     if entity == 'schedule_slot':
         return f'Слот расписания {lk.group(data.get("group_id"))}'
-    if entity == 'settings':
-        return f'Настройки {data.get("username") or f"#{obj_id}"}'
     if entity == 'account':
         return f'Учётка {data.get("email") or f"#{obj_id}"}'
 

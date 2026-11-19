@@ -138,7 +138,6 @@ GET/POST/PATCH/DELETE /api/admin/group-memberships[/:id]
 
 | Метод | Путь | Назначение |
 |-------|------|------------|
-| GET/PUT | `/api/admin/settings` | Per-user jsonb prefs |
 | GET | `/api/admin/dashboard?from=&to=` | FIFO KPIs + долги (period = текущий месяц если пусто) |
 | GET | `/api/admin/dashboard/monthly?years=2025,2026` | Помесячные ряды для графиков |
 

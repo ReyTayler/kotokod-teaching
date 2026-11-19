@@ -21,7 +21,6 @@ urlpatterns = [
     path('api/admin/teachers', include('apps.teachers.urls')),
     path('api/admin/directions', include('apps.directions.urls')),
     path('api/admin/discounts', include('apps.discounts.urls')),
-    path('api/admin/settings', include('apps.settings_app.urls')),
     path('api/admin/audit-log', include('apps.audit.urls')),
     path('api/admin/changelog', include('apps.changelog.urls')),
     # Phase 3 — students

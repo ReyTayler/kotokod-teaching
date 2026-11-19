@@ -95,7 +95,6 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ('POST', re.compile(r'^/api/extra-lessons/\d+/record$'), 'extra_lesson.record'),
     # payroll / settings
     ('PATCH', re.compile(r'^/api/admin/payroll/\d+$'), 'payroll.update'),
-    ('PUT', re.compile(r'^/api/admin/settings$'), 'settings.update'),
     # accounts
     ('POST', re.compile(r'^/api/admin/accounts/\d+/reset-password$'), 'account.reset_password'),
     ('POST', re.compile(r'^/api/admin/accounts/\d+/reset-2fa$'), 'account.reset_2fa'),

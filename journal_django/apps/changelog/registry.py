@@ -32,7 +32,6 @@ TRACKED: dict[str, TrackedModel] = {
     'teachers.Teacher':               TrackedModel('teacher', True, 10),
     'students.Student':               TrackedModel('student', True, 10),
     'discounts.Discount':             TrackedModel('discount', True, 10),
-    'settings_app.AdminUserSettings': TrackedModel('settings', True, 10, identity=('username',)),
     'accounts.Account':               TrackedModel('account', False, 15),
     # Привязка «преподаватель ↔ Telegram-аккаунт» — не доменные данные, а канал
     # связи. Откат смысла не имеет: восстановление удалённой строки не вернёт

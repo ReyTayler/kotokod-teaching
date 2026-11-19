@@ -193,24 +193,6 @@ router.param('id', (req, res, next, id) => {
 
 ## 🔵 Расширения и улучшения (без триггера, по желанию)
 
-### Settings: расширить на payroll / archive страницы
-
-**Файлы:** `web/admin/src/lib/table-settings.ts`, `web/admin/src/pages/payroll/PayrollPage.tsx`, `web/admin/src/pages/archive/ArchivePage.tsx`.
-
-Сейчас Settings (DnD колонок) покрывает 5 сущностей: students/groups/teachers/tokens/lessons. Payroll и Archive — без настроек.
-
-**Усилия:** 30 минут на сущность.
-
-### Контекстный поповер «настройка колонок» над таблицей
-
-**Файл:** новый `web/admin/src/components/table/ColumnsPopover.tsx`.
-
-Альтернатива центральной странице Settings. Над таблицей маленькая иконка-шестерёнка → поповер с тем же EntityColumnsEditor. Удобнее: не уходить со страницы списка.
-
-Оба механизма (страница + поповер) могут сосуществовать.
-
-**Усилия:** 1-2 часа.
-
 ### Revenue report — `GET /api/admin/revenue?month=YYYY-MM`
 
 **Файлы:** новый `routes/admin/revenue.js`, новый `services/repo/revenue.js` (или расширение `services/repo/payments.js`), UI в `web/admin/src/pages/payroll/PayrollPage.tsx` или отдельная страница.
@@ -335,3 +317,7 @@ router.param('id', (req, res, next, id) => {
 - 2026-06-01 — создан, наполнен из roadmap финансового модуля и накопленного техдолга миграции.
 - 2026-06-03 — добавлены: универсальный конфигуратор CSV-отчётов (мини-BI), редактируемый экспорт дашборда, PNG-экспорт графика.
 - 2026-07-11 — добавлены 5 идей дашбордов поверх реестра куратора (churn, нагрузка преподавателей, прогноз выручки, тепловая карта, когорты).
+
+## 🧹 Вывод `apps.settings_app` из эксплуатации (2026-11-19)
+
+- [ ] **Удалить `apps.settings_app` из `INSTALLED_APPS`** (и каталог приложения) — следующим релизом, после того как миграция `settings_app.0003` применена на проде. Пользовательская настройка «Колонки таблиц» убрана: таблица `admin_user_settings` и её журнал событий удалены этой миграцией, эндпоинт `/api/admin/settings` снят. Приложение пока оставлено оболочкой (пустой `models.py` + `migrations/`), потому что Django удаляет приложение в два шага: сначала миграция удаления моделей должна дойти до всех БД, иначе её некому будет применить. Вместе с приложением удалить строки `settings_app` из таблицы `django_migrations`.

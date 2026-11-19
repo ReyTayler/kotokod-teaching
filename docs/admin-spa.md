@@ -15,7 +15,6 @@ providers/
 hooks/
   useAuth, useApiError
   useListSearchParams     # URL state sync для list-страниц
-  useAdminSettings        # GET/PUT /api/admin/settings + useTableColumns
   useStudents / useStudentsAll, useGroups / useGroupsAll
   useLessons / useLessonsForGroup, usePayroll
   useTeachers, useTokens, useDirections, useMemberships
@@ -31,7 +30,6 @@ lib/
   labels.ts               # ENROLLMENT_STATUS_LABELS/OPTIONS, LESSON_TYPE_LABELS/OPTIONS
   pricing.ts, slots.ts (DOW + MONTHS_RU), direction-color.ts
   export-csv.ts           # UTF-8 BOM + `;` для Excel RU
-  table-settings.ts
 components/
   shell/                  # AuthGate, AppShell, Sidebar, ThemeToggle, ErrorBoundary, MobileNav
   ui/                     # Dialog (Radix), Toast, Skeleton, EmptyState, Pill, MonoBadge, DirTag
