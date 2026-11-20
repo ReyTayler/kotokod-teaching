@@ -97,6 +97,7 @@ export function RegistryTable({ rows, serverPagination, isLoading, title = 'Уч
       data={rows}
       columns={columns}
       title={title}
+      externalFilters
       onRowClick={(r) => navigate(`/admin/students/${r.student_id}`)}
       isLoading={isLoading}
       serverPagination={serverPagination}

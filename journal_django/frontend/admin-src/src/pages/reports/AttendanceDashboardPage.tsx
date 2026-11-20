@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { TableFilterPanel, fieldsFromColumns } from '../../components/filters';
 import { StatTiles } from '../../components/detail/StatTiles';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { RowOpenButton } from '../../components/table/RowOpenButton';
@@ -73,6 +74,14 @@ export default function AttendanceDashboardPage() {
     <>
       <PageHeader
         title="Посещения учеников"
+        actions={(
+          <TableFilterPanel
+            fields={fieldsFromColumns(columns)}
+            filters={nameQuery ? { full_name: nameQuery } : {}}
+            onApply={(next) => { setNameQuery(next.full_name || ''); setPage(1); }}
+            label="Поиск: Посещения учеников"
+          />
+        )}
       />
 
       <div className="page-toolbar">
@@ -110,6 +119,7 @@ export default function AttendanceDashboardPage() {
           data={students.data?.rows || []}
           columns={columns}
           title="Ученики за период"
+          externalFilters
           isLoading={students.isFetching}
           onRowClick={(row) => setOpenStudent(row)}
           rowAction={(row) => <RowOpenButton to={`/admin/students/${row.student_id}`} />}

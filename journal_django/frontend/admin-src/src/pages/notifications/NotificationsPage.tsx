@@ -6,6 +6,7 @@ import { TableSkeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Tabs, type TabItem } from '../../components/ui/Tabs';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { TableFilterPanel, fieldsFromColumns } from '../../components/filters';
 import { fmtDateTime } from '../../lib/format';
 import {
   NOTIFICATION_CHANNEL_LABELS,
@@ -35,28 +36,8 @@ function firstLine(text: string): string {
   return line || '—';
 }
 
-/** Лента доставки: фильтры, серверная пагинация, модалка полного текста. */
-function NotificationsLog() {
-  const {
-    page, pageSize, sortBy, sortDir, filters,
-    setPage, setPageSize, setSort, setFilters,
-  } = useListSearchParams({ sortBy: 'created_at', sortDir: 'desc' });
-
-  const [opened, setOpened] = useState<NotificationRow | null>(null);
-
-  const { data, isLoading, isFetching } = useNotifications({
-    page,
-    pageSize,
-    kind: filters.kind,
-    channel: filters.channel,
-    status: filters.status,
-  });
-
-  const rows = data?.rows ?? [];
-  const total = data?.total ?? 0;
-  const hasFilters = Object.values(filters).some((v) => v);
-
-  const columns: Column<NotificationRow>[] = [
+// Вне компонента: из тех же колонок строятся и таблица, и лупа в шапке страницы.
+const LOG_COLUMNS: Column<NotificationRow>[] = [
     {
       key: 'kind',
       label: 'Тип',
@@ -107,6 +88,27 @@ function NotificationsLog() {
     },
   ];
 
+/** Лента доставки: фильтры, серверная пагинация, модалка полного текста. */
+function NotificationsLog() {
+  const {
+    page, pageSize, sortBy, sortDir, filters,
+    setPage, setPageSize, setSort, setFilters,
+  } = useListSearchParams({ sortBy: 'created_at', sortDir: 'desc' });
+
+  const [opened, setOpened] = useState<NotificationRow | null>(null);
+
+  const { data, isLoading, isFetching } = useNotifications({
+    page,
+    pageSize,
+    kind: filters.kind,
+    channel: filters.channel,
+    status: filters.status,
+  });
+
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const hasFilters = Object.values(filters).some((v) => v);
+
   if (isLoading) return <TableSkeleton rows={12} cols={6} />;
 
   // Пустая таблица без объяснений — тупик: разводим «ещё ничего не слали» и
@@ -123,8 +125,9 @@ function NotificationsLog() {
     <>
       <DataTable<NotificationRow>
         data={rows}
-        columns={columns}
+        columns={LOG_COLUMNS}
         title="Журнал уведомлений"
+        externalFilters
         isLoading={isFetching}
         onRowClick={(r) => setOpened(r)}
         serverPagination={{
@@ -148,7 +151,7 @@ function NotificationsLog() {
 }
 
 export default function NotificationsPage() {
-  const { getExtra, setExtra } = useListSearchParams({ sortBy: 'created_at', sortDir: 'desc' });
+  const { getExtra, setExtra, filters, setFilters } = useListSearchParams({ sortBy: 'created_at', sortDir: 'desc' });
   const raw = getExtra('tab');
   const activeTab: NotificationsTab = isTab(raw) ? raw : DEFAULT_TAB;
 
@@ -161,6 +164,14 @@ export default function NotificationsPage() {
     <>
       <PageHeader
         title="Уведомления и напоминания"
+        actions={activeTab === 'log' ? (
+          <TableFilterPanel
+            fields={fieldsFromColumns(LOG_COLUMNS)}
+            filters={filters}
+            onApply={setFilters}
+            label="Поиск: Журнал уведомлений"
+          />
+        ) : undefined}
       />
       <NotificationToggleBar />
       <Tabs

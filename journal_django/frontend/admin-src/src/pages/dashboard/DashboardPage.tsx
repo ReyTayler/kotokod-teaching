@@ -2,6 +2,8 @@ import { lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PageLoading } from '../../components/ui/Skeleton';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { RegistrySearch } from './registry/RegistrySearch';
+import { FillSearch } from './fill/FillSearch';
 
 // Реестр — отдельный чанк: таблица/сигналы грузятся только при открытии вкладки.
 const RegistryTab = lazy(() => import('./registry/RegistryTab'));
@@ -22,7 +24,7 @@ export default function DashboardPage() {
 
   return (
     <div className="dashboard">
-      <PageHeader title="Дашборд" />
+      <PageHeader title="Дашборд" actions={tab === 'fill' ? <FillSearch /> : <RegistrySearch />} />
 
       <nav className="dash-tabs" role="tablist" aria-label="Разделы дашборда">
         <button

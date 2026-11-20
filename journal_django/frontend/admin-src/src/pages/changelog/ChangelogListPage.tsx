@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { canRevertChangelog, type Role } from '../../lib/permissions';
 import { DataTable, type Column } from '../../components/table/DataTable';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { FilterToolbar, TableFilterPanel, type FilterField } from '../../components/filters';
+import { TableFilterPanel, type FilterField } from '../../components/filters';
 import { ChangelogDetailModal } from './ChangelogDetailModal';
 import { RevertConfirmDialog } from './RevertConfirmDialog';
 import { ACTION_ICONS, TimeCell, ActorCell, OperationCell } from '../../components/changelog/columnRenderers';
@@ -121,32 +121,34 @@ export default function ChangelogListPage() {
     : null;
 
   // Шапка рисуется и во время загрузки — иначе заголовок пропадает при переходе.
+  // Лупа и чип «история записи» — в шапке: чип относится к поиску (сужает ленту
+  // до одной записи), поэтому стоит рядом с лупой.
   const header = (
-    <>
-      <PageHeader
-        title="Журнал изменений"
-        count={isLoading ? undefined : total}
-      />
-      <FilterToolbar>
-        <TableFilterPanel
-          fields={OPERATION_FIELDS}
-          filters={operation ? { op: operation } : {}}
-          onApply={(next) => setExtras({ op: next.op || null })}
-          label="Поиск по журналу изменений"
-        />
-        {entityFilterLabel && (
-          <span className="filter-chip">
-            {entityFilterLabel}
-            <button
-              type="button"
-              className="filter-chip__clear"
-              aria-label="Сбросить фильтр записи"
-              onClick={() => setExtras({ entity: null, entity_id: null })}
-            >×</button>
-          </span>
-        )}
-      </FilterToolbar>
-    </>
+    <PageHeader
+      title="Журнал изменений"
+      count={isLoading ? undefined : total}
+      actions={(
+        <>
+          <TableFilterPanel
+            fields={OPERATION_FIELDS}
+            filters={operation ? { op: operation } : {}}
+            onApply={(next) => setExtras({ op: next.op || null })}
+            label="Поиск по журналу изменений"
+          />
+          {entityFilterLabel && (
+            <span className="filter-chip">
+              {entityFilterLabel}
+              <button
+                type="button"
+                className="filter-chip__clear"
+                aria-label="Сбросить фильтр записи"
+                onClick={() => setExtras({ entity: null, entity_id: null })}
+              >×</button>
+            </span>
+          )}
+        </>
+      )}
+    />
   );
 
   if (isLoading) return <>{header}<TableSkeleton rows={12} cols={6} /></>;

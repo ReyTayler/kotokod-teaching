@@ -14,6 +14,7 @@ import { LESSON_TYPE_LABELS, LESSON_TYPE_OPTIONS } from '../../lib/labels';
 import type { Lesson } from '../../lib/types';
 import LessonFormModal from './LessonFormModal';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { TableFilterPanel, fieldsFromColumns } from '../../components/filters';
 
 export default function LessonsListPage() {
   const navigate = useNavigate();
@@ -94,7 +95,17 @@ export default function LessonsListPage() {
     <PageHeader
       title="Уроки"
       count={isLoading ? undefined : total}
-      actions={canWrite && <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
+      actions={(
+        <>
+          <TableFilterPanel
+            fields={fieldsFromColumns(columns)}
+            filters={filters}
+            onApply={setFilters}
+            label="Поиск: Уроки"
+          />
+          {canWrite && <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
+        </>
+      )}
     />
   );
 
@@ -107,6 +118,7 @@ export default function LessonsListPage() {
         data={rows}
         columns={columns}
         title="Уроки"
+        externalFilters
         onRowClick={(row) => navigate(`/admin/lessons/${row.id}`)}
         isLoading={isFetching}
         serverPagination={{
