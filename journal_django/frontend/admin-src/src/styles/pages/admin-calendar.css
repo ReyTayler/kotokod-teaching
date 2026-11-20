@@ -26,7 +26,7 @@
 .cal-search__btn:only-child { border-radius: var(--r-sm); }
 .cal-search__reset { margin-left: -1px; }
 .cal-search__btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); position: relative; }
-.cal-search__btn.is-active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.cal-search__btn.is-active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); position: relative; }
 
 .cal-search__panel {
   width: 560px; max-width: calc(100vw - 32px);
