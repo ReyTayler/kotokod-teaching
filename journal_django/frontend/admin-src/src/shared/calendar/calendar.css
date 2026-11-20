@@ -393,13 +393,4 @@
 .tw-day.today .tw-day-date { color: var(--accent); }
 /* Колонка времени — вторая залипающая слева; sticky даёт контекст для .cal-hour-label. */
 .tw-time-cell { position: sticky; left: var(--tw-day-w); z-index: 4; background: var(--bg2); }
-.tw-time-cell--empty { height: var(--row-h); }
 .tw-hour-label--first { transform: none; } /* top задаётся инлайном (отступ от границы дня) */
-.tw-empty-row {
-  grid-column: 3 / -1; height: var(--row-h);
-  display: flex; align-items: center; background: var(--bg3);
-}
-.tw-empty-text {
-  position: sticky; left: calc(var(--tw-day-w) + var(--tw-time-w) + var(--space-3));
-  font-size: var(--fs-xs); color: var(--text4);
-}
