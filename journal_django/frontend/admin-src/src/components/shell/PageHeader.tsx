@@ -22,6 +22,8 @@ interface Props {
    * Обычные разделы (списки, карточки сущностей) остаются на общем ритме.
    */
   dense?: boolean;
+  /** Не липкая и без линии снизу. По умолчанию шапка липкая, с линией. */
+  flat?: boolean;
 }
 
 /**
@@ -42,7 +44,7 @@ interface Props {
  * и переноса кнопок. Токен в tokens.css остаётся запасным значением на случай
  * страниц без шапки.
  */
-export function PageHeader({ title, count, crumbs, actions, sub, dense }: Props) {
+export function PageHeader({ title, count, crumbs, actions, sub, dense, flat }: Props) {
   const ref = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export function PageHeader({ title, count, crumbs, actions, sub, dense }: Props)
   }, []);
 
   return (
-    <header ref={ref} className={`page-header${dense ? ' page-header--dense' : ''}`}>
+    <header ref={ref} className={`page-header${dense ? ' page-header--dense' : ''}${flat ? ' page-header--flat' : ''}`}>
       <div className="page-header__inner">
         <div className="page-header__main">
           {!!crumbs?.length && (

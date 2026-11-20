@@ -369,6 +369,9 @@
 .page-header--dense { padding-bottom: var(--space-3); }
 .page-header--dense .page-header__title { font-size: var(--fs-3xl); }
 
+/* Плоский вариант: не липкая и без линии снизу (раздел «Ученики»). */
+.page-header--flat { position: static; border-bottom: 0; backdrop-filter: none; background: transparent; }
+
 @media (max-width: 900px) {
   .page-header {
     margin-inline: calc(-1 * var(--space-4));

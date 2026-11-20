@@ -207,30 +207,22 @@ export default function StudentDetailPage() {
   );
 
   const fields: DetailField<Student>[] = [
-    { key: 'id', label: 'ID' },
     { key: 'full_name', label: 'ФИО' },
-    { key: 'birth_date', label: 'Дата рожд.', cell: (r) => fmtDate(r.birth_date) },
-    // Ключ 'age' — просто идентификатор строки (не поле модели): возраст
-    // вычисляется из birth_date, отдельного столбца age больше нет.
-    { key: 'age', label: 'Возраст', cell: (r) => fmtAge(r.birth_date) },
-    { key: 'parent1_name', label: 'Родитель 1' },
-    { key: 'parent1_phone', label: 'Телефон родителя 1' },
-    { key: 'parent1_email', label: 'Email родителя 1' },
-    { key: 'parent2_name', label: 'Родитель 2' },
-    { key: 'parent2_phone', label: 'Телефон родителя 2' },
-    { key: 'parent2_email', label: 'Email родителя 2' },
-    { key: 'platform_id', label: 'Platform ID' },
-    { key: 'bitrix24_link', label: 'Bitrix24' },
+    { key: 'birth_date', label: 'Дата рождения', cell: (r) => fmtDate(r.birth_date) },
+    { key: 'parent1_name', label: 'Имя родителя 1', cell: (r) => r.parent1_name || '—' },
+    { key: 'parent1_phone', label: 'Телефон родителя 1', cell: (r) => r.parent1_phone || '—' },
+    { key: 'parent1_email', label: 'Почта родителя 1', cell: (r) => r.parent1_email || '—' },
+    { key: 'parent2_name', label: 'Имя родителя 2', cell: (r) => r.parent2_name || '—' },
+    { key: 'parent2_phone', label: 'Телефон родителя 2', cell: (r) => r.parent2_phone || '—' },
+    { key: 'parent2_email', label: 'Почта родителя 2', cell: (r) => r.parent2_email || '—' },
+    { key: 'platform_id', label: 'Platform ID', cell: (r) => r.platform_id || '—' },
+    { key: 'bitrix24_link', label: 'Ссылка на Bitrix24', cell: (r) => r.bitrix24_link || '—' },
     { key: 'manager_name', label: 'Менеджер', cell: (r) => r.manager_name || '—' },
     { key: 'created_at', label: 'Создан', cell: (r) => fmtDate(r.created_at) },
   ];
 
-  // То, чего НЕТ в шапке: возраст, родитель 1, телефон и менеджер уже показаны
-  // там, повторять их в карточке полей незачем. Стадии сделки в этом списке нет
-  // вовсе — её показывает только бейдж героя (спека 2026-07-25).
-  const HERO_KEYS = new Set(['id', 'full_name', 'age', 'parent1_name', 'parent1_phone',
-    'manager_name']);
-  const otherFields = fields.filter((f) => !HERO_KEYS.has(f.key));
+  // Карточка «Данные ученика» показывает ВСЕ поля формы ученика (пустые — «—»),
+  // плюс менеджера и дату создания. Совпадение с шапкой здесь намеренное.
 
   const tabs: TabItem[] = [
     {
@@ -243,9 +235,8 @@ export default function StudentDetailPage() {
             groups={groups}
             directions={directions}
           />
-          {/* Паспортные поля — под основным содержимым и свёрнуты: возраст,
-              родитель, телефон, менеджер и стадия сделки живут в шапке. */}
-          <EntityCard title="Прочие данные ученика" row={student} fields={otherFields} />
+          {/* Все поля ученика — под основным содержимым, всегда раскрыты. */}
+          <EntityCard title="Данные ученика" row={student} fields={fields} collapsible={false} />
         </div>
       ),
     },
