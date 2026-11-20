@@ -392,11 +392,8 @@
      спорит по массе с шапкой страницы. */
   min-height: 52px;
   position: sticky;
-  /* Впритык под шапкой страницы, а не под ней самой: обе прокручиваются вместе,
-     и при top:0 панель наезжала бы на «Готово» и состояние сохранения.
-     Запаса нет намеренно — --header-h публикует настоящую высоту шапки
-     (PageHeader.tsx), и любая щель здесь показывала бы текст, проезжающий
-     между шапкой и панелью. */
+  /* Шапка страницы не липкая, поэтому панель липнет к верху области контента:
+     --header-h = 0, а в узком режиме — высота верхней панели. */
   top: var(--header-h);
   z-index: var(--z-sticky);
   display: flex;
@@ -407,6 +404,13 @@
   background: var(--bg2);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+}
+
+.kb-editor__toolbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 /* Выбор шрифта — не иконка, поэтому у него своя форма: подпись показывается
@@ -576,7 +580,7 @@
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-panel);
   position: sticky;
-  /* Как и панель редактора — ниже липкой шапки страницы. */
+  /* Как и панель редактора — под верхней панелью узкого режима. */
   top: calc(var(--header-h) + var(--space-2));
   /* Дерево бывает выше экрана: своя прокрутка вместо уехавших за край веток. */
   max-height: calc(100vh - var(--header-h) - var(--space-8));

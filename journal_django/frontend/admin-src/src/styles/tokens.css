@@ -319,7 +319,10 @@
   --page-pad-x:   20px;
   --page-pad-y:   20px;
   --section-gap:  var(--space-6);
-  --header-h:     60px;   /* высота липкой шапки страницы */
+  /* Верх области, под которым липнут sticky-элементы страницы (панель редактора,
+     колонка статьи). Шапка страницы не липкая, поэтому в обычном режиме 0; под
+     верхней панелью узкого режима значение задаёт .main--topbar (shell.css). */
+  --header-h:     0px;
 
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;

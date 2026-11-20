@@ -189,9 +189,7 @@ export default function KnowledgeDocumentPage() {
         actions={
           editing ? (
             <>
-              <SaveIndicator state={autosave.state} reason={autosave.reason} />
               <Button variant="ghost" onClick={() => setAccessOpen(true)}>Доступ</Button>
-              <Button variant="primary" onClick={leaveEditing}>Готово</Button>
             </>
           ) : (
             <>
@@ -258,7 +256,19 @@ export default function KnowledgeDocumentPage() {
 
       {editing ? (
         <Suspense fallback={<PageLoading />}>
-          <DocumentEditor content={content} onChange={(doc) => edit({ content: doc })} />
+          {/* Статус автосохранения и «Готово» — в закреплённой панели редактора:
+              шапка страницы прокручивается, а признак «работа не потеряна» должен
+              быть виден всегда. */}
+          <DocumentEditor
+            content={content}
+            onChange={(doc) => edit({ content: doc })}
+            toolbarEnd={(
+              <>
+                <SaveIndicator state={autosave.state} reason={autosave.reason} />
+                <Button variant="primary" onClick={leaveEditing}>Готово</Button>
+              </>
+            )}
+          />
         </Suspense>
       ) : (
         <div className="kb-reader">

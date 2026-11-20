@@ -11,11 +11,14 @@ import TeacherFormModal from './TeacherFormModal';
 import { useAuth } from '../../hooks/useAuth';
 import { canWriteTeachers, type Role } from '../../lib/permissions';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { TableFilterPanel, fieldsFromColumns } from '../../components/filters';
 
 export default function TeachersListPage() {
   const { data, isLoading } = useTeachers();
   const { data: groups = [] } = useGroupsAll(true);
   const [modalOpen, setModalOpen] = useState(false);
+  // Фильтры колонок — у страницы: панель-лупа стоит в её шапке, не в таблице.
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const { me } = useAuth();
   const canWrite = canWriteTeachers(me?.role as Role);
 
@@ -48,7 +51,17 @@ export default function TeachersListPage() {
   const header = (
     <PageHeader
       title="Преподаватели"
-      actions={canWrite ? <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button> : undefined}
+      actions={(
+        <>
+          <TableFilterPanel
+            fields={fieldsFromColumns(columns)}
+            filters={filters}
+            onApply={setFilters}
+            label="Поиск: Преподаватели"
+          />
+          {canWrite && <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новый</button>}
+        </>
+      )}
     />
   );
 
@@ -61,6 +74,8 @@ export default function TeachersListPage() {
         data={rows}
         columns={columns}
         title="Преподаватели"
+        externalFilters
+        filters={filters}
         roomy
         rowAction={(row) => <RowOpenButton to={`/admin/teachers/${row.id}`} />}
       />

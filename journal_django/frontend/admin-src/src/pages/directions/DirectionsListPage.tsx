@@ -12,6 +12,7 @@ import DirectionFormModal from './DirectionFormModal';
 import { useAuth } from '../../hooks/useAuth';
 import { canWriteDirections, type Role } from '../../lib/permissions';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { TableFilterPanel, fieldsFromColumns } from '../../components/filters';
 
 /**
  * Раздел «Направления».
@@ -32,6 +33,8 @@ export default function DirectionsListPage() {
   const { data, isLoading } = useDirections();
   const { data: groups = [] } = useGroupsAll(true);
   const [modalOpen, setModalOpen] = useState(false);
+  // Фильтры колонок — у страницы: панель-лупа стоит в её шапке, не в таблице.
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const { me } = useAuth();
   const canWrite = canWriteDirections(me?.role as Role);
 
@@ -79,8 +82,18 @@ export default function DirectionsListPage() {
     <PageHeader
       title="Направления"
       count={isLoading ? undefined : rows.length}
-      actions={canWrite && (
-        <button type="button" className="btn-add" onClick={() => setModalOpen(true)}>+ Новое</button>
+      actions={(
+        <>
+          <TableFilterPanel
+            fields={fieldsFromColumns(columns)}
+            filters={filters}
+            onApply={setFilters}
+            label="Поиск: Направления"
+          />
+          {canWrite && (
+            <button type="button" className="btn-add" onClick={() => setModalOpen(true)}>+ Новое</button>
+          )}
+        </>
       )}
     />
   );
@@ -94,6 +107,8 @@ export default function DirectionsListPage() {
         data={rows}
         columns={columns}
         title="Направления"
+        externalFilters
+        filters={filters}
         roomy
         rowAction={(row) => <RowOpenButton to={`/admin/directions/${row.id}`} />}
       />

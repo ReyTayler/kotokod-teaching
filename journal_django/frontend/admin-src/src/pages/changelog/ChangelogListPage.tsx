@@ -121,14 +121,11 @@ export default function ChangelogListPage() {
     : null;
 
   // Шапка рисуется и во время загрузки — иначе заголовок пропадает при переходе.
-  // Пояснение «все правки сохраняются…» переехало из ряда действий в подзаголовок:
-  // это описание раздела, а не элемент управления.
   const header = (
     <>
       <PageHeader
         title="Журнал изменений"
         count={isLoading ? undefined : total}
-        sub="Все правки сохраняются, любую операцию можно откатить."
       />
       <FilterToolbar>
         <TableFilterPanel

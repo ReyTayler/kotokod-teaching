@@ -312,25 +312,19 @@
 
 /* ============================================================
  *  ШАПКА СТРАНИЦЫ (PageHeader)
- *  Липкая: при прокрутке длинного списка видно, где находишься.
- *  Тянется на всю ширину области контента, но внутренности
- *  выровнены по той же колонке, что и .page — иначе заголовок
- *  «уезжал» бы от таблицы на широком мониторе.
+ *  Не липкая и без линии снизу: уезжает вместе со страницей, фон не нужен.
+ *  Живёт ВНУТРИ .app-page (у той — поля и потолок ширины), поэтому ширину и
+ *  боковые поля наследует от неё; собственный padding только сверху.
+ *  Зазор до содержимого — обычный --section-gap контейнера, без добавок.
  * ============================================================ */
 .page-header {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-sticky);
-  /* Шапка живёт ВНУТРИ .app-page (у той — поля и потолок ширины), поэтому фон
-     растягивается на всю колонку отрицательным полем, а внутренний padding
-     возвращает содержимое на сетку контента. Иначе полоса блюра обрывалась бы
-     по краю текста. */
-  margin-inline: calc(-1 * var(--page-pad-x));
-  padding: var(--page-pad-y) var(--page-pad-x) var(--space-4);
-  background: color-mix(in oklab, var(--bg) 85%, transparent);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border2);
+  padding: var(--page-pad-y) 0 0;
 }
+/* Обёртка .page (Wiki, «Документ не найден», «Синхро») — обычный блок без gap,
+   поэтому шапка прилипала бы к содержимому. Возвращаем тот же зазор, что даёт
+   --section-gap в .app-page. У списка Wiki верхний margin .kb-drive схлопывается
+   с этим (блочные соседи): остаётся больший из двух, двойного отступа нет. */
+.page > .page-header { margin-bottom: var(--section-gap); }
 .page-header__inner {
   display: flex;
   align-items: flex-end;
@@ -358,25 +352,15 @@
   font-size: var(--fs-xs); font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.page-header__sub { font-size: var(--fs-sm); color: var(--text3); }
 .page-header__actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .page-header__actions .btn-save { margin-left: 0; }
 
-/* Плотный вариант шапки: заголовок на ступень ниже, нижний отступ сжат.
-   Экономит ~14px до первого ряда данных — на канбане это половина высоты
-   строки карточки. Медиазапрос ниже уже уводит заголовок на --fs-3xl, поэтому
-   на узких экранах вариант ничего дополнительно не меняет. */
-.page-header--dense { padding-bottom: var(--space-3); }
+/* Плотный вариант шапки: заголовок на ступень ниже. Медиазапрос ниже уже уводит
+   заголовок на --fs-3xl, поэтому на узких экранах вариант ничего не меняет. */
 .page-header--dense .page-header__title { font-size: var(--fs-3xl); }
 
-/* Плоский вариант: не липкая и без линии снизу (раздел «Ученики»). */
-.page-header--flat { position: static; border-bottom: 0; backdrop-filter: none; background: transparent; }
-
 @media (max-width: 900px) {
-  .page-header {
-    margin-inline: calc(-1 * var(--space-4));
-    padding: var(--space-4) var(--space-4) var(--space-3);
-  }
+  .page-header { padding-top: var(--space-4); }
   .page-header__title { font-size: var(--fs-3xl); }
 }
 
@@ -549,7 +533,7 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* Липкая шапка страницы уступает верхней панели: обе липнут к верху, и без
-   сдвига шапка уехала бы под панель. Класс вешает AppShell — так порог узкого
-   режима остаётся единственным числом в JS и не дублируется медиазапросом. */
-.main--topbar .page-header { top: calc(var(--topbar-h) + env(safe-area-inset-top)); }
+/* Верхняя панель узкого режима липнет к верху, а sticky-элементы страницы
+   (панель редактора, колонка статьи) отсчитываются от --header-h: под неё. Класс
+   вешает AppShell — порог узкого режима остаётся единственным числом в JS. */
+.main--topbar { --header-h: calc(var(--topbar-h) + env(safe-area-inset-top)); }

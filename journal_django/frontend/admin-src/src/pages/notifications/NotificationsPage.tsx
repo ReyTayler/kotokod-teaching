@@ -161,7 +161,6 @@ export default function NotificationsPage() {
     <>
       <PageHeader
         title="Уведомления и напоминания"
-        sub="Что бот отправил преподавателям и когда в последний раз отрабатывали регулярные задачи."
       />
       <NotificationToggleBar />
       <Tabs

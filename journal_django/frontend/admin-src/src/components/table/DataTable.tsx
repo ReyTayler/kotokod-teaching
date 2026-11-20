@@ -1,6 +1,6 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import { Paginator } from './Paginator';
-import { FilterToolbar, TableFilterPanel, type FilterField } from '../filters';
+import { FilterToolbar, TableFilterPanel, fieldsFromColumns } from '../filters';
 
 export interface Column<T> {
   key: string;
@@ -44,6 +44,19 @@ interface Props<T> {
   rowClassName?: (row: T) => string | undefined;
   /** Действия в тулбаре фильтров. Основные действия страницы — в PageHeader. */
   headerActions?: ReactNode;
+  /**
+   * Лупа вынесена в шапку страницы (рядом с «+ Новый»): встроенная строка с
+   * лупой не рисуется. Поля для внешней панели строит `fieldsFromColumns`.
+   * `headerActions`, если заданы, остаются в своей строке.
+   */
+  externalFilters?: boolean;
+  /**
+   * Клиентский режим: фильтры принадлежат странице (панель в её шапке), а не
+   * внутреннему состоянию таблицы. Задавать только вместе с `externalFilters`:
+   * без него встроенная лупа показывала бы фильтры, которыми сама не управляет.
+   * В server-mode не нужен — там `serverPagination.filters`.
+   */
+  filters?: Record<string, string>;
   /** Содержимое липкой колонки действий у правого края строки (кнопка
    *  «Открыть» в списках сущностей). Колонка не участвует в настройках
    *  видимости колонок: скрыть единственный способ открыть карточку нельзя. */
@@ -67,7 +80,7 @@ interface Props<T> {
  * Фильтры живут в панели под лупой над таблицей (TableToolbar): поля выводятся
  * из `searchable`/`searchOptions` колонок.
  */
-export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, headerActions, rowAction, roomy, serverPagination, isLoading }: Props<T>) {
+export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, headerActions, externalFilters, filters: controlledFilters, rowAction, roomy, serverPagination, isLoading }: Props<T>) {
   // Колонка действий не входит в `columns`, но занимает ячейку в каждой строке —
   // пустое состояние обязано растянуться и на неё, иначе «Ничего не найдено»
   // окажется прижатым влево, а справа повиснет пустая липкая ячейка.
@@ -77,7 +90,8 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
   // правило `tbody tr { cursor: pointer }` в table.css иначе обещало бы клик
   // там, где строка ничего не делает.
   const rowStyle = { cursor: onRowClick ? 'pointer' : 'default' } as const;
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [ownFilters, setFilters] = useState<Record<string, string>>({});
+  const filters = controlledFilters ?? ownFilters;
   const hasFilters = Object.values(filters).some((v) => v && v.trim() !== '');
 
   const filtered = useMemo(() => {
@@ -118,6 +132,7 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
           filters={sp.filters}
           onApply={sp.onFiltersChange}
           actions={headerActions}
+          hideSearch={externalFilters}
           title={title}
         />
         <div className={`table-panel data-table-wrapper${panelClass}${isLoading ? ' data-table--loading' : ''}`}>
@@ -193,6 +208,7 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
         filters={filters}
         onApply={setFilters}
         actions={headerActions}
+        hideSearch={externalFilters}
         title={title}
       />
       <div className={`table-panel${panelClass}`}>
@@ -246,18 +262,16 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
  * серверная таблица перезапрашивалась на каждую букву; теперь фильтры применяются
  * по «Искать» (общий модуль components/filters). Без полей и действий не рисуется.
  */
-function TableToolbar<T>({ columns, filters, onApply, actions, title }: {
+function TableToolbar<T>({ columns, filters, onApply, actions, hideSearch, title }: {
   columns: Column<T>[];
   filters: Record<string, string>;
   onApply: (next: Record<string, string>) => void;
   actions?: ReactNode;
+  /** Лупа живёт в шапке страницы — здесь остаются только `actions`. */
+  hideSearch?: boolean;
   title?: string;
 }) {
-  const fields: FilterField[] = columns
-    .filter((c) => c.searchable)
-    .map((c) => c.searchOptions
-      ? { kind: 'select', key: c.key, label: c.label, options: c.searchOptions }
-      : { kind: 'text', key: c.key, label: c.label });
+  const fields = hideSearch ? [] : fieldsFromColumns(columns);
   if (fields.length === 0 && !actions) return null;
 
   return (

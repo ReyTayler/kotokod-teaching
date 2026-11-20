@@ -74,8 +74,9 @@ export function FilterPopover({ active, label, children, onOpen, onSubmit, onRes
           align="start"
           sideOffset={10}
           collisionPadding={16}
-          // Панель растёт вправо от лупы (влево она перекрывала бы сайдбар); отступ
-          // не даёт стрелке уехать в скруглённый угол, пока она указывает на лупу.
+          // Лупа стоит в шапке страницы у правого края: Radix сам сдвигает панель
+          // внутрь экрана (collisionPadding), стрелка при этом остаётся на лупе;
+          // arrowPadding не даёт ей уехать в скруглённый угол.
           arrowPadding={12}
           aria-label={label}
           onOpenAutoFocus={(e) => {

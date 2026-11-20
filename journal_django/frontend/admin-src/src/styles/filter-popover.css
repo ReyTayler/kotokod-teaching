@@ -15,6 +15,11 @@
 .filter-pop__btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); position: relative; }
 .filter-pop__btn.is-active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); position: relative; }
 
+/* В шапке страницы лупа стоит рядом с «+ Новый» — выравниваем по его высоте
+   (34px, .btn-add), иначе кнопки в ряду разной высоты. В календаре и тулбарах
+   таблиц остаются свои 32px. */
+.page-header__actions .filter-pop__btn { width: 34px; height: 34px; }
+
 .filter-pop__panel {
   width: 560px; max-width: calc(100vw - 32px);
   padding: var(--space-5);

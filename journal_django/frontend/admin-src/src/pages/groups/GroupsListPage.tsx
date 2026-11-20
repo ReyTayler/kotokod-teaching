@@ -14,6 +14,7 @@ import { formatSlot } from '../../lib/slots';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
 import { PageHeader } from '../../components/shell/PageHeader';
+import { TableFilterPanel, fieldsFromColumns } from '../../components/filters';
 
 export default function GroupsListPage() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -184,7 +185,17 @@ export default function GroupsListPage() {
     <PageHeader
       title="Группы"
       count={isLoading ? undefined : total}
-      actions={<button className="btn-add" onClick={() => setModalOpen(true)}>+ Новая</button>}
+      actions={(
+        <>
+          <TableFilterPanel
+            fields={fieldsFromColumns(columns)}
+            filters={filters}
+            onApply={setFilters}
+            label="Поиск: Группы"
+          />
+          <button className="btn-add" onClick={() => setModalOpen(true)}>+ Новая</button>
+        </>
+      )}
     />
   );
 
@@ -197,6 +208,7 @@ export default function GroupsListPage() {
         data={rows}
         columns={columns}
         title="Группы"
+        externalFilters
         roomy
         rowAction={(row) => <RowOpenButton to={`/admin/groups/${row.id}`} />}
         isLoading={isFetching}
