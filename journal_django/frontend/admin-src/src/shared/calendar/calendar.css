@@ -87,8 +87,6 @@
 .legend-item { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--text2); cursor: pointer; }
 .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .legend-item.muted { opacity: 0.4; }
-/* Легенда без фильтра (admin): просто цветовая подсказка, не кнопка. */
-.legend-item--static { cursor: default; }
 
 /* ── Недельная time-grid ── */
 .cal-grid-wrap {
