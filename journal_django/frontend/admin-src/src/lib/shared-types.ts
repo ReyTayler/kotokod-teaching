@@ -608,6 +608,16 @@ export interface AttendanceDashboardSummary {
   period_lessons: string;
 }
 
+/** GET /api/admin/work-schedule/free-windows: свободные окна преподавателей (недельный шаблон минус постоянные уроки). */
+export interface FreeWindowsTeacher {
+  id: ID;
+  name: string;
+  has_schedule: boolean;
+  /** Ключи 0..6 (Вс=0), интервалы [HH:MM, HH:MM], конец может быть 24:00. null — график не задан. */
+  days: Record<string, [string, string][]> | null;
+}
+export interface FreeWindowsResponse { teachers: FreeWindowsTeacher[] }
+
 /** Строка ученика: разбивка занятий внутри выбранного периода, всё в уроках. */
 export interface AttendanceDashboardRow {
   student_id: number;
