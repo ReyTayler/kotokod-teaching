@@ -1,6 +1,6 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import { Paginator } from './Paginator';
-import { SelectInput } from '../form/SelectInput';
+import { FilterToolbar, TableFilterPanel, type FilterField } from '../filters';
 
 export interface Column<T> {
   key: string;
@@ -64,9 +64,8 @@ interface Props<T> {
  * страницы: две таблицы давали два заголовка уровня страницы, а страница без
  * таблицы оставалась без шапки вовсе. Теперь заголовок рисует PageHeader.
  *
- * Фильтры переехали из второго ряда `<thead>` в тулбар над таблицей: в шапке
- * они делали её двухэтажной, требовали sticky-привязки к магической высоте
- * (`top: 37px`) и сжимали поля ввода до ширины колонки.
+ * Фильтры живут в панели под лупой над таблицей (TableToolbar): поля выводятся
+ * из `searchable`/`searchOptions` колонок.
  */
 export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, headerActions, rowAction, roomy, serverPagination, isLoading }: Props<T>) {
   // Колонка действий не входит в `columns`, но занимает ячейку в каждой строке —
@@ -112,24 +111,14 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
       sp.onSortChange(sortKey, dir);
     };
 
-    const handleFilterChange = (colKey: string, value: string) => {
-      const next = { ...sp.filters };
-      if (value) next[colKey] = value;
-      else delete next[colKey];
-      sp.onFiltersChange(next);
-    };
-
-    const hasServerFilters = Object.values(sp.filters).some((v) => v && v.trim() !== '');
-
     return (
       <div className="table-block">
-        <FilterBar
+        <TableToolbar
           columns={columns}
-          values={sp.filters}
-          onChange={handleFilterChange}
-          onReset={() => sp.onFiltersChange({})}
-          hasFilters={hasServerFilters}
+          filters={sp.filters}
+          onApply={sp.onFiltersChange}
           actions={headerActions}
+          title={title}
         />
         <div className={`table-panel data-table-wrapper${panelClass}${isLoading ? ' data-table--loading' : ''}`}>
           <div className="table-wrap">
@@ -199,13 +188,12 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
   // ── CLIENT MODE ──
   return (
     <div className="table-block">
-      <FilterBar
+      <TableToolbar
         columns={columns}
-        values={filters}
-        onChange={(key, value) => setFilters((f) => ({ ...f, [key]: value }))}
-        onReset={() => setFilters({})}
-        hasFilters={hasFilters}
+        filters={filters}
+        onApply={setFilters}
         actions={headerActions}
+        title={title}
       />
       <div className={`table-panel${panelClass}`}>
         <div className="table-wrap">
@@ -251,82 +239,38 @@ export function DataTable<T>({ data, columns, title, onRowClick, rowClassName, h
 }
 
 /**
- * Тулбар фильтров над таблицей.
+ * Строка над таблицей: лупа с панелью фильтров и действия страницы.
  *
- * Раньше фильтры жили вторым рядом `<thead>`: шапка становилась двухэтажной,
- * поля сжимались до ширины своей колонки (в узких колонках — до нечитаемых
- * 40px), а липкое позиционирование приходилось привязывать к магической
- * высоте первого ряда (`top: 37px`), которая ехала от любой правки padding.
- *
- * Здесь у каждого фильтра своя подпись, поле имеет нормальную ширину, а сброс
- * появляется только когда есть что сбрасывать.
+ * Поля панели выводятся из колонок: `searchable` — поле, `searchOptions` — выбор
+ * из списка вместо текста. Раньше это была строка полей с живым вводом, из-за чего
+ * серверная таблица перезапрашивалась на каждую букву; теперь фильтры применяются
+ * по «Искать» (общий модуль components/filters). Без полей и действий не рисуется.
  */
-function FilterBar<T>({ columns, values, onChange, onReset, hasFilters, actions }: {
+function TableToolbar<T>({ columns, filters, onApply, actions, title }: {
   columns: Column<T>[];
-  values: Record<string, string>;
-  onChange: (key: string, value: string) => void;
-  onReset: () => void;
-  hasFilters: boolean;
+  filters: Record<string, string>;
+  onApply: (next: Record<string, string>) => void;
   actions?: ReactNode;
+  title?: string;
 }) {
-  const filterable = columns.filter((c) => c.searchable);
-  if (filterable.length === 0 && !actions) return null;
+  const fields: FilterField[] = columns
+    .filter((c) => c.searchable)
+    .map((c) => c.searchOptions
+      ? { kind: 'select', key: c.key, label: c.label, options: c.searchOptions }
+      : { kind: 'text', key: c.key, label: c.label });
+  if (fields.length === 0 && !actions) return null;
 
   return (
-    <div className="filterbar">
-      <div className="filterbar__fields">
-        {/* Названия колонок — внутри контролов, а не отдельными подписями сверху:
-            при пяти фильтрах подписи в верхнем регистре оказывались шире самих
-            полей и ряд разваливался на два этажа. Пустой список показывает своё
-            название, выбранный — значение, так что понятно, что и чем отфильтровано. */}
-        {filterable.map((c) => (
-          <div
-            key={c.key}
-            className={`filterbar__field${c.searchOptions ? '' : ' filterbar__field--text'}`}
-          >
-            {c.searchOptions ? (
-              /* SelectInput кладёт className на ОБЁРТКУ, а видимый контрол —
-                 вложенная кнопка .select-input__trigger со своими размерами.
-                 Класс задаёт ширину, вид триггера подгоняет CSS. */
-              <SelectInput
-                className="filterbar__select"
-                aria-label={c.label}
-                value={values[c.key] || ''}
-                onChange={(e) => onChange(c.key, e.target.value)}
-                options={[{ value: '', label: `${c.label}: все` }, ...c.searchOptions]}
-                placeholder={c.label}
-              />
-            ) : (
-              <>
-                <svg className="filterbar__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
-                <input
-                  type="text"
-                  className="filterbar__control filterbar__control--search"
-                  aria-label={c.label}
-                  placeholder={c.label}
-                  value={values[c.key] || ''}
-                  onChange={(e) => onChange(c.key, e.target.value)}
-                />
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="filterbar__actions">
-        {hasFilters && (
-          <button type="button" className="btn-reset-filters" onClick={onReset}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-            Сбросить
-          </button>
-        )}
-        {actions}
-      </div>
-    </div>
+    <FilterToolbar actions={actions}>
+      {fields.length > 0 && (
+        <TableFilterPanel
+          fields={fields}
+          filters={filters}
+          onApply={onApply}
+          label={title ? `Поиск: ${title}` : 'Поиск'}
+        />
+      )}
+    </FilterToolbar>
   );
 }
 
