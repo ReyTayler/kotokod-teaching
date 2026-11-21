@@ -4,8 +4,8 @@
 Тонкая обёртка над apps.scheduling.repository — генератор/репозиторий уже
 существуют и покрыты тестами в apps/scheduling/tests/test_backfill_planned_lessons.py,
 логику не дублируем. Делает то же самое, что management-команда
-apps/scheduling/management/commands/backfill_planned_lessons.py, но через Celery
-(см. apps/sync/tasks.py).
+apps/scheduling/management/commands/backfill_planned_lessons.py, но под общим
+контрактом модулей backfills run(dry_run) → dict.
 
 ⚠️ РАЗРУШИТЕЛЬНО: пересборка группы удаляет её текущий план (reset) и разворачивает
 будущее заново от последнего факта — ПЕРЕЗАПИСЫВАЕТ ручные операции будущего

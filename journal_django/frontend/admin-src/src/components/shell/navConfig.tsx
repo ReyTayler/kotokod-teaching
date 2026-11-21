@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import {
   canSeePayroll, canSeeAccounts, canSeeAudit, canSeeChangelog,
-  canSeeSync, canSeeArchive, canSeeSettings, type Role,
+  canSeeArchive, canSeeSettings, type Role,
 } from '../../lib/permissions';
 
 export const NAV_ICONS: Record<string, ReactElement> = {
@@ -125,13 +125,6 @@ export const NAV_ICONS: Record<string, ReactElement> = {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
       <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-    </svg>
-  ),
-  sync: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="23 4 23 10 17 10"/>
-      <polyline points="1 20 1 14 7 14"/>
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
     </svg>
   ),
   reports: (
@@ -273,7 +266,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { key: 'audit', label: 'Журнал ИБ', path: '/admin/audit', can: canSeeAudit },
       { key: 'changelog', label: 'Журнал изменений', path: '/admin/changelog', can: canSeeChangelog },
       { key: 'notifications', label: 'Уведомления', path: '/admin/notifications', can: canSeeChangelog },
-      { key: 'sync', label: 'Синхро', path: '/admin/sync', can: canSeeSync },
     ],
   },
 ];

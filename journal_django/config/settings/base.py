@@ -228,14 +228,14 @@ else:
 CELERY_BROKER_URL = REDIS_URL or 'redis://localhost:6379/0'
 # cache+memory:// — in-process backend без внешних зависимостей. Раньше здесь тоже
 # был 'redis://localhost:6379/0' — не проблема, пока ничего не читало eager-результат
-# из backend'а. apps.sync.views.SyncStatusView — первый потребитель, которому это
-# нужно и в dev/тестах (REDIS_URL не задан, Redis намеренно не поднят локально).
+# из backend'а. Статус и скачивание отчётов (apps.reports.views) читают его и
+# в dev/тестах (REDIS_URL не задан, Redis намеренно не поднят локально).
 CELERY_RESULT_BACKEND = REDIS_URL or 'cache+memory://'
 CELERY_TIMEZONE = 'Europe/Moscow'
 CELERY_ENABLE_UTC = False
 CELERY_TASK_ALWAYS_EAGER = not REDIS_URL
 # В eager-режиме результат по умолчанию НЕ кладётся в result backend — доступен
-# только напрямую из возврата .delay(). SyncStatusView всегда читает через
+# только напрямую из возврата .delay(). Вьюхи отчётов всегда читают через
 # AsyncResult(task_id) из backend'а, поэтому без этой опции dev/тесты не работали бы.
 CELERY_TASK_STORE_EAGER_RESULT = True
 # Очереди (спека 2026-07-13, фаза A): один воркер слушает обе

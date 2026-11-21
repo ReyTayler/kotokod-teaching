@@ -49,8 +49,6 @@ urlpatterns = [
     path('api/admin/tasks', include('apps.taskboard.urls')),
     # Календарь (админ, произвольный преподаватель) — /api/admin/calendar
     path('api/admin/calendar', include('apps.scheduling.admin_urls')),
-    # Синхро — ручной запуск backfill/пересчётов из Google Sheets (только superadmin)
-    path('api/admin/sync', include('apps.sync.urls')),
     # Отчёты — генерация Excel-отчётов в Celery (role=manager/admin)
     path('api/admin/reports', include('apps.reports.urls')),
     # База знаний — документация компании (спека 2026-08-06).

@@ -83,8 +83,10 @@ compute-on-read выражал плохо.
 курса, два занятия на одну дату. `check_all()` — сводка по всем активным группам
 одним запросом, `check_group(id)` — детали строк по одной группе.
 
-В интерфейсе — раздел «Синхро», группа карточек «Проверки», действие
-`check-plan-health` (`IsSuperAdmin`, ничего не меняет).
+В интерфейсе проверка есть только по одной группе (`GroupPlanHealthBlock`,
+`GET /api/admin/groups/<id>/plan/health`, `IsSuperAdmin`); сводка `check_all`
+(обёртка `apps.sync.backfills.check_plan_health`) из интерфейса не запускается —
+раздел «Синхро» удалён 2026-11-21.
 
 ## Модель `PlannedLesson`
 
