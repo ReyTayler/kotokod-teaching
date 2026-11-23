@@ -62,11 +62,14 @@ def run(dry_run: bool = False) -> dict:
                     present_count  = EXCLUDED.present_count,
                     payment        = EXCLUDED.payment,
                     penalty        = EXCLUDED.penalty
-                WHERE payroll.teacher_id     IS DISTINCT FROM EXCLUDED.teacher_id
+                -- Начисления «Мотивации» (индив, rule_note не пуст) считает её
+                -- движок (apps/payroll/recalc.py) — прежний калькулятор их не трогает.
+                WHERE payroll.rule_note = '' AND (
+                      payroll.teacher_id     IS DISTINCT FROM EXCLUDED.teacher_id
                    OR payroll.total_students IS DISTINCT FROM EXCLUDED.total_students
                    OR payroll.present_count  IS DISTINCT FROM EXCLUDED.present_count
                    OR payroll.payment        IS DISTINCT FROM EXCLUDED.payment
-                   OR payroll.penalty        IS DISTINCT FROM EXCLUDED.penalty
+                   OR payroll.penalty        IS DISTINCT FROM EXCLUDED.penalty)
                 RETURNING (xmax = 0) AS inserted
                 """,
                 [lesson_id, teacher_id, total, present, payment, penalty],

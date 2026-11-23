@@ -57,6 +57,28 @@ TRACKED: dict[str, TrackedModel] = {
     'extra_lessons.AbsenceResolution':      TrackedModel('absence_resolution', True, 45),
     'payments.Payment':               TrackedModel('payment', True, 50),
     'payroll.Payroll':                TrackedModel('payroll', True, 50),
+    # «Мотивация» (индив; перенос из Eduson): ставки школы → ставки направлений
+    # версии; персональные ставки после групп (20); начисление за отмену — после
+    # маркера отмены (planned_lesson, 30), как Payroll после урока.
+    # Ставки НЕ откатываются: откат вернул бы прошлые параметры задним числом
+    # мимо правила «изменения ставок не меняют прошлое» и мимо прав — откатывает
+    # admin, а ставки правит только superadmin; пересчёт начислений откат к тому
+    # же не запускает. История видна, изменить ставку — только через «Мотивацию».
+    'payroll.PayRateVersion':         TrackedModel('pay_rate_version', False, 10),
+    'payroll.GroupPayRateVersion':    TrackedModel('group_pay_rate_version', False, 10),
+    'payroll.PayRateDirection':       TrackedModel('pay_rate_direction', False, 15),
+    'payroll.PersonalRate':           TrackedModel('personal_rate', False, 30),
+    'payroll.PersonalRateTerm':       TrackedModel('personal_rate_term', False, 35),
+    'payroll.CancellationPay':        TrackedModel('cancellation_pay', True, 50),
+    # Отмены уроков индива. Справочник и записи не откатываются: запись — снимок
+    # решения о деньгах преподавателя, справочник правит только superadmin.
+    # Следствие: операция plan.cancel индива (с записью) не откатывается.
+    'cancellations.CancellationReason': TrackedModel('cancellation_reason', False, 10),
+    'cancellations.LessonCancellation': TrackedModel('lesson_cancellation', False, 35),
+    # График работы преподавателя: шаблон и исключения перезаписываются целиком
+    # по дню — построчный откат собрал бы несогласованный день, поэтому только след.
+    'availability.AvailabilityRule':     TrackedModel('availability_rule', False, 20),
+    'availability.AvailabilityOverride': TrackedModel('availability_override', False, 20),
     # renewals: справочники воронки → сделки → активность (лог, не откатываем)
     'renewals.RenewalPipeline':       TrackedModel('renewal_pipeline', True, 20),
     'renewals.RenewalStage':          TrackedModel('renewal_stage', True, 25),
@@ -72,10 +94,6 @@ TRACKED: dict[str, TrackedModel] = {
     # отдельно пишется в TaskActivity (kind='assign').
     'taskboard.Task':         TrackedModel('task', True, 30),
     'taskboard.TaskActivity': TrackedModel('task_activity', False, 40),
-    # График работы преподавателя: шаблон и исключения перезаписываются целиком
-    # по дню — построчный откат собрал бы несогласованный день, поэтому только след.
-    'availability.AvailabilityRule':     TrackedModel('availability_rule', False, 20),
-    'availability.AvailabilityOverride': TrackedModel('availability_override', False, 20),
 }
 
 

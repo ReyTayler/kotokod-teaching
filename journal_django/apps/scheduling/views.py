@@ -24,9 +24,9 @@ from rest_framework.views import APIView
 from apps.availability import services as availability_services
 from apps.core.permissions import IsManagerOrAdmin, IsSuperAdmin, IsTeacher
 from apps.scheduling import services
-from apps.scheduling.exceptions import PlanResyncBlocked
+from apps.scheduling.exceptions import PlanLessonChanged, PlanResyncBlocked
 from apps.scheduling.serializers import (
-    PlanChangeTeacherPermanentSerializer, PlanChangeTeacherSerializer,
+    PlanCancelSerializer, PlanChangeTeacherPermanentSerializer, PlanChangeTeacherSerializer,
     PlanPermanentChangeSerializer, PlanRescheduleSerializer, PlanResyncSerializer,
 )
 
@@ -240,15 +240,24 @@ class GroupPlanPermanentChangeView(APIView):
 
 
 class GroupPlanCancelView(APIView):
-    """POST /api/admin/groups/<pk>/plan/<lid>/cancel — отмена со сдвигом хвоста."""
+    """POST /api/admin/groups/<pk>/plan/<lid>/cancel — отмена со сдвигом хвоста;
+    у индивидуальной группы — с причиной (PlanCancelSerializer)."""
 
     permission_classes = [IsManagerOrAdmin]
 
     def post(self, request: Request, pk: int, lid: int) -> Response:
+        serializer = PlanCancelSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
         try:
-            plan = services.cancel(pk, lid, request)
+            plan = services.cancel(pk, lid, serializer.validated_data, request)
+        except PlanLessonChanged as exc:
+            # Занятие уже перенесено/отменено (двойной клик, вторая вкладка) —
+            # клиенту нужно обновить план, а не исправлять форму.
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
-            # Якорь не курсовой/активный (extra/cancelled/moved/done) — бизнес-ошибка.
+            # Якорь не курсовой/активный (extra/cancelled/moved/done), нет причины
+            # у индива, причина не найдена/другой стороны, на ключе уже есть
+            # маркер — бизнес-ошибка.
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if plan is None:
             raise NotFound({'error': 'Not found'})

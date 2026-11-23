@@ -10,11 +10,13 @@ apps/groups/serializers.py (ScheduleChangeSerializer):
 """
 from __future__ import annotations
 
+import datetime
 import re
 
 from rest_framework import serializers
 
 from apps.core.fields import DateStringField
+from apps.core.utils.dates import msk_now
 
 # Время слота/занятия: HH:MM или HH:MM:SS (как VALID_SLOT_TIME_RE в groups).
 _TIME_RE = re.compile(r'^\d{2}:\d{2}(:\d{2})?$')
@@ -147,3 +149,53 @@ class PlanResyncSerializer(StrictSerializer):
             seen.add(position_id)
             normalized.append((position_id, fact_lesson_id, date_str))
         return normalized
+
+
+class PlanCancelSerializer(StrictSerializer):
+    """POST /plan/<lid>/cancel — тело отмены.
+
+    Причина обязательна только у индивидуальной группы («Мотивация»: компенсация
+    преподавателю за отмену). У групповых форматов отмена прежняя — тело пустое,
+    поля причины игнорируются сервисом. Обязательность по формату группы
+    проверяет scheduling.services.cancel (нужна БД), здесь — только форма полей.
+
+    lesson_date — дата занятия, как её видел клиент: сервис сверяет её с датой
+    строки под локом (повторный POST того же lid → 409, а не отмена следующего
+    урока). Существование и сторону причины проверяет cancellations.services."""
+
+    lesson_date = DateStringField(required=False)
+    # Строки, а не CancellationSide: scheduling зависит от cancellations только
+    # локальными импортами (обратная зависимость — FK записи на маркер). Набор
+    # совпадает с CHECK lesson_cancel_side_check.
+    side = serializers.ChoiceField(choices=[('teacher', 'Преподаватель'),
+                                            ('client', 'Клиент')], required=False)
+    reason_id = serializers.IntegerField(min_value=1, required=False, error_messages={
+        'null': 'Выберите причину.'})
+    # Необязательные подробности о причине. trim_whitespace: из одних пробелов —
+    # пустая строка; max_length — как у колонки.
+    details = serializers.CharField(required=False, allow_blank=True, max_length=1000,
+                                    trim_whitespace=True)
+    notified_on = DateStringField(required=False, allow_null=True)
+
+    def validate_details(self, value):
+        """Невидимые символы форматирования (Cf) вырезаются — из одних таких
+        символов получаются пустые детали. Переводы строк сохраняются."""
+        from apps.cancellations.serializers import drop_format_chars
+        return drop_format_chars(value).strip()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        side = attrs.get('side')
+        if side is None:
+            return attrs  # отмена без причины: групповой формат (решает сервис)
+        if side == 'teacher':
+            # Для стороны «Преподаватель» дата уведомления не нужна — игнорируем,
+            # а не отказываем: форма могла прислать значение по умолчанию.
+            attrs['notified_on'] = None
+        elif not attrs.get('notified_on'):
+            raise serializers.ValidationError(
+                {'notified_on': 'Укажите, когда сообщили об отмене.'})
+        elif datetime.date.fromisoformat(attrs['notified_on']) > msk_now().date():
+            raise serializers.ValidationError(
+                {'notified_on': 'Дата уведомления не может быть в будущем.'})
+        return attrs

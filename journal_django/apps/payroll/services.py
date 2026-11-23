@@ -3,6 +3,7 @@ PayrollService — тонкий слой между views и repository. Ник�
 """
 from __future__ import annotations
 
+import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -20,18 +21,6 @@ _MONTH_LABELS = (
 )
 
 
-def list_payroll(
-    page: int = 1,
-    page_size: int = 50,
-    sort_by: str = 'lesson_date',
-    sort_dir: str = 'desc',
-    filters: Optional[dict] = None,
-) -> dict:
-    return repository.list_payroll(
-        page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, filters=filters,
-    )
-
-
 def payroll_summary(
     teacher_id: Optional[int] = None,
     date_from: Optional[str] = None,
@@ -44,6 +33,18 @@ def update_payroll(payroll_id: int, fields: dict) -> Optional[dict]:
     return repository.update_payroll(payroll_id, fields)
 
 
+def reset_payroll(payroll_id: int) -> Optional[dict]:
+    return repository.reset_payroll(payroll_id)
+
+
+def update_cancellation(cancellation_id: int, payment: Decimal) -> Optional[dict]:
+    return repository.update_cancellation(cancellation_id, payment)
+
+
+def reset_cancellation(cancellation_id: int) -> Optional[dict]:
+    return repository.reset_cancellation(cancellation_id)
+
+
 # ---------------------------------------------------------------------------
 # Кабинет преподавателя — своя зарплата за месяц
 # ---------------------------------------------------------------------------
@@ -53,9 +54,34 @@ def _money(value: Decimal) -> str:
     return f'{Decimal(value):.2f}'
 
 
+_MIDNIGHT = datetime.time(0, 0)
+
+# Подписи ручной правки: сумма задана администратором, правило движка её не
+# объясняет — говорим как есть, а расчётная сумма идёт рядом.
+_MANUAL_NOTE = 'Сумма изменена администратором'
+_MANUAL_PENALTY_NOTE = 'Удержание задано администратором'
+
+
+def _motivation_rule(e: dict, payment: Decimal) -> dict:
+    """
+    Пояснение начисления «Мотивации» (rule_note, записанный движком
+    apps/payroll/engine.py) в форме {'code', 'text', 'note'}, общей с расшифровкой
+    прежнего движка (explain.explain_payment): code — 'manual' (ручная правка)
+    или 'motivation', text — сумма, note — правило словами.
+    """
+    if e['is_manual']:
+        note = f"{_MANUAL_NOTE} · расчёт: {_money(e['calc_payment'])} ₽"
+        if e['rule_note']:
+            note = f"{note} · {e['rule_note']}"
+        return {'code': 'manual', 'text': f'{_money(payment)} ₽', 'note': note}
+    return {'code': 'motivation', 'text': f'{_money(payment)} ₽', 'note': e['rule_note']}
+
+
 def my_payroll_month(teacher_id: int, month: str) -> dict:
     """
-    Зарплата ОДНОГО преподавателя за месяц 'YYYY-MM' с расшифровкой каждой строки.
+    Зарплата ОДНОГО преподавателя за месяц 'YYYY-MM' с расшифровкой каждой строки:
+    уроки «Мотивации» (индив) — пояснением движка (rule_note), уроки прежнего
+    движка — сверкой с калькулятором (explain.py); плюс начисления за отмены индива.
 
     teacher_id приходит из JWT (вьюха), не из запроса — иначе преподаватель
     прочитал бы чужую зарплату.
@@ -82,14 +108,29 @@ def my_payroll_month(teacher_id: int, month: str) -> dict:
         sum_penalty += penalty
         presences += e['present_count']
 
-        rule = explain_payment(
-            payment=payment,
-            total_students=e['total_students'],
-            present_count=e['present_count'],
-            duration_minutes=e['duration_minutes'],
-            lesson_type=e['lesson_type'],
-        )
         submitted_at = e['submitted_at']
+        if e['rule_note']:
+            rule = _motivation_rule(e, payment)
+            # Штраф движок объясняет внутри rule_note (сегмент «Штраф за отчёт…»).
+            penalty_note = None
+            if penalty:
+                penalty_note = _MANUAL_PENALTY_NOTE if e['is_manual'] else e['rule_note']
+        else:
+            rule = explain_payment(
+                payment=payment,
+                total_students=e['total_students'],
+                present_count=e['present_count'],
+                duration_minutes=e['duration_minutes'],
+                lesson_type=e['lesson_type'],
+            )
+            penalty_note = explain_penalty(
+                penalty=penalty,
+                present_count=e['present_count'],
+                lesson_date=e['lesson_date'],
+                # submitted_at хранится в UTC (USE_TZ=True) — приводим к МСК,
+                # иначе поздний вечерний отчёт покажет вчерашнюю дату.
+                submitted_at=timezone.localtime(submitted_at) if submitted_at else None,
+            )
         marks = excluded.get(e['lesson_id'], {})
         # Бесплатные не учтены в оплате только на уроках до 2026-09-28 (тогда
         # is_free исключался из present_count). Признак — present_count меньше
@@ -101,6 +142,9 @@ def my_payroll_month(teacher_id: int, month: str) -> dict:
 
         rows.append({
             'lessonId': e['lesson_id'],
+            # Единая форма строк с отменами (у урока времени в журнале нет).
+            'cancellationId': None,
+            'time': None,
             'date': e['lesson_date'],
             'group': e['group_name'],
             'direction': e['direction_name'],
@@ -114,19 +158,48 @@ def my_payroll_month(teacher_id: int, month: str) -> dict:
             'penalty': _money(penalty),
             'net': _money(net),
             'rule': rule,
-            'penaltyNote': explain_penalty(
-                penalty=penalty,
-                present_count=e['present_count'],
-                lesson_date=e['lesson_date'],
-                # submitted_at хранится в UTC (USE_TZ=True) — приводим к МСК,
-                # иначе поздний вечерний отчёт покажет вчерашнюю дату.
-                submitted_at=timezone.localtime(submitted_at) if submitted_at else None,
-            ),
+            'penaltyNote': penalty_note,
             'excludedNote': explain_excluded(
                 free=free_unpaid, skip=marks.get('skip', 0),
             ),
-            'adjusted': rule['code'] == 'adjusted',
+            'adjusted': rule['code'] in ('adjusted', 'manual'),
         })
+
+    lessons_count = len(rows)
+
+    # Отмены индива с записью о причине: своя строка с kind='cancellation' —
+    # значения kind у уроков (lesson_type: regular/extra/…) с ним не пересекаются.
+    # Полей урока (номер, состав, длительность) у отмены нет — null.
+    cancellations = repository.teacher_month_cancellations(teacher_id, date_from, date_to)
+    for c in cancellations:
+        payment = Decimal(c['payment'])
+        sum_payment += payment
+        rows.append({
+            'lessonId': None,
+            'cancellationId': c['id'],
+            'time': c['scheduled_time'],
+            'date': c['lesson_date'],
+            'group': c['group_name'],
+            'direction': c['direction_name'],
+            'directionColor': c['direction_color'],
+            'lessonNumber': None,
+            'kind': 'cancellation',
+            'durationMinutes': None,
+            'totalStudents': None,
+            'presentCount': None,
+            'payment': _money(payment),
+            'penalty': _money(Decimal('0')),
+            'net': _money(payment),
+            'rule': _motivation_rule(c, payment),
+            'penaltyNote': None,
+            'excludedNote': None,
+            'adjusted': c['is_manual'],
+        })
+    # Новые сверху по (дата, время); у урока времени нет — в пределах дня он
+    # после отмен со временем. sort стабилен: уроки одного дня сохраняют
+    # прежний порядок.
+    rows.sort(key=lambda r: (r['date'], r['time'] is not None, r['time'] or _MIDNIGHT),
+              reverse=True)
 
     year, month_number = int(month[:4]), int(month[5:7])
 
@@ -134,7 +207,8 @@ def my_payroll_month(teacher_id: int, month: str) -> dict:
         'month': month,
         'monthLabel': f'{_MONTH_LABELS[month_number - 1]} {year}',
         'totals': {
-            'lessons': len(rows),
+            'lessons': lessons_count,
+            'cancellations': len(cancellations),
             'presences': presences,
             'payment': _money(sum_payment),
             'penalty': _money(sum_penalty),

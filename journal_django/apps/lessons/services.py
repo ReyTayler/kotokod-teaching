@@ -253,6 +253,11 @@ def record_lesson(*,
             'payment': payment,
             'penalty': penalty,
         })
+        # «Мотивация» (индив на дату с версией ставок) пересчитывает начисление
+        # этого урока; урок группового формата остаётся на прежнем движке.
+        # Ленивый импорт: payroll.recalc читает модели lessons.
+        from apps.payroll.recalc import recalculate_lesson
+        payment, penalty = recalculate_lesson(lesson_id, payment, penalty)
 
         # Авто-создание «пропусков, требующих решения» — для ВСЕХ занятий курса
         # (regular/substitution/reschedule). Исключены только системные факты
@@ -354,6 +359,26 @@ def create_lesson_full(data: dict) -> dict:
 
 def update_lesson(lesson_id: int, fields: dict) -> Optional[dict]:
     _assert_not_system_lesson(lesson_id)
+    # Одна транзакция на всю правку: начисление «Мотивации» пересчитывается в
+    # конце и не должно разойтись с уже записанной датой/преподавателем/типом.
+    # Урок лочим первым — порядок «урок → план → деньги», как у пересчёта
+    # (apps/payroll/recalc.py) и у правки посещаемости.
+    with transaction.atomic():
+        if not Lesson.objects.select_for_update().filter(id=lesson_id).exists():
+            return None
+        updated = _update_lesson_locked(lesson_id, fields)
+        if updated is not None:
+            # Дата выбирает версию ставок, преподаватель — получателя, тип —
+            # вид начисления (урок/доп.урок/отработка). Без пересчёта урок под
+            # версией жил бы со старой суммой до ближайшего массового пересчёта.
+            # Урок прежнего движка (вне версий) пересчёт не трогает; ручная
+            # сумма сохраняется, пока не сменился получатель (_keeps_manual).
+            from apps.payroll.recalc import recalculate_lesson
+            recalculate_lesson(lesson_id, None, None)
+        return updated
+
+
+def _update_lesson_locked(lesson_id: int, fields: dict) -> Optional[dict]:
     updated = repository.update_lesson(lesson_id, fields)
     if updated is None:
         return None

@@ -22,7 +22,9 @@ from apps.lessons.models import COURSE_LESSON_TYPES, Lesson
 from apps.memberships.models import GroupMembership
 from apps.teachers.models import Teacher
 from apps.scheduling import health, planner
-from apps.scheduling.exceptions import PlanHasRecordedLessons, PlanResyncBlocked
+from apps.scheduling.exceptions import (
+    PlanHasRecordedLessons, PlanLessonChanged, PlanResyncBlocked,
+)
 from apps.scheduling.models import PlannedLesson
 from apps.scheduling.occurrences import (
     CANCELLED, DONE, MOVED, OVERDUE, PENDING, Slot, _step_for, _walk,
@@ -336,13 +338,58 @@ _PLAN_UPDATE_FIELDS = (
 )
 
 
+def _recalc_cancellations(**scope) -> None:
+    """Пересчёт начислений за отмены («Мотивация», индив) после операции над
+    строками плана.
+
+    Только режим «отмены»: строки плана уже залочены, а полный пересчёт полез
+    бы лочить уроки после плана — обратный порядок к пересчёту по ставкам.
+    Локальный импорт: payroll сам читает модели scheduling."""
+    from apps.payroll.recalc import recalculate_cancellations
+    recalculate_cancellations(**scope)
+
+
+def _recalc_cancellations_after_delete(group_id: int) -> None:
+    """После удаления маркеров: прошлые начисления остаются сиротами (выплаченный
+    месяц не меняется), будущие пересчёт группы с сегодняшнего дня удаляет.
+    «Сегодня» берёт сам пересчёт — то же, по которому он делит сирот."""
+    _recalc_cancellations(group_ids=[group_id], from_today=True)
+
+
+# Порядок захвата строк плана: курсовые по seq (как во всех операциях плана),
+# затем не-курсовые (маркеры, seq NULL) по id — как их лочит пересчёт начислений.
+_PLAN_LOCK_ORDER = (F('seq').asc(nulls_last=True), 'id')
+
+
+def lock_plan_rows(qs) -> list[int]:
+    """Залочить строки плана перед удалением: коллектор Django обнуляет ссылку
+    начисления отмены (UPDATE payroll_cancellations) раньше DELETE плана, и без
+    этого лока порядок был бы «деньги → план». Порядок — _PLAN_LOCK_ORDER."""
+    return list(
+        qs.select_for_update()
+        .order_by(*_PLAN_LOCK_ORDER)
+        .values_list('id', flat=True)
+    )
+
+
+def _is_marker(p: PlannedLesson) -> bool:
+    """Маркер отмены: не курсовая строка в статусе cancelled."""
+    return p.seq is None and p.status == CANCELLED
+
+
 def reset_plan(group_id: int) -> int:
     """Удалить весь план группы (для чистой перегенерации, backfill --reset).
 
     Разрушительно: сбрасывает и ручные операции (переносы/отмены), и линковку с
     фактами. Использовать только при полном пересборе плана. Возвращает число
-    удалённых строк."""
-    deleted, _ = PlannedLesson.objects.filter(group_id=group_id).delete()
+    удалённых строк.
+
+    Начисления за отмены: прошлые остаются без маркера, будущие удаляются."""
+    with transaction.atomic():
+        plan = PlannedLesson.objects.filter(group_id=group_id)
+        lock_plan_rows(plan)
+        deleted, _ = plan.delete()
+        _recalc_cancellations_after_delete(group_id)
     return deleted
 
 
@@ -480,9 +527,14 @@ def link_facts(group_id: int) -> int:
                 by_number[f['lesson_number']].append(f)
             by_date[f['lesson_date']].append(f)
 
+        # Только позиции курса: факт курса занимает позицию курса. Маркер отмены
+        # (seq NULL) второй проход «по дате» иначе привязал бы к уроку на ту же
+        # дату — маркер стал бы done, а начисление за отмену осталось бы рядом
+        # с начислением за урок. Доп.занятия (seq NULL) — тоже не позиции курса.
         rows = list(
             PlannedLesson.objects
-            .filter(group_id=group_id, fact_lesson_id__isnull=True)
+            .filter(group_id=group_id, fact_lesson_id__isnull=True, seq__isnull=False)
+            .exclude(status=CANCELLED)
             .order_by('seq')
         )
 
@@ -1037,6 +1089,9 @@ def reschedule_lesson(
             'scheduled_date', 'scheduled_time', 'teacher', 'moved_from_date',
             'substitute_teacher', 'updated_at',
         ])
+        if _is_marker(p):
+            # Начисление отмены несёт дату/время и преподавателя маркера.
+            _recalc_cancellations(marker_ids=[p.id])
 
     return _plan_row_dict_obj(p, teacher_names(), msk_now())
 
@@ -1065,6 +1120,9 @@ def change_teacher(
         p.substitute_teacher_id = updated.substitute_teacher_id
         p.updated_at = now
         p.save(update_fields=['substitute_teacher', 'updated_at'])
+        if _is_marker(p):
+            # Замену ставят и на отменённое занятие — за отмену платят ей.
+            _recalc_cancellations(marker_ids=[p.id])
 
     return _plan_row_dict_obj(p, teacher_names(), msk_now())
 
@@ -1248,24 +1306,38 @@ def wipe_one_offs(
       - обнулить moved_from_date (разовые переносы);
       - снять substitute_teacher (разовые замены).
     Диапазон — по дате [date_from, date_to] и/или по позиции seq>=from_seq у
-    курсовых строк. done не трогаем. Вызывать внутри открытой транзакции."""
-    now = msk_now()
-    markers = PlannedLesson.objects.filter(
-        group_id=group_id, seq__isnull=True, status=CANCELLED,
-        scheduled_date__gte=date_from)
-    if date_to is not None:
-        markers = markers.filter(scheduled_date__lte=date_to)
-    markers.delete()
+    курсовых строк. done не трогаем. Обычно зовётся из открытой транзакции
+    (permanent_change); своя atomic — чтобы локи имели смысл и при прямом вызове.
 
-    course = PlannedLesson.objects.filter(
-        group_id=group_id, seq__isnull=False, status__in=_MUTABLE_STATUSES)
-    if from_seq is not None:
-        course = course.filter(seq__gte=from_seq)
-    else:
-        course = course.filter(scheduled_date__gte=date_from)
+    Начисления за удалённые маркеры: прошлые остаются без маркера, будущие
+    удаляются."""
+    now = msk_now()
+    with transaction.atomic():
+        # Порядок захвата (_PLAN_LOCK_ORDER): курсовые строки по seq, затем маркеры
+        # по id, затем деньги (пересчёт отмен). Голый UPDATE лочил бы курс в
+        # произвольном порядке, а маркеры раньше курса — обратно отмене.
+        course = PlannedLesson.objects.filter(
+            group_id=group_id, seq__isnull=False, status__in=_MUTABLE_STATUSES)
+        if from_seq is not None:
+            course = course.filter(seq__gte=from_seq)
+        else:
+            course = course.filter(scheduled_date__gte=date_from)
+            if date_to is not None:
+                course = course.filter(scheduled_date__lte=date_to)
+        course_ids = lock_plan_rows(course)
+        if course_ids:
+            PlannedLesson.objects.filter(id__in=course_ids).update(
+                moved_from_date=None, substitute_teacher_id=None, updated_at=now)
+
+        markers = PlannedLesson.objects.filter(
+            group_id=group_id, seq__isnull=True, status=CANCELLED,
+            scheduled_date__gte=date_from)
         if date_to is not None:
-            course = course.filter(scheduled_date__lte=date_to)
-    course.update(moved_from_date=None, substitute_teacher_id=None, updated_at=now)
+            markers = markers.filter(scheduled_date__lte=date_to)
+        marker_ids = lock_plan_rows(markers)
+        if marker_ids:
+            PlannedLesson.objects.filter(id__in=marker_ids).delete()
+            _recalc_cancellations_after_delete(group_id)
 
 
 def preview_affected(
@@ -1360,11 +1432,9 @@ def _renumber_persist(
 
 def cancel_lesson(
     group_id: int,
-    from_date: datetime.date,
     *,
-    marker_time: datetime.time,
-    marker_teacher_id: int | None,
     lesson_id: int,
+    record=None,
 ) -> list[dict]:
     """
     Отмена «в конец курса»: (1) на исходную дату вставляется НЕ-курсовой маркер
@@ -1383,6 +1453,18 @@ def cancel_lesson(
     (нет открытого слота у группы) — шаг (2) пропускается: строка остаётся на
     месте, перенумерация всё равно проходит (тот же fallback, что раньше у
     relay: «нельзя развернуть каденцию»). Абонемент/баланс не трогаем.
+
+    Дата, время и преподаватель маркера берутся из ЗАЛОЧЕННОЙ строки lesson_id,
+    а не от вызывающего: между ранним чтением строки и локом курса другой
+    менеджер мог поставить замену или сдвинуть время — маркер, запись и
+    начисление ушли бы прежнему преподавателю со старым временем.
+
+    record — CancellationDraft (apps.cancellations.rules) с проверенной причиной
+    отмены; только у индивидуальных групп («Мотивация»). None — отмена без записи
+    (групповой формат): начисления за отмену нет, как раньше. С record: дата
+    залоченной строки обязана совпасть с record.lesson_date (иначе
+    PlanLessonChanged → 409), а запись LessonCancellation создаётся сразу после
+    маркера. Порядок блокировок: план → запись отмены → деньги.
 
     Возвращает новый план (get_plan).
     """
@@ -1416,15 +1498,39 @@ def cancel_lesson(
         )
         if target is None:
             raise ValueError('Отменить можно только активную курсовую строку.')
+        # Решающая проверка — под локом курса (ранняя в services.cancel лишь
+        # дешёвый отказ до транзакции): строка уже переехала в конец курса,
+        # значит клиент отменяет занятие, которого на этой дате больше нет.
+        if record is not None and target.scheduled_date != record.lesson_date:
+            raise PlanLessonChanged('Занятие уже перенесено или отменено — обновите план.')
+        from_date = target.scheduled_date
+        marker_time = target.scheduled_time
+        # Эффективный преподаватель отменённой сессии: замена на дату, если была —
+        # зачёркнутое занятие и начисление достаются тому, кто реально должен был вести.
+        marker_teacher_id = target.substitute_teacher_id or target.teacher_id
+        # Второй страж двойной отмены: без свободного слота строка остаётся на
+        # месте, и сверка даты повтор не ловит. Две отмены одной группы
+        # сериализуются локом курса выше.
+        if record is not None and PlannedLesson.objects.filter(
+            group_id=group_id, seq__isnull=True, status=CANCELLED,
+            scheduled_date=from_date, scheduled_time=marker_time,
+        ).exists():
+            raise ValueError('На это время уже есть отменённое занятие. '
+                             'Перенесите занятие на другое время и повторите.')
 
         # (1) Маркер отмены на исходной дате (seq=NULL): календарь показывает
         # зачёркнутое занятие. Несёт время/преподавателя отменённого занятия.
-        PlannedLesson.objects.create(
+        marker = PlannedLesson.objects.create(
             group_id=group_id, seq=None, lesson_number=None,
             scheduled_date=from_date, scheduled_time=marker_time,
             teacher_id=marker_teacher_id, status=CANCELLED,
             created_at=now, updated_at=now,
         )
+        if record is not None:
+            # Локальный импорт: cancellations ссылается на scheduling (FK на
+            # маркер), обратная зависимость — только на время вызова.
+            from apps.cancellations import repository as cancellations_repository
+            cancellations_repository.create_for_marker(marker, record, lesson_seq=target.seq)
 
         # (2) Переносим саму отменённую строку в конец курса — на первый
         # свободный слот после текущей последней курсовой даты.
@@ -1469,6 +1575,11 @@ def cancel_lesson(
         )
         _renumber_persist(
             pending, start_seq=start_seq, start_number=start_number, step=step, now=now)
+
+        # (4) Начисление за отмену («Мотивация», индив) — в той же транзакции,
+        # после всех локов плана.
+        if record is not None:
+            _recalc_cancellations(marker_ids=[marker.id])
 
     return get_plan(group_id)
 
@@ -1686,12 +1797,13 @@ def _number_key(value):
 def _resync_position_dicts(group_id: int, *, lock: bool = False) -> list[dict]:
     """ВСЕ строки плана группы (курсовые и маркеры), упорядоченные по seq.
 
-    lock=True — select_for_update тем же порядком (seq), что в permanent_change
-    и resize_plan: единый порядок захвата строк защищает от дедлоков."""
+    lock=True — select_for_update единым порядком _PLAN_LOCK_ORDER: курсовые по
+    seq, как в permanent_change и resize_plan, маркеры следом по id, как в
+    пересчёте начислений, — единый порядок захвата защищает от дедлоков."""
     qs = PlannedLesson.objects.filter(group_id=group_id)
     if lock:
         qs = qs.select_for_update()
-    return list(qs.order_by('seq').values(*_RESYNC_POSITION_FIELDS))
+    return list(qs.order_by(*_PLAN_LOCK_ORDER).values(*_RESYNC_POSITION_FIELDS))
 
 
 def _course_facts(group_id: int) -> list[dict]:

@@ -36,6 +36,8 @@ urlpatterns = [
     path('api/admin/lessons', include('apps.lessons.urls')),
     # Phase 7 — payroll
     path('api/admin/payroll', include('apps.payroll.urls')),
+    # Справочник причин отмены урока (индив, «Мотивация»)
+    path('api/admin/cancellation-reasons', include('apps.cancellations.urls')),
     # Доп.уроки (компенсация пропусков) — admin CRUD
     path('api/admin/extra-lessons', include('apps.extra_lessons.urls')),
     # Phase 8 — dashboard (FIFO read-model)

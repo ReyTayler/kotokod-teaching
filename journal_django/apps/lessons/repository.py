@@ -538,8 +538,16 @@ def update_attendance_cell(
             is_half = ctx['lesson_duration_minutes'] == 45
             payroll.total_students = total_students
             payroll.present_count = present_total
-            payroll.payment = calculate_payment(total_students, present_total, is_half)
-            payroll.save(update_fields=['total_students', 'present_count', 'payment'])
+            fields = ['total_students', 'present_count']
+            # Ручную сумму урока «Мотивации» правка посещаемости не затирает
+            # (is_manual бывает только у неё), расчёт — дело пересчёта ниже.
+            if not payroll.is_manual:
+                payroll.payment = calculate_payment(total_students, present_total, is_half)
+                fields.append('payment')
+            payroll.save(update_fields=fields)
+            # «Мотивация»: индив-урок получает её начисление (урок уже залочен).
+            from apps.payroll.recalc import recalculate_lesson
+            recalculate_lesson(lesson_id, None, None)
 
         return True
 
@@ -591,8 +599,16 @@ def set_unpaid_skip(lesson_id: int, student_id: int, value: bool) -> bool:
             is_half = ctx['lesson_duration_minutes'] == 45
             payroll.total_students = total_students
             payroll.present_count = present_total
-            payroll.payment = calculate_payment(total_students, present_total, is_half)
-            payroll.save(update_fields=['total_students', 'present_count', 'payment'])
+            fields = ['total_students', 'present_count']
+            # Ручную сумму урока «Мотивации» правка посещаемости не затирает
+            # (is_manual бывает только у неё), расчёт — дело пересчёта ниже.
+            if not payroll.is_manual:
+                payroll.payment = calculate_payment(total_students, present_total, is_half)
+                fields.append('payment')
+            payroll.save(update_fields=fields)
+            # «Мотивация»: индив-урок получает её начисление (урок уже залочен).
+            from apps.payroll.recalc import recalculate_lesson
+            recalculate_lesson(lesson_id, None, None)
         return True
 
 

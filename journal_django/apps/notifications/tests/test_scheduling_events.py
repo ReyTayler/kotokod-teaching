@@ -112,7 +112,7 @@ def test_cancel_enqueues_cancelled(no_dispatch, planned_group):
     """
     setup, first = planned_group
 
-    plan = sched_services.cancel(setup['group_a'], first.id, None)
+    plan = sched_services.cancel(setup['group_a'], first.id, {}, None)
     assert plan is not None
 
     rows = list(NotificationMessage.objects

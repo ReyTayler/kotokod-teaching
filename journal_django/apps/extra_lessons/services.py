@@ -27,6 +27,7 @@ from apps.payroll.calculator import (
     calculate_extra_lesson_payment, calculate_payment, calculate_penalty,
 )
 from apps.payroll.models import Payroll
+from apps.payroll.recalc import recalculate_lesson
 from apps.students.models import Student
 from apps.teachers.models import Teacher
 
@@ -523,6 +524,9 @@ def record(
             'payment': payment,
             'penalty': penalty,
         })
+        # «Мотивация»: доп.урок индива — по ставке урока (сверх курса) или
+        # ставке отработки; групповой — прежние суммы выше.
+        payment, penalty = recalculate_lesson(lesson_id, payment, penalty)
         if present:
             # Потребление идёт от самого факта доп.урока (present=true, вес =
             # длительность факта). Двигаем lessons_done группы факта на этот вес
@@ -623,6 +627,8 @@ def burn(resolution_id: int, *, request, burn_date: str) -> Optional[dict]:
             'payment': payment,
             'penalty': penalty,
         })
+        # «Мотивация»: сгорание у индива — по ставке сгорания.
+        payment, _ = recalculate_lesson(lesson_id, payment, penalty)
         step = _step(missed_lesson.lesson_duration_minutes)
         lessons_repository.increment_lessons_done(
             locked['missed_lesson_group_id'], [locked['student_id']], step,

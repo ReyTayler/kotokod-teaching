@@ -182,6 +182,11 @@ _ENTITY_RU = {
     'group': 'Группа', 'schedule_slot': 'Слот расписания', 'membership': 'Членство',
     'planned_lesson': 'Плановое занятие', 'lesson': 'Урок',
     'attendance': 'Посещаемость', 'payment': 'Оплата', 'payroll': 'Начисление',
+    'pay_rate_version': 'Ставки школы', 'pay_rate_direction': 'Ставка направления',
+    'group_pay_rate_version': 'Ставки групповых занятий',
+    'personal_rate': 'Персональная ставка', 'personal_rate_term': 'Период персональной ставки',
+    'cancellation_pay': 'Начисление за отмену', 'cancellation_reason': 'Причина отмены',
+    'lesson_cancellation': 'Отмена урока',
     'availability_rule': 'Окно графика', 'availability_override': 'Исключение графика',
 }
 
@@ -215,6 +220,10 @@ FIELD_RU = {
     'day_of_week': 'день недели', 'start_time': 'время начала',
     'start_minute': 'время начала', 'end_minute': 'время окончания',
     'effective_from': 'действует с', 'effective_to': 'действует по',
+    'calculation_method': 'способ расчёта', 'small_group_limit': 'граница малой группы',
+    'small_full_rate': 'малая группа, все пришли', 'small_partial_rate': 'малая группа, пришла часть',
+    'per_student_rate': 'ставка за присутствующего', 'half_lesson_rate': 'ставка 45 минут',
+    'group_rate_snapshot': 'условия группового расчёта',
     'scheduled_date': 'плановая дата', 'scheduled_time': 'плановое время',
     'moved_from_date': 'перенесено с', 'moved_to_date': 'перенесено на',
     'status': 'статус', 'lesson_number': 'номер занятия', 'seq': 'порядковый номер',

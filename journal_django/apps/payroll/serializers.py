@@ -1,29 +1,47 @@
 """
 Serializers for payroll.
 
-PayrollUpdateSerializer — вход для PATCH (updatePayrollSchema из shared/schemas.js):
-все поля необязательны, total_students/present_count int≥0, payment/penalty number≥0.
+PayrollUpdateSerializer — вход для PATCH (ручная правка начисления урока): все поля
+необязательны, деньги — Decimal≥0 с точностью до копеек; неизвестные поля — 400.
 
 PayrollReadSerializer — справочное представление вывода (views возвращают сырые
 dict из repository, Decimal/date приводит DateSafeJSONRenderer).
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from apps.core.fields import DateStringField
+from apps.payroll import motivation  # тексты ошибок живут в домене
+
+
+def _money_field(**kwargs) -> serializers.DecimalField:
+    # Деньги — DecimalField, не Float: сумма доходит до движка точным Decimal,
+    # а лишние знаки после копеек отклоняются валидацией, а не округляются молча.
+    return serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'),
+                                     **kwargs)
 
 
 class PayrollUpdateSerializer(serializers.Serializer):
-    """Вход для PATCH /api/admin/payroll/:id (updatePayrollSchema, все поля optional)."""
+    """Вход для PATCH /api/admin/payroll/:id (все поля необязательны).
 
-    # Допустимая разница с Express: DRF FloatField/IntegerField коэрсят числовые
-    # строки ("700" → 700), Zod z.number() их отвергает (400). Реальный admin SPA
-    # шлёт JSON-числа, поэтому e2e не страдает (как и в apps/lessons).
+    total_students/present_count — прежний контракт KOTOKOD для уроков старого
+    движка; у урока «Мотивации» их перезапишет пересчёт из посещаемости. Правка
+    суммы урока «Мотивации» ставит is_manual (repository.update_payroll).
+    Неизвестные поля — 400, а не молчаливый игнор."""
+
     total_students = serializers.IntegerField(min_value=0, required=False)
     present_count = serializers.IntegerField(min_value=0, required=False)
-    payment = serializers.FloatField(min_value=0, required=False)
-    penalty = serializers.FloatField(min_value=0, required=False)
+    payment = _money_field(required=False)
+    penalty = _money_field(required=False)
+
+    def validate(self, attrs):
+        unknown = set(self.initial_data) - set(self.fields)
+        if unknown:
+            raise serializers.ValidationError({k: 'Неизвестное поле.' for k in sorted(unknown)})
+        return attrs
 
 
 class PayrollReadSerializer(serializers.Serializer):
@@ -41,3 +59,153 @@ class PayrollReadSerializer(serializers.Serializer):
     group_id = serializers.IntegerField(required=False)
     group_name = serializers.CharField(required=False)
     teacher_name = serializers.CharField(required=False)
+
+
+# ---------------------------------------------------------------------------
+# «Настройки → Мотивация» (спека 2026-11-18-motivation-individual-design, §5)
+# ---------------------------------------------------------------------------
+
+class RateDirectionInputSerializer(serializers.Serializer):
+    """Ставка индива направления в версии. null (или отсутствие ключа) — «как по
+    умолчанию»."""
+
+    direction_id = serializers.IntegerField(min_value=1)
+    individual_rate = _money_field(allow_null=True, required=False, default=None)
+
+
+class RateVersionWriteSerializer(serializers.Serializer):
+    """Вход POST/PATCH версии ставок. PATCH — partial=True, instance — текущая версия."""
+
+    effective_from = serializers.DateField()
+    individual_rate = _money_field()
+    makeup_rate = _money_field()
+    burned_rate = _money_field()
+    cancel_mode = serializers.ChoiceField(choices=['percent', 'fixed'])
+    cancel_value = _money_field()
+    penalty_enabled = serializers.BooleanField(required=False)
+    penalty_mode = serializers.ChoiceField(choices=['per_lesson', 'per_student'], required=False)
+    penalty_amount = _money_field(required=False)
+    directions = RateDirectionInputSerializer(many=True, required=False)
+
+    def validate_effective_from(self, value):
+        from apps.payroll.models import PayRateVersion
+        qs = PayRateVersion.objects.filter(effective_from=value)
+        if self.instance is not None:
+            qs = qs.exclude(id=self.instance.id)
+        if qs.exists():
+            raise serializers.ValidationError(motivation.DUPLICATE_VERSION_DATE)
+        return value
+
+    def validate_directions(self, items):
+        from apps.directions.models import Direction
+        ids = [item['direction_id'] for item in items]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError(motivation.DUPLICATE_DIRECTION)
+        found = set(Direction.objects.filter(id__in=ids).values_list('id', flat=True))
+        missing = sorted(set(ids) - found)
+        if missing:
+            raise serializers.ValidationError(f'Нет направлений с id: {missing}.')
+        return items
+
+    def validate(self, attrs):
+        # Потолок 100 — только у процента. При PATCH режим и значение могут прийти
+        # порознь, поэтому проверяем их вместе с текущей версией.
+        inst = self.instance
+        mode = attrs.get('cancel_mode', getattr(inst, 'cancel_mode', None))
+        value = attrs.get('cancel_value', getattr(inst, 'cancel_value', None))
+        if mode == 'percent' and value is not None and value > 100:
+            raise serializers.ValidationError(
+                {'cancel_value': [motivation.CANCEL_PERCENT_LIMIT]})
+        return attrs
+
+
+
+class GroupRateVersionWriteSerializer(serializers.Serializer):
+    effective_from = serializers.DateField()
+    calculation_method = serializers.ChoiceField(choices=['attendance_v1'], required=False)
+    small_group_limit = serializers.IntegerField(min_value=1, max_value=32767)
+    small_full_rate = _money_field()
+    small_partial_rate = _money_field()
+    per_student_rate = _money_field()
+    half_lesson_rate = _money_field()
+    makeup_rate = _money_field()
+    burned_rate = _money_field()
+    penalty_enabled = serializers.BooleanField()
+    penalty_mode = serializers.ChoiceField(choices=['per_student', 'per_lesson'])
+    penalty_amount = _money_field()
+
+    def validate(self, attrs):
+        unknown = set(self.initial_data) - set(self.fields)
+        if unknown:
+            raise serializers.ValidationError({key: ['Неизвестное поле.'] for key in unknown})
+        return attrs
+
+
+class PersonalRateWriteSerializer(serializers.Serializer):
+    """Вход POST/PATCH персональной ставки. PATCH — partial=True, instance —
+    текущее состояние ставки (motivation.personal_rate_state): пара
+    преподаватель × группа и параметры текущего (последнего) периода."""
+
+    teacher_id = serializers.IntegerField(min_value=1)
+    group_id = serializers.IntegerField(min_value=1)
+    # Номера уроков курса дробные у 45-минутных групп (numeric 5,1, как Lesson.lesson_number).
+    lesson_from = serializers.DecimalField(max_digits=5, decimal_places=1, min_value=Decimal('0'),
+                                           allow_null=True, required=False, default=None)
+    lesson_to = serializers.DecimalField(max_digits=5, decimal_places=1, min_value=Decimal('0'),
+                                         allow_null=True, required=False, default=None)
+    kind = serializers.ChoiceField(choices=['fixed', 'plus_fixed', 'plus_percent'])
+    value = _money_field()
+    note = serializers.CharField(allow_blank=True, required=False, max_length=500)
+
+    def validate_teacher_id(self, value):
+        from apps.teachers.models import Teacher
+        if not Teacher.objects.filter(id=value).exists():
+            raise serializers.ValidationError('Преподаватель не найден.')
+        return value
+
+    def validate_group_id(self, value):
+        from apps.groups.models import Group
+        if not Group.objects.filter(id=value).exists():
+            raise serializers.ValidationError('Группа не найдена.')
+        return value
+
+    def validate(self, attrs):
+        inst = self.instance
+        if inst is not None:
+            # Пара неизменна: история периодов относится к ней, у другой
+            # пары другой смысл — для неё заводят новую ставку.
+            for name in ('teacher_id', 'group_id'):
+                if name in attrs and attrs[name] != inst[name]:
+                    raise serializers.ValidationError({name: [motivation.PAIR_IMMUTABLE]})
+                attrs.pop(name, None)
+        # При partial default=None не подставляется — берём текущие значения.
+        lesson_from = attrs['lesson_from'] if 'lesson_from' in attrs else (
+            inst['lesson_from'] if inst else None)
+        lesson_to = attrs['lesson_to'] if 'lesson_to' in attrs else (
+            inst['lesson_to'] if inst else None)
+        if (lesson_from is None) != (lesson_to is None):
+            raise serializers.ValidationError({'lesson_to': [motivation.RANGE_BOTH_OR_NONE]})
+        if lesson_from is not None and lesson_from > lesson_to:
+            raise serializers.ValidationError({'lesson_to': [motivation.RANGE_ORDER]})
+        if inst is None:
+            self._check_group_of_teacher(attrs)
+        return attrs
+
+    def _check_group_of_teacher(self, attrs):
+        """Новая персональная ставка — только в индивидуальной группе, которую ведёт
+        преподаватель (фронт сужает список, это — авторитетная проверка): у групповых
+        форматов «Мотивации» нет. Ставку, чью группу позже передали другому, можно
+        править, выключать и включать — список помечает её group_of_other_teacher."""
+        from apps.groups.models import Group
+        group = Group.objects.filter(id=attrs['group_id']).values(
+            'teacher_id', 'is_individual').first()
+        if not group['is_individual']:
+            raise serializers.ValidationError({'group_id': [motivation.GROUP_NOT_INDIVIDUAL]})
+        if group['teacher_id'] != attrs['teacher_id']:
+            raise serializers.ValidationError({'group_id': [motivation.GROUP_NOT_OF_TEACHER]})
+
+
+class CancellationPayUpdateSerializer(serializers.Serializer):
+    """Вход PATCH начисления за отмену: только сумма (ручная правка)."""
+
+    payment = _money_field()

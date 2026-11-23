@@ -482,7 +482,7 @@ def test_stats_uses_fixed_number_of_queries(django_assert_num_queries, stats_tea
     """
     Число запросов постоянно и НЕ зависит от числа групп и уроков.
 
-    Само значение (11 без зарплаты, +1 с ней) не догма — агрегатов может
+    Само значение (11 без зарплаты, +2 с ней) не догма — агрегатов может
     стать больше. Догма — постоянство: тест ниже гоняет ту же выборку на
     3 и на 6 группах и требует одинакового числа запросов. Именно это ловит
     N+1 (дозапрос направления/слотов на каждую группу), а не конкретная цифра.
@@ -500,8 +500,9 @@ def test_stats_uses_fixed_number_of_queries(django_assert_num_queries, stats_tea
     with django_assert_num_queries(11):
         services.get_teacher_stats(stats_teacher, '2026-07')
 
-    # Зарплата — ровно один дополнительный запрос.
-    with django_assert_num_queries(12):
+    # Зарплата — два дополнительных запроса: уроки и начисления за отмены
+    # индива («Мотивация»).
+    with django_assert_num_queries(13):
         services.get_teacher_stats(stats_teacher, '2026-07', with_payroll=True)
 
 
