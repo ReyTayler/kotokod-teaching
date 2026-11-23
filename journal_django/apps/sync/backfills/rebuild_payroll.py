@@ -64,7 +64,8 @@ def run(dry_run: bool = False) -> dict:
                     penalty        = EXCLUDED.penalty
                 -- Начисления «Мотивации» (индив, rule_note не пуст) считает её
                 -- движок (apps/payroll/recalc.py) — прежний калькулятор их не трогает.
-                WHERE payroll.rule_note = '' AND (
+                -- Ручную сумму (is_manual) тоже не трогаем — её снимает «Сбросить к расчёту».
+                WHERE payroll.rule_note = '' AND NOT payroll.is_manual AND (
                       payroll.teacher_id     IS DISTINCT FROM EXCLUDED.teacher_id
                    OR payroll.total_students IS DISTINCT FROM EXCLUDED.total_students
                    OR payroll.present_count  IS DISTINCT FROM EXCLUDED.present_count

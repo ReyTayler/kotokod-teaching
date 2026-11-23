@@ -142,12 +142,46 @@ def test_manual_survives_recalc_and_reset_restores(school, version):
     assert not p.is_manual and p.payment == D('600.00')
 
 
-def test_manual_flag_not_set_for_engine_lessons(school):
+def test_engine_lesson_manual_edit_survives_attendance_and_resets(school):
+    """Урок прежнего движка (групповой формат без версии): правка суммы — ручная,
+    расчёт запоминается; правка посещаемости ручную сумму не затирает, а расчёт
+    обновляет; «Сбросить к расчёту» возвращает расчёт движка."""
+    from apps.lessons import repository as lessons_repo
+    from apps.payroll import repository
+    lid = _lesson(school, 'group', payment=D('250'))
+    pid = _pay(lid).id
+    repository.update_payroll(pid, {'payment': D('900'), 'penalty': D('10')})
+    p = _pay(lid)
+    assert p.is_manual and p.payment == D('900.00') and p.penalty == D('10.00')
+    assert p.calc_payment == D('250.00') and p.calc_penalty == D('0.00')
+
+    lessons_repo.update_attendance_cell(lid, school['student'], False, skip_balance_check=True)
+    p = _pay(lid)
+    assert p.payment == D('900.00') and p.calc_payment == D('0.00')
+
+    lessons_repo.update_attendance_cell(lid, school['student'], True, skip_balance_check=True)
+    res = repository.reset_payroll(pid)
+    assert res['reset'] is True
+    p = _pay(lid)
+    # 45 мин, 1 из 1 в группе ≤2 — прежний движок: 250 (half-lesson × 1).
+    assert not p.is_manual and p.payment == D('250.00') and p.penalty == D('0.00')
+
+
+def test_patch_without_money_does_not_mark_manual(school):
     from apps.payroll import repository
     lid = _lesson(school, 'group')
-    repository.update_payroll(_pay(lid).id, {'payment': D('900')})
-    p = _pay(lid)
-    assert p.payment == D('900.00') and not p.is_manual
+    repository.update_payroll(_pay(lid).id, {'present_count': 1})
+    assert not _pay(lid).is_manual
+
+
+def test_payroll_patch_api_marks_manual(superadmin_client, school):
+    lid = _lesson(school, 'group')
+    pid = _pay(lid).id
+    resp = superadmin_client.patch(f'/api/admin/payroll/{pid}', {'payment': '777'}, format='json')
+    assert resp.status_code == 200, resp.content
+    assert resp.json()['is_manual'] is True
+    resp = superadmin_client.post(f'/api/admin/payroll/{pid}/reset')
+    assert resp.status_code == 200 and resp.json()['payment'] == '250.00'
 
 
 def test_reverts_to_engine_when_version_gone(school, version):

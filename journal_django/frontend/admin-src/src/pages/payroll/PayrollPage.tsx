@@ -9,6 +9,7 @@ import { NumberInput } from '../../components/form/NumberInput';
 import { Field } from '../../components/form/Field';
 import { Dialog } from '../../components/ui/Dialog';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { Pill } from '../../components/ui/Pill';
 import { useToast } from '../../components/ui/Toast';
 import { useApiError } from '../../hooks/useApiError';
@@ -140,13 +141,15 @@ function PayrollListView({ search }: { search: SearchProps }) {
   const muts = usePayrollMutations();
   const { toast } = useToast();
   const showError = useApiError();
-  const [editingCancel, setEditingCancel] = useState<PayrollEntry | null>(null);
+  const [editing, setEditing] = useState<PayrollEntry | null>(null);
+  const [resetting, setResetting] = useState<PayrollEntry | null>(null);
 
-  const resetRow = (r: PayrollEntry) => {
-    const m = r.kind === 'cancellation' ? muts.resetCancellation : muts.reset;
-    m.mutate(r.id, {
-      onSuccess: () => toast('Сумма сброшена к расчёту', 'ok'),
-      onError: (e) => showError(e),
+  const resetMutation = resetting?.kind === 'cancellation' ? muts.resetCancellation : muts.reset;
+  const confirmReset = () => {
+    if (!resetting) return;
+    resetMutation.mutate(resetting.id, {
+      onSuccess: () => { toast('Сумма сброшена к расчёту', 'ok'); setResetting(null); },
+      onError: (e) => { showError(e); setResetting(null); },
     });
   };
 
@@ -185,12 +188,9 @@ function PayrollListView({ search }: { search: SearchProps }) {
   ];
 
   const rowAction = (r: PayrollEntry) => {
-    const items = [];
-    if (r.kind === 'cancellation') {
-      items.push({ label: 'Изменить сумму', onSelect: () => setEditingCancel(r) });
-    }
-    if (r.is_manual) items.push({ label: 'Сбросить к расчёту', onSelect: () => resetRow(r) });
-    return items.length ? <ActionMenu label="Действия с начислением" items={items} /> : null;
+    const items = [{ label: 'Изменить сумму', onSelect: () => setEditing(r) }];
+    if (r.is_manual) items.push({ label: 'Сбросить к расчёту', onSelect: () => setResetting(r) });
+    return <ActionMenu label="Действия с начислением" items={items} />;
   };
 
   return (
@@ -215,36 +215,69 @@ function PayrollListView({ search }: { search: SearchProps }) {
           onFiltersChange: setFilters,
         }}
       />
-      {editingCancel && (
-        <CancellationPaymentDialog row={editingCancel} onClose={() => setEditingCancel(null)} />
+      {editing && <PayrollEditDialog row={editing} onClose={() => setEditing(null)} />}
+      {resetting && (
+        <ConfirmModal
+          title="Сбросить к расчёту?"
+          message={`Ручная сумма будет заменена расчётной (${fmtRub(resetting.calc_payment)}${
+            resetting.kind === 'lesson' && Number(resetting.calc_penalty || 0) > 0
+              ? `, штраф ${fmtRub(resetting.calc_penalty)}` : ''}).`}
+          confirmLabel="Сбросить"
+          isPending={resetMutation.isPending}
+          onConfirm={confirmReset}
+          onClose={() => setResetting(null)}
+        />
       )}
     </>
   );
 }
 
-/** Ручная правка суммы за отмену: пересчёт её больше не трогает до сброса. */
-function CancellationPaymentDialog({ row, onClose }: { row: PayrollEntry; onClose: () => void }) {
-  const { updateCancellation } = usePayrollMutations();
+/**
+ * Ручная правка начисления, как в Eduson. Урок и отмена уходят на разные
+ * эндпоинты; у отмены штрафа нет. Шлём только изменённые поля: правка ставит
+ * пометку «вручную» — сохранение без изменений не должно её ставить. Строку с
+ * пометкой не перезаписывают ни пересчёт ставок, ни правка посещаемости, пока её
+ * не сбросят к расчёту.
+ */
+function PayrollEditDialog({ row, onClose }: { row: PayrollEntry; onClose: () => void }) {
+  const { update, updateCancellation } = usePayrollMutations();
   const { toast } = useToast();
   const showError = useApiError();
-  const [value, setValue] = useState(String(Number(row.payment)));
-  const pending = updateCancellation.isPending;
+  const isCancel = row.kind === 'cancellation';
+  const [payment, setPayment] = useState(String(Number(row.payment)));
+  const [penalty, setPenalty] = useState(String(Number(row.penalty)));
+  const pending = update.isPending || updateCancellation.isPending;
+
   const submit = () => {
-    if (!value.trim()) return;
-    updateCancellation.mutate({ id: row.id, payment: value.trim() }, {
-      onSuccess: () => { toast('Сумма за отмену изменена', 'ok'); onClose(); },
-      onError: (e) => showError(e),
-    });
+    const pay = payment.trim();
+    const pen = penalty.trim() || '0';
+    if (pay === '' || Number(pay) < 0 || Number(pen) < 0) {
+      toast('Введите сумму не меньше нуля', 'error');
+      return;
+    }
+    const onSuccess = () => { toast('Сумма изменена', 'ok'); onClose(); };
+    const onError = (e: unknown) => showError(e);
+    if (isCancel) {
+      if (Number(pay) === Number(row.payment)) { onClose(); return; }
+      updateCancellation.mutate({ id: row.id, payment: pay }, { onSuccess, onError });
+      return;
+    }
+    const body: { payment?: string; penalty?: string } = {};
+    if (Number(pay) !== Number(row.payment)) body.payment = pay;
+    if (Number(pen) !== Number(row.penalty)) body.penalty = pen;
+    if (Object.keys(body).length === 0) { onClose(); return; }
+    update.mutate({ id: row.id, body: body as Partial<PayrollEntry> }, { onSuccess, onError });
   };
+
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && !pending && onClose()}
-      title="Сумма за отмену"
+      title={isCancel ? 'Сумма за отмену' : 'Сумма за урок'}
       footer={
         <div className="settings-actions">
           <button type="button" className="btn-cancel" onClick={onClose} disabled={pending}>Отмена</button>
-          <button type="button" className="btn-save" onClick={submit} disabled={pending || !value.trim()}>
+          <button type="button" className="btn-save" onClick={submit} disabled={pending || !payment.trim()}>
             {pending ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </div>
@@ -252,11 +285,21 @@ function CancellationPaymentDialog({ row, onClose }: { row: PayrollEntry; onClos
     >
       <div className="modal-form">
         <p className="field-hint">
-          {row.teacher_name} · {row.group_name} · {fmtDate(row.lesson_date)}. Расчёт: {fmtRub(row.calc_payment)}.
+          {row.teacher_name} · {row.group_name} · {fmtDate(row.lesson_date)}
+          {row.is_manual && ` · расчёт: ${fmtRub(row.calc_payment)}`}
         </p>
-        <Field label="Сумма, ₽" required full>
-          <NumberInput min={0} step="0.01" value={value} onChange={(e) => setValue(e.target.value)} />
+        <Field label="Оплата, ₽" required full>
+          <NumberInput min={0} step="0.01" value={payment} onChange={(e) => setPayment(e.target.value)} />
         </Field>
+        {!isCancel && (
+          <Field label="Штраф, ₽" full>
+            <NumberInput min={0} step="0.01" value={penalty} onChange={(e) => setPenalty(e.target.value)} />
+          </Field>
+        )}
+        {row.rule_note && <p className="field-hint">{row.rule_note}</p>}
+        <p className="field-hint">
+          После правки строка помечается «вручную» и не пересчитывается, пока её не сбросить к расчёту.
+        </p>
       </div>
     </Dialog>
   );

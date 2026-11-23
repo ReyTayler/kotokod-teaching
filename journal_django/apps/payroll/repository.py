@@ -364,10 +364,12 @@ def update_payroll(payroll_id: int, fields: dict) -> Optional[dict]:
     """
     Частичное обновление payroll (COALESCE-семантика). Возвращает строку или None.
 
-    Поля — set если значение не None. У урока «Мотивации» (rule_note не пуст)
-    правка суммы — ручная: ставит is_manual, и пересчёт дальше обновляет у строки
-    только calc_*, пока не сменится получатель (recalc). У урока прежнего движка
-    флаг не ставится — поведение KOTOKOD до «Мотивации».
+    Поля — set если значение не None. Правка суммы (payment/penalty) — ручная у
+    любого урока: ставит is_manual. Урок «Мотивации» пересчёт дальше обновляет
+    только в calc_*, пока не сменится получатель (recalc). У урока прежнего
+    движка (rule_note пуст) при первой правке расчётные суммы запоминаются в
+    calc_* — к ним вернёт reset_payroll; правка посещаемости ручную сумму не
+    затирает (lessons.repository).
     """
     with transaction.atomic():
         # Лок строки: пересчёт (apps.payroll.recalc) держит тот же FOR UPDATE, так
@@ -380,9 +382,15 @@ def update_payroll(payroll_id: int, fields: dict) -> Optional[dict]:
 
         changed = [name for name in ('total_students', 'present_count', 'payment', 'penalty')
                    if fields.get(name) is not None]
-        for name in changed:
-            setattr(obj, name, fields[name])
-        if obj.rule_note and ({'payment', 'penalty'} & set(changed)):
+        money_changed = {'payment', 'penalty'} & set(changed)
+        if money_changed and not obj.is_manual and not obj.rule_note:
+            # Расчёт прежнего движка — то, что сейчас в строке.
+            obj.calc_payment, obj.calc_penalty = obj.payment, obj.penalty
+            changed += ['calc_payment', 'calc_penalty']
+        for name in ('total_students', 'present_count', 'payment', 'penalty'):
+            if fields.get(name) is not None:
+                setattr(obj, name, fields[name])
+        if money_changed and not obj.is_manual:
             obj.is_manual = True
             changed.append('is_manual')
         if changed:
@@ -392,8 +400,8 @@ def update_payroll(payroll_id: int, fields: dict) -> Optional[dict]:
 
 def reset_payroll(payroll_id: int) -> Optional[dict]:
     """
-    Сбросить ручную правку урока «Мотивации» к расчёту: is_manual=false + пересчёт
-    урока. Возвращает строку начисления + reset + recalculated или None.
+    Сбросить ручную правку урока к расчёту: is_manual=false + пересчёт урока
+    («Мотивация») или возврат запомненного расчёта прежнего движка. Возвращает строку начисления + reset + recalculated или None.
 
     Порядок локов — как у пересчёта: сначала урок, потом его Payroll, иначе
     встречный пересчёт этого урока (урок → Payroll) встал бы с нами в дедлок.
@@ -413,7 +421,13 @@ def reset_payroll(payroll_id: int) -> Optional[dict]:
         was_manual = obj.is_manual
         if was_manual:
             obj.is_manual = False
-            obj.save(update_fields=['is_manual'])
+            update = ['is_manual']
+            if not obj.rule_note:
+                # Урок прежнего движка пересчёт не считает — возвращаем
+                # запомненный при правке расчёт.
+                obj.payment, obj.penalty = obj.calc_payment, obj.calc_penalty
+                update += ['payment', 'penalty']
+            obj.save(update_fields=update)
         stats = recalculate(lesson_ids=[obj.lesson_id])
     row = dictrow(Payroll.objects.filter(id=payroll_id).values(*_PAYROLL_FIELDS))
     # reset — снят ли флаг ручной правки (сама эта строка в пересчёт не входит:

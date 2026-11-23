@@ -539,10 +539,16 @@ def update_attendance_cell(
             payroll.total_students = total_students
             payroll.present_count = present_total
             fields = ['total_students', 'present_count']
-            # Ручную сумму урока «Мотивации» правка посещаемости не затирает
-            # (is_manual бывает только у неё), расчёт — дело пересчёта ниже.
-            if not payroll.is_manual:
-                payroll.payment = calculate_payment(total_students, present_total, is_half)
+            # Ручную сумму (is_manual) правка посещаемости не затирает: у урока
+            # прежнего движка обновляется только расчётная сумма — к ней вернёт
+            # «Сбросить к расчёту»; у урока «Мотивации» calc_* пишет пересчёт ниже.
+            engine_payment = calculate_payment(total_students, present_total, is_half)
+            if payroll.is_manual:
+                if not payroll.rule_note:
+                    payroll.calc_payment = engine_payment
+                    fields.append('calc_payment')
+            else:
+                payroll.payment = engine_payment
                 fields.append('payment')
             payroll.save(update_fields=fields)
             # «Мотивация»: индив-урок получает её начисление (урок уже залочен).
@@ -600,10 +606,16 @@ def set_unpaid_skip(lesson_id: int, student_id: int, value: bool) -> bool:
             payroll.total_students = total_students
             payroll.present_count = present_total
             fields = ['total_students', 'present_count']
-            # Ручную сумму урока «Мотивации» правка посещаемости не затирает
-            # (is_manual бывает только у неё), расчёт — дело пересчёта ниже.
-            if not payroll.is_manual:
-                payroll.payment = calculate_payment(total_students, present_total, is_half)
+            # Ручную сумму (is_manual) правка посещаемости не затирает: у урока
+            # прежнего движка обновляется только расчётная сумма — к ней вернёт
+            # «Сбросить к расчёту»; у урока «Мотивации» calc_* пишет пересчёт ниже.
+            engine_payment = calculate_payment(total_students, present_total, is_half)
+            if payroll.is_manual:
+                if not payroll.rule_note:
+                    payroll.calc_payment = engine_payment
+                    fields.append('calc_payment')
+            else:
+                payroll.payment = engine_payment
                 fields.append('payment')
             payroll.save(update_fields=fields)
             # «Мотивация»: индив-урок получает её начисление (урок уже залочен).
