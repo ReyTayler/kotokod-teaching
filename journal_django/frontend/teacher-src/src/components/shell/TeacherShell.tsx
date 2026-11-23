@@ -1,5 +1,6 @@
-import { Outlet, NavLink } from 'react-router-dom';
-import type { ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import * as RadixDialog from '@radix-ui/react-dialog';
 import { useAuth } from '@shared/hooks/useAuth';
 import { useTheme } from '@shared/providers/ThemeProvider';
 
@@ -32,14 +33,6 @@ const NAV_ICONS: Record<string, ReactElement> = {
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
     </svg>
   ),
-  report: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-    </svg>
-  ),
   payroll: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
@@ -64,7 +57,6 @@ const SECTIONS = [
   { key: 'schedule', label: 'График работы', path: '/schedule' },
   { key: 'groups', label: 'Мои группы', path: '/groups' },
   { key: 'lessons', label: 'Мои уроки', path: '/lessons' },
-  { key: 'report', label: 'Отчёт по уроку', path: '/report' },
   { key: 'payroll', label: 'Зарплата', path: '/payroll' },
   { key: 'knowledge', label: 'Wiki', path: '/knowledge' },
 ];
@@ -110,12 +102,37 @@ function ThemeToggle() {
   );
 }
 
-export function TeacherShell() {
+
+const RAIL_KEY = 'teacher:nav-rail';
+const NARROW_QUERY = '(max-width: 1179px)';
+
+function useNarrow() {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW_QUERY).matches);
+  useEffect(() => {
+    const query = window.matchMedia(NARROW_QUERY);
+    const update = () => setNarrow(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  return narrow;
+}
+
+function MenuIcon({ close = false }: { close?: boolean }) {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {close ? <path d="m6 6 12 12M6 18 18 6" /> : <path d="M3 6h18M3 12h18M3 18h18" />}
+  </svg>;
+}
+
+function TeacherSidebar({ rail = false, drawer = false, onToggle, onNavigate }: {
+  rail?: boolean; drawer?: boolean; onToggle: () => void; onNavigate?: () => void;
+}) {
   const { me, logout } = useAuth();
+  const toggleLabel = drawer ? 'Закрыть меню' : rail ? 'Развернуть боковую панель' : 'Свернуть боковую панель';
   return (
-    <div className="t-shell">
-      <header className="t-topbar">
-        <NavLink to="/calendar" className="t-brand">
+    <aside className={`t-sidebar${rail ? ' t-sidebar--rail' : ''}`} aria-label="Панель преподавателя">
+      <div className="t-sidebar-head">
+        <NavLink to="/calendar" className="t-brand" aria-label="Кабинет преподавателя — календарь" onClick={onNavigate}>
           <svg className="logo-mark" viewBox="0 0 207 40" fill="none" role="img" aria-label="КОТОКОД">
             <path clipRule="evenodd" fillRule="evenodd" fill="currentColor" d="M169.067 32.8482H173.403V30.2503H184.328V32.8482H188.664V26.2668H186.929V17.2608H171.755V23.2359C171.751 24.2787 171.565 25.0656 170.801 26.2668H169.067V32.8482ZM182.594 21.2442V26.2668H175.31C175.842 25.1354 175.977 24.4685 176.004 23.2359V21.2442H182.594Z" />
             <path fill="currentColor" d="M63.9746 30.2503V17.2608H68.3101V21.7638H71.6051L75.5937 17.2608H80.8831L75.2469 23.7555L80.8831 30.2503H75.5937L71.6051 25.7472H68.3101V30.2503H63.9746Z" />
@@ -128,49 +145,69 @@ export function TeacherShell() {
             <path fill="#50dcfe" d="M203.129 25.392L194.775 21.2042V17.4251L207 22.7363V28.0476L194.775 33.3588V29.5797L203.129 25.392Z" />
             <path fill="#50dcfe" d="M3.87106 25.392L12.2244 21.2042V17.4251L0 22.7363V28.0476L12.2244 33.3588V29.5797L3.87106 25.392Z" />
           </svg>
-          <span className="t-brand-sub">Кабинет<br />преподавателя</span>
+          <span className="t-brand-sub">Кабинет преподавателя</span>
         </NavLink>
-
-        <nav className="t-tabs">
-          {SECTIONS.map((s) => (
-            <NavLink
-              key={s.key}
-              to={s.path}
-              className={({ isActive }) => `t-tab${isActive ? ' active' : ''}`}
-            >
-              {NAV_ICONS[s.key]} {s.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="t-topbar-right">
-          <div className="t-user">
-            <Avatar name={me?.name || 'Преподаватель'} />
-            <div className="t-user-meta">
-              <div className="t-user-name">{me?.name || 'Преподаватель'}</div>
-              <div className="t-user-role">Преподаватель</div>
-            </div>
-          </div>
+        <button type="button" className="t-icon-btn" onClick={onToggle} aria-label={toggleLabel} title={toggleLabel}>
+          {drawer ? <MenuIcon close /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={rail ? 'm9 6 6 6-6 6' : 'm15 6-6 6 6 6'} /></svg>}
+        </button>
+      </div>
+      <nav className="t-sidebar-nav" aria-label="Разделы кабинета">
+        {SECTIONS.map((section) => (
+          <NavLink key={section.key} to={section.path} onClick={onNavigate}
+            title={rail ? section.label : undefined} aria-label={section.label}
+            className={({ isActive }) => `t-nav-link${isActive ? ' active' : ''}`}>
+            {NAV_ICONS[section.key]}<span className="t-nav-label">{section.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+      <div className="t-sidebar-footer">
+        <div className="t-user" title={me?.name || 'Преподаватель'}><Avatar name={me?.name || 'Преподаватель'} /><div className="t-user-meta"><div className="t-user-name">{me?.name || 'Преподаватель'}</div><div className="t-user-role">Преподаватель</div></div></div>
+        <div className="t-sidebar-actions">
           <ThemeToggle />
-          <button
-            type="button"
-            className="t-icon-btn"
-            onClick={() => { void logout(); }}
-            aria-label="Выйти"
-            title="Выйти"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+          <button type="button" className="t-nav-link t-logout" onClick={() => { void logout(); }} aria-label="Выйти" title="Выйти">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+            <span className="t-nav-label">Выйти</span>
           </button>
         </div>
-      </header>
+      </div>
+    </aside>
+  );
+}
 
-      <main className="t-main">
-        <Outlet />
-      </main>
+export function TeacherShell() {
+  const narrow = useNarrow();
+  const { pathname } = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [rail, setRail] = useState(() => {
+    try { return localStorage.getItem(RAIL_KEY) === '1'; } catch { return false; }
+  });
+  useEffect(() => { setMenuOpen(false); }, [pathname, narrow]);
+  const toggleRail = () => setRail((current) => {
+    const next = !current;
+    try { localStorage.setItem(RAIL_KEY, next ? '1' : '0'); } catch { /* Storage unavailable. */ }
+    return next;
+  });
+  return (
+    <div className={`t-shell${narrow ? ' t-shell--narrow' : ''}`}>
+      {!narrow && <TeacherSidebar rail={rail} onToggle={toggleRail} />}
+      <div className="t-content">
+        {narrow && <header className="t-mobile-bar">
+          <RadixDialog.Root open={menuOpen} onOpenChange={setMenuOpen}>
+            <RadixDialog.Trigger asChild>
+              <button type="button" className="t-icon-btn" aria-label="Открыть меню разделов"><MenuIcon /></button>
+            </RadixDialog.Trigger>
+            <RadixDialog.Portal>
+              <RadixDialog.Overlay className="t-drawer-overlay" />
+              <RadixDialog.Content className="t-drawer" aria-describedby={undefined}>
+                <RadixDialog.Title className="sr-only">Меню разделов</RadixDialog.Title>
+                <TeacherSidebar drawer onToggle={() => setMenuOpen(false)} onNavigate={() => setMenuOpen(false)} />
+              </RadixDialog.Content>
+            </RadixDialog.Portal>
+          </RadixDialog.Root>
+          <span className="t-mobile-title">{SECTIONS.find((s) => pathname === s.path || pathname.startsWith(`${s.path}/`))?.label || 'Кабинет преподавателя'}</span>
+        </header>}
+        <main className="t-main"><Outlet /></main>
+      </div>
     </div>
   );
 }

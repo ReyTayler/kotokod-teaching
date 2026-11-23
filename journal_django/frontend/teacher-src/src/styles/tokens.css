@@ -200,12 +200,12 @@
   /* Motion — вторая кривая, «выход»: ею пользуется общий CSS базы знаний. */
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
 
-  /* Layout — верхний navbar (не sidebar) */
+  /* Layout — боковая панель и верхняя панель узкого режима. */
+  --sidebar-w: 272px;
+  --sidebar-rail-w: 64px;
   --topbar-h: 60px;
-  /* Липкие элементы общего CSS (дерево разделов, оглавление статьи) считают
-     отступ от --header-h. В admin это верх области контента (под верхней панелью в узком режиме), здесь — высота
-     верхней панели: другая шапка, та же роль. */
-  --header-h: var(--topbar-h);
+  /* Оболочка задаёт --header-h по наличию мобильной верхней панели. */
+  --header-h: 0px;
   --page-pad-x: 24px;
 
   /* ── База знаний ──
@@ -227,7 +227,6 @@
      токеном — см. displayTextColor в editorColors.ts. */
   --kb-text-muted: rgb(67, 67, 67);
   --kb-doc-width: 800px;
-
   /* Цветовая карта предметов (subject-* — как --dir-color в admin) */
   --subject-python:     #4F59F9;  /* RISD Blue */
   --subject-scratch:    #50DCFE;  /* Vivid Sky Blue */
