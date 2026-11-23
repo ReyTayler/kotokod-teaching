@@ -23,10 +23,13 @@ import TeacherAttentionBar from './TeacherAttentionBar';
 import TeacherGroupsBlock from './TeacherGroupsBlock';
 import { useAuth } from '../../hooks/useAuth';
 import TeacherScheduleTab from './TeacherScheduleTab';
-import { canEditTeacherSchedule, canSeeChangelog, canWriteTeachers, type Role } from '../../lib/permissions';
+import EntityCommentsBlock from '../../components/comments/EntityCommentsBlock';
+import { HeroLatestComment } from '../../components/comments/HeroLatestComment';
+import { useLatestEntityComment } from '../../hooks/useEntityComments';
+import { canDeleteTeacherComments, canEditTeacherSchedule, canSeeChangelog, canWriteTeachers, type Role } from '../../lib/permissions';
 import { plural } from '../../lib/labels';
 
-const TEACHER_TABS = ['overview', 'groups', 'schedule', 'data', 'history'] as const;
+const TEACHER_TABS = ['overview', 'groups', 'schedule', 'data', 'comments', 'history'] as const;
 type TeacherTab = (typeof TEACHER_TABS)[number];
 const DEFAULT_TAB: TeacherTab = 'overview';
 
@@ -43,6 +46,7 @@ export default function TeacherDetailPage() {
   const [month, setMonth] = useState(() => todayMSK().slice(0, 7));
   const { data: groups = [] } = useTeacherGroups(id);
   const { data: stats } = useTeacherStats(id, month);
+  const { data: lastComment } = useLatestEntityComment('teachers', id);
   const muts = useTeacherMutations();
   const { toast } = useToast();
   const showError = useApiError();
@@ -140,7 +144,14 @@ export default function TeacherDetailPage() {
           value: stats?.last_lesson_date ? fmtDate(stats.last_lesson_date) : '—',
         },
       ]}
-      aside={<TeacherTelegramBlock teacher={teacher} />}
+      aside={(
+        <>
+          <TeacherTelegramBlock teacher={teacher} />
+          {lastComment && (
+            <HeroLatestComment comment={lastComment} onOpen={() => setActiveTab('comments')} />
+          )}
+        </>
+      )}
     />
   );
 
@@ -179,6 +190,20 @@ export default function TeacherDetailPage() {
       value: 'data',
       label: 'Данные',
       content: <EntityCard title="Данные преподавателя" row={teacher} fields={fields} />,
+    },
+    {
+      value: 'comments',
+      label: 'Комментарии',
+      content: (
+        <EntityCommentsBlock
+          key={teacher.id}
+          entity="teachers"
+          entityId={teacher.id}
+          canDelete={canDeleteTeacherComments(me?.role as Role)}
+          placeholder="Оставьте комментарий о преподавателе…"
+          emptyHint="Здесь появятся заметки о преподавателе"
+        />
+      ),
     },
   ];
 

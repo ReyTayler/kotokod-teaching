@@ -1,11 +1,9 @@
-import { HelpPopover } from '../../components/ui/HelpPopover';
+import { HelpPopover } from '../ui/HelpPopover';
 import { useState, type KeyboardEvent } from 'react';
-import { useAuth } from '../../hooks/useAuth';
-import { Textarea } from '../../components/form/Textarea';
+import { Textarea } from '../form/Textarea';
 import { fmtDateTime } from '../../lib/format';
-import { canDeleteStudentComments, type Role } from '../../lib/permissions';
-import { useStudentComments, useStudentCommentMutations } from '../../hooks/useStudentComments';
-import type { StudentComment } from '../../lib/student-comments';
+import { useEntityComments, useEntityCommentMutations } from '../../hooks/useEntityComments';
+import type { CommentEntity, EntityComment } from '../../lib/entity-comments';
 
 const PAGE_SIZE = 20;
 const MAX_LEN = 5000;
@@ -21,23 +19,26 @@ function hueOf(s: string): number {
 }
 
 interface Props {
-  studentId: number;
+  entity: CommentEntity;
+  entityId: number;
+  /** Право удаления решает вызывающий через lib/permissions (у сущностей оно своё). */
+  canDelete: boolean;
+  /** Подсказка в поле ввода и в пустом состоянии: «об ученике» / «о преподавателе». */
+  placeholder: string;
+  emptyHint: string;
 }
 
-export default function StudentCommentsBlock({ studentId }: Props) {
-  const { me } = useAuth();
-  const canDelete = canDeleteStudentComments(me?.role as Role);
-
+export default function EntityCommentsBlock({ entity, entityId, canDelete, placeholder, emptyHint }: Props) {
   const [text, setText] = useState('');
   const [confirmId, setConfirmId] = useState<number | null>(null);
 
   const {
     data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage,
-  } = useStudentComments(studentId, PAGE_SIZE);
-  const { add, remove } = useStudentCommentMutations(studentId);
+  } = useEntityComments(entity, entityId, PAGE_SIZE);
+  const { add, remove } = useEntityCommentMutations(entity, entityId);
 
   // useInfiniteQuery хранит страницы сам — просто разворачиваем в плоский список.
-  const rows: StudentComment[] = data?.pages.flatMap((p) => p.rows) ?? [];
+  const rows: EntityComment[] = data?.pages.flatMap((p) => p.rows) ?? [];
 
   const submit = () => {
     const body = text.trim();
@@ -67,7 +68,7 @@ export default function StudentCommentsBlock({ studentId }: Props) {
           value={text}
           maxLength={MAX_LEN}
           rows={3}
-          placeholder="Оставьте комментарий об ученике…"
+          placeholder={placeholder}
           aria-label="Новый комментарий"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
@@ -95,7 +96,7 @@ export default function StudentCommentsBlock({ studentId }: Props) {
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
           <p>Пока нет комментариев</p>
-          <span>Здесь появятся заметки об ученике</span>
+          <span>{emptyHint}</span>
         </div>
       ) : (
         <ul className="comments__list">
