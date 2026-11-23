@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { HelpPopover } from '../ui/HelpPopover';
 
 export interface Crumb {
   label: string;
@@ -14,6 +15,7 @@ interface Props {
   crumbs?: Crumb[];
   /** Кнопки справа. Основное действие — первым. */
   actions?: ReactNode;
+  help?: ReactNode;
   /**
    * Плотный режим: заголовок на ступень меньше и сжатый нижний отступ.
    * Для рабочих экранов, где на счету каждая строка данных, — канбан продлений.
@@ -32,7 +34,7 @@ interface Props {
  * Sticky-элементы страниц (панель редактора, колонка статьи) отсчитываются от
  * токена --header-h, а не от высоты шапки (см. tokens.css и shell.css).
  */
-export function PageHeader({ title, count, crumbs, actions, dense }: Props) {
+export function PageHeader({ title, count, crumbs, actions, help, dense }: Props) {
   return (
     <header className={`page-header${dense ? ' page-header--dense' : ''}`}>
       <div className="page-header__inner">
@@ -54,6 +56,7 @@ export function PageHeader({ title, count, crumbs, actions, dense }: Props) {
           )}
           <div className="page-header__title-row">
             <h1 className="page-header__title">{title}</h1>
+            {help && <HelpPopover label={`Справка: ${title}`}>{help}</HelpPopover>}
             {count != null && <span className="page-header__count">{count}</span>}
           </div>
         </div>

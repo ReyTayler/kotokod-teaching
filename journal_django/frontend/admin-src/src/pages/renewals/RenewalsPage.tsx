@@ -1,3 +1,4 @@
+import { RenewalsHelp } from './RenewalsHelp';
 import { useCallback, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -128,6 +129,7 @@ export default function RenewalsPage() {
        общий с аналитикой и настройкой стадий, которым это не нужно. */
     <div className="renewals-page renewals-page--board">
       <PageHeader
+        help={<RenewalsHelp />}
         dense
         title="Продления"
         actions={

@@ -226,7 +226,6 @@ export function RenewalBoard({ filters, onOpen }: Props) {
   if (isError && !data) {
     return (
       <EmptyState
-        hint="Проверьте соединение и попробуйте ещё раз"
         action={<Button variant="secondary" onClick={() => refetch()}>Повторить</Button>}
       >
         Не удалось загрузить продления

@@ -26,7 +26,6 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
       <div className="renewal-card__meta">
         <span
           className={`renewal-card__age${stuck ? ' is-stuck' : ''}`}
-          title="Сколько дней сделка стоит на текущей стадии"
         >
           {stuck ? `Зависла ${card.days_in_stage} дн.` : `В стадии ${card.days_in_stage} дн.`}
         </span>
@@ -35,11 +34,11 @@ export function RenewalCardContent({ card }: { card: RenewalCard }) {
             «уже занимается в минус». Положительный баланс не показываем вовсе:
             запас уроков есть, действие не требуется. */}
         {card.balance < 0 ? (
-          <span className="renewal-card__debt" title="Посещено больше уроков, чем оплачено">
+          <span className="renewal-card__debt">
             Долг {fmtLessons(-card.balance)} ур.
           </span>
         ) : card.balance === 0 && (
-          <span className="renewal-card__spent" title="Оплаченные уроки закончились — баланс ровно 0">
+          <span className="renewal-card__spent">
             Уроки кончились
           </span>
         )}

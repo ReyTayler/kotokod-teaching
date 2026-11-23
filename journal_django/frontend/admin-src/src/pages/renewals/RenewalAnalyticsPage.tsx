@@ -1,3 +1,4 @@
+import { RenewalsHelp } from './RenewalsHelp';
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { useRenewalAnalytics, useRenewalMonths } from '../../hooks/useRenewalAnalytics';
@@ -36,6 +37,7 @@ export default function RenewalAnalyticsPage() {
   return (
     <div className="renewals-page">
       <PageHeader
+        help={<RenewalsHelp />}
         title="Аналитика продлений"
         crumbs={[{ label: 'Продления', to: '/admin/renewals' }, { label: 'Аналитика' }]}
       />
@@ -86,10 +88,7 @@ export default function RenewalAnalyticsPage() {
             <section className="chart-card">
               <div className="chart-card__head">
                 <h3 className="chart-card__title">Продления по месяцам</h3>
-                <span className="chart-card__hint">
-                  Месяц = когда отработан 4-й урок цикла (оплатившие заранее — по дате оплаты)
-                </span>
-              </div>
+                  </div>
               <div className="renewal-months__scroll">
                 <table className="renewal-months">
                   <thead>

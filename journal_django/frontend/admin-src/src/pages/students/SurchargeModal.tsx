@@ -57,13 +57,13 @@ export function SurchargeModal({ studentId, paymentId, subscriptionIndex, onClos
           Внести
         </button>
       }
-    >
-      <form id="surcharge-form" className="modal-form" onSubmit={(e) => { void onSubmit(e); }}>
-        <p className="muted">
+     help={<>
           Деньги добивают цену этого абонемента: уроков не прибавится, лимит курса
           не изменится. Отработанные деньги по его урокам пересчитаются, включая
           прошлые месяцы.
-        </p>
+        </>}>
+      <form id="surcharge-form" className="modal-form" onSubmit={(e) => { void onSubmit(e); }}>
+
         <Field label="Сумма, ₽" required full>
           <NumberInput min={1} step="0.01" value={amount}
                        onChange={(e) => setAmount(e.target.value)} required />

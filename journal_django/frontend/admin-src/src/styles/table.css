@@ -12,7 +12,7 @@
 }
 .table-wrap {
   overflow: auto;
-  max-height: calc(100vh - 280px);
+  max-height: var(--table-max-height, calc(100dvh - 280px));
   /* overscroll-behavior НЕ 'contain': при 'contain' скролл не передаётся
      странице на краю таблицы — дойдя до конца, приходилось уводить курсор из
      таблицы, чтобы прокрутить страницу. Дефолт 'auto' даёт нормальную сцепку:
@@ -20,6 +20,15 @@
   overscroll-behavior: auto;
 }
 table { width: 100%; min-width: max-content; border-collapse: collapse; }
+/* Обёртка широкой таблицы (payroll, «Курсы», «Когорты»). Своего правила у неё
+   не было вовсе: таблица тянется на max-content, а .dash-card режет всё лишнее
+   по overflow:hidden — колонки за краем экрана становились недоступны.
+   overscroll-behavior-x: contain, чтобы горизонтальная прокрутка таблицы не
+   уводила браузер «назад» по истории на трекпаде. */
+.data-table__scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
 thead th {
   padding: 8px 14px;
   text-align: left;
@@ -415,7 +424,7 @@ thead th {
   color: var(--text3);
   font-size: 14px;
 }
-.data-table__empty svg { display: block; margin: 0 auto var(--space-3); color: var(--text4); opacity: 0.6; }
+.data-table__empty > svg { display: block; margin: 0 auto var(--space-3); color: var(--text4); opacity: 0.6; }
 .data-table__empty-hint {
   margin-top: var(--space-2);
   font-size: 12px;

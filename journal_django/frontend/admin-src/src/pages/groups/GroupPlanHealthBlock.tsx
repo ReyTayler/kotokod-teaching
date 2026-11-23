@@ -210,11 +210,11 @@ export default function GroupPlanHealthBlock({ groupId }: Props) {
             </Button>
           </>
         }
-      >
-        <div className="schedule-form__hint">
+       help={<>
           Привязки план↔занятие пересоберутся по правилу «номер факта = номер
           позиции», плановые даты подтянутся к фактическим датам занятий.
-        </div>
+        </>}>
+
         <table className="plan-health__preview-table">
           <thead>
             <tr>

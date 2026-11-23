@@ -1,3 +1,4 @@
+import { RenewalsHelp } from './RenewalsHelp';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useRenewalStages, useRenewalStageMutations } from '../../hooks/useRenewalStages';
@@ -70,6 +71,7 @@ export default function RenewalStagesSettings() {
   return (
     <div className="renewals-page">
       <PageHeader
+        help={<RenewalsHelp />}
         title="Стадии воронки продлений"
         crumbs={[{ label: 'Продления', to: '/admin/renewals' }, { label: 'Стадии' }]}
       />
@@ -94,18 +96,17 @@ export default function RenewalStagesSettings() {
                   стадии обязан меняться на месте. Только для ручных «Решений» —
                   на прочих видах бэк флаг игнорирует. */}
               {!s.is_auto && s.kind === 'decision' && (
-                <Checkbox
+                <span className="help-label"><Checkbox
                   className="renewal-stages-list__pause"
                   label="пауза"
                   checked={isPauseStage(s)}
                   disabled={m.update.isPending}
-                  title="Перевести можно в любой момент цикла; выход — «Вернуть в работу»"
                   onChange={(e) =>
                     m.update.mutate(
                       { id: s.id, body: { allow_mid_cycle: e.target.checked } },
                       { onError: (err) => showError(err, 'Не удалось изменить стадию') },
                     )}
-                />
+                /></span>
               )}
               <div className="renewal-stages-list__actions">
                 <button
@@ -179,11 +180,6 @@ export default function RenewalStagesSettings() {
               checked={allowMidCycle}
               onChange={(e) => setAllowMidCycle(e.target.checked)}
             />
-            <p className="renewal-stages-form__hint">
-              Такую стадию ставят в любой момент — не дожидаясь, пока ученик отработает
-              абонемент. Сделка остаётся открытой, движок её не двигает, а вернуть её
-              в воронку можно кнопкой «Вернуть в работу» в карточке сделки.
-            </p>
           </>
         )}
       </section>
