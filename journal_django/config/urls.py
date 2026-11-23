@@ -13,6 +13,7 @@ urlpatterns = [
     path('health', HealthView.as_view(), name='health'),
     # Phase 7 — auth (/api/auth/* — ПЕРВЫМ, как в Express: /api/auth → /api/admin → /api)
     path('api/auth', include('apps.auth_app.urls')),
+    path('api/admin/archive', include('apps.archive.urls')),
     # Phase 1 — groups
     path('api/admin/groups', include('apps.groups.urls')),
     # Phase 2 — simple reference sections

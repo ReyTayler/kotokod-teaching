@@ -108,6 +108,7 @@ INSTALLED_APPS = [
     'pgtrigger',
     'pghistory',
     'apps.core',
+    'apps.archive',
     'apps.auth_app',
     'apps.groups',
     'apps.teachers',
