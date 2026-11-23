@@ -49,3 +49,32 @@ class Teacher(models.Model):
                 condition=models.Q(active=True),
             ),
         ]
+
+
+class TeacherComment(models.Model):
+    """
+    Комментарий менеджера/админа к преподавателю. Без API редактирования;
+    удаление — admin/superadmin. Не трекается pghistory по тому же прецеденту, что
+    StudentComment: сам факт (author+created_at) уже виден в UI, отдельный
+    changelog-след избыточен (осознанное отступление от общего правила CLAUDE.md,
+    см. docs/superpowers/specs/2026-07-10-student-comments-design.md).
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    teacher = models.ForeignKey(
+        Teacher, on_delete=models.CASCADE,
+        db_column='teacher_id', related_name='comments',
+    )
+    body = models.TextField()
+    author = models.ForeignKey(
+        'accounts.Account', on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='author_id', related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'teacher_comment'
+        indexes = [
+            models.Index(fields=['teacher', '-created_at'], name='teacher_comment_teacher_idx'),
+        ]

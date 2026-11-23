@@ -35,6 +35,21 @@ def soft_delete_teacher(teacher_id: int) -> bool:
     return repository.soft_delete_teacher(teacher_id)
 
 
+def teacher_exists(teacher_id: int) -> bool:
+    """True если преподаватель есть (в т.ч. мягко удалённый)."""
+    return repository.teacher_exists(teacher_id)
+
+
+def add_comment(teacher_id: int, body: str, author_id: Optional[int]):
+    """Создаёт комментарий к преподавателю."""
+    return repository.add_comment(teacher_id, body, author_id)
+
+
+def delete_comment(teacher_id: int, comment_id: int) -> bool:
+    """Удаляет комментарий. False если не найден."""
+    return repository.delete_comment(teacher_id, comment_id)
+
+
 def get_teacher_stats(teacher_id: int, month: str, *, with_payroll: bool = False) -> dict:
     """
     Полный набор чисел карточки преподавателя за месяц.

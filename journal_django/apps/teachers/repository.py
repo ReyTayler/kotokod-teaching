@@ -13,7 +13,7 @@ from django.db.models.functions import Now
 from apps.core.utils.orm import dictrow, dictrows
 from apps.notifications.models import TelegramRecipient
 
-from .models import Teacher
+from .models import Teacher, TeacherComment
 
 
 # ---------------------------------------------------------------------------
@@ -113,3 +113,26 @@ def soft_delete_teacher(teacher_id: int) -> bool:
     """Мягкое удаление: active=false. True если строка найдена."""
     updated = Teacher.objects.filter(id=teacher_id).update(active=False)
     return updated > 0
+
+
+def teacher_exists(teacher_id: int) -> bool:
+    """
+    Дешёвая проверка существования (EXISTS по PK). get_teacher для этого не
+    годится: он ещё подтягивает привязку Telegram — лишний запрос на каждый GET.
+    """
+    return Teacher.objects.filter(id=teacher_id).exists()
+
+
+# ---------------------------------------------------------------------------
+# Repository functions — teacher comments (ORM)
+# ---------------------------------------------------------------------------
+
+def add_comment(teacher_id: int, body: str, author_id: Optional[int]):
+    """Создаёт комментарий (INSERT). Существование teacher_id проверяет вызывающий (view)."""
+    return TeacherComment.objects.create(teacher_id=teacher_id, body=body, author_id=author_id)
+
+
+def delete_comment(teacher_id: int, comment_id: int) -> bool:
+    """Удаляет комментарий. False если не найден (или принадлежит другому преподавателю)."""
+    deleted, _ = TeacherComment.objects.filter(id=comment_id, teacher_id=teacher_id).delete()
+    return deleted > 0
