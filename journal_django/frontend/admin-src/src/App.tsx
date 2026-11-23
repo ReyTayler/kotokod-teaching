@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, createRoutesFromElements, RouterProvider, Route, Navigate } from 'react-router-dom';
 import { PageLoading } from './components/ui/Skeleton';
 import { AuthGate } from './components/shell/AuthGate';
 import { AppShell } from './components/shell/AppShell';
@@ -38,10 +38,8 @@ import KnowledgeDocumentPage from './pages/knowledge/KnowledgeDocumentPage';
 // Recharts — тяжёлая зависимость, держим её вне основного бандла (как FinanceCharts в дашборде финансов).
 const RenewalAnalyticsPage = lazy(() => import('./pages/renewals/RenewalAnalyticsPage'));
 
-export function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
+const router = createBrowserRouter(createRoutesFromElements(
+      <>
         <Route element={<AuthGate />}>
           <Route element={<AppShell />}>
             <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
@@ -91,7 +89,9 @@ export function App() {
             <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
           </Route>
         </Route>
-      </Routes>
-    </BrowserRouter>
-  );
+      </>
+));
+
+export function App() {
+  return <RouterProvider router={router} />;
 }
