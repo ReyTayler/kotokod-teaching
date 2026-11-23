@@ -1,4 +1,7 @@
-import type { LessonType, RegistryStatus, Role, StudentLessonKind } from './types';
+import type {
+  CancelMode, CancellationSide, LessonType, PayrollKind, PenaltyMode, PersonalRateKind,
+  RegistryStatus, Role, StudentLessonKind,
+} from './types';
 
 // Статуса ученика больше нет (спека 2026-07-25): его «статус» — стадия последней
 // сделки продления, подписи стадий приходят с бэка (useRenewalStages).
@@ -101,6 +104,23 @@ export const CHANGELOG_OPERATION_LABELS: Record<string, string> = {
   // Действие снято, но метка остаётся для показа исторических событий в журнале.
   'extra_lesson.waive':            'Закрытие пропуска без денег',
   'payroll.update':                'Правка начисления',
+  'payroll.reset':                 'Сброс начисления к расчёту',
+  'payroll.cancellation_update':   'Правка суммы за отмену',
+  'payroll.cancellation_reset':    'Сброс суммы за отмену',
+  'payroll.rate_version_create':   'Новые ставки школы',
+  'payroll.group_rate_version_create': 'Новые групповые ставки',
+  'payroll.group_rate_version_update': 'Изменение групповых ставок',
+  'payroll.group_rate_version_delete': 'Удаление групповых ставок',
+  'payroll.rate_version_update':   'Правка ставок школы',
+  'payroll.rate_version_delete':   'Удаление ставок школы',
+  'payroll.personal_rate_create':  'Новая персональная ставка',
+  'payroll.personal_rate_update':  'Правка персональной ставки',
+  'payroll.personal_rate_delete':  'Удаление персональной ставки',
+  'payroll.personal_rate_activate': 'Персональная ставка включена',
+  'payroll.personal_rate_deactivate': 'Персональная ставка выключена',
+  'cancellation_reason.create':    'Новая причина отмены',
+  'cancellation_reason.update':    'Правка причины отмены',
+  'cancellation_reason.delete':    'Удаление причины отмены',
   'account.create':                'Новая учётка',
   'account.update':                'Правка учётки',
   'account.delete':                'Учётка выключена',
@@ -142,6 +162,14 @@ export const CHANGELOG_ENTITY_LABELS: Record<string, string> = {
   payroll:        'Начисление',
   absence_resolution: 'Пропуск (резолюция)',
   lesson_skip:    'Неоплачиваемый пропуск',
+  pay_rate_version:    'Ставки школы',
+  group_pay_rate_version: 'Ставки групповых занятий',
+  pay_rate_direction:  'Ставка направления',
+  personal_rate:       'Персональная ставка',
+  personal_rate_term:  'Период персональной ставки',
+  cancellation_pay:    'Начисление за отмену',
+  cancellation_reason: 'Причина отмены',
+  lesson_cancellation: 'Отмена урока',
   availability_rule: 'Окно графика',
   availability_override: 'Исключение графика',
 };
@@ -301,3 +329,115 @@ export const TASK_CONFLICT_LABELS: Record<string, string> = {
   incomplete_stage_set:         'Передан неполный набор стадий воронки',
   unknown_stage:                'Такой стадии больше не существует — обновите страницу',
 };
+
+// ===== Вид строки в «Зарплате» =====
+// Оплачиваются не только уроки, но и отменённые занятия индива — у них свои
+// эндпоинты, поэтому вид строки различаем явно.
+export const PAYROLL_KIND_LABELS: Record<PayrollKind, string> = {
+  lesson:       'Урок',
+  cancellation: 'Отмена',
+};
+
+export const PAYROLL_KIND_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: 'lesson',       label: 'Уроки' },
+  { value: 'cancellation', label: 'Отмены' },
+];
+
+// ===== Настройки: подписи вкладок =====
+
+export const SETTINGS_TAB_LABELS = {
+  motivation: 'Мотивация',
+  cancellations: 'Отмены уроков',
+} as const;
+
+// ===== Отмены уроков (индив): причины, форма отмены, вкладка группы =====
+
+export const CANCELLATION_SIDE_LABELS: Record<CancellationSide, string> = {
+  teacher: 'Преподаватель',
+  client: 'Клиент',
+};
+
+export const CANCELLATION_LABELS = {
+  tab: 'Отмены уроков',
+  title: 'Отмены уроков',
+  side: 'С чьей стороны отмена',
+  reason: 'Причина',
+  details: 'Детали',
+  detailsPlaceholder: 'Подробности о причине',
+  noReasons: 'Для этой стороны нет причин. Их добавляет суперадмин: Настройки → Отмены уроков.',
+  notifiedOn: 'Когда сообщили об отмене',
+  addReason: 'Добавить причину',
+  reasonName: 'Название причины',
+  compensation: 'Компенсация',
+  empty: 'Отмен с причиной пока не было',
+  errorTitle: 'Не удалось загрузить отмены',
+  errorHint: 'Это сбой загрузки, а не отсутствие отмен. Попробуйте ещё раз.',
+  retry: 'Повторить',
+  colLesson: 'Занятие',
+  colScheduledAt: 'Плановая дата/время отменённого занятия',
+  colSide: 'Сторона',
+  colReason: 'Причина',
+  colDetails: 'Детали',
+  lessonNumber: (n: number) => `Урок ${n}`,
+  // Диалог отмены занятия индивидуальной группы.
+  dialogTitle: 'Отменить занятие',
+  lesson: 'Занятие',
+  pickSide: 'Выберите сторону',
+  pickReason: 'Выберите причину',
+  submit: 'Отменить занятие',
+  success: 'Занятие отменено',
+  reasonsLoading: 'Загрузка…',
+  reasonsError: 'Не удалось загрузить причины отмены',
+  changed: 'Занятие изменилось, план обновлён — выберите занятие заново',
+  colCancelledBy: 'Отменил',
+  // Настройки → Отмены уроков.
+  settingsLead: 'Причины, из которых выбирают при отмене занятия индивидуальной группы. От переключателя «Компенсация» зависит, платят ли преподавателю за отменённый урок. У групповых форматов отмена — без причины, за неё не платят (правила движка).',
+  edit: 'Изменить',
+  remove: 'Удалить',
+  rowActions: 'Действия с причиной',
+  save: 'Сохранить',
+  saving: 'Сохраняем…',
+  cancel: 'Отмена',
+  newReasonTitle: 'Новая причина',
+  editReasonTitle: 'Изменить причину',
+  deleteTitle: 'Удалить причину?',
+  deleteMessage: (name: string) =>
+    `Причина «${name}» исчезнет из списка. Уже внесённые отмены с этой причиной не изменятся.`,
+  settingsErrorTitle: 'Не удалось загрузить причины отмены',
+  settingsErrorHint: 'Это сбой загрузки, а не отсутствие причин. Попробуйте ещё раз.',
+  toggleFailed: 'Не удалось изменить компенсацию',
+  deleteFailed: 'Не удалось удалить причину',
+} as const;
+
+// ===== Настройки → Мотивация (индив) =====
+
+export const CANCEL_MODE_LABELS: Record<CancelMode, string> = {
+  percent: '% от ставки',
+  fixed:   'Фикс, ₽',
+};
+
+export const PENALTY_MODE_LABELS: Record<PenaltyMode, string> = {
+  per_lesson:  'за урок',
+  per_student: 'за каждого пришедшего',
+};
+
+export const PERSONAL_RATE_KIND_LABELS: Record<PersonalRateKind, string> = {
+  fixed:        'Вместо ставки',
+  plus_fixed:   'Надбавка, ₽',
+  plus_percent: 'Надбавка, %',
+};
+
+// ===== Общий свёрнутый текст (ClampText) =====
+
+export const CLAMP_LABELS = {
+  expand: 'Показать полностью',
+  collapse: 'Свернуть',
+} as const;
+
+export const ARCHIVE_ENTITY_LABELS = {
+  teacher: 'Преподаватель', group: 'Группа', direction: 'Направление',
+} as const;
+
+export const ARCHIVE_FILTER_LABELS = {
+  all: 'Все записи', teacher: 'Преподаватели', group: 'Группы', direction: 'Направления',
+} as const;

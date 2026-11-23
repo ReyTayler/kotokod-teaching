@@ -20,6 +20,8 @@ import { fmtDate, todayMSK } from '../../lib/format';
 import type { LessonActionKind } from '../../shared/calendar/LessonPopup';
 import type { Occurrence } from '../../shared/calendar/types';
 import type { Group } from '../../lib/types';
+import { CancelLessonDialog } from './CancelLessonDialog';
+import { lessonLabel } from './planLabels';
 
 /** День недели Monday-first в UI, значения — уже в конвенции проекта (Вс=0..Сб=6),
  * поэтому дополнительная конвертация индекса при отправке не нужна. */
@@ -32,12 +34,6 @@ const DOW_OPTIONS = [
   { value: 6, label: 'Суббота' },
   { value: 0, label: 'Воскресенье' },
 ];
-
-function lessonLabel(r: PlanRow): string {
-  const time = r.scheduled_time ? r.scheduled_time.slice(0, 5) : '';
-  const pos = r.seq != null ? `Урок ${r.seq}` : 'Доп. занятие';
-  return `${pos} — ${fmtDate(r.scheduled_date)}${time ? ` ${time}` : ''}`;
-}
 
 type TeacherScope = 'once' | 'permanent';
 
@@ -293,7 +289,7 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
   const submitCancel = async () => {
     if (!cLessonId) { toast('Выберите занятие', 'error'); return; }
     try {
-      await cancelLesson.mutateAsync(Number(cLessonId));
+      await cancelLesson.mutateAsync({ lessonId: Number(cLessonId) });
       toast('Занятие отменено, курс продлён на неделю', 'ok');
       closeDialog();
     } catch (err) { showError(err); }
@@ -456,13 +452,13 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
             Применить
           </Button>
         }
-      >
-        <div className="schedule-form__hint">
+       help={<>
           Задаёт недельный НАБОР слотов (день + время) для всех будущих занятий,
           начиная с выбранного, и дату, с которой новое расписание действует.
           Можно добавлять и удалять слоты — так меняется и число занятий в
           неделю. Преподавателя меняйте через «Сменить преподавателя».
-        </div>
+        </>}>
+
         <Field label="С какого занятия" required>
           <SelectInput
             value={pFromSeq}
@@ -474,7 +470,7 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
         <Field label="Дата, с которой действует новое расписание" required>
           <DateInput value={pEffectiveFrom} onChange={(e) => setPEffectiveFrom(e.target.value)} />
         </Field>
-        <Field label="Слоты (день + время)" required>
+        <Field label="Слоты (день + время)" required help={!group.is_individual && <>Групповой формат — один слот в неделю</>}>
           <div className="slots-block">
             <div id="permanent-slots-list">
               {pSlots.map((s, i) => (
@@ -586,7 +582,16 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
         </Field>
       </Dialog>
 
-      {/* Отменить занятие */}
+      {/* Отменить занятие: у индива — с причиной («Мотивация»), у групповых — как раньше */}
+      {group.is_individual ? (
+        <CancelLessonDialog
+          open={dialog === 'cancel'}
+          onClose={closeDialog}
+          groupId={groupId}
+          rows={courseRows}
+          initialLessonId={cLessonId ? Number(cLessonId) : null}
+        />
+      ) : (
       <Dialog
         open={dialog === 'cancel'}
         onOpenChange={(o) => !o && closeDialog()}
@@ -596,7 +601,10 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
             Отменить занятие
           </Button>
         }
-      >
+       help={<>
+          Все последующие непроведённые занятия сдвинутся на неделю позже — курс продлевается,
+          отменённое занятие не списывается с абонемента.
+        </>}>
         <Field label="Занятие" required>
           <SelectInput
             value={cLessonId}
@@ -605,11 +613,9 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
             placeholder="Выберите занятие"
           />
         </Field>
-        <div className="schedule-form__hint">
-          Все последующие непроведённые занятия сдвинутся на неделю позже — курс продлевается,
-          отменённое занятие не списывается с абонемента.
-        </div>
+
       </Dialog>
+      )}
 
       {/* Задать расписание (bootstrap для группы без слотов) */}
       <Dialog
@@ -625,22 +631,20 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
             Задать и сгенерировать план
           </Button>
         }
-      >
-        <div className="schedule-form__hint">
+       help={<>
           Недельный набор слотов (день + время) и дата начала занятий. После
           сохранения план курса генерируется автоматически.
-        </div>
-        <Field label="Дата начала занятий" required>
+        </>}>
+
+        <Field label="Дата начала занятий" required help={!!group.group_start_date && <>Дата начала уже закреплена за группой</>}>
           <DateInput
             value={ssDate}
             onChange={(e) => setSsDate(e.target.value)}
             disabled={!!group.group_start_date}
           />
-          {!!group.group_start_date && (
-            <span className="field-hint">Дата начала уже закреплена за группой</span>
-          )}
+
         </Field>
-        <Field label="Слоты (день + время)" required>
+        <Field label="Слоты (день + время)" required help={!group.is_individual && <>Групповой формат — один слот в неделю</>}>
           <div className="slots-block">
             <div id="set-schedule-slots-list">
               {ssSlots.map((s, i) => (
@@ -667,9 +671,7 @@ const GroupPlanActions = forwardRef<GroupPlanActionsHandle, Props>(function Grou
             {canAddSsSlot && (
               <button type="button" className="slot-add" onClick={addSsSlot}>+ Добавить слот</button>
             )}
-            {!group.is_individual && (
-              <span className="field-hint">Групповой формат — один слот в неделю</span>
-            )}
+
           </div>
         </Field>
       </Dialog>

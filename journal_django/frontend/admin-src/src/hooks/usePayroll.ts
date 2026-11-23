@@ -54,14 +54,31 @@ export function usePayrollSummary(filter: Filter = {}) {
 
 export function usePayrollMutations() {
   const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['payroll'] });
+    qc.invalidateQueries({ queryKey: ['lessons'] });
+  };
   return {
     update: useMutation({
       mutationFn: ({ id, body }: { id: number; body: Partial<PayrollEntry> }) =>
         api<PayrollEntry>('PATCH', `/api/admin/payroll/${id}`, body),
-      onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ['payroll'] });
-        qc.invalidateQueries({ queryKey: ['lessons'] });
-      },
+      onSuccess: invalidate,
+    }),
+    /** Сбросить ручную правку урока «Мотивации» к расчёту. */
+    reset: useMutation({
+      mutationFn: (id: number) => api<PayrollEntry>('POST', `/api/admin/payroll/${id}/reset`),
+      onSuccess: invalidate,
+    }),
+    /** Ручная правка суммы начисления за отмену (индив). */
+    updateCancellation: useMutation({
+      mutationFn: ({ id, payment }: { id: number; payment: string }) =>
+        api<PayrollEntry>('PATCH', `/api/admin/payroll/cancellations/${id}`, { payment }),
+      onSuccess: invalidate,
+    }),
+    /** Сбросить ручную правку отмены к расчёту. */
+    resetCancellation: useMutation({
+      mutationFn: (id: number) => api<PayrollEntry>('POST', `/api/admin/payroll/cancellations/${id}/reset`),
+      onSuccess: invalidate,
     }),
   };
 }

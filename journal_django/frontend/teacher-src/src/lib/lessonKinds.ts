@@ -10,6 +10,7 @@ export const LESSON_KIND_LABEL: Partial<Record<PayrollLessonKind, string>> = {
   reschedule: 'Перенос',
   extra: 'Доп. занятие',
   burned: 'Сгоревшее занятие',
+  cancellation: 'Отмена',
 };
 
 /** Подпись статуса ученика в истории «Мои уроки». */

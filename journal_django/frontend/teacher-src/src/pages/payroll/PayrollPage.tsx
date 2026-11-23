@@ -9,6 +9,7 @@ import type { PayrollEntry } from '../../lib/types';
 
 const PLURAL_LESSONS = ['урок', 'урока', 'уроков'];
 const PLURAL_PRESENCES = ['присутствие', 'присутствия', 'присутствий'];
+const PLURAL_CANCELLATIONS = ['отмена', 'отмены', 'отмен'];
 
 function plural(count: number, forms: string[]): string {
   const mod100 = count % 100;
@@ -41,13 +42,25 @@ function PayrollRow({ entry }: { entry: PayrollEntry }) {
           )}
         </div>
 
-        <div className="pr-formula">
-          <span className="pr-attendance">
-            пришли {entry.presentCount} из {entry.totalStudents}
-          </span>
-          <span className="pr-sep">·</span>
-          <span className="pr-rule" title={entry.rule.note}>{entry.rule.text}</span>
-        </div>
+        {entry.kind === 'cancellation' ? (
+          <div className="pr-formula">
+            <span className="pr-attendance">
+              занятие отменено{entry.time ? ` · ${entry.time.slice(0, 5)}` : ''}
+            </span>
+          </div>
+        ) : (
+          <div className="pr-formula">
+            <span className="pr-attendance">
+              пришли {entry.presentCount} из {entry.totalStudents}
+            </span>
+            <span className="pr-sep">·</span>
+            <span className="pr-rule" title={entry.rule.note}>{entry.rule.text}</span>
+          </div>
+        )}
+        {/* «Мотивация»: правило словами (ставка, персональная надбавка, причина отмены). */}
+        {entry.rule.code === 'motivation' && entry.rule.note && (
+          <div className="pr-note">{entry.rule.note}</div>
+        )}
 
         {entry.excludedNote && <div className="pr-note">{entry.excludedNote}</div>}
         {hasPenalty && (
@@ -112,6 +125,12 @@ export default function PayrollPage() {
               </div>
               <div className="pr-summary-count">
                 {totals?.lessons ?? 0} {plural(totals?.lessons ?? 0, PLURAL_LESSONS)}
+                {!!totals?.cancellations && (
+                  <>
+                    <span className="pr-sep">·</span>
+                    {totals.cancellations} {plural(totals.cancellations, PLURAL_CANCELLATIONS)}
+                  </>
+                )}
                 <span className="pr-sep">·</span>
                 {totals?.presences ?? 0} {plural(totals?.presences ?? 0, PLURAL_PRESENCES)}
               </div>
@@ -123,7 +142,7 @@ export default function PayrollPage() {
           ) : (
             <div className="pr-list">
               {data?.rows.map((entry) => (
-                <PayrollRow key={entry.lessonId} entry={entry} />
+                <PayrollRow key={entry.lessonId ?? `c${entry.cancellationId}`} entry={entry} />
               ))}
             </div>
           )}

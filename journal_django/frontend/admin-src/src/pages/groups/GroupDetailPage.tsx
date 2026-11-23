@@ -1,3 +1,4 @@
+import { HelpPopover } from '../../components/ui/HelpPopover';
 import { useRef, useState } from 'react';
 import { useParams, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGroup, useGroupMutations } from '../../hooks/useGroups';
@@ -26,6 +27,8 @@ import { canSeeChangelog, canArchiveEntities, canSeeGroupLessonsTab, type Role }
 import { EntityChangelogPanel } from '../../components/changelog/EntityChangelogPanel';
 import type { Group } from '../../lib/types';
 import GroupFormModal from './GroupFormModal';
+import { GroupCancellationsTab } from './GroupCancellationsTab';
+import { CANCELLATION_LABELS } from '../../lib/labels';
 import GroupMembersBlock from './GroupMembersBlock';
 import GroupScheduleBlock from './GroupScheduleBlock';
 import GroupPlanActions, { type GroupPlanActionsHandle } from './GroupPlanActions';
@@ -42,7 +45,7 @@ import GroupKpiRow from './GroupKpiRow';
  */
 const GROUP_PLAN_VIEWS: CalendarViewMode[] = ['month'];
 
-const GROUP_TABS = ['overview', 'students', 'lessons', 'progress', 'schedule', 'history'] as const;
+const GROUP_TABS = ['overview', 'students', 'lessons', 'progress', 'schedule', 'cancellations', 'history'] as const;
 type GroupTab = (typeof GROUP_TABS)[number];
 const DEFAULT_TAB: GroupTab = 'overview';
 
@@ -85,6 +88,10 @@ export default function GroupDetailPage() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (tab === DEFAULT_TAB) next.delete('tab'); else next.set('tab', tab);
+      // page/page_size принадлежат вкладке со списком: страница 3 одной вкладки
+      // в другой дала бы 404 «Invalid page».
+      next.delete('page');
+      next.delete('page_size');
       return next;
     }, { replace: true });
   };
@@ -228,9 +235,9 @@ export default function GroupDetailPage() {
       label: 'Уроки',
       content: (
         <div className="detail__section">
-          <div className="lesson-grid-hint">
+          <div className="section-help-heading"><h3>Уроки группы</h3><HelpPopover>
             Серые — не проведены, цветные — проведены. Клик по любому квадрату — открыть/создать.
-          </div>
+          </HelpPopover></div>
           <LessonGrid
             group={group}
             selectedSlot={selected?.slot ?? null}
@@ -253,9 +260,9 @@ export default function GroupDetailPage() {
       label: 'Прогресс',
       content: (
         <div className="detail__section">
-          <div className="lesson-grid-hint">
+          <div className="section-help-heading"><h3>Посещаемость учеников</h3><HelpPopover>
             Посещаемость каждого ученика по урокам группы. Наведите на плитку — номер урока и дата.
-          </div>
+          </HelpPopover></div>
           <GroupProgressBlock groupId={group.id} />
         </div>
       ),
@@ -284,6 +291,15 @@ export default function GroupDetailPage() {
       ),
     },
   ];
+
+  // Отмены с причиной бывают только у индивидуальных групп («Мотивация»).
+  if (group.is_individual) {
+    tabs.push({
+      value: 'cancellations',
+      label: CANCELLATION_LABELS.tab,
+      content: <GroupCancellationsTab groupId={group.id} />,
+    });
+  }
 
   if (canSeeChangelog(me?.role as Role)) {
     tabs.push({

@@ -7,7 +7,7 @@ import { useToast } from '@shared/components/ui/Toast';
 import { useSubmitLesson } from '../../hooks/useSubmitLesson';
 import { useGroupDirections } from '../../hooks/useGroupDirections';
 import { isoDate, todayMsk } from '../../lib/dates';
-import { calcPayment, fmtNum, getCourseLimit, isHalfLesson, lessonNumber, rub } from '../../lib/teacher-calc';
+import { fmtNum, getCourseLimit, isHalfLesson, lessonNumber, rub } from '../../lib/teacher-calc';
 import type { GroupData, SubmitPayload, SubmitResult } from '../../lib/types';
 
 /** Похожа ли строка на http(s)-ссылку — только мягкая подсказка, не блокирует сохранение. */
@@ -149,7 +149,6 @@ export function LessonForm({
   const total = groupData.students.length - lockedStudents.length - skipStudents.length;
   const presentCount = groupData.students.reduce((n, s) => n + (presentOf(s.name) ? 1 : 0), 0);
   const absentCount = total - presentCount;
-  const payment = calcPayment(total, presentCount, isHalf);
   const eligibleStudents = groupData.students.filter((s) => !isBlocked(s));
   const allPresent = eligibleStudents.length > 0 && eligibleStudents.every((s) => present[s.name]);
 
@@ -237,7 +236,7 @@ export function LessonForm({
 
   return (
     <Modal
-      title={group}
+      title={`${group} · Урок №${fmtNum(next)}${isHalf ? ' (45 минут)' : ''}`}
       subtitle={isSubstitution ? 'Запись урока · замена' : 'Запись урока'}
       onClose={onClose}
       busy={submitLesson.isPending}
@@ -370,10 +369,6 @@ export function LessonForm({
       <div className="lf-preview">
         <div className="lf-preview-row">
           <span>Пришли {presentCount} / Не пришли {absentCount}</span>
-          <span className="lf-preview-money">Выплата {rub(payment)}</span>
-        </div>
-        <div className="lf-preview-num">
-          №{fmtNum(next)}{isHalf ? ' (45 минут)' : ''}
         </div>
       </div>
 

@@ -35,6 +35,25 @@ export function useGroupsAll(includeInactive = false) {
   });
 }
 
+/**
+ * Индивидуальные группы одного преподавателя (вместе с архивными) — серверные
+ * фильтры filter[teacher_id] и filter[is_individual]. Для персональной ставки
+ * «Мотивации»: она бывает только у индива. Без преподавателя запрос не идёт.
+ */
+export function useTeacherIndividualGroups(teacherId: number | null) {
+  return useQuery({
+    queryKey: [...KEY, 'individual-by-teacher', teacherId],
+    queryFn: () => {
+      const qs = new URLSearchParams({ sort_by: 'name', sort_dir: 'asc', include_inactive: '1' });
+      qs.set('filter[teacher_id]', String(teacherId));
+      qs.set('filter[is_individual]', 'true');
+      return fetchAllPages<Group>('/api/admin/groups', qs);
+    },
+    enabled: teacherId != null,
+    staleTime: 60_000,
+  });
+}
+
 // ──────────────────────────────────────────────────────
 // Для GroupsListPage (server-side pagination).
 // ──────────────────────────────────────────────────────

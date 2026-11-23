@@ -231,34 +231,61 @@ export interface ExtraLessonCreateResult {
 }
 
 // ===== Payroll =====
+export type PayrollKind = 'lesson' | 'cancellation';
+
+/**
+ * Строка общего списка «Зарплата»: урок или начисление за отмену (индив,
+ * «Мотивация»). Деньги — строки (Decimal).
+ */
 export interface PayrollEntry {
+  kind: PayrollKind;
+  /** Уникален только вместе с kind: у уроков и отмен разные таблицы. */
   id: ID;
-  lesson_id: ID;
+  lesson_id: ID | null;
   teacher_id: ID;
-  total_students: number;
-  present_count: number;
+  total_students: number | null;
+  present_count: number | null;
   payment: string | number;  // numeric(10,2)
   penalty: string | number;
-  // joined-only:
   lesson_date?: string;
+  scheduled_time?: string | null;
+  group_id?: ID;
   group_name?: string;
-  lesson_number?: number;
+  lesson_number?: number | string | null;
   teacher_name?: string;
+  /** Ручная правка суммы урока/отмены «Мотивации»: пересчёт её не трогает. */
+  is_manual?: boolean;
+  calc_payment?: string;
+  calc_penalty?: string | null;
+  /** Пояснение «Мотивации»; пусто — урок посчитан прежним движком. */
+  rule_note?: string;
 }
 
 export interface PayrollSummaryRow {
   teacher_id: ID;
   teacher_name: string;
-  lessons_count: number;
+  /** Счётчики приходят строками (bigint → text). */
+  lessons_count: number | string;
+  cancellations_count?: string;
+  sum_lessons_payment?: string;
+  sum_cancellations_payment?: string;
+  /** Уроки + отмены. */
   sum_payment: string | number;
   sum_penalty: string | number;
 }
 
-// ===== Archive (sidebar shape) =====
-export interface ArchivePayload {
-  teachers: Teacher[];
-  groups: Group[];
-  directions: Direction[];
+// ===== Archive =====
+export type ArchiveEntityType = 'teacher' | 'group' | 'direction';
+export type ArchiveFilter = 'all' | ArchiveEntityType;
+export interface ArchiveRow {
+  id: number;
+  name: string;
+  entity_type: ArchiveEntityType;
+  description: string;
+}
+export interface ArchivePayload extends Paginated<ArchiveRow> {
+  counts: Record<ArchiveEntityType, number>;
+  archive_counts: Record<ArchiveEntityType, number>;
 }
 
 // ===== Common =====
@@ -608,16 +635,6 @@ export interface AttendanceDashboardSummary {
   period_lessons: string;
 }
 
-/** GET /api/admin/work-schedule/free-windows: свободные окна преподавателей (недельный шаблон минус постоянные уроки). */
-export interface FreeWindowsTeacher {
-  id: ID;
-  name: string;
-  has_schedule: boolean;
-  /** Ключи 0..6 (Вс=0), интервалы [HH:MM, HH:MM], конец может быть 24:00. null — график не задан. */
-  days: Record<string, [string, string][]> | null;
-}
-export interface FreeWindowsResponse { teachers: FreeWindowsTeacher[] }
-
 /** Строка ученика: разбивка занятий внутри выбранного периода, всё в уроках. */
 export interface AttendanceDashboardRow {
   student_id: number;
@@ -629,3 +646,183 @@ export interface AttendanceDashboardRow {
   /** Итого списано = обычные + доп.уроки + сгоревшие. Бесплатные не входят. */
   billed: string;
 }
+
+// ===== Мотивация (индив): ставки школы и персональные ставки =====
+// Деньги и проценты приходят строками ('600.00') — точный Decimal, арифметики над ними нет.
+
+export type CancelMode = 'percent' | 'fixed';
+export type PenaltyMode = 'per_lesson' | 'per_student';
+export type PersonalRateKind = 'fixed' | 'plus_fixed' | 'plus_percent';
+
+export interface RateVersionDirection {
+  direction_id: ID;
+  direction_name: string;
+  /** null — для направления не задано, действует ставка по умолчанию. */
+  individual_rate: string | null;
+}
+
+export interface RateVersion {
+  id: ID;
+  effective_from: string;
+  is_current: boolean;
+  individual_rate: string;
+  makeup_rate: string;
+  burned_rate: string;
+  cancel_mode: CancelMode;
+  cancel_value: string;
+  penalty_enabled: boolean;
+  penalty_mode: PenaltyMode;
+  penalty_amount: string;
+  created_by: ID | null;
+  created_by_name: string | null;
+  created_at: string;
+  directions: RateVersionDirection[];
+  /** Править и удалять можно только версии с сегодняшнего дня или позже. */
+  editable: boolean;
+}
+
+export interface RateVersionsResponse {
+  results: RateVersion[];
+  /** Индив-уроки, которые считает прежний движок (раньше первой версии). */
+  engine_lessons: { lessons: number; latest: string | null };
+  directions: { id: ID; name: string; color: string | null }[];
+}
+
+export interface RateVersionPayload {
+  effective_from: string;
+  individual_rate: string;
+  makeup_rate: string;
+  burned_rate: string;
+  cancel_mode: CancelMode;
+  cancel_value: string;
+  penalty_enabled: boolean;
+  penalty_mode: PenaltyMode;
+  penalty_amount: string;
+  directions: { direction_id: ID; individual_rate: string | null }[];
+}
+
+/** Ответ мутаций: сколько начислений пересчитал сервер. */
+export interface RecalculatedInfo { recalculated: number }
+
+export interface PersonalRate {
+  id: ID;
+  teacher_id: ID;
+  teacher_name: string;
+  group_id: ID;
+  group_name: string;
+  direction_id: ID | null;
+  direction_name: string | null;
+  direction_color: string | null;
+  /** Номера уроков — строки ('10.0'); null/null — ставка на все уроки группы. */
+  lesson_from: string | null;
+  lesson_to: string | null;
+  kind: PersonalRateKind;
+  value: string;
+  note: string;
+  created_by_name: string | null;
+  created_at: string;
+  /** Группу сейчас ведёт другой преподаватель (ставка осталась от прежнего). */
+  group_teacher_id: ID | null;
+  group_of_other_teacher: boolean;
+  /** Выключенная ставка не действует с сегодняшнего дня. */
+  is_active: boolean;
+  term_id: ID;
+  /** Начало текущего (у выключенной — последнего) периода; null — с начала. */
+  valid_from: string | null;
+  /** Конец периода (не включительно); null — бессрочно. */
+  valid_until: string | null;
+  /** История периодов, от старых к новым. */
+  terms: PersonalRateTerm[];
+}
+
+export interface PersonalRateTerm {
+  id: ID;
+  valid_from: string | null;
+  valid_until: string | null;
+  lesson_from: string | null;
+  lesson_to: string | null;
+  kind: PersonalRateKind;
+  value: string;
+}
+
+/** Правка ставки: преподаватель и группа не меняются, шлются только параметры и примечание. */
+export type PersonalRateUpdatePayload =
+  Partial<Pick<PersonalRatePayload, 'lesson_from' | 'lesson_to' | 'kind' | 'value' | 'note'>>;
+
+export interface PersonalRatePayload {
+  teacher_id: ID;
+  group_id: ID;
+  lesson_from?: string | null;
+  lesson_to?: string | null;
+  kind: PersonalRateKind;
+  value: string;
+  note?: string;
+}
+
+// ===== Причины отмены уроков (индив) =====
+
+export type CancellationSide = 'teacher' | 'client';
+
+export interface CancellationReason {
+  id: ID;
+  side: CancellationSide;
+  name: string;
+  position: number;
+  /** Только для superadmin: решение о деньгах преподавателя конфиденциально. */
+  compensation?: boolean;
+}
+
+/** GET /api/admin/cancellation-reasons — активные причины по сторонам. */
+export type CancellationReasonsResponse = Record<CancellationSide, CancellationReason[]>;
+
+export interface CancellationReasonCreatePayload {
+  side: CancellationSide;
+  name: string;
+  compensation?: boolean;
+}
+
+/** Сторона причины неизменяема, поэтому в PATCH её нет. */
+export interface CancellationReasonUpdatePayload {
+  name?: string;
+  compensation?: boolean;
+  position?: number;
+}
+
+/**
+ * Тело POST /plan/<lid>/cancel индивидуальной группы: details необязательны;
+ * notified_on — только для client. У групповых форматов тело пустое.
+ */
+export interface CancelLessonPayload {
+  lesson_date: string;
+  side: CancellationSide;
+  reason_id: ID;
+  details?: string;
+  notified_on?: string | null;
+}
+
+/** Строка вкладки группы «Отмены уроков». */
+export interface LessonCancellationRow {
+  id: ID;
+  lesson_date: string;
+  scheduled_time: string; // 'HH:MM'
+  side: CancellationSide;
+  reason_text: string;
+  details: string;
+  /** Номер занятия на момент отмены. */
+  lesson_seq: number | null;
+  notified_on: string | null;
+  teacher_id: ID | null;
+  teacher_name: string | null;
+  created_at: string;
+  created_by_name: string | null;
+}
+
+/** GET /api/admin/work-schedule/free-windows: свободные окна преподавателей (недельный шаблон минус постоянные уроки). */
+export interface FreeWindowsTeacher {
+  id: ID;
+  name: string;
+  has_schedule: boolean;
+  /** Ключи 0..6 (Вс=0), интервалы [HH:MM, HH:MM], конец может быть 24:00. null — график не задан. */
+  days: Record<string, [string, string][]> | null;
+}
+export interface FreeWindowsResponse { teachers: FreeWindowsTeacher[] }

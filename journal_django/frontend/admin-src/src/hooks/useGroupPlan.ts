@@ -10,6 +10,9 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { groupCancellationsKey } from './useGroupCancellations';
+import { CANCELLATION_REASONS_KEY } from './useCancellationReasons';
+import type { CancelLessonPayload } from '../lib/types';
 import { groupPlanKey } from './useGroupPlanCalendar';
 import { groupPlanHealthKey } from './useGroupPlanHealth';
 import type { PlanRow } from './useGroupPlanCalendar';
@@ -123,12 +126,29 @@ export function useChangeTeacherPermanent(groupId: number) {
   });
 }
 
-/** POST /plan/<lid>/cancel — отмена со сдвигом хвоста на +7 дней (без тела). */
+/**
+ * POST /plan/<lid>/cancel — отмена: занятие переезжает в конец курса. У
+ * индивидуальной группы тело обязательно (сторона и причина — «Мотивация»
+ * решает о компенсации преподавателю), у групповой — без тела. 409 — занятие
+ * изменилось, план перезапрашивается.
+ */
 export function useCancelLesson(groupId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (lessonId: number) =>
-      api<PlanRow[]>('POST', `/api/admin/groups/${groupId}/plan/${lessonId}/cancel`),
-    onSuccess: () => invalidatePlan(qc, groupId),
+    mutationFn: ({ lessonId, body }: { lessonId: number; body?: CancelLessonPayload }) =>
+      api<PlanRow[]>('POST', `/api/admin/groups/${groupId}/plan/${lessonId}/cancel`, body ?? {}),
+    onSuccess: () => {
+      invalidatePlan(qc, groupId);
+      // Новая запись во вкладке «Отмены уроков» и начисление за отмену в зарплате.
+      qc.invalidateQueries({ queryKey: groupCancellationsKey(groupId) });
+      qc.invalidateQueries({ queryKey: ['payroll'] });
+    },
+    // На 409/400 данные формы устарели: занятие сдвинули, причину удалил другой админ
+    // или отмена уже внесена из второй вкладки — обновляем всё, что форма показывает.
+    onError: () => {
+      invalidatePlan(qc, groupId);
+      qc.invalidateQueries({ queryKey: CANCELLATION_REASONS_KEY });
+      qc.invalidateQueries({ queryKey: groupCancellationsKey(groupId) });
+    },
   });
 }

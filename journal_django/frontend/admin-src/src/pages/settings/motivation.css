@@ -1,0 +1,156 @@
+/* Мотивация: ставка + единица оплаты + условия + период. Основа UX — AlfaCRM. */
+.motivation-workspace { max-width: var(--motivation-width); padding-top: var(--space-6); }
+.motivation-intro { margin-bottom: var(--space-6); }
+.motivation-intro p { margin: 0 0 var(--space-2); font-size: var(--fs-2xl); font-weight: 600; color: var(--text); }
+.motivation-intro span, .motivation-meta { font-size: var(--fs-sm); line-height: 1.55; color: var(--text3); }
+.motivation-nav > .tabs__list { gap: var(--space-1); padding: var(--space-1); background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); width: fit-content; max-width: 100%; margin-bottom: var(--space-6); }
+.motivation-nav > .tabs__list .tabs__tab { border: 0; border-radius: var(--r-sm); padding: var(--space-3) var(--space-4); color: var(--text2); white-space: normal; font-size: var(--fs-sm); letter-spacing: 0; }
+.motivation-nav > .tabs__list .tabs__tab.is-active { background: var(--bg2); color: var(--text); box-shadow: var(--shadow-xs); }
+.motivation-nav > .tabs__list .tabs__tab::after { display: none; }
+.motivation-section { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.motivation-section__head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+.motivation-section__head h2 { margin: 0 0 var(--space-2); font-size: var(--fs-4xl); font-weight: 600; color: var(--text); }
+.motivation-section__head p { margin: 0; color: var(--text3); font-size: var(--fs-sm); }
+.motivation-section__head > button { flex-shrink: 0; }
+.motivation-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; min-width: 0; }
+.motivation-panel__head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-5) var(--space-6); }
+.motivation-panel__head h3, .motivation-preview h3 { margin: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+.motivation-status { display: inline-flex; align-items: center; background: var(--bg3); border: 1px solid var(--border); color: var(--text2); border-radius: var(--r-sm); padding: var(--space-1) var(--space-2); font-size: var(--fs-xs); line-height: 1.4; white-space: nowrap; }
+.motivation-status--active { color: var(--text); }
+.motivation-status--active::before { content: ''; display: block; width: calc(var(--space-1) * 1.5); height: calc(var(--space-1) * 1.5); border-radius: 50%; margin-right: var(--space-2); background: var(--accent); }
+.motivation-panel__note { margin: calc(var(--space-1) * -1) var(--space-6) var(--space-4); color: var(--text3); font-size: var(--fs-sm); line-height: 1.5; }
+.motivation-rules { display: flex; flex-direction: column; }
+.motivation-rule { display: flex; align-items: center; justify-content: space-between; gap: var(--space-6); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); }
+.motivation-rule > div { display: flex; flex-direction: column; gap: var(--space-1); }
+.motivation-rule strong { font-size: var(--fs-md); font-weight: 500; color: var(--text); }
+.motivation-rule span { color: var(--text3); font-size: var(--fs-xs); line-height: 1.5; }
+.motivation-rule__amount { text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.motivation-rule__amount strong { font-size: var(--fs-2xl); font-weight: 600; }
+.motivation-panel__foot { border-top: 1px solid var(--border); padding: var(--space-3) var(--space-6); background: var(--bg3); color: var(--text3); font-size: var(--fs-xs); line-height: 1.5; display: flex; align-items: center; gap: var(--space-2); }
+.motivation-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
+.motivation-definition { margin: 0; padding: 0 var(--space-6) var(--space-3); }
+.motivation-definition > div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) 0; }
+.motivation-definition dt { color: var(--text2); font-size: var(--fs-sm); }
+.motivation-definition dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+.motivation-definition dd span { display: block; color: var(--text3); font-size: var(--fs-xs); font-weight: 400; margin-top: var(--space-1); }
+.motivation-penalty-summary { padding: 0 var(--space-6) var(--space-5); }
+.motivation-penalty-summary > strong { font-size: var(--fs-5xl); color: var(--text); font-variant-numeric: tabular-nums; }
+.motivation-penalty-summary > span { display: block; font-size: var(--fs-sm); color: var(--text2); margin-top: var(--space-1); }
+.motivation-penalty-summary p { font-size: var(--fs-xs); line-height: 1.6; color: var(--text3); margin: var(--space-4) 0 0; max-width: var(--motivation-note-width); }
+.motivation-history { border: 1px solid var(--border); border-radius: var(--r); background: var(--bg2); }
+.motivation-history summary { padding: var(--space-4) var(--space-5); cursor: pointer; color: var(--text2); font-size: var(--fs-md); }
+.motivation-history > summary > span:last-child { float: right; color: var(--text3); font-size: var(--fs-xs); }
+.motivation-history__body { padding: 0 var(--space-5) var(--space-4); }
+.motivation-history__body > p { font-size: var(--fs-sm); color: var(--text3); }
+.motivation-history__entry { border-top: 1px solid var(--border); }
+.motivation-history__entry > summary { padding: var(--space-4) 0; }
+.motivation-history__entry > summary .motivation-status { margin-left: var(--space-3); }
+.motivation-history__content { padding-bottom: var(--space-3); }
+.motivation-history__content > p { font-size: var(--fs-sm); color: var(--text2); line-height: 1.6; }
+.motivation-history__content .motivation-rule { padding: var(--space-3) 0; }
+.motivation-history__actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-4); }
+.motivation-text-button { color: var(--text2); border: 0; background: transparent; padding: var(--space-1) 0; text-decoration: underline; text-underline-offset: 3px; font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.motivation-text-button--danger { color: var(--red); }
+.motivation-notice { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-left: 3px solid var(--accent); background: var(--bg2); color: var(--text2); font-size: var(--fs-sm); }
+/* Редактор — условия слева, проверка результата справа. */
+.motivation-editor { max-width: var(--motivation-width); }
+.motivation-editor .modal-body { padding: 0; }
+.motivation-editor .modal-header { padding: var(--space-5) var(--space-6); }
+.motivation-editor__layout { display: grid; grid-template-columns: minmax(0, 1fr) var(--motivation-preview-width); align-items: start; }
+.motivation-editor__fields { border: 0; padding: 0 var(--space-6) var(--space-6); margin: 0; min-width: 0; }
+.motivation-form-section { padding: var(--space-6) 0; border-bottom: 1px solid var(--border); }
+.motivation-form-section h3 { font-size: var(--fs-lg); color: var(--text); font-weight: 600; margin: 0 0 var(--space-5); }
+.motivation-period-field { display: grid; grid-template-columns: minmax(0, var(--motivation-period-width)) minmax(0, 1fr); align-items: center; gap: var(--space-5); }
+.motivation-period-field > p { margin: 0; font-size: var(--fs-xs); line-height: 1.65; color: var(--text3); }
+.motivation-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.motivation-field > label { font-size: var(--fs-sm); font-weight: 500; color: var(--text2); }
+.motivation-field input { width: 100%; }
+.motivation-editor input[type="number"] {
+  min-height: var(--space-10); border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg2); color: var(--text); padding: var(--space-3) var(--space-3);
+  font: inherit; font-size: var(--fs-md); box-sizing: border-box;
+}
+.motivation-editor input[type="number"]:focus { border-color: var(--accent); outline: 2px solid var(--accent-soft); outline-offset: 1px; }
+.motivation-editor input[type="number"][aria-invalid="true"] { border-color: var(--red); }
+.motivation-limit-field { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: var(--fs-sm); color: var(--text2); background: var(--bg3); padding: var(--space-3); border-radius: var(--r-sm); margin-bottom: var(--space-2); }
+.motivation-limit-field input { width: calc(var(--space-10) + var(--space-8)); min-width: 0; padding: var(--space-2); }
+.motivation-rate-field { display: grid; grid-template-columns: minmax(0, 1fr) var(--motivation-amount-width); align-items: center; gap: var(--space-5); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+.motivation-rate-field > div:first-child { display: flex; flex-direction: column; gap: var(--space-1); }
+.motivation-rate-field label { color: var(--text); font-size: var(--fs-sm); font-weight: 500; line-height: 1.5; cursor: pointer; }
+.motivation-rate-field > div:first-child > span { font-size: var(--fs-xs); color: var(--text3); line-height: 1.5; }
+.motivation-money { position: relative; }
+.motivation-editor .motivation-money input { width: 100%; padding-right: var(--space-10); text-align: right; font-variant-numeric: tabular-nums; }
+.motivation-money > span { position: absolute; right: var(--space-3); top: 50%; transform: translateY(-50%); color: var(--text3); pointer-events: none; font-size: var(--fs-sm); }
+.motivation-money input::-webkit-inner-spin-button, .motivation-money input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.motivation-money input { appearance: textfield; -moz-appearance: textfield; }
+.motivation-money.has-error input { border-color: var(--red); }
+.motivation-inline-note { font-size: var(--fs-xs); color: var(--text3); line-height: 1.65; margin: var(--space-3) 0 0; }
+.motivation-penalty-fields { display: grid; grid-template-columns: var(--motivation-penalty-field-width) minmax(0, 1fr); gap: var(--space-4); margin-top: var(--space-4); }
+.motivation-preview { position: sticky; top: 0; background: var(--bg3); border-left: 1px solid var(--border); padding: var(--space-6); min-width: 0; }
+.motivation-preview__head p { font-size: var(--fs-xs); line-height: 1.6; color: var(--text3); margin: var(--space-2) 0 var(--space-4); }
+.motivation-preview__results { min-height: var(--motivation-preview-min-height); }
+.motivation-example { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+.motivation-example > div { display: flex; flex-direction: column; gap: var(--space-1); }
+.motivation-example > div > strong { font-size: var(--fs-xs); font-weight: 500; color: var(--text2); }
+.motivation-example > div > span { font-size: var(--fs-xs); color: var(--text3); }
+.motivation-example > strong { font-size: var(--fs-2xl); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.motivation-preview__note { margin: var(--space-3) 0 var(--space-6); color: var(--text3); font-size: var(--fs-xs); line-height: 1.65; }
+.motivation-changes { border-top: 1px solid var(--border); padding-top: var(--space-5); }
+.motivation-changes > p { font-size: var(--fs-xs); line-height: 1.65; color: var(--text3); margin: var(--space-3) 0 0; }
+.motivation-changes ul { margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.motivation-changes li { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) 0; color: var(--text2); font-size: var(--fs-xs); line-height: 1.5; }
+.motivation-changes li del { color: var(--text3); }
+.motivation-changes li strong { color: var(--text); font-weight: 500; }
+.motivation-help { margin-top: var(--space-5); font-size: var(--fs-xs); color: var(--text3); line-height: 1.7; }
+.motivation-help summary { cursor: pointer; color: var(--text2); }
+.motivation-editor__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); width: 100%; }
+.motivation-editor__footer > span { font-size: var(--fs-xs); color: var(--text3); max-width: var(--motivation-note-width); line-height: 1.5; }
+.motivation-form-error { margin-top: var(--space-5); padding: var(--space-3); background: var(--bg3); border-left: 3px solid var(--red); color: var(--red); font-size: var(--fs-sm); }
+.motivation-editor .field-error { margin: var(--space-2) 0 0; font-size: var(--fs-xs); line-height: 1.5; }
+.motivation-individual-editor .modal-section-label { text-transform: none; letter-spacing: 0; font-size: var(--fs-lg); font-weight: 600; }
+.motivation-individual-editor .settings-block { padding: var(--space-4) 0; border-bottom: 1px solid var(--border); }
+.motivation-nav .table-panel { box-shadow: none; border-radius: var(--r-lg); }
+/* Индивидуальные/персональные ставки сохраняют свои формы в общей оболочке. */
+.motivation-nav .settings-section { gap: var(--space-5); }
+.motivation-nav .settings-section__title { font-size: var(--fs-4xl); }
+.motivation-nav .settings-subtitle { font-size: var(--fs-md); text-transform: none; letter-spacing: 0; color: var(--text2); }
+.motivation-workspace button:focus-visible, .motivation-editor button:focus-visible,
+.motivation-workspace summary:focus-visible, .motivation-editor summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 900px) {
+  .motivation-editor__layout { grid-template-columns: minmax(0, 1fr) var(--motivation-preview-width-narrow); }
+  .motivation-editor__fields { padding-left: var(--space-5); padding-right: var(--space-5); }
+  .motivation-preview { padding: var(--space-5); }
+  .motivation-period-field { grid-template-columns: 1fr; gap: var(--space-3); }
+}
+@media (max-width: 680px) {
+  .motivation-workspace { padding-top: var(--space-4); }
+  .motivation-intro { margin-bottom: var(--space-4); }
+  .motivation-nav > .tabs__list { display: flex; width: 100%; margin-bottom: var(--space-5); }
+  .motivation-nav > .tabs__list .tabs__tab { flex: 1; padding: var(--space-3) var(--space-2); font-size: var(--fs-xs); }
+  .motivation-section__head { align-items: flex-start; flex-direction: column; }
+  .motivation-section__head > button { width: 100%; }
+  .motivation-section__head h2 { font-size: var(--fs-3xl); }
+  .motivation-secondary { grid-template-columns: 1fr; gap: var(--space-4); }
+  .motivation-panel__head, .motivation-rule { padding: var(--space-4); }
+  .motivation-rule { gap: var(--space-3); }
+  .motivation-rule > div:first-child { min-width: 0; }
+  .motivation-rule strong { font-size: var(--fs-sm); }
+  .motivation-rule__amount { max-width: 42%; }
+  .motivation-rule__amount strong { font-size: var(--fs-2xl); }
+  .motivation-panel__note { margin-left: var(--space-4); margin-right: var(--space-4); }
+  .motivation-panel__foot { padding: var(--space-3) var(--space-4); }
+  .motivation-definition, .motivation-penalty-summary { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .motivation-history summary { padding: var(--space-4); }
+  .motivation-history__body { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .motivation-editor__layout { grid-template-columns: 1fr; }
+  .motivation-editor__fields { padding: 0 var(--space-4) var(--space-5); }
+  .motivation-editor .modal-header { padding: var(--space-4); }
+  .motivation-preview { position: static; border-left: 0; border-top: 1px solid var(--border); padding: var(--space-5) var(--space-4); }
+  .motivation-preview__results { min-height: 0; }
+  .motivation-form-section { padding: var(--space-5) 0; }
+  .motivation-rate-field { grid-template-columns: minmax(0, 1fr) var(--motivation-amount-width-narrow); gap: var(--space-3); }
+  .motivation-limit-field { padding: var(--space-3); }
+  .motivation-penalty-fields { grid-template-columns: 1fr; }
+  .motivation-editor__footer > span { display: none; }
+  .motivation-editor__footer { justify-content: flex-end; }
+}

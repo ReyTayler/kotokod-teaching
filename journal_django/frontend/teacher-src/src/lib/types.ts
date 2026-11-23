@@ -244,7 +244,11 @@ export type PayrollRuleCode =
   | 'extra_flat'
   | 'extra_individual'
   | 'none'
-  | 'adjusted';
+  | 'adjusted'
+  // «Мотивация» (индив): пояснение движка ставок — в note, text — сумма.
+  | 'motivation'
+  // Сумма «Мотивации» изменена администратором (расчёт — в note).
+  | 'manual';
 
 export interface PayrollRule {
   code: PayrollRuleCode;
@@ -255,19 +259,26 @@ export interface PayrollRule {
 }
 
 export type PayrollLessonKind =
-  | 'regular' | 'substitution' | 'reschedule' | 'extra' | 'burned';
+  | 'regular' | 'substitution' | 'reschedule' | 'extra' | 'burned'
+  // Начисление за отменённое занятие индива (причина с компенсацией).
+  | 'cancellation';
 
 export interface PayrollEntry {
-  lessonId: number;
+  /** null у строки отмены. */
+  lessonId: number | null;
+  /** id начисления за отмену; null у строки урока. */
+  cancellationId: number | null;
   date: string;             // 'YYYY-MM-DD'
+  /** Время отменённого занятия 'HH:MM:SS'; у урока null. */
+  time: string | null;
   group: string;
   direction: string | null;
   directionColor: string | null;
-  lessonNumber: string;
+  lessonNumber: string | null;
   kind: PayrollLessonKind;
-  durationMinutes: number;
-  totalStudents: number;
-  presentCount: number;
+  durationMinutes: number | null;
+  totalStudents: number | null;
+  presentCount: number | null;
   payment: string;          // начислено
   penalty: string;          // удержано
   net: string;              // к выплате за этот урок
@@ -285,6 +296,8 @@ export interface MyPayrollResponse {
   monthLabel: string;       // 'Июль 2026'
   totals: {
     lessons: number;
+    /** Начисления за отмены индива. */
+    cancellations?: number;
     presences: number;
     payment: string;
     penalty: string;

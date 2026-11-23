@@ -54,3 +54,7 @@
     display: none;
   }
 }
+
+/* «Как посчитано» — пояснение «Мотивации»: длинная строка переносится. */
+.payroll-rule { display: inline-block; min-width: 240px; max-width: 420px; white-space: normal; color: var(--text2); font-size: var(--fs-xs); }
+.payroll-range__kind { width: 180px; max-width: 100%; }
