@@ -4,11 +4,8 @@ import { DocumentView } from '@shared/components/knowledge/DocumentView';
 import { TableOfContents } from '@shared/components/knowledge/TableOfContents';
 import { collectHeadings } from '@shared/components/knowledge/headingAnchors';
 import { DocumentSide } from '@shared/components/knowledge/DocumentSide';
-import { StarIcon } from '@shared/components/knowledge/knowledgeIcons';
-import { IconButton } from '@shared/components/ui/IconButton';
 import {
   useKnowledgeDocument,
-  useKnowledgeMutations,
   useKnowledgeSections,
 } from '@shared/hooks/useKnowledge';
 import { fmtDateTimeShort } from '@shared/lib/format';
@@ -33,7 +30,6 @@ export default function KnowledgeDocumentPage() {
     Number.isInteger(documentId) && documentId > 0 ? documentId : undefined,
   );
   const sections = useKnowledgeSections();
-  const { setFavorite } = useKnowledgeMutations();
 
   const headings = useMemo(() => collectHeadings(data?.content), [data?.content]);
 
@@ -69,13 +65,6 @@ export default function KnowledgeDocumentPage() {
           </div>
           <div className="cal-title">{data.title}</div>
         </div>
-        <IconButton
-          label={data.is_favorite ? 'Убрать из избранного' : 'В избранное'}
-          className={`kb-star${data.is_favorite ? ' is-on' : ''}`}
-          active={data.is_favorite}
-          icon={<StarIcon size={18} filled={data.is_favorite} />}
-          onClick={() => setFavorite.mutate({ id: documentId, value: !data.is_favorite })}
-        />
       </div>
 
       <div className="kb-doc-meta">
